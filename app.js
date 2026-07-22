@@ -1325,7 +1325,7 @@ function liveAudioGain(c){ if(!c||!actx)return; const g=_audioGains[c.id]; if(!g
 function meters(){ if(!analyser||!state.playing){setMeters(0);return;} const a=new Uint8Array(analyser.fftSize); analyser.getByteTimeDomainData(a); let sum=0; for(let i=0;i<a.length;i++){const v=(a[i]-128)/128;sum+=v*v;} setMeters(Math.min(1,Math.sqrt(sum/a.length)*2.6)); }
 function setMeters(v){ const p=(v*100)+'%'; if($('#mL'))$('#mL').style.width=p; if($('#mR'))$('#mR').style.width=p; }
 function addImage(file,path){ const url=URL.createObjectURL(file); const img=new Image(); const folder=_importFolder;
-  img.onload=()=>{const fit=fitImage(img); const m={id:uid(),name:file.name,kind:'image',el:fit.src,originalEl:img,tex:newTex(),w:fit.w,h:fit.h,dur:6,fps:0,thumb:url,color:clipColorFor('image'),proxyReady:false,proxyPct:0,path:path||null,fsize:file.size||0,folder:folder||null};
+  img.onload=()=>{const fit=fitImage(img); const m={id:uid(),name:file.name,kind:'image',el:fit.src,originalEl:img,tex:newTex(),w:fit.w,h:fit.h,dur:5,fps:0,thumb:url,color:clipColorFor('image'),proxyReady:false,proxyPct:0,path:path||null,fsize:file.size||0,folder:folder||null}; // [M5] photos default to 5 s
     upTex(m.tex,fit.src); state.media.push(m); adopt(m); renderMedia(); render(); markDirty(); }; img.src=url; }
 function addVideo(file,path){ const url=URL.createObjectURL(file); const folder=_importFolder; const v=document.createElement('video'); v.src=url;v.muted=true;v.playsInline=true;v.preload='auto';
   v.addEventListener('loadedmetadata',()=>{ const m={id:uid(),name:file.name,kind:'video',el:v,originalEl:v,srcUrl:url,tex:newTex(),w:v.videoWidth,h:v.videoHeight,dur:v.duration,fps:30,thumb:null,color:clipColorFor('video'),proxyReady:false,proxyPct:0,path:path||null,fsize:file.size||0,folder:folder||null};
@@ -1513,10 +1513,12 @@ function moveFolder(src,destParent){ if(src==null||src===destParent)return false
   pushUndo(); _reprefixFolders(src,np); renderMedia(); markDirty(); flashStatus(T('Folder moved','Carpeta movida')); return true; }
 function moveMediaTo(ids,folderPath){ if(!ids||!ids.length)return; pushUndo(); const set=new Set(ids); for(const m of state.media)if(set.has(m.id))m.folder=folderPath||null; renderMedia(); markDirty(); flashStatus(folderPath?T('Moved to ','Movido a ')+folderName(folderPath):T('Moved out of folder','Sacado de la carpeta')); }
 function newFolderIn(parent){ let base=T('Folder ','Carpeta ')+(folderChildren(parent).length+1),nm=base,i=2; while(folderExists(joinFolder(parent,nm)))nm=base+' '+(i++);
-  appPrompt(T('Folder name:','Nombre de la carpeta:'),nm,n=>{ n=sanitizeFolderName(n); if(!n)return; const path=joinFolder(parent,n); if(folderExists(path)){ flashStatus(T('A folder with that name already exists','Ya existe una carpeta con ese nombre')); return; } pushUndo(); state.folders.push(path);
-    let p=parent; while(p!=null){ delete state.collapsedGroups['f_'+p]; p=folderParent(p); } // expand the chain so the new folder is visible
-    state.selFolder=path; // Adobe-like: the new folder becomes the selection (next "New folder" nests inside it)
-    if(state.mediaView!=='grid')showFolders(); renderMedia(); markDirty(); flashStatus(T('Folder created — drag media onto it','Carpeta creada — arrastra medios sobre ella')); }); }
+  // [M1] create the folder instantly and rename it inline over its own label (no pop-up)
+  const path=joinFolder(parent,nm); pushUndo(); state.folders.push(path);
+  let p=parent; while(p!=null){ delete state.collapsedGroups['f_'+p]; p=folderParent(p); } // expand the chain so the new folder is visible
+  state.selFolder=path; // Adobe-like: the new folder becomes the selection (next "New folder" nests inside it)
+  if(state.mediaView!=='grid')showFolders(); renderMedia(); markDirty();
+  setTimeout(()=>{ renameFolderInline(path); },0); } // inline-edit the fresh label once it's in the DOM
 /* drag a folder TILE onto another folder / the back tile / the grid background → re-parent it (R88) */
 const _clearDropFX=()=>{ $$('#mediaList .folderhdr.dragover,#mediaList .folderdrop.dragover,#mediaList .mediagrid.dragover').forEach(x=>x.classList.remove('dragover')); };
 function _dropTargetAt(ev){ const el=document.elementFromPoint(ev.clientX,ev.clientY); if(!el)return null; const fe=el.closest&&el.closest('.folderhdr,.folderdrop'); if(fe)return {el:fe,path:fe.dataset.fname||null}; const g=el.closest&&el.closest('.mediagrid'); if(g)return {el:g,path:g.dataset.fname||null}; return null; }
@@ -1600,16 +1602,16 @@ function renderMedia(){
 function makeMediaItem(m){
     const d=document.createElement('div'); d.className='mitem'+(selectedMediaIds().includes(m.id)?' sel':''); d.dataset.id=m.id; d.draggable=false;
     const loading=!!(m._loading&&m.missing), reallyMissing=(m.missing&&!m._loading); // decoding (esp. audio) ≠ missing
-    if(reallyMissing){ d.style.boxShadow='inset 0 0 0 1px rgba(201,205,211,0.5)'; }
+    if(reallyMissing){ d.style.boxShadow='inset 0 0 0 1px #E06A6A'; } // [M4] media whose original is missing → red
     let px=''; if(m.kind==='video'){ if(m.proxyReady)px=`<div class="pbar"><i style="width:100%;background:var(--ink-2)"></i></div>`; else if(m.proxyPct>0||m._pxGen)px=`<div class="pbar gen"><i style="width:${Math.max(0,m.proxyPct||0)}%"></i><span class="pbtxt">${m.proxyPct>0?(m.proxyPct+'%'):'…'}</span></div>`; }
     const isNdi=(m.kind==='ndi'); const seq=isSeqMedia(m); const isAdj=(m.kind==='adjust'); const dur=isNdi?'NDI':(seq?'SEQ':(isAdj?'ADJ':(m.kind==='image'?'IMG':fmtDur(m.dur))));
     const meta=reallyMissing?T('missing · re-import','ausente · reimportar'):(loading?T('loading…','cargando…'):(isNdi?(T('NDI input','Entrada NDI')+(m._ndiLive?' · '+m.w+'×'+m.h:' · '+T('connecting…','conectando…'))):(seq?(T('sequence','secuencia')+' · '+m.w+'² · '+(m.fps||60)+'p'):(isAdj?T('adjustment · FX below','ajuste · FX debajo'):(m.kind==='audio'?('audio · '+fmtDur(m.dur)):(m.kind+' · '+m.w+'×'+m.h))))));
     const thumbBg=isAdj?'repeating-linear-gradient(45deg,rgba(180,186,193,0.30) 0 9px,rgba(180,186,193,0.10) 9px 18px)':(m.thumb?`url(${m.thumb})`:'none');
     d.innerHTML=`<div class="mthumb${seq?' mseq':''}" style="background-image:${thumbBg}">
         <span class="dur"${seq?' style="background:var(--state-on);color:var(--ink);"':''}>${dur}</span>${px}</div>
-      <div style="flex:1;min-width:0;"><div class="mname">${m.name}</div>
-      <div class="mmeta" style="${reallyMissing?'color:var(--ink-2)':''}">${meta}</div></div>
-      ${m.kind==='video'?`<span class="pdot" data-mid="${m.id}" title="${m.proxyReady?T('Proxy ready','Proxy listo'):T('No proxy yet / generating','Sin proxy aún / generando')}" style="width:8px;height:8px;border-radius:50%;flex-shrink:0;background:${m.proxyReady?'#B4BAC1':'#5E646C'}"></span>`:''}
+      <div style="flex:1;min-width:0;"><div class="mname">${m.name}${m.kind==='video'?` <span class="mprx" style="color:var(--ink-dim);font-weight:400;font-size:10px;">${m.proxyReady?T('proxy','proxy'):T('original','original')}</span>`:''}</div>
+      <div class="mmeta" style="${reallyMissing?'color:#E06A6A':''}">${meta}</div></div>
+      ${m.kind==='video'?`<span class="pdot" data-mid="${m.id}" title="${m.proxyReady?T('Proxy ready','Proxy listo'):T('No proxy yet','Sin proxy aún')}" style="width:8px;height:8px;border-radius:50%;flex-shrink:0;background:${m.proxyReady?'#8A9199':'#5E646C'}"></span>`:''}
       ${isNdi?`<span class="pdot ndilive${m._ndiLive?' on':''}" title="${T('Live NDI','NDI en vivo')}" style="width:8px;height:8px;border-radius:50%;flex-shrink:0;background:${m._ndiLive?'#E8EAED':'#5E646C'}"></span>`:''}
       <span class="mdot" style="background:${m.color}"></span>`;
     d.addEventListener('dblclick',()=>{ if(seq)openSeq(m.id); else addClip(m); });
@@ -1806,7 +1808,7 @@ function renderTimeline(){ reconcileVinst(); // free private decoders of clips t
     if(_isAud&&state.tl.audioCollapsed)continue; // [R110] collapsed: only the bar shows, audio rows hidden
     const row=document.createElement('div'); row.className='lane'+(collapsed?' collapsed':''); row.style.height=LH+'px'; row.style.width=W+'px'; row.dataset.lane=li;
     for(const c of state.clips.filter(c=>c.lane===li)){
-      const m=mediaById(c.mediaId); const cd=document.createElement('div'); cd.className='clip'+(state.selIds.includes(c.id)?' sel':'')+((c.groupId!=null&&c.groupId===state.selGroupId)?' gsel':''); cd.dataset.clip=c.id;
+      const m=mediaById(c.mediaId); const cd=document.createElement('div'); cd.className='clip'+(state.selIds.includes(c.id)?' sel':'')+((c.groupId!=null&&c.groupId===state.selGroupId)?' gsel':'')+((!m||(m.missing&&!m._loading))?' offline':''); cd.dataset.clip=c.id; // [M4] media deleted/missing → red offline clip
       if(c.disabled)cd.classList.add('off'); // [R102·D-T2] Ableton "0": ni se renderiza ni suena. Antes se decía SOLO con opacidad+desaturación — es decir, sólo con color. Ahora lleva además una trama diagonal: "Avoid using color as the only way of communicating status" (HIG de Blender), y Resolve hace lo mismo ("A slash indicates when a track is disabled"). Importa para daltonismo y para poder leerlo de un vistazo entre 30 clips.
       cd.style.left=(c.start*pps)+'px'; cd.style.width=Math.max(14,c.dur*pps)+'px'; cd.style.height=(LH-8)+'px';
       let kf=''; if(c.kf){const ts=new Set();for(const p in c.kf)for(const k of c.kf[p])ts.add(Math.round(k.t*1000)/1000);
@@ -2019,8 +2021,10 @@ function inlineEdit(el,value,commit){ if(!el)return false; try{closeMenu();}catc
   el.addEventListener('keydown',onk,true); el.addEventListener('blur',onb,true); return true; }
 function renameLane(li){ const lane=state.lanes[li]; if(!lane)return; const el=document.querySelector('#laneHeaders .lanehdr[data-lane="'+li+'"] .nm');
   if(!inlineEdit(el,lane.name,v=>{ pushUndo(); lane.name=v; renderTimeline(); })) appPrompt(T('Track name:','Nombre de la pista:'),lane.name,n=>{ if(n!=null){ pushUndo(); lane.name=n; renderTimeline(); } }); }
-/* Ctrl+R — rename whatever is selected: marker > clip > track > active sequence */
+/* Ctrl+R — rename whatever is selected: [M6] Media item / sequence / folder in the panel > marker > clip > track > active sequence (renames WHERE the selection is) */
 function renameSelection(){
+  { const mids=selectedMediaIds(); if(mids.length){ const mm=mediaById(mids[mids.length-1]); if(mm){ if(isSeqMedia(mm))renameSequence(mm.id); else renameMediaInline(mm,mediaNameEl(mm.id)); return; } } } // a media clip / sequence selected in Media → rename it there
+  if(state.selFolder){ renameFolderInline(state.selFolder); return; } // a folder selected in the Media tree
   if(state.selMarkerId!=null){ const mk=state.markers.find(m=>m.id===state.selMarkerId); if(mk)renameLocatorInline(mk); return; }
   const c=selClip(); if(c){ const el=document.querySelector('.clip[data-clip="'+c.id+'"] .tt'); if(!inlineEdit(el,c.name,v=>{ pushUndo(); c.name=v; renderTimeline(); renderInspector(); })) appPrompt(T('Clip name:','Nombre del clip:'),c.name,n=>{ if(n!=null){ pushUndo(); c.name=n; renderTimeline(); renderInspector(); } }); return; }
   if(state.selLane!=null){ renameLane(state.selLane); return; }
@@ -2463,7 +2467,11 @@ function startMediaDrag(e,m){ const ghost=e.currentTarget.cloneNode(true); ghost
     else { if(tlg){tlg.remove();tlg=null;} ghost.style.opacity='.85'; showSnap(null); // highlight the folder / back tile / grid background under the cursor (R88 drop target)
       _clearDropFX(); const t=_dropTargetAt(ev); if(t)t.el.classList.add('dragover'); } };
   const up=ev=>{ window.removeEventListener('pointermove',mv);window.removeEventListener('pointerup',up); ghost.remove(); if(tlg)tlg.remove(); showSnap(null); _clearDropFX();
-    const L=landing(ev); if(L){ addClip(m,L.li,L.start); return; }
+    const L=landing(ev); if(L){ // [M5] drop the whole selection: Ctrl = stack onto lanes below, default = side by side on the same lane
+      const ids=selectedMediaIds(); const sel=(ids.length>1&&ids.includes(m.id))?ids.map(mediaById).filter(x=>x&&(((x.kind==='audio')?'audio':'video')===wantKind)):null;
+      if(sel&&sel.length>1){ if(ev.ctrlKey||ev.metaKey){ let li=L.li; for(const mm of sel){ while(li<state.lanes.length&&state.lanes[li]&&state.lanes[li].kind!==wantKind)li++; const target=(li<state.lanes.length)?li:null; addClip(mm,target,L.start); li=(target==null?state.lanes.length:li+1); } }
+        else { let start=L.start; for(const mm of sel){ addClip(mm,L.li,start); start+=(mm.dur||6); } } }
+      else addClip(m,L.li,L.start); return; }
     { const t=_dropTargetAt(ev); if(t){ const ids=selectedMediaIds().includes(m.id)?selectedMediaIds():[m.id]; const dest=t.path||null; if(ids.some(id=>{const mm=mediaById(id);return mm&&(mm.folder||null)!==dest;}))moveMediaTo(ids,dest); return; } } // R88: dropped on a folder / back / grid bg → file the (multi-)selection there
     if(m.kind==='audio'){ const el2=document.elementFromPoint(ev.clientX,ev.clientY); if(el2&&el2.closest('#tlscroll')){ const tr=tracks.getBoundingClientRect(); let start=Math.max(0,(ev.clientX-tr.left)/state.tl.pxPerSec); const sn=applySnap(start,null); start=Math.max(0,sn.val); addClip(m,null,start); } } }; // audio dropped without an audio track → auto-create one and drop there
   window.addEventListener('pointermove',mv);window.addEventListener('pointerup',up); }
@@ -2660,7 +2668,8 @@ function _renderInspectorMain(){
     crow.querySelector('#icMore').onclick=()=>openCompose(g.kind,null,m);
     draw();
   }
-  // Mask dropdown
+  // Mask dropdown — [N3] compose nests don't get the mask option (shape/PNG/pen)
+  if(!(m&&m.comp)){
   const mrow=document.createElement('div'); mrow.className='prow';
   mrow.innerHTML=`<span class="kf" style="cursor:default;"></span><span class="lab">${T('Mask','Máscara')}</span>
     <select class="selsel" id="maskSel" style="flex:1;height:18px;">
@@ -2683,6 +2692,7 @@ function _renderInspectorMain(){
     if(!cc.maskTex)cc.maskTex=newTex(); upTex(cc.maskTex,mc); cc.props.mask='custom'; cc.maskName=f.name; mrow.querySelector('#maskSel').value='custom'; URL.revokeObjectURL(url); render(); flashStatus(T('Mask PNG applied','Máscara PNG aplicada')); }; im.src=url; }; inp.click(); };
   // [I3] pen (point) mask editor — separate from the shape/PNG mask above
   buildPenMaskUI($('#fxRows'),c);
+  } // [N3] end mask section (skipped for compose nests)
   // Blend mode
   const brow=document.createElement('div'); brow.className='prow';
   brow.innerHTML=`<span class="kf" style="cursor:default;"></span><span class="lab">${T('Blend','Fusión')}</span>
@@ -3458,12 +3468,13 @@ function bindAutoCurve(cv){
   const fmtTip=v=>{ const m=M(),u=m&&m.unit?(' '+m.unit):''; return (Math.round(v*10)/10)+u; };
   // [R92-T4] lane-mode canvases (cv._li) cover MANY clips: inv() resolves the clip under the pointer; clip-overlay canvases keep their fixed clip.
   function inv(e){ const m=M(); if(!m)return null; const r=cv.getBoundingClientRect(); const lpx=e.clientX-r.left, lpy=e.clientY-r.top; const absT=(lpx+(m.ox||0))/m.pps;
-    let c=m.c; if(m.li!=null){ c=null; for(const x of state.clips)if(x.lane===m.li&&absT>=x.start-0.003&&absT<=x.start+x.dur+0.003)if(!c||x.start>c.start)c=x; }
-    else if(absT<m.c.start-0.003||absT>m.c.start+m.c.dur+0.003)return null;
+    const tolT=10/(m.pps||120); // [L6] ~10px edge tolerance so keyframes sitting on a clip boundary are grabbable from just outside
+    let c=m.c; if(m.li!=null){ c=null; for(const x of state.clips)if(x.lane===m.li&&absT>=x.start-tolT&&absT<=x.start+x.dur+tolT)if(!c||x.start>c.start)c=x; }
+    else if(absT<m.c.start-tolT||absT>m.c.start+m.c.dur+tolT)return null;
     if(c&&!laneKey(c,m.p))c=null; // [R93] fx-type lane over a clip WITHOUT that effect → behaves like empty background
     const t=c?Math.max(0,Math.min(c.dur,absT-c.start)):null; const v=Math.max(m.mn,Math.min(m.mx,m.mn+(1-(lpy-m.padT)/m.gh)*(m.mx-m.mn))); return {t,v,m,lpx,lpy,c,absT}; }
   function kxy(k,c){ const m=M(); return {x:(c.start+k.t)*m.pps-(m.ox||0), y:m.padT+(1-(k.v-m.mn)/((m.mx-m.mn)||1))*m.gh}; }
-  function nearKf2(r){ const c=r&&r.c; const kp=RK(c); if(!kp||!(c.kf&&c.kf[kp]))return null; let best=null,bd=18; for(const k of c.kf[kp]){ const q=kxy(k,c); const d=Math.hypot(q.x-r.lpx,q.y-r.lpy); if(d<bd){bd=d;best=k;} } return best?{k:best,d:bd}:null; } // wide grab-zone — easy to catch points
+  function nearKf2(r){ const c=r&&r.c; const kp=RK(c); if(!kp||!(c.kf&&c.kf[kp]))return null; let best=null,bd=24; for(const k of c.kf[kp]){ const q=kxy(k,c); const d=Math.hypot(q.x-r.lpx,q.y-r.lpy); if(d<bd){bd=d;best=k;} } return best?{k:best,d:bd}:null; } // [L6] wide grab-zone (24px) — easy to catch points, even edge ones
   function nearKf(r){ const n=nearKf2(r); return n?n.k:null; }
   function nearHandle(e){ if(!cv._handles)return null; const r=cv.getBoundingClientRect(); const mx=e.clientX-r.left,my=e.clientY-r.top; let best=null,bd=10; for(const h of cv._handles){ const d=Math.hypot(h.x-mx,h.y-my); if(d<bd){bd=d;best=h;} } return best?{h:best,d:bd}:null; }
   function lineDy(r){ const m=M(); const kp=RK(r.c); if(!kp)return 1e9; const lv=evalP(r.c,kp,r.c.start+r.t); const ly=m.padT+(1-(lv-m.mn)/((m.mx-m.mn)||1))*m.gh; return r.lpy-ly; }
@@ -3577,7 +3588,7 @@ function bindAutoCurve(cv){
     if(state.tl.tool&&state.tl.tool!=='select'){ if(cv._ghost||cv._hoverKf||cv._tip){cv._ghost=null;cv._hoverKf=null;cv._tip=null;redraw();} cv.style.cursor='inherit'; cv.title=''; return; } // [R94-UT2·U-06] no point-tooltip outside the select tool
     const r=inv(e);
     if(!r||!r.c){ if(cv._ghost||cv._hoverKf||cv._tip){cv._ghost=null;cv._hoverKf=null;cv._tip=null;redraw();} cv.style.cursor=(r&&state.tl.draw)?'crosshair':'default'; cv.title=''; if(state.hoverAuto&&state.hoverAuto.cv===cv&&!r)state.hoverAuto=null; return; }
-    state.hoverAuto={cid:r.c.id,p:RK(r.c),cv}; // Ctrl+A / Ctrl+V target the hovered lane (concrete per-clip key)
+    state.hoverAuto={cid:r.c.id,p:RK(r.c),cv,t:r.absT}; // Ctrl+A / Ctrl+V target the hovered lane (concrete per-clip key); [L5] t = the absolute time under the cursor so paste lands at the click/hover, not the playhead
     if(state.tl.draw){ cv.style.cursor='crosshair'; cv.title=''; if(cv._hoverKf||cv._ghost||cv._tip){cv._hoverKf=null;cv._ghost=null;cv._tip=null;redraw();} return; } // [R94-UT2·U-06]
     const k=nearKf(r); const onLine=Math.abs(lineDy(r))<=6;
     if(!k&&!onLine&&!cv._ghost&&!cv._hoverKf&&!cv._tip&&!cv._hoverSeg){ cv.style.cursor='crosshair'; return; } // nothing hover-visual changed — skip the redraw
@@ -5259,6 +5270,7 @@ $('#ringBtn').onclick=()=>openCompose('ring'); // openCompose itself rejects wit
 if($('#adjLayerBtn'))$('#adjLayerBtn').onclick=()=>{ if($('#adjLayerBtn').classList.contains('dis')){ flashStatus(T('Import images or videos first.','Primero importa imágenes o vídeos.'),'err'); return; } createAdjustMedia(); }; // sidebar (Media panel): create a draggable Adjustment media item (R87) — the reactive panel's "Add Adjustment Layer" still drops one straight onto the timeline · [R94-UT3·U-12] .dis keeps pointer-events for the tooltip, so guard the click
 function showFolders(){ state.mediaGroupBy='folder'; $('#groupSeg').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x.dataset.g==='folder')); }
 $('#newFolderBtn').onclick=()=>newFolderIn(state.mediaView==='grid'?state.mediaFolder:(state.selFolder||state.mediaFolder||null)); // R89c: create INSIDE where you are — browsed folder (grid/list navigation) or selected folder (tree), like Adobe
+{ const ml=$('#mediaList'); if(ml)ml.addEventListener('pointerdown',e=>{ if(e.button!==0)return; if(e.target.closest('.mitem,.mtile,.folderhdr,.foldertile,.backtile,.grphead2,.drop,input,[contenteditable="true"]'))return; if(selectedMediaIds().length||state.selFolder)clearMediaSel(); }); } // [M2] click empty Media space → deselect
 function renameFolder(f){ appPrompt(T('Folder name:','Nombre de la carpeta:'),folderName(f),n=>{ n=sanitizeFolderName(n); if(!n||n===folderName(f))return; const np=joinFolder(folderParent(f),n); if(folderExists(np)){ flashStatus(T('A folder with that name already exists','Ya existe una carpeta con ese nombre')); return; } pushUndo(); _reprefixFolders(f,np); renderMedia(); markDirty(); }); }
 function deleteFolder(f){ const desc=folderDescendants(f); const n=state.media.filter(m=>desc.includes(m.folder)).length; const go=()=>{ pushUndo(); state.folders=state.folders.filter(x=>!desc.includes(x)); for(const m of state.media)if(desc.includes(m.folder))m.folder=null; if(desc.includes(state.mediaFolder))state.mediaFolder=folderParent(f); if(desc.includes(state.selFolder))state.selFolder=folderParent(f); if(state.folderColors)for(const d of desc)delete state.folderColors[d]; for(const k of Object.keys(state.collapsedGroups))if(k==='f_'+f||k.indexOf('f_'+f+FSEP)===0)delete state.collapsedGroups[k]; renderMedia(); markDirty(); flashStatus(T('Folder deleted (media kept)','Carpeta eliminada (medios conservados)')); }; if(n>0)appConfirm(T('Delete this folder (and its subfolders)? Its '+n+' media stay in the panel.','¿Eliminar esta carpeta (y sus subcarpetas)? Sus '+n+' medios permanecen en el panel.'),go); else go(); }
 $('#newFolderBtn').oncontextmenu=e=>{ e.preventDefault(); if(!state.folders.length){ flashStatus(T('No folders yet','Aún no hay carpetas')); return; } openMenu(e.clientX,e.clientY,state.folders.map(f=>({label:f,ico:'folder',fn:()=>{ if(state.mediaView==='grid')state.mediaFolder=f; else showFolders(); renderMedia(); }}))); };
@@ -5431,7 +5443,7 @@ window.addEventListener('keydown',e=>{ const tag=(e.target.tagName||'').toLowerC
   if(mod&&e.key.toLowerCase()==='o'){e.preventDefault();openProject();return;}
   if(mod&&e.key.toLowerCase()==='z'){e.preventDefault();e.shiftKey?redo():undo();return;}
   if(mod&&e.key.toLowerCase()==='c'&&state.autoSel&&state.autoSel.set&&state.autoSel.set.size){e.preventDefault();copyAutoSel();return;} // selected breakpoints → copy the curve slice, not the clip
-  if(mod&&e.key.toLowerCase()==='v'&&state.hoverAuto&&state.kfClipboard&&state.kfClipboard.ks&&state.kfClipboard.ks.length){e.preventDefault();pasteAutoAt(state.hoverAuto,state.playhead);return;} // pointer over an automation lane → paste the curve at the playhead
+  if(mod&&e.key.toLowerCase()==='v'&&state.hoverAuto&&state.kfClipboard&&state.kfClipboard.ks&&state.kfClipboard.ks.length){e.preventDefault();pasteAutoAt(state.hoverAuto, state.hoverAuto.t!=null?state.hoverAuto.t:state.playhead);return;} // [L5] pointer over an automation lane → paste the curve at the CURSOR position (not the playhead)
   if(mod&&e.key.toLowerCase()==='a'&&state.hoverAuto){e.preventDefault();selectAllAuto(state.hoverAuto);return;} // Ctrl+A over a lane = select all its breakpoints
   if(mod&&e.key.toLowerCase()==='c'){e.preventDefault();copyClip();return;}
   if(mod&&e.key.toLowerCase()==='v'){e.preventDefault();pasteClip();return;}

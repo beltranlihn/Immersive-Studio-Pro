@@ -146,7 +146,7 @@
   .mtile.folderhdr.dragover,.mtile.backtile.dragover{border-color:var(--ink-2);box-shadow:0 0 0 2px rgba(201,205,211,0.35);}
   .mtile{position:relative;border-radius:3px;overflow:hidden;cursor:grab;background:var(--bg-2);border:.5px solid rgba(255,255,255,0.08);display:flex;flex-direction:column;transition:border-color .12s;}
   .mtile:hover{border-color:rgba(201,205,211,0.45);}
-  .mtile.missing{box-shadow:inset 0 0 0 1px rgba(201,205,211,0.5);}
+  .mtile.missing{box-shadow:inset 0 0 0 1px #E06A6A;} /* [M4] missing original → red */
   .mtile .tthumb{aspect-ratio:1;background-size:cover;background-position:center;background-color:var(--bg-1);position:relative;}
   .mtile .tthumb.mseq{outline:1.5px solid var(--state-on);outline-offset:-1.5px;}
   .mtile .tdur{position:absolute;right:2px;bottom:2px;font:9px Geist;background:rgba(0,0,0,0.62);color:var(--ink-2);padding:0 3px;border-radius:2px;}
@@ -420,6 +420,7 @@
   body.fp-timeline .clip.sel .tt{box-shadow:inset 0 0 0 1.5px rgba(255,255,255,0.85);}
   /* [R102·D-T2] Clip deshabilitado: atenuado Y con trama. El color nunca puede ser el único portador del
      estado — la trama es forma, se lee en escala de grises y con cualquier daltonismo. */
+  .clip.offline{border-color:#E06A6A;box-shadow:inset 0 0 0 1px rgba(224,106,106,0.55);} /* [M4] clip whose media was deleted/is missing */
   .clip.off{opacity:.42;filter:saturate(0.25);}
   .clip.off::after{content:'';position:absolute;inset:0;pointer-events:none;z-index:3;border-radius:2px;
     background:repeating-linear-gradient(45deg,transparent 0 4px,rgba(0,0,0,0.5) 4px 8px);}

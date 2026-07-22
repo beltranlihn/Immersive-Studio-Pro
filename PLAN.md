@@ -1,5 +1,54 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 122 — Correcciones v2 · Etapa 5 (Compose/Nest) · [N3] (parcial)
+
+- **[N3] ✔ Quitar la mask en compose** — en `_renderInspectorMain`, toda la sección de máscara (dropdown de formas/PNG,
+  tamaño de máscara y editor de pen-mask) se envuelve en `if(!(m&&m.comp)){…}`: un nest de composición ya no muestra la
+  opción de máscara. Verificado por CDP (clip normal → mask visible; compose → oculta; controles de composición intactos).
+- **[N1] pendiente de verificar en `.exe`** — por arquitectura el nest se compone a una textura y se dibuja con las props
+  del clip (size/rot/az/el) por el path normal, así que scale/rotar deberían andar ya; confirmar con un compose real.
+- **[N2]/[N4]/[N5] pendientes (más de fondo):** [N2] opciones del inspector según el tipo de compose + live (el
+  count/el/size ya aplican live vía `regenComposeNest`+`scrubRender`); [N4] cambios relativos dentro del nest (no
+  resetear al regenerar); [N5] Dome Fill: mostrar randomization + modo de rings no deformados. Tocan el sistema de
+  compose → hacer con exploración cuidadosa.
+
+## ROUND 121 — Correcciones v2 · Etapa 4 (Timeline/lanes) · [L5]/[L6]
+
+Etapa 4: [L1]/[L2] (audio anclado) y [L7] (automatización en Play) ya en Etapa 1; [L4] (una sola lane) = [A5] R118;
+**[L3] obsoleto** (ya no se crean lanes múltiples). Quedaban [L5] y [L6]:
+
+- **[L5] ✔ Copiar/pegar en la posición del clic** — el menú contextual "Pegar aquí" ya pegaba en `C.start+r.t` (clic).
+  Faltaba **Ctrl+V**, que pegaba en el playhead: ahora `state.hoverAuto` guarda `t=r.absT` (el tiempo bajo el cursor) y
+  Ctrl+V pega ahí (`pasteAutoAt(hoverAuto, hoverAuto.t ?? playhead)`). Verificado por CDP (curva copiada pega en t=[3,4]
+  bajo el cursor, no en el playhead 0.2).
+- **[L6] ✔ Handle de keyframe más fácil de agarrar** — `nearKf2` sube el radio de agarre de 18→**24px**; `inv` usa una
+  **tolerancia de ~10px** (antes 0.003 s fijos) para resolver el clip, de modo que un keyframe pegado al borde del clip
+  se puede tomar desde justo afuera.
+
+**Etapa 4 completa.** Próximo: Etapa 5 (Compose/Nest [N1]-[N5]) u otra que elija Beltrán.
+
+## ROUND 120 — Correcciones v2 · Etapa 3 (Panel de Media) · [M1]-[M6]
+
+- **[M1] ✔ Carpeta instantánea** — `newFolderIn` ya no abre `appPrompt`: crea la carpeta al toque con nombre por defecto
+  y dispara `renameFolderInline` sobre su propia etiqueta (edición inline) vía `setTimeout(0)`.
+- **[M2] ✔ Deseleccionar al clic fuera** — listener `pointerdown` en `#mediaList`: si el clic no cae sobre un item/tile/
+  folder/input, llama `clearMediaSel()`.
+- **[M3] ✔ Estado proxy/original** — tras el nombre del clip de vídeo aparece "proxy"/"original" en color tenue
+  (`.mprx`, `--ink-dim`), y el punto de estado se atenuó a gris (#8A9199 listo / #5E646C sin proxy).
+- **[M4] ✔ Rojo para ausente** — Supr ya borraba el media (línea existente); ahora el media con original ausente se
+  marca en **rojo** en el panel (`#E06A6A` en `.mitem`/`.mtile.missing`) y sus clips en el timeline llevan `.clip.offline`
+  (borde rojo). *Nota:* mantuve el borrado que elimina los clips; la variante "borrar deja los clips en rojo" implicaría
+  clips huérfanos (el render del timeline no guarda `if(!m)`) → se dejó como decisión aparte.
+- **[M5] ✔ Multi-arrastre + fotos 5s** — al soltar una multi-selección en el timeline: **Ctrl** apila en pistas
+  consecutivas del mismo tipo (auto-crea si faltan), por defecto **lado a lado** en la misma pista (start += dur de cada
+  uno). Imágenes ahora entran con `dur:5` (antes 6).
+- **[M6] ✔ Rename contextual (Ctrl+R)** — `renameSelection` ahora prioriza el **panel de Media**: media/secuencia
+  seleccionada → la renombra ahí; carpeta seleccionada → la renombra; si no, sigue con marker > clip > pista > secuencia
+  activa.
+
+Verificado por CDP (M1 carpeta+selFolder, M2 deselección, M3 labels original/proxy, M4 rojo+offline, M6 apunta al media).
+**Etapa 3 completa.** Próximo: Etapa 4 (Timeline/lanes) u otra que elija Beltrán.
+
 ## ROUND 119 — Correcciones v2 · Etapa 2 · [A3]/[A5] efectos + [I3] Mask pen-tool + fix regresión R118
 
 **[I3] ✔ Máscara de puntos (pen-tool) estilo Premiere** — nueva máscara editable con puntos, **aparte** de las formas
