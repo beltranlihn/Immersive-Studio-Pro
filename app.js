@@ -167,6 +167,8 @@ const FSW=`#version 300 es
 precision highp float; in vec2 v_uv; in vec2 v_flat; in float v_below;
 uniform sampler2D u_tex; uniform sampler2D u_maskTex; uniform vec2 u_half; uniform float u_op,u_cull,u_blur,u_feather,u_crop,u_mask,u_exp,u_con,u_sat,u_tmp,u_tnt,u_glow,u_ca,u_premul,u_blend,u_tile,u_maskScale;
 uniform highp sampler3D u_lut; uniform float u_hasLut,u_lutMix; // R116: creative 3D LUT (.cube) — trilinear via a 3D texture
+uniform vec3 u_lift,u_gamma,u_gain; // R130: lift/gamma/gain color wheels (primary grade). Neutral: lift=0, gain=1, gamma=1 → identity
+uniform sampler2D u_curve; uniform float u_hasCurve; // R132: tone curves — 256×1 LUT, RGBA = R/G/B/luma curves (identity when u_hasCurve=0)
 out vec4 o;
 void main(){
   if(u_cull>0.5 && v_below<-0.0015) discard;
@@ -195,8 +197,12 @@ void main(){
   col=(col-0.5)*(1.0+u_con)+0.5;                       // contrast
   float L=dot(col,vec3(0.2126,0.7152,0.0722)); col=mix(vec3(L),col,1.0+u_sat); // saturation
   col*=vec3(1.0+u_tmp,1.0,1.0-u_tmp); col*=vec3(1.0-u_tnt*0.5,1.0+u_tnt,1.0-u_tnt*0.5); // temp / tint as a white-balance GAIN (neutral at 0; no additive highlight crush)
+  col=pow(max(u_gain*col+u_lift,0.0), u_gamma); // R130: lift/gamma/gain primary grade (gain=highlights ×, lift=shadows +, gamma=midtone power), before glow/LUT
   if(u_glow>0.001){ vec3 gw=vec3(0.0); for(int gi=-2;gi<=2;gi++)for(int gj=-2;gj<=2;gj++){ vec2 guv=uv+vec2(float(gi),float(gj))*0.004; float inb=step(0.0,guv.x)*step(guv.x,1.0)*step(0.0,guv.y)*step(guv.y,1.0); gw+=max(texture(u_tex,guv).rgb-0.55,0.0)*inb; } col+=gw*(u_glow*0.05); } // glow / bloom (bright halo), taps clamped to the source bounds
   col=clamp(col,0.0,1.0);
+  if(u_hasCurve>0.5){ // R132: per-channel RGB tone curves, then a master/luma curve (channel A) applied to each
+    col.r=texture(u_curve,vec2(col.r,0.5)).r; col.g=texture(u_curve,vec2(col.g,0.5)).g; col.b=texture(u_curve,vec2(col.b,0.5)).b;
+    col=vec3(texture(u_curve,vec2(col.r,0.5)).a, texture(u_curve,vec2(col.g,0.5)).a, texture(u_curve,vec2(col.b,0.5)).a); }
   if(u_hasLut>0.5){ col=mix(col, texture(u_lut, col).rgb, u_lutMix); } // creative LUT as the final look transform (trilinear-sampled 3D texture)
   float dz=fract(sin(dot(gl_FragCoord.xy,vec2(12.9898,78.233)))*43758.5453); col+=(dz-0.5)/255.0; // dither (anti-banding)
   float ef=a*u_op; // effective coverage = masked alpha × opacity × fade
@@ -210,7 +216,9 @@ const LW={flat:gl.getAttribLocation(PW,'a_flat'),uv:gl.getAttribLocation(PW,'a_u
   half:gl.getUniformLocation(PW,'u_half'),mir:gl.getUniformLocation(PW,'u_mir'),tex:gl.getUniformLocation(PW,'u_tex'),op:gl.getUniformLocation(PW,'u_op'),cull:gl.getUniformLocation(PW,'u_cull'),
   sector:gl.getUniformLocation(PW,'u_sector'),azC:gl.getUniformLocation(PW,'u_azC'),azSpan:gl.getUniformLocation(PW,'u_azSpan'),elC:gl.getUniformLocation(PW,'u_elC'),elSpan:gl.getUniformLocation(PW,'u_elSpan'),covHalf:gl.getUniformLocation(PW,'u_covHalf'),
   fmode:gl.getUniformLocation(PW,'u_flat'),fc:gl.getUniformLocation(PW,'u_fc'),fx:gl.getUniformLocation(PW,'u_fx'),fy:gl.getUniformLocation(PW,'u_fy'),
-  blur:gl.getUniformLocation(PW,'u_blur'),feather:gl.getUniformLocation(PW,'u_feather'),crop:gl.getUniformLocation(PW,'u_crop'),mask:gl.getUniformLocation(PW,'u_mask'),exp:gl.getUniformLocation(PW,'u_exp'),con:gl.getUniformLocation(PW,'u_con'),sat:gl.getUniformLocation(PW,'u_sat'),tmp:gl.getUniformLocation(PW,'u_tmp'),tnt:gl.getUniformLocation(PW,'u_tnt'),glow:gl.getUniformLocation(PW,'u_glow'),ca:gl.getUniformLocation(PW,'u_ca'),premul:gl.getUniformLocation(PW,'u_premul'),blend:gl.getUniformLocation(PW,'u_blend'),maskTex:gl.getUniformLocation(PW,'u_maskTex'),tile:gl.getUniformLocation(PW,'u_tile'),maskScale:gl.getUniformLocation(PW,'u_maskScale'),lut:gl.getUniformLocation(PW,'u_lut'),hasLut:gl.getUniformLocation(PW,'u_hasLut'),lutMix:gl.getUniformLocation(PW,'u_lutMix')};
+  blur:gl.getUniformLocation(PW,'u_blur'),feather:gl.getUniformLocation(PW,'u_feather'),crop:gl.getUniformLocation(PW,'u_crop'),mask:gl.getUniformLocation(PW,'u_mask'),exp:gl.getUniformLocation(PW,'u_exp'),con:gl.getUniformLocation(PW,'u_con'),sat:gl.getUniformLocation(PW,'u_sat'),tmp:gl.getUniformLocation(PW,'u_tmp'),tnt:gl.getUniformLocation(PW,'u_tnt'),glow:gl.getUniformLocation(PW,'u_glow'),ca:gl.getUniformLocation(PW,'u_ca'),premul:gl.getUniformLocation(PW,'u_premul'),blend:gl.getUniformLocation(PW,'u_blend'),maskTex:gl.getUniformLocation(PW,'u_maskTex'),tile:gl.getUniformLocation(PW,'u_tile'),maskScale:gl.getUniformLocation(PW,'u_maskScale'),lut:gl.getUniformLocation(PW,'u_lut'),hasLut:gl.getUniformLocation(PW,'u_hasLut'),lutMix:gl.getUniformLocation(PW,'u_lutMix'),
+  lift:gl.getUniformLocation(PW,'u_lift'),gamma:gl.getUniformLocation(PW,'u_gamma'),gain:gl.getUniformLocation(PW,'u_gain'),
+  curve:gl.getUniformLocation(PW,'u_curve'),hasCurve:gl.getUniformLocation(PW,'u_hasCurve')};
 const BLEND_ID={normal:0,add:0,screen:0,multiply:0,darken:1,lighten:2}; // u_blend: 0=premul path, 1=darken(MIN-neutral white), 2=lighten(MAX-neutral black)
 const MASK_IDX={none:0,circle:1,rounded:2,diamond:3,vignette:4,custom:5,pen:5}; // [I3] pen (point) masks rasterize into c.maskTex and reuse the custom sampler branch (index 5) — no shader change
 gl.useProgram(PW); gl.uniform1f(LW.covHalf, HALF_PI); // safe default (180° fulldome) so a never-set uniform is never 0 → no divide-by-zero in the flat path
@@ -240,7 +248,50 @@ async function loadLUT(path){ if(!path)return null; if(_lutReg.has(path))return 
   const name=path.split(/[\\/]/).pop().replace(/\.cube$/i,''); const rec={tex:makeLutTex(parsed.data,parsed.size),size:parsed.size,name,path}; _lutReg.set(path,rec); return rec; }
 function bindClipLUT(c){ const rec=(c&&c.props&&c.props.lut)?_lutReg.get(c.props.lut):null; // set the LUT uniforms + bind on unit 2 (identity when none, so the sampler stays valid)
   gl.uniform1f(LW.hasLut, rec?1:0); gl.uniform1f(LW.lutMix, rec?Math.max(0,Math.min(1,(c.props.lutMix==null?100:c.props.lutMix)/100)):0);
-  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_3D, rec?rec.tex:_lutIdentity); gl.uniform1i(LW.lut,2); gl.activeTexture(gl.TEXTURE0); }
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_3D, rec?rec.tex:_lutIdentity); gl.uniform1i(LW.lut,2); gl.activeTexture(gl.TEXTURE0);
+  bindClipGrade(c); } // R130: lift/gamma/gain wheels share the color-set call
+/* R130 · lift/gamma/gain color wheels. Per clip: props.cgLift/cgGamma/cgGain = [handleX, handleY, master] each in -1..1
+   (handle = color balance on a DaVinci-layout wheel: R top, G lower-left, B lower-right; master = luminance offset). */
+const _Z3=[0,0,0];
+function wheelRGB(a,k){ const x=(a&&a[0])||0, y=(a&&a[1])||0, m=(a&&a[2])||0; // handle→per-channel offset + luminance master
+  return [ y*k+m, (-0.5*y-0.8660*x)*k+m, (-0.5*y+0.8660*x)*k+m ]; }
+function bindClipGrade(c){ const p=(c&&c.props)||{};
+  const lf=wheelRGB(p.cgLift||_Z3, 0.4);   // lift: additive shadow push (±0.4 balance + master)
+  const gn=wheelRGB(p.cgGain||_Z3, 0.5);   // gain: multiplicative highlight (1 + ±0.5)
+  const gm=wheelRGB(p.cgGamma||_Z3, 0.5);  // gamma: midtone power (exp = 1 - push, brighter mids when push>0)
+  gl.uniform3f(LW.lift, lf[0], lf[1], lf[2]);
+  gl.uniform3f(LW.gain, 1+gn[0], 1+gn[1], 1+gn[2]);
+  gl.uniform3f(LW.gamma, Math.max(0.1,1-gm[0]), Math.max(0.1,1-gm[1]), Math.max(0.1,1-gm[2]));
+  bindClipCurve(c); } // R132: tone curves share the color-set call
+
+/* R132 · tone curves. Per clip: props.curves = {l,r,g,b}, each an array of [x,y] control points in 0..1
+   (default identity [[0,0],[1,1]]). Built into a 256×1 RGBA texture (R/G/B curves + luma in A), sampled in FSW. */
+let _curveIdentity=null;
+function makeCurveTex(){ const t=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,t);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  return t; }
+function evalCurve(pts,x){ if(!pts||pts.length<2)return x; // sorted by x, linear interpolation, flat outside the endpoints
+  if(x<=pts[0][0])return pts[0][1];
+  for(let i=1;i<pts.length;i++){ if(x<=pts[i][0]){ const a=pts[i-1],b=pts[i]; const t=(x-a[0])/((b[0]-a[0])||1e-6); return a[1]+(b[1]-a[1])*t; } }
+  return pts[pts.length-1][1]; }
+function curveIsIdentity(cv){ if(!cv)return true; for(const k of ['l','r','g','b']){ const p=cv[k]; if(p&&!(p.length===2&&p[0][0]===0&&p[0][1]===0&&p[1][0]===1&&p[1][1]===1))return false; } return true; }
+function buildCurveData(cv){ const d=new Uint8Array(256*4); const L=cv&&cv.l, R=cv&&cv.r, G=cv&&cv.g, B=cv&&cv.b;
+  for(let i=0;i<256;i++){ const x=i/255; const cl=v=>Math.max(0,Math.min(255,Math.round(v*255)));
+    d[i*4]=cl(evalCurve(R,x)); d[i*4+1]=cl(evalCurve(G,x)); d[i*4+2]=cl(evalCurve(B,x)); d[i*4+3]=cl(evalCurve(L,x)); }
+  return d; }
+function uploadCurveTex(tex,data){ gl.bindTexture(gl.TEXTURE_2D,tex);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false); gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,false); gl.pixelStorei(gl.UNPACK_ALIGNMENT,1);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,256,1,0,gl.RGBA,gl.UNSIGNED_BYTE,data);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true); gl.pixelStorei(gl.UNPACK_ALIGNMENT,4); gl.bindTexture(gl.TEXTURE_2D,null); } // restore the app's 2D-upload defaults
+(function(){ const d=new Uint8Array(256*4); for(let i=0;i<256;i++){ d[i*4]=d[i*4+1]=d[i*4+2]=d[i*4+3]=i; } _curveIdentity=makeCurveTex(); uploadCurveTex(_curveIdentity,d); })();
+function clipCurveTex(c){ const cv=c&&c.props&&c.props.curves; if(curveIsIdentity(cv))return null; // identity → no curve
+  if(!c._curveTex)c._curveTex=makeCurveTex();
+  if(c._curveDirty!==false){ uploadCurveTex(c._curveTex,buildCurveData(cv)); c._curveDirty=false; }
+  return c._curveTex; }
+function markCurveDirty(c){ if(c)c._curveDirty=true; }
+function bindClipCurve(c){ const tex=clipCurveTex(c); gl.uniform1f(LW.hasCurve, tex?1:0);
+  gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, tex||_curveIdentity); gl.uniform1i(LW.curve,3); gl.activeTexture(gl.TEXTURE0); }
 function preloadLUTs(){ const paths=new Set(); const scan=cs=>{ for(const c of (cs||[]))if(c&&c.props&&c.props.lut)paths.add(c.props.lut); }; // re-load LUTs referenced by a just-opened project so the look appears without a manual reload
   scan(state.clips); for(const m of state.media)if(isSeqMedia(m))scan(m.nestClips);
   if(!paths.size)return; Promise.all([...paths].map(p=>loadLUT(p))).then(()=>{ try{ if(_raOn)raInvalidate(); render(); }catch(e){} }); }
@@ -2019,10 +2070,19 @@ const LOGO_FRAMES=75;
 function logoFramePath(i){ return 'assets/frames%20logo/frame_'+String(i).padStart(3,'0')+'.png'; }
 let _logoImgs=null;
 function preloadLogoFrames(){ if(_logoImgs)return _logoImgs; _logoImgs=[]; for(let i=0;i<LOGO_FRAMES;i++){ const im=new Image(); im.src=logoFramePath(i); _logoImgs.push(im); } return _logoImgs; }
-function startLogoLoop(imgEl,fps){ if(!imgEl)return ()=>{}; preloadLogoFrames(); fps=fps||26; let i=0,raf=0,last=0;
+function startLogoLoop(imgEl,fps,onLoop){ if(!imgEl)return ()=>{}; preloadLogoFrames(); fps=fps||26; let i=0,raf=0,last=0;
   imgEl.src=logoFramePath(0);
-  const step=t=>{ if(!last)last=t; if(t-last>=1000/fps){ i=(i+1)%LOGO_FRAMES; imgEl.src=logoFramePath(i); last=t; } raf=requestAnimationFrame(step); };
+  const step=t=>{ if(!last)last=t; if(t-last>=1000/fps){ i=(i+1)%LOGO_FRAMES; if(i===0&&onLoop)onLoop(); imgEl.src=logoFramePath(i); last=t; } raf=requestAnimationFrame(step); }; // [R134] onLoop fires each time the loop wraps
   raf=requestAnimationFrame(step); return ()=>{ if(raf)cancelAnimationFrame(raf); raf=0; }; }
+/* [R134] branded square splash: the logo loop plays in a small square window for `minLoops` cycles, then reveals. */
+function showSplash(minLoops,onReady){ if(document.getElementById('splashOv')){ if(onReady)onReady(); return; }
+  const ov=document.createElement('div'); ov.className='overlay'; ov.id='splashOv'; ov.style.background='#0E0F11'; ov.style.zIndex='360';
+  ov.innerHTML=`<div class="splashcard"><img class="splashlogo" width="128" height="128" alt="Immersive Studio Pro"><div class="splashttl">Immersive Studio Pro</div></div>`;
+  document.body.appendChild(ov); let loops=0, done=false;
+  const stop=startLogoLoop(ov.querySelector('.splashlogo'),30,()=>{ if(++loops>=minLoops&&!done){ done=true; finish(); } });
+  ov._stopLogo=stop;
+  function finish(){ stop(); ov.style.transition='opacity .28s'; ov.style.opacity='0'; setTimeout(()=>{ ov.remove(); if(onReady)onReady(); },300); }
+  setTimeout(()=>{ if(!done){ done=true; finish(); } }, minLoops*3200+1500); } // safety: never hang if rAF is throttled
 function getRecents(){ try{ const a=JSON.parse(localStorage.getItem('domeProRecents')||'[]'); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
 function saveRecents(a){ try{ localStorage.setItem('domeProRecents', JSON.stringify(a.slice(0,12))); }catch(e){} }
 function projThumb(){ try{ if(!glc.width)return null; const w=200, h=Math.max(1,Math.round(w*glc.height/glc.width)); const c=document.createElement('canvas'); c.width=w; c.height=h; c.getContext('2d').drawImage(glc,0,0,w,h); return c.toDataURL('image/jpeg',0.72); }catch(e){ return null; } }
@@ -2030,16 +2090,18 @@ function addRecent(path,thumb){ if(!path||!IS_ELEC)return; const base=(DSP.basen
 function relTime(ts){ if(!ts)return ''; const d=(Date.now()-ts)/1000; if(d<60)return T('just now','ahora mismo'); if(d<3600)return Math.floor(d/60)+' min'; if(d<86400)return Math.floor(d/3600)+' h'; if(d<604800)return Math.floor(d/86400)+' d'; try{return new Date(ts).toLocaleDateString();}catch(e){return '';} }
 function hideLanding(){ const o=document.getElementById('landingOv'); if(o){ if(o._stopLogo)o._stopLogo(); o.remove(); } }
 /* [U9] loading screen with the logo loop — shown while a project opens and its media/proxies buffer */
-let _loadingOv=null,_loadingStop=null,_loadingPoll=0;
-function showLoadingScreen(msg){ if(_loadingOv)return; const ov=document.createElement('div'); ov.id='loadingOv'; ov.style.cssText='position:fixed;inset:0;z-index:340;background:#0E0F11;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;';
-  ov.innerHTML=`<img id="ldLogo" width="120" height="120" style="width:120px;height:120px;object-fit:contain;border-radius:26px;" alt=""><div id="ldMsg" style="font-size:13px;color:var(--ink-3);letter-spacing:0.02em;">${msg||T('Loading…','Cargando…')}</div>`;
-  document.body.appendChild(ov); _loadingOv=ov; _loadingStop=startLogoLoop(ov.querySelector('#ldLogo'),26); }
+let _loadingOv=null,_loadingStop=null,_loadingPoll=0,_loadingLoops=0;
+const LOADING_MIN_LOOPS=2; // [R134] the logo loop plays at least twice before the project is revealed
+function showLoadingScreen(msg){ if(_loadingOv)return; _loadingLoops=0; const ov=document.createElement('div'); ov.id='loadingOv'; ov.className='overlay'; ov.style.background='#0E0F11'; ov.style.zIndex='340';
+  ov.innerHTML=`<div class="splashcard"><img class="splashlogo" width="128" height="128" alt=""><div id="ldMsg" class="splashttl">${msg||T('Loading…','Cargando…')}</div></div>`;
+  document.body.appendChild(ov); _loadingOv=ov; _loadingStop=startLogoLoop(ov.querySelector('.splashlogo'),30,()=>{ _loadingLoops++; }); }
 function setLoadingMsg(m){ if(_loadingOv){ const e=_loadingOv.querySelector('#ldMsg'); if(e)e.textContent=m; } }
 function hideLoadingScreen(){ if(_loadingPoll){clearTimeout(_loadingPoll);_loadingPoll=0;} if(_loadingStop){_loadingStop();_loadingStop=null;} if(_loadingOv){_loadingOv.remove();_loadingOv=null;} }
 function loadingWaitMedia(deadline){ if(!_loadingOv)return; const anyLoading=state.media.some(m=>m._loading&&!m.missing); const proxying=state.media.some(m=>m._pxGen||(m.proxyPct>0&&!m.proxyReady));
-  if((!anyLoading&&!proxying)||Date.now()>deadline){ hideLoadingScreen(); return; }
-  setLoadingMsg(proxying?T('Buffering proxies…','Cargando proxys…'):T('Loading media…','Cargando medios…'));
-  _loadingPoll=setTimeout(()=>loadingWaitMedia(deadline),300); }
+  const loopsDone=_loadingLoops>=LOADING_MIN_LOOPS; // [R134] hold the splash until the loop has run twice AND media/proxies are ready (or the deadline)
+  if((!anyLoading&&!proxying&&loopsDone)||Date.now()>deadline){ hideLoadingScreen(); return; }
+  setLoadingMsg((anyLoading||proxying)?(proxying?T('Buffering proxies…','Cargando proxys…'):T('Loading media…','Cargando medios…')):T('Loading…','Cargando…'));
+  _loadingPoll=setTimeout(()=>loadingWaitMedia(deadline),200); }
 function escAttr(s){ return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
 function showLanding(){ if(document.getElementById('landingOv'))return;
   const recents=IS_ELEC?getRecents():[];
@@ -2817,6 +2879,64 @@ function _renderInspectorMain(){
     $('#fxRows').appendChild(fhrow);
     fhrow.querySelector('#fhToggle').onchange=e=>{const cc=selClip();if(cc){pushUndo();cc.props.fisheye=e.target.checked;const inp=fhrow.querySelector('#fhAmt');if(inp)inp.style.opacity=e.target.checked?'1':'.4';if(_raOn)raInvalidate();render();}};
     fhrow.querySelector('#fhAmt').onchange=e=>{const cc=selClip();if(cc){pushUndo();cc.props.fisheyeAmt=Math.max(0,Math.min(100,+e.target.value||0));if(_raOn)raInvalidate();render();}}; }
+  // R130 · lift/gamma/gain color wheels (primary grade) — any visual clip. Drag the handle = color balance; slider = luminance master; double-click = reset.
+  if(m && m.kind!=='audio'){ const wrow=document.createElement('div'); wrow.className='prow'; wrow.style.alignItems='flex-start';
+    const specs=[['cgLift','Lift'],['cgGamma','Gamma'],['cgGain','Gain']];
+    wrow.innerHTML=`<span class="kf" style="cursor:default;visibility:hidden;"></span><div class="cwrap" style="flex:1;min-width:0;">`+
+      specs.map(([k,lab])=>`<div class="cwcol" data-k="${k}">
+        <div class="cwheel" data-k="${k}" title="${T('Drag = color balance · double-click = reset','Arrastrar = balance de color · doble clic = reiniciar')}"><span class="cwh"></span></div>
+        <input type="range" class="cwm" data-k="${k}" min="-100" max="100" value="0" title="${T('Luminance','Luminancia')}">
+        <span class="cwlab">${lab}</span></div>`).join('')+`</div>`;
+    $('#colorRows').appendChild(wrow);
+    wrow.querySelectorAll('.cwcol').forEach(col=>{ const k=col.dataset.k; const wheel=col.querySelector('.cwheel'); const hnd=col.querySelector('.cwh'); const master=col.querySelector('.cwm');
+      const cur=()=>{ const cc=selClip(); const a=cc&&cc.props&&cc.props[k]; return a?[a[0]||0,a[1]||0,a[2]||0]:[0,0,0]; };
+      const place=()=>{ const [x,y,mm]=cur(); hnd.style.left=(50+x*46)+'%'; hnd.style.top=(50-y*46)+'%'; master.value=Math.round(mm*100); };
+      place();
+      let drag=false;
+      const setXY=(px,py)=>{ const r=wheel.getBoundingClientRect(); let x=(px-r.left)/r.width*2-1, y=-((py-r.top)/r.height*2-1); const d=Math.hypot(x,y); if(d>1){x/=d;y/=d;} const cc=selClip(); if(!cc)return; const a=cur(); cc.props[k]=[x,y,a[2]]; place(); if(_raOn)raInvalidate(); render(); };
+      wheel.onpointerdown=e=>{ e.preventDefault(); const cc=selClip(); if(!cc)return; pushUndo(); drag=true; try{wheel.setPointerCapture(e.pointerId);}catch(_){} setXY(e.clientX,e.clientY); };
+      wheel.onpointermove=e=>{ if(drag)setXY(e.clientX,e.clientY); };
+      wheel.onpointerup=()=>{ if(drag){ drag=false; markDirty(); } };
+      wheel.ondblclick=()=>{ const cc=selClip(); if(!cc)return; pushUndo(); cc.props[k]=[0,0,0]; place(); if(_raOn)raInvalidate(); render(); markDirty(); };
+      master.onpointerdown=()=>pushUndo();
+      master.oninput=e=>{ const cc=selClip(); if(!cc)return; const a=cur(); cc.props[k]=[a[0],a[1],(+e.target.value)/100]; if(_raOn)raInvalidate(); render(); };
+      master.onchange=()=>markDirty(); }); }
+  // R132 · tone curves (luma + R/G/B) — 256-entry 1D LUT built from draggable control points. Any visual clip.
+  if(m && m.kind!=='audio'){ const crow=document.createElement('div'); crow.className='prow'; crow.style.alignItems='flex-start';
+    crow.innerHTML=`<span class="kf" style="cursor:default;visibility:hidden;"></span><div style="flex:1;min-width:0;">
+      <div style="display:flex;gap:3px;align-items:center;margin-bottom:4px;">
+        <button class="ctab on" data-ch="l">${T('Luma','Luma')}</button><button class="ctab" data-ch="r">R</button><button class="ctab" data-ch="g">G</button><button class="ctab" data-ch="b">B</button>
+        <div style="flex:1;"></div><button class="mbtn" id="curveReset" style="height:16px;padding:0 7px;" title="${T('Reset this channel','Reiniciar este canal')}">${T('Reset','Reiniciar')}</button>
+      </div>
+      <canvas class="curvecv" title="${T('Click = add point · drag = move · double-click = remove','Clic = añadir punto · arrastrar = mover · doble clic = quitar')}"></canvas></div>`;
+    $('#colorRows').appendChild(crow);
+    const cvv=crow.querySelector('.curvecv'); const PAD=6; let ch='l';
+    const ensure=()=>{ const cc=selClip(); if(!cc)return null; if(!cc.props.curves)cc.props.curves={}; for(const k of ['l','r','g','b'])if(!cc.props.curves[k])cc.props.curves[k]=[[0,0],[1,1]]; return cc; };
+    const pts=()=>{ const cc=ensure(); return cc?cc.props.curves[ch]:[[0,0],[1,1]]; };
+    const COL={l:'#E8EAED',r:'#E06A6A',g:'#5FC77E',b:'#5B8DEF'};
+    const draw=()=>{ const W=cvv.clientWidth||260, H=cvv.clientHeight||132; const dpr=Math.min(window.devicePixelRatio||1,2);
+      cvv.width=Math.round(W*dpr); cvv.height=Math.round(H*dpr); const x=cvv.getContext('2d'); x.setTransform(dpr,0,0,dpr,0,0); x.clearRect(0,0,W,H);
+      const iw=W-2*PAD, ih=H-2*PAD, X=v=>PAD+v*iw, Y=v=>PAD+(1-v)*ih;
+      x.strokeStyle='rgba(255,255,255,0.06)'; x.lineWidth=1; x.beginPath(); for(let i=0;i<=4;i++){ const gx=PAD+iw*i/4, gy=PAD+ih*i/4; x.moveTo(gx,PAD); x.lineTo(gx,PAD+ih); x.moveTo(PAD,gy); x.lineTo(PAD+iw,gy);} x.stroke();
+      x.strokeStyle='rgba(255,255,255,0.13)'; x.beginPath(); x.moveTo(X(0),Y(0)); x.lineTo(X(1),Y(1)); x.stroke();
+      const P=pts(), col=COL[ch]; x.strokeStyle=col; x.lineWidth=1.5; x.beginPath();
+      for(let i=0;i<=96;i++){ const t=i/96, yy=evalCurve(P,t); i?x.lineTo(X(t),Y(yy)):x.moveTo(X(t),Y(yy)); } x.stroke();
+      x.fillStyle=col; for(const p of P){ x.beginPath(); x.arc(X(p[0]),Y(p[1]),3.5,0,7); x.fill(); x.lineWidth=1; x.strokeStyle='#0a0a0a'; x.stroke(); } };
+    const toCurve=ev=>{ const r=cvv.getBoundingClientRect(), iw=r.width-2*PAD, ih=r.height-2*PAD; return [Math.max(0,Math.min(1,(ev.clientX-r.left-PAD)/iw)), Math.max(0,Math.min(1,1-(ev.clientY-r.top-PAD)/ih))]; };
+    const hitPoint=ev=>{ const r=cvv.getBoundingClientRect(), iw=r.width-2*PAD, ih=r.height-2*PAD, P=pts(); for(let i=0;i<P.length;i++){ const px=PAD+P[i][0]*iw, py=PAD+(1-P[i][1])*ih; if(Math.hypot(ev.clientX-r.left-px, ev.clientY-r.top-py)<9)return i; } return -1; };
+    let drag=-1;
+    const applyDrag=ev=>{ const cc=selClip(); if(!cc||drag<0)return; const P=pts(); let [nx,ny]=toCurve(ev);
+      if(drag===0)nx=0; else if(drag===P.length-1)nx=1; else nx=Math.max(P[drag-1][0]+0.001,Math.min(P[drag+1][0]-0.001,nx));
+      P[drag]=[nx,ny]; markCurveDirty(cc); if(_raOn)raInvalidate(); render(); draw(); };
+    cvv.onpointerdown=ev=>{ ev.preventDefault(); const cc=ensure(); if(!cc)return; const P=pts(); let i=hitPoint(ev); pushUndo();
+      if(i<0){ const [nx,ny]=toCurve(ev); const np=[nx,ny]; P.push(np); P.sort((a,b)=>a[0]-b[0]); i=P.indexOf(np); }
+      drag=i; try{cvv.setPointerCapture(ev.pointerId);}catch(_){} applyDrag(ev); };
+    cvv.onpointermove=ev=>{ if(drag>=0)applyDrag(ev); };
+    cvv.onpointerup=()=>{ if(drag>=0){ drag=-1; markDirty(); } };
+    cvv.ondblclick=ev=>{ const cc=selClip(); if(!cc)return; const P=pts(), i=hitPoint(ev); if(i>0&&i<P.length-1){ pushUndo(); P.splice(i,1); markCurveDirty(cc); if(_raOn)raInvalidate(); render(); draw(); markDirty(); } };
+    crow.querySelectorAll('.ctab').forEach(b=>b.onclick=()=>{ ch=b.dataset.ch; crow.querySelectorAll('.ctab').forEach(z=>z.classList.toggle('on',z===b)); draw(); });
+    crow.querySelector('#curveReset').onclick=()=>{ const cc=ensure(); if(!cc)return; pushUndo(); cc.props.curves[ch]=[[0,0],[1,1]]; markCurveDirty(cc); if(_raOn)raInvalidate(); render(); draw(); markDirty(); };
+    requestAnimationFrame(draw); }
   // R116 · creative LUT (.cube) — load a 3D LUT and blend it in as the final look (any visual clip)
   if(m && m.kind!=='audio'){ const rec=(c.props.lut)?_lutReg.get(c.props.lut):null; const lrow=document.createElement('div'); lrow.className='prow';
     lrow.innerHTML=`<span class="kf" style="cursor:default;"></span><span class="lab">LUT</span>
@@ -4787,7 +4907,7 @@ function serMedia(m){ return {id:m.id,name:m.name,kind:m.kind,w:m.w,h:m.h,mode:m
   nestMarkers:(m.kind==='nest'?(m.nestMarkers||[]):null), nestGroups:(m.kind==='nest'?(m.nestGroups||[]):null), nestPlayhead:(m.kind==='nest'?(m.nestPlayhead||0):null), nestWorkIn:(m.kind==='nest'?(m.nestWorkIn??null):null), nestWorkOut:(m.kind==='nest'?(m.nestWorkOut??null):null), comp:(m.comp||null),
   thumb:(m.kind==='audio'?m.thumb:null)}; }
 let _serLight=false; // when true (autosave), drop heavy fields (maskData PNGs) to stay under the localStorage quota
-function serClip(c){ const o=JSON.parse(JSON.stringify(c)); delete o.maskTex; delete o._penCv; delete o._elB; delete o._szB; if(_serLight)delete o.maskData; return o; } // maskTex is a live GL texture; _penCv is the pen-mask raster canvas (rebuilt from penMasks); _elB/_szB are transient drag baselines; maskData (dataURL) kept except in the light autosave copy
+function serClip(c){ const o=JSON.parse(JSON.stringify(c)); delete o.maskTex; delete o._penCv; delete o._elB; delete o._szB; delete o._curveTex; delete o._curveDirty; if(_serLight)delete o.maskData; return o; } // R132: _curveTex is a live GL texture (rebuilt from props.curves), _curveDirty a transient flag // maskTex is a live GL texture; _penCv is the pen-mask raster canvas (rebuilt from penMasks); _elB/_szB are transient drag baselines; maskData (dataURL) kept except in the light autosave copy
 /* ===================== SEQUENCES (Premiere-style; a sequence IS a media item, kind 'nest') ===================== */
 function isSeqMedia(m){ return !!(m&&m.kind==='nest'); }
 function seqReaches(rootId,targetId){ const seen=new Set(); const walk=id=>{ if(id===targetId)return true; if(seen.has(id))return false; seen.add(id); const mm=mediaById(id); return !!(mm&&isSeqMedia(mm)&&(mm.nestClips||[]).some(c=>walk(c.mediaId))); }; return walk(rootId); } // does sequence rootId (transitively) already contain targetId?
@@ -5662,7 +5782,7 @@ function rippleDelete(){ const c=selClip(); if(!c)return; pushUndo(); const lane
 
 /* ===================== CONTEXT MENUS ===================== */
 let _menu=null;
-function closeMenu(){ if(_menu){_menu.remove();_menu=null;} }
+function closeMenu(){ if(_menu){_menu.remove();_menu=null;} document.querySelectorAll('.menubtn.on').forEach(b=>b.classList.remove('on')); } // [R135] clear the app-menu highlight when any menu closes
 /* [R92-T5] shortcut glyphs per platform: menus/palette said ⌘R/⇧⌘S on a Windows app while tooltips said Ctrl+ — one formatter for all */
 function fmtKey(s){ if(!s)return s; if(navigator.platform&&/mac/i.test(navigator.platform))return s; return String(s).replace(/⇧⌘/g,'Ctrl+Shift+').replace(/⌘/g,'Ctrl+').replace(/⇧/g,'Shift+').replace(/⌥/g,'Alt+').replace(/⌫/g,'Del'); }
 function openMenu(x,y,items){ closeMenu(); const m=document.createElement('div'); m.className='menu'; m.setAttribute('role','menu'); m.style.left=x+'px'; m.style.top=y+'px'; // [R94-UT5·U-10a]
@@ -5684,7 +5804,44 @@ function openMenu(x,y,items){ closeMenu(); const m=document.createElement('div')
     else if(e.key==='Escape'){ e.preventDefault(); closeMenu(); } });
   document.body.appendChild(m); const r=m.getBoundingClientRect(); if(r.right>innerWidth)m.style.left=(x-r.width)+'px'; if(r.bottom>innerHeight)m.style.top=(y-r.height)+'px'; _menu=m;
   { const fb=m.querySelector('button:not(:disabled)'); if(fb)fb.focus(); } } // [R94-UT5·U-10a] focus lands on the first enabled item on open
-window.addEventListener('pointerdown',e=>{ if(_menu&&!_menu.contains(e.target))closeMenu(); },true);
+window.addEventListener('pointerdown',e=>{ if(_menu&&!_menu.contains(e.target)&&!(e.target.closest&&e.target.closest('.menubtn')))closeMenu(); },true); // [R135] a menubtn manages its own open/close
+/* [R135·D3] application menu bar (File / Edit / Window) — reuses existing commands; the menu is just another access path. */
+function openAppMenu(which,btn){ const r=btn.getBoundingClientRect(); const x=r.left, y=r.bottom+3; let items;
+  if(which==='file') items=[
+    {label:T('New dome project…','Nuevo proyecto domo…'),ico:'plus',fn:()=>domeSetupDialog(cfg=>{ hideLanding(); newProject('dome',cfg.res,cfg.res,cfg.fps,cfg.cov); })},
+    {label:T('New 2D project…','Nuevo proyecto 2D…'),fn:()=>flatResDialog((w,h,fps)=>{ hideLanding(); newProject('flat',w,h,fps); })},
+    {label:T('New 360 room…','Nueva sala 360…'),fn:()=>roomSetupDialog(cfg=>{ hideLanding(); newRoomProject(cfg); })},
+    'sep',
+    {label:T('Open…','Abrir…'),key:'⌘O',ico:'folder',fn:()=>openProject()},
+    {label:T('Save','Guardar'),key:'⌘S',ico:'save',fn:()=>saveProject(false)},
+    {label:T('Save As…','Guardar como…'),key:'⇧⌘S',fn:()=>saveProject(true)},
+    'sep',
+    {label:T('Export…','Exportar…'),key:'⇧⌘E',ico:'share',fn:openExport} ];
+  else if(which==='edit') items=[
+    {label:T('Undo','Deshacer'),key:'⌘Z',fn:undo},
+    {label:T('Redo','Rehacer'),key:'⇧⌘Z',fn:redo},
+    'sep',
+    {label:T('Cut','Cortar'),key:'⌘X',fn:()=>{ copyClip(); deleteSel(); }},
+    {label:T('Copy','Copiar'),key:'⌘C',fn:copyClip},
+    {label:T('Paste','Pegar'),key:'⌘V',fn:pasteClip},
+    {label:T('Duplicate','Duplicar'),key:'⌘D',ico:'diamond',fn:duplicateClip},
+    'sep',
+    {label:T('Delete','Eliminar'),key:'⌫',ico:'trash',danger:true,fn:deleteSel},
+    {label:T('Ripple delete','Eliminación con arrastre'),key:'⇧⌫',danger:true,fn:rippleDelete},
+    'sep',
+    {label:T('Nest selection','Anidar selección'),fn:nestSelection} ];
+  else items=[
+    {label:(state.prefs.mediaCollapsed?'':'✓  ')+T('Media panel','Panel de medios'),fn:()=>{ const c=!state.prefs.mediaCollapsed; state.prefs.mediaCollapsed=c; setPaneCollapsed('#mediaPane',c); }},
+    {label:(state.prefs.inspCollapsed?'':'✓  ')+T('Inspector panel','Panel de inspector'),fn:()=>{ const c=!state.prefs.inspCollapsed; state.prefs.inspCollapsed=c; setPaneCollapsed('#inspPane',c); }},
+    'sep',
+    {label:T('Viewer-only window','Ventana solo-visor'),ico:'popout',fn:openViewerWindow},
+    {label:T('Full performance','Rendimiento total'),fn:()=>setPerfMode(true)},
+    'sep',
+    {label:T('All commands & shortcuts','Todos los comandos y atajos'),key:'F1',fn:()=>{ const h=$('#helpBtn'); if(h)h.click(); }} ];
+  document.querySelectorAll('.menubtn').forEach(b=>b.classList.toggle('on',b===btn)); openMenu(x,y,items); }
+document.querySelectorAll('#menubar .menubtn').forEach(btn=>{ const which=btn.dataset.menu;
+  btn.onclick=e=>{ e.stopPropagation(); if(btn.classList.contains('on')){ closeMenu(); return; } openAppMenu(which,btn); };
+  btn.onmouseenter=()=>{ if(_menu)openAppMenu(which,btn); }; }); // hover switches menus while the bar is open (standard menubar behaviour)
 /* "Make unique": deep-copy the nest/compose media this clip points to (new independent copy) so its parameters can be edited without affecting the other instances. */
 function makeClipUnique(c){ if(!c)return; const m=mediaById(c.mediaId); if(!m||!isSeqMedia(m)){ flashStatus(T('Only sequences/compositions can be made unique','Solo secuencias/composiciones pueden hacerse únicas')); return; } pushUndo();
   const nm=JSON.parse(JSON.stringify(serMedia(m))); // deep copy (serMedia already drops live GL fields)
@@ -6101,6 +6258,7 @@ function applyLang(){ const L=state.lang; document.documentElement.lang=L;
   const ttl=(s,en,es)=>{const e=$(s);if(e)e.title=T(en,es);};
   const ph=(s,en,es)=>{const e=$(s);if(e)e.placeholder=T(en,es);};
   const tn=(s,en,es)=>{const e=$(s);if(!e)return;const last=e.lastChild;if(last&&last.nodeType===3)last.textContent=' '+T(en,es);else e.textContent=T(en,es);};
+  tn('#menubar [data-menu=file]','File','Archivo'); tn('#menubar [data-menu=edit]','Edit','Editar'); tn('#menubar [data-menu=window]','Window','Ventana'); // [R135] app menu bar
   tn('#newBtn','New','Nuevo'); ttl('#newBtn','New project · Ctrl+N','Nuevo proyecto · Ctrl+N');
   tn('#openBtn','Open','Abrir'); ttl('#openBtn','Open project · Ctrl+O','Abrir proyecto · Ctrl+O');
   tn('#saveBtn','Save','Guardar'); ttl('#saveBtn','Save · Ctrl+S · right-click for Save As','Guardar · Ctrl+S · clic derecho para Guardar como');
@@ -6136,9 +6294,9 @@ function applyLang(){ const L=state.lang; document.documentElement.lang=L;
   ttl('#bpmBox','Tempo — drag to change','Tempo — arrastra para cambiar');
   txt('#tcModeSeg button[data-t="frames"]','Frames','Fotogramas'); txt('#tcModeSeg button[data-t="bars"]','Bars','Compases');
   ttl('#markIn','Mark In · I (right-click clears the range)','Marcar entrada · I (clic derecho borra el rango)'); ttl('#markOut','Mark Out · O (right-click clears the range)','Marcar salida · O (clic derecho borra el rango)'); // [R94e]
-  tn('#snapBtn','Snap to Grid','Ajustar a cuadrícula'); ttl('#snapBtn','Snap to Grid · S','Ajustar a la cuadrícula · S');
+  ttl('#snapBtn','Snap to Grid · S','Ajustar a la cuadrícula · S'); // [U1] icon-only
   tn('#simpleClipBtn','Simple','Simple'); ttl('#simpleClipBtn','Simple clips (Premiere-style): drag and select a clip from anywhere on it — range selection works outside clips only','Clips simples (estilo Premiere): arrastra y selecciona el clip desde cualquier punto — la selección de rango solo funciona fuera de los clips'); // [R94c]
-  tn('#curvesBtn','Automation','Automatización'); ttl('#curvesBtn','Show/hide automation (clip parameters + reactive FX) · A','Mostrar/ocultar automatización (parámetros del clip + FX reactivos) · A');
+  ttl('#curvesBtn','Show/hide automation (clip parameters + reactive FX) · A','Mostrar/ocultar automatización (parámetros del clip + FX reactivos) · A'); // [U1] icon-only
   ttl('#tlZoomOut','Zoom out timeline','Alejar línea de tiempo'); ttl('#tlZoomIn','Zoom in timeline','Acercar línea de tiempo');
   ttl('#toolRail button[data-t="select"]','Select (V)','Seleccionar (V)'); ttl('#toolRail button[data-t="hand"]','Hand / Pan (H)','Mano / Desplazar (H)'); ttl('#toolRail button[data-t="razor"]','Razor (B / C)','Cuchilla (B / C)'); ttl('#toolRail button[data-t="zoom"]','Zoom (Z)','Zoom (Z)');
   if(!state.lastSaved){ const sa=$('#statAuto'); if(sa)sa.textContent=T('Ready','Listo'); }
@@ -6828,7 +6986,7 @@ function init(){
   setInterval(()=>{ glCheck('tick'); let mem=null; try{ if(performance.memory)mem=Math.round(performance.memory.usedJSHeapSize/1048576); }catch(_){} diag('debug','heartbeat','',{seq:activeSeq()&&activeSeq().name, clips:state.clips.length, media:state.media.length, playing:state.playing, ph:+state.playhead.toFixed(2), heapMB:mem}); diagFlush(); }, 5000);
   window.addEventListener('beforeunload',()=>{ try{stopNDI();}catch(_){ } try{closeAllNdi();}catch(_){ } diag('info','session','session end'); diagFlush(); });
   document.addEventListener('visibilitychange',()=>{ if(document.hidden){ diag('info','session','hidden'); diagFlush(); } });
-  showLanding(); // start screen: New project + recents (dismissed by New / Open / opening a recent, or by a double-clicked .rdome)
+  showSplash(2, ()=>{ if(!document.getElementById('loadingOv') && !currentPath) showLanding(); }); // [R134] branded logo-loop splash (~2 cycles) → start screen, unless a double-clicked project is already opening
   if(IS_ELEC&&DSP.onConfirmClose){ DSP.onConfirmClose(()=>{ appConfirm(T('You have unsaved changes. Close without saving?','Hay cambios sin guardar. ¿Cerrar sin guardar?'),ok=>{ if(ok&&DSP.forceClose)DSP.forceClose(); },{ok:T('Close without saving','Cerrar sin guardar'),cancel:T('Cancel','Cancelar'),danger:true}); }); } // styled close confirm (replaces the native OS dialog)
 }
 init();

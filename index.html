@@ -253,6 +253,17 @@
   .tcbox .tc{font-size:13px;font-weight:500;color:var(--ink);letter-spacing:0.02em;display:inline-block;min-width:72px;text-align:center;font-variant-numeric:tabular-nums;}
   .tcbox .du{font-size:11px;color:var(--ink-faint);display:inline-block;min-width:50px;text-align:right;font-variant-numeric:tabular-nums;}
   /* [U-18] .editseg fully covered by the shared segmented rules above */
+  /* [R130] lift/gamma/gain color wheels (primary grade) */
+  .cwrap{display:flex;gap:8px;justify-content:space-between;}
+  .cwcol{display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;min-width:0;}
+  .cwheel{width:64px;height:64px;border-radius:50%;position:relative;cursor:crosshair;border:.5px solid rgba(255,255,255,0.16);touch-action:none;background:radial-gradient(circle at 50% 50%, rgba(122,126,132,0.92) 0%, rgba(122,126,132,0.22) 40%, transparent 68%), conic-gradient(from 0deg, #ff4d4d, #b64dff, #4d7bff, #4dffff, #4dff7b, #e8ff4d, #ff4d4d);}
+  .cwheel .cwh{position:absolute;width:9px;height:9px;border-radius:50%;background:#fff;border:1.5px solid #0a0a0a;box-shadow:0 0 3px rgba(0,0,0,0.6);transform:translate(-50%,-50%);left:50%;top:50%;pointer-events:none;}
+  .cwcol .cwlab{font-size:10px;letter-spacing:0.04em;text-transform:uppercase;color:var(--ink-3);}
+  .cwcol input[type=range].cwm{width:64px;height:15px;accent-color:var(--ink-2);}
+  .ctab{height:16px;padding:0 8px;font-size:10px;font-weight:600;border:.5px solid rgba(255,255,255,0.12);border-radius:2px;background:var(--surface-2);color:var(--ink-3);cursor:pointer;}
+  .ctab.on{background:var(--state-on);color:var(--ink);border-color:rgba(255,255,255,0.2);}
+  .ctab[data-ch=r].on{color:#E06A6A;} .ctab[data-ch=g].on{color:#5FC77E;} .ctab[data-ch=b].on{color:#5B8DEF;}
+  .curvecv{width:100%;height:132px;display:block;background:var(--s0);border:.5px solid rgba(255,255,255,0.12);border-radius:2px;cursor:crosshair;touch-action:none;}
   .bpmbox{display:flex;align-items:baseline;gap:var(--sp-4);height:18px;padding:0 9px;border-radius:2px;background:var(--surface-2);border-top:.5px solid rgba(255,255,255,0.05);border-bottom:.5px solid rgba(0,0,0,0.3);cursor:ew-resize;}
   .seg2{display:inline-flex;gap:var(--sp-2);padding:2px;} /* [U-18] padded variant — look shared with .seg */
   .seg2 button{height:16px;padding:0 8px;font-size:11px;font-weight:500;border:none;border-radius:2px;background:transparent;color:var(--ink-2);cursor:pointer;}
@@ -408,7 +419,7 @@
   .trackdivider.resizable{cursor:row-resize;} .trackdivider.resizable:hover{background:var(--s0);border-top-color:rgba(201,205,211,0.55);border-bottom-color:rgba(201,205,211,0.55);}
   .trackdivider.collapsible{cursor:pointer;} .trackdivider.collapsible:hover{background:var(--s0);border-top-color:rgba(201,205,211,0.45);border-bottom-color:rgba(201,205,211,0.45);} /* [R110] the AUDIO bar toggles the module collapse */
   .trackdivider.hdr{display:flex;align-items:center;gap:5px;padding:0 10px;}
-  .trackdivider.hdr .dvlab{font-family:'Geist',system-ui,sans-serif;font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink-faint);}
+  .trackdivider.hdr .dvlab,.rulerpad .dvlab{font-family:'Geist',system-ui,sans-serif;font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink-faint);} /* [U1] VIDEO (ruler-pad) matches the AUDIO bar label style */
   .trackdivider.hdr .dvchev{font-size:9px;color:var(--ink-3);line-height:1;}
   .lanehdr.aud .laneres,.lanehdr.aud .lcol{display:none;} /* [R110] audio tracks: fixed height → no per-lane resize / collapse */
   /* [R92-T9] pinned audio module — video tracks scroll behind it (Premiere) */
@@ -454,6 +465,9 @@
   .clip .hd{position:absolute;top:0;bottom:0;width:8px;cursor:ew-resize;z-index:2;}
   .clip .hd.l{left:0;} .clip .hd.r{right:0;}
   .clip .hd:hover{background:rgba(201,205,211,0.25);}
+  /* [R132] Ableton automation view: in automation mode the clip resizes ONLY from the top strip (top-left/right corners, aligned with RES_TOP=15px). The rest of the L/R edges is freed so envelope breakpoints can be placed right up to the clip boundary. */
+  body.automode .clip .hd{bottom:auto;height:15px;}
+  body.automode .clip .hd:hover{background:rgba(201,205,211,0.38);}
   .clip .fadeh{position:absolute;top:0;width:11px;height:11px;z-index:4;cursor:ew-resize;}
   .clip .fadeh::after{content:'';position:absolute;top:2px;width:7px;height:7px;border-radius:50%;background:var(--ink);border:1px solid var(--bg-1);box-shadow:0 1px 2px rgba(0,0,0,0.6);}
   .clip .fadeh.fadeL{transform:translateX(-50%);} .clip .fadeh.fadeL::after{left:1px;}
@@ -500,6 +514,14 @@
 
   /* modals */
   .overlay{position:fixed;inset:0;background:rgba(6,7,9,0.66);display:flex;align-items:center;justify-content:center;z-index:50;animation:overIn .12s;}
+  /* [R134] branded square splash — the 1080×1080 logo loop shown a couple of seconds on startup + project open (responsive, capped at the native 1080²) */
+  .splashcard{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;background:transparent;}
+  .splashcard .splashlogo{width:min(1080px,82vmin);height:min(1080px,82vmin);object-fit:contain;border-radius:min(64px,6vmin);}
+  .splashcard .splashttl{font-size:13px;color:var(--ink-3);letter-spacing:0.02em;text-align:center;padding:0 14px;}
+  /* [R135] app menu bar (File / Edit / Window) */
+  .menubar{display:flex;gap:1px;margin-left:2px;}
+  .menubtn{height:20px;padding:0 9px;font-size:12px;font-weight:500;background:transparent;border:none;border-radius:3px;color:var(--ink-2);cursor:pointer;white-space:nowrap;}
+  .menubtn:hover,.menubtn.on{background:var(--surface-2);color:var(--ink);}
   .modal{background:var(--bg-2);border:.5px solid rgba(255,255,255,0.12);border-radius:2px;box-shadow:0 24px 70px rgba(0,0,0,0.6);animation:modalIn .14s;width:520px;max-width:92vw;}
   .modal .mh{display:flex;align-items:center;gap:var(--sp-8);padding:14px 16px;border-bottom:.5px solid rgba(255,255,255,0.08);}
   .modal .mh .t{font-size:13px;font-weight:600;letter-spacing:-0.01em;}
@@ -609,6 +631,11 @@
   <!-- TOP BAR -->
   <div class="top">
     <span class="dot"></span>
+    <div class="menubar" id="menubar">
+      <button class="menubtn" data-menu="file" data-t="menuFile">File</button>
+      <button class="menubtn" data-menu="edit" data-t="menuEdit">Edit</button>
+      <button class="menubtn" data-menu="window" data-t="menuWindow">Window</button>
+    </div>
     <span style="font-size:11px;font-weight:600;letter-spacing:-0.008em;color:var(--ink-2);white-space:nowrap;" id="projTitle">Immersive Dome · Show 01</span>
     <span class="tnum" style="font-size:11px;letter-spacing:0.02em;color:var(--ink-faint);cursor:pointer;" id="fmtChip" title="Sequence settings">4096² · 60p · PNG</span>
     <div style="flex:1;"></div>
@@ -774,11 +801,11 @@
     </div>
     <div style="flex:1;"></div>
     <div class="editseg">
-      <button id="snapBtn" title="Snap to Grid · S / Ctrl+4"><i class="ic" data-ico="snap"></i> Snap to Grid</button>
+      <button id="snapBtn" title="Snap to Grid · S / Ctrl+4"><i class="ic" data-ico="snap"></i></button>
       <button id="simpleClipBtn" title="Simple clips (Premiere-style): drag and select a clip from anywhere on it — range selection works outside clips only"><i class="ic" data-ico="clip"></i> Simple</button>
       <!-- [U6] grid-spacing readout removed (unnecessary) — grid still adjustable via Ctrl+1/2/4/5 -->
     </div>
-    <button class="togbtn2" id="curvesBtn" title="Show/hide automation (clip parameters + reactive FX) · A"><i class="ic" data-ico="curves"></i> Automation</button>
+    <button class="togbtn2" id="curvesBtn" title="Show/hide automation (clip parameters + reactive FX) · A"><i class="ic" data-ico="curves"></i></button>
     <div class="zoomgrp"><button id="tlZoomOut" title="Zoom out timeline"><i class="ic" data-ico="zoomOut"></i></button><button id="tlZoomIn" title="Zoom in timeline"><i class="ic" data-ico="zoomIn"></i></button></div>
   </div>
 

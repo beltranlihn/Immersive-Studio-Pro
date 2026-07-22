@@ -1,5 +1,116 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 135 — Etapa 10 · [D3] barra de menús File / Edit / Window · splash a 1080²
+
+**[F2] auditoría (sin cambios de código):** medido por CDP en dome/2D/room, el chrome del editor es **idéntico** en los
+tres modos — topbar (1920×28), stage (1328×497 @292,56), mediaPane (292), inspPane (300), trackHdr (152), toolRail (32),
+transport (1920×30), editseg — misma medida y posición. Lo único que cambia son los controles específicos de cada modo
+(botón 3D, Horizon, lectura AZ/EL) que se ocultan cuando no aplican (intencional). Diálogos de creación: Domo=2D=416 de
+ancho; 360=554 (más ancho por el editor de orden/esquema de muros, coherente con "360 ajusta al espacio"). → No hay
+descuadre concreto en la UI; F2 queda a la espera de un ejemplo puntual de Beltrán si observa un caso específico.
+
+
+- **Barra de menús (`.menubar` en el top bar, tras el punto):** File / Edit / Window. Reusa `openMenu()` y **solo llama
+  a comandos existentes** (el menú es otra vía de acceso, sin lógica nueva):
+  - **File:** New dome/2D/360 (mismos diálogos que el landing), Open, Save, Save As, Export.
+  - **Edit:** Undo, Redo · Cut (= copyClip+deleteSel), Copy, Paste, Duplicate · Delete, Ripple delete · Nest selection.
+  - **Window:** toggle panel Media, toggle panel Inspector (con ✓ de estado) · Ventana solo-visor, Rendimiento total ·
+    Todos los comandos (F1).
+  - Comportamiento de menubar: clic abre/cierra, hover cambia de menú mientras hay uno abierto, `.on` se limpia al cerrar
+    (`closeMenu`). Localización por `applyLang` (File/Edit/Window ↔ Archivo/Editar/Ventana).
+  - **Verificado por CDP:** 3 menús construyen sus ítems; disparar Window→Media alterna `state.prefs.mediaCollapsed` y el
+    menú se cierra tras el clic.
+- **Splash a 1080²** (ajuste pedido por Beltrán): el logo del splash ya no se achica a 128px — se muestra a su tamaño
+  nativo `min(1080px, 82vmin)` (responsivo, tope 1080²), sin la tarjeta chica; fondo oscuro a pantalla completa.
+
+## ROUND 134 — Splash cuadrado con loop de logo (arranque + abrir proyecto)
+
+Pedido de Beltrán: la animación del logo debe aparecer en una **ventana cuadrada** cargando unos segundos (el loop
+≈2 veces) tanto al abrir el software como al abrir un proyecto, antes de revelar la ventana completa.
+
+- **`startLogoLoop(imgEl,fps,onLoop)`** — nuevo 3er parámetro `onLoop`, se dispara cada vez que el loop vuelve a 0
+  (cuenta vueltas). El avance de frames sigue por rAF (mismo motor ya probado en el logo del landing).
+- **`showSplash(minLoops,onReady)`** — tarjeta cuadrada `.splashcard` (220×220, logo 128px + título) sobre fondo
+  `#0E0F11`. Tras `minLoops` vueltas hace fade-out y llama `onReady`. Red de seguridad (`minLoops*3200+1500` ms) para
+  que nunca cuelgue si el rAF está throttleado (ventana en segundo plano).
+- **Arranque** — `init()` ahora hace `showSplash(2, …)` → muestra el landing, salvo que ya se esté abriendo un proyecto
+  por doble-clic (`loadingOv` presente o `currentPath` seteado).
+- **Abrir proyecto** — `showLoadingScreen` reusa la misma tarjeta cuadrada + cuenta vueltas; `loadingWaitMedia` ahora
+  exige `_loadingLoops>=2` **además** de que media/proxys estén listos (o el deadline de 20 s) → el loop corre al menos
+  dos veces incluso en proyectos que cargan rápido.
+- **Verificado por CDP:** tarjeta 220×220; gating determinista (loops=0 mantiene, loops=2 oculta); el splash completa por
+  la red de seguridad y dispara `onReady`. El frame-advance por rAF ya está en producción (landing).
+
+## ROUND 133 — Grado de color · Fase 3: curvas de tono (luma + R/G/B)
+
+Cierra el grado de color (F1=LUT, F2=ruedas, F3=curvas). Curvas de tono por clip vía LUT 1D de 256 entradas.
+
+- **Shader (`FSW`)** — `uniform sampler2D u_curve; float u_hasCurve;` (unidad de textura 3; máscara=1, LUT=2, curva=3).
+  Tras el clamp y antes del LUT creativo: primero las curvas R/G/B por canal, luego la curva **luma** (canal A) aplicada
+  a cada canal ya curvado. `u_hasCurve=0` → identidad (se saltea).
+- **Motor** — textura 256×1 RGBA (R/G/B/luma). `evalCurve(pts,x)` = interpolación lineal entre puntos de control
+  ordenados (plano fuera de los extremos). `buildCurveData` rellena las 256 entradas; `clipCurveTex(c)` cachea la
+  textura en `c._curveTex` + `c._curveDirty` (rebuild lazy). `curveIsIdentity` saltea cuando los 4 canales son
+  `[[0,0],[1,1]]`. `bindClipCurve(c)` llamado dentro de `bindClipGrade` (cubre flat+dome). Identidad global 256×1.
+  GOTCHA aplicado: `UNPACK_FLIP_Y=false` durante `texImage2D` (aunque en 1px de alto es no-op, se restaura después).
+- **Por clip** — `props.curves={l,r,g,b}`, cada uno array de `[x,y]` en 0..1 (default identidad). `serClip` borra
+  `_curveTex`/`_curveDirty` (textura viva + flag transitorios; se reconstruyen de props).
+- **Inspector** — editor de curva en la sección Color (bajo las ruedas): pestañas Luma/R/G/B, canvas con rejilla +
+  diagonal de referencia + curva del canal en su color; clic = añadir punto, arrastrar = mover (extremos fijan x=0/1),
+  doble-clic = quitar (salvo extremos), botón Reset por canal.
+- **Verificado por CDP:** `buildCurveData` de una curva luma 0.5→0.8 da A=204 en idx 128 (R/G/B=128 identidad);
+  píxel sobre el composite: gris 128 → 204 con la curva, 128 sin ella (exacto); UI = canvas + 4 pestañas + reset.
+
+## ROUND 132 — Automatización: bordes del clip libres para puntos (modelo Ableton)
+
+Bug de UX reportado por Beltrán: en modo automatización costaba poner puntos cerca de los bordes del clip porque
+peleaban con los handles de trim (`.hd.l`/`.hd.r`, altura completa, z-index 2 encima del `clipautocv` z-index 1).
+
+- **Fix (CSS, scopeado a `body.automode`):** `body.automode .clip .hd{bottom:auto;height:15px;}` — los handles de
+  redimensionar se limitan a la **tira superior** (15px = `RES_TOP`, justo donde arranca el canvas de automatización).
+  Igual que Ableton: en vista de automatización el clip se estira **solo desde el borde de arriba** (esquinas sup-izq/der),
+  y todo el cuerpo — incluidos los bordes izq/der — queda libre para colocar breakpoints hasta el límite del clip.
+- Fuera de automatización el resize sigue a altura completa (la regla es exclusiva de `automode`). El `clipautocv` ya
+  detenía la propagación (`inv(e)` resuelve toda la anchura), así que ahora captura también las franjas de borde.
+- **Verificado por CDP (geometría):** handles L/R top 890→bottom 905 (alto 15), canvas top 905→bottom 971; solape
+  vertical = 0 (handle bottom = canvas top). Canvas cubre todo el ancho (izq 225≈clip 224, der 705≈clip 704).
+
+## ROUND 131 — Grado de color · Fase 2: ruedas Lift / Gamma / Gain
+
+Segunda fase del grado de color (la Fase 1 = LUTs `.cube`, R116). Ruedas de color primarias por clip, modelo
+color-balance estilo DaVinci, **antes** del LUT creativo en el pipeline.
+
+- **Shader (`FSW`/`PW`)** — nuevos `uniform vec3 u_lift,u_gamma,u_gain`; una línea tras temp/tint y antes de glow/LUT:
+  `col = pow(max(u_gain*col + u_lift, 0.0), u_gamma)`. Neutro (lift=0, gain=1, gamma=1) = **identidad exacta**.
+- **Por clip** — `props.cgLift/cgGamma/cgGain = [handleX, handleY, master]` en −1..1 (handle = balance de color en la
+  rueda: R arriba, G abajo-izq, B abajo-der; master = luminancia). `wheelRGB(a,k)` convierte a offset por canal;
+  `bindClipGrade(c)` (llamada dentro de `bindClipLUT`, así ambos paths flat/dome la ejecutan) setea los tres uniformes:
+  lift = balance×0.4 additivo · gain = 1 + balance×0.5 · gamma exp = 1 − balance×0.5 (clamp ≥0.1).
+- **Inspector** — sección Color: tres ruedas (Lift/Gamma/Gain) con handle arrastrable (balance), slider de luminancia
+  (master) y doble-clic = reset. Arriba del LUT (primarias primero, look creativo al final). Cada edición asigna un
+  **array nuevo** a props (evita compartir referencia entre clips duplicados con `{...props}` shallow).
+- **Persistencia** — `serClip` ya serializa props enteros (JSON) → las ruedas se guardan solas.
+- **Verificado por CDP (píxel sobre el composite real):** neutro `[128,128,128]` (identidad); gain +0.7 → `[218,218,218]`
+  (=128×1.7); gain −0.7 → `[38,38,38]` (=128×0.3); lift rojo puro → `[230,77,77]` (R↑, G/B↓). PW compila, `glErr 0`,
+  UI = 3 ruedas + 3 sliders con handle en la posición correcta. **Nota:** la ruta PFD (fuente fulldome) sigue sin grade
+  primario ni LUT (consistente con R116). **Pendiente:** Fase 3 = curvas luma/RGB (1D LUT 256px por puntos de control).
+
+## ROUND 130 — Correcciones v2 · Etapa 9 (UI/Branding) · [U1]/[U2] (cierre)
+
+Cierre de la Etapa 9 de limpieza de UI.
+
+- **[U1] ✔ Botones minimalistas** — **Snap** y **Automation** pasan a **solo icono** (magnet / curvas), como el resto del
+  transport; se conserva el tooltip explicativo. Se eliminaron los `tn('#snapBtn'…)` y `tn('#curvesBtn'…)` de `applyLang`
+  (dejando solo `ttl()`): sin texto que reponer, `applyLang` ya no toca esos botones → el `<i>` del icono nunca se sobre-
+  escribe al cambiar de idioma (el else-branch de `tn()` hacía `textContent=` y habría borrado el icono).
+- **[U1] ✔ VIDEO/AUDIO mismo estilo** — el label **VIDEO** del ruler-pad usaba `.dvlab` pero el estilo estaba scopeado a
+  `.trackdivider.hdr .dvlab` (solo la barra AUDIO) → VIDEO salía sin la tipografía Geist / tracking / uppercase / color faint.
+  Selector ampliado a `.rulerpad .dvlab` → ambas etiquetas de grupo (barra gris) idénticas.
+- **[U2] ✔ Sin instrucciones escritas persistentes** — ya resuelto en rondas previas (se quitaron el hint del viewport 2D,
+  el `#autoLegend`/gramática de automatización, el flash de `toggleCurves` y el hint de timeline vacío). Verificado que hoy
+  NO queda ningún banner/leyenda/nota instructiva siempre-visible: la ayuda vive en tooltips de hover (`title=`) — justo lo
+  que pide el ticket. Único sub-punto no hecho: un afordancia "?" de ayuda dedicada (feature aparte, opcional, anotada).
+
 ## ROUND 129 — Correcciones v2 · Etapa 9 (UI/Branding) · [U4]/[U6]/[U7]
 
 Decisiones de Beltrán: [U4] la "línea amarilla del 3D" es la spring line (contorno) → dejarla **gris delgada** como las
