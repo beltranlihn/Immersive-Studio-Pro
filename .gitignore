@@ -1,0 +1,19 @@
+# dependencies & build output (regenerable via npm install / npm run dist)
+node_modules/
+dist/
+native/*/build/
+native/*/node_modules/
+
+# logs & scratch artifacts
+*.log
+scratchpad/out/
+scratchpad/*.log
+scratchpad/*.output
+scratchpad/*.png
+
+# OS cruft
+Thumbs.db
+.DS_Store
+
+# Claude Code local config/skills (not app source)
+.claude/

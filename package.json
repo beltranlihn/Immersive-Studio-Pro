@@ -1,0 +1,73 @@
+{
+  "name": "immersive-studio-pro",
+  "productName": "Immersive Studio Pro",
+  "version": "1.0.0",
+  "description": "Immersive Studio Pro — editor inmersivo (domo · 2D · sala 360) · Alma Digital Studio",
+  "author": "Alma Digital Studio",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win"
+  },
+  "dependencies": {
+    "dsp-ndi-send": "file:native/ndi-send",
+    "dsp-spout-send": "file:native/spout-send"
+  },
+  "devDependencies": {
+    "electron": "42.4.1",
+    "electron-builder": "26.15.2"
+  },
+  "build": {
+    "appId": "com.almadigitalstudio.immersivestudiopro",
+    "productName": "Immersive Studio Pro",
+    "directories": { "output": "dist" },
+    "fileAssociations": [
+      {
+        "ext": "isp",
+        "name": "Immersive Studio Project",
+        "description": "Immersive Studio Pro project",
+        "role": "Editor"
+      },
+      {
+        "ext": "ise",
+        "name": "Immersive Studio Project (legacy)",
+        "description": "Immersive Studio Pro project (legacy)",
+        "role": "Editor"
+      },
+      {
+        "ext": "rdome",
+        "name": "Dome Studio Project (legacy)",
+        "description": "Immersive Studio Pro project (legacy)",
+        "role": "Editor"
+      }
+    ],
+    "files": [
+      "index.html",
+      "app.js",
+      "mp4-muxer.min.js",
+      "main.js",
+      "preload.js",
+      "assets/**/*",
+      "node_modules/dsp-ndi-send/index.js",
+      "node_modules/dsp-ndi-send/package.json",
+      "node_modules/dsp-ndi-send/build/Release/*.node"
+    ],
+    "asarUnpack": [
+      "node_modules/dsp-ndi-send/build/Release/*.node"
+    ],
+    "win": {
+      "icon": "assets/alma-logo.png",
+      "target": [
+        { "target": "portable", "arch": ["x64"] },
+        { "target": "nsis", "arch": ["x64"] }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Immersive Studio Pro"
+    },
+    "portable": { "artifactName": "Immersive Studio Pro ${version} portable.exe" }
+  }
+}

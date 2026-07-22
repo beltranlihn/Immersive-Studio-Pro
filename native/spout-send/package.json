@@ -1,0 +1,10 @@
+{
+  "name": "dsp-spout-send",
+  "version": "1.0.0",
+  "description": "Minimal Spout (DirectX) sender for Immersive Studio Pro",
+  "main": "index.js",
+  "gypfile": true,
+  "dependencies": {
+    "node-addon-api": "^8.3.0"
+  }
+}

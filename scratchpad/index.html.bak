@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Immersive Studio Pro</title>
+<style>
+  /* self-hosted fonts (no Google Fonts CDN — the packaged .exe works fully offline) */
+  /* Geist is the single UI family; Inter is kept only as a fallback + for user text-clip content */
+  @font-face{font-family:'Geist';font-style:normal;font-weight:400;font-display:swap;src:url('assets/fonts/geist-400.woff2') format('woff2');}
+  @font-face{font-family:'Geist';font-style:normal;font-weight:500;font-display:swap;src:url('assets/fonts/geist-500.woff2') format('woff2');}
+  @font-face{font-family:'Geist';font-style:normal;font-weight:600;font-display:swap;src:url('assets/fonts/geist-600.woff2') format('woff2');}
+  @font-face{font-family:'Inter';font-style:normal;font-weight:400 600;font-display:swap;src:url('assets/fonts/inter-latin.woff2') format('woff2');}
+</style>
+<style>
+  /* [U-04] design tokens — single source for the monochrome ramp (bg → surface → ink) */
+  /* ===== [R102·D-T1] Sistema de diseño. Cada valor tiene fuente — ver PROPUESTA-DISENO-UI.md =====
+     SUPERFICIES: 3, no 6. Medido: toda referencia (Ableton/Premiere/Blender/Unreal, capturadas a resolución
+     nativa) tiene UNA superficie dominante con 30–54% del área; la nuestra mandaba solo en el 26% porque
+     repartíamos en seis. M3 define 5 roles y no los usa adyacentes. Pasos de 4–5 L* (Spectrum envía ΔL* 2.8–4.9).
+     NEUTRAS: las cuatro referencias envían grises neutros; nuestro tinte azul sesga el juicio de color, que es
+     justo lo que esta herramienta existe para hacer.
+     NO las aclaramos a #121212 (regla de Material): medido, Premiere —el análogo correcto, es vídeo— está en
+     L*=10.8 y nosotros en 8.2. Un entorno oscuro alrededor del visor está justificado. Ableton (22.6) y
+     Blender (26.7) son más claros porque no juzgan imagen.
+     La DIRECCIÓN del contraste es la affordance (Blender): botón = s2 (más claro que el panel);
+     campo editable = s0 (más oscuro). Sin bordes, sin iconos. */
+  :root{
+    --s0:#111111;  /* L* 5.1  — pozos: fondo de app, campo de timeline, inputs editables */
+    --s1:#1B1B1B;  /* L* 9.8  — paneles: LA superficie dominante (Premiere: 10.8) */
+    --s2:#262626;  /* L* 15.2 — elevado: botones, chips, cabeceras */
+    /* TINTAS. WCAG miente en oscuro: #8A9199 pasaba AA (4.22) con APCA Lc −38 = "aviso de copyright".
+       Objetivo real: ≥7:1 y |Lc|≥60 (M3 apunta a 7:1 —AAA— para texto primario en oscuro). */
+    --ink:#E0E0E0;      /* primario    Lc −85..−87 */
+    --ink-2:#B8B8B8;    /* secundario  Lc −61..−64 */
+    --ink-3:#8C8C8C;    /* NO es texto de cuerpo: Lc −38. Solo marcas de regla, sufijos de unidad */
+    --ink-dim:#6D6D6D;  /* deshabilitado Lc −23..−26 */
+    /* LÍNEAS: 3 alfas, no 10. Nadie distingue 0.08 de 0.09. M3: separador decorativo objetivo 1:1;
+       borde con significado 3:1. */
+    --line-soft:rgba(255,255,255,0.05);   /* divisor decorativo */
+    --line:rgba(255,255,255,0.10);        /* borde con significado */
+    --line-strong:rgba(255,255,255,0.16); /* foco / selección */
+    /* ACENTOS: presupuesto = 2, y está escrito. Live se diseñó a dos colores; el tercero "muddies the
+       waters". Eric Carl (Principal Designer, Ableton) lo defendió y PERDIÓ internamente — la disciplina
+       solo aguanta si es una regla, no un gusto. Añadir un tercero exige cambiar este comentario. */
+    --auto-live:#4FC3E8;  /* cian  = vivo / arrastrable */
+    --auto-ovr:#E5B567;   /* ámbar = anulado */
+    --danger:#D98A8A;
+    /* ESPACIADO: paleta CERRADA = intersección exacta de Spectrum + Primer + Atlassian. 2 y 6 son legales
+       (los tres los envían como tokens con nombre). No hay escotilla: si un valor no está aquí, no existe. */
+    --sp-2:2px; --sp-4:4px; --sp-6:6px; --sp-8:8px; --sp-12:12px; --sp-16:16px; --sp-20:20px; --sp-24:24px; --sp-32:32px;
+    /* alias heredados → colapsan los 6 grises viejos sobre las 3 superficies reales */
+    --bg-0:var(--s0); --bg-1:var(--s0); --bg-2:var(--s0);
+    --surface:var(--s1); --surface-2:var(--s2); --surface-3:var(--s2);
+    --ink-faint:var(--ink-2); /* LEVANTADO: 26 usos que eran texto real a Lc −38 */
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;}
+  body{font-family:'Geist','Inter',-apple-system,system-ui,sans-serif;background:var(--bg-1);color:var(--ink);
+    -webkit-font-smoothing:antialiased;font-size:11px;letter-spacing:-0.003em;overflow:hidden;user-select:none;}
+  .tnum{font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;} /* [U-39] ex .mono — it never was monospaced, it's Geist + tabular numerals */
+  ::-webkit-scrollbar{width:9px;height:9px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+  ::-webkit-scrollbar-corner{background:transparent;}
+  ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.14);border-radius:2px;border:2px solid transparent;background-clip:padding-box;}
+  ::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,0.22);}
+  /* slim monochrome range sliders (FOV / dolly / volume / etc.) — match the .prow fader look */
+  input[type=range]{-webkit-appearance:none;appearance:none;height:12px;background:transparent;cursor:pointer;}
+  input[type=range]::-webkit-slider-runnable-track{height:3px;border-radius:2px;background:var(--bg-0);box-shadow:inset 0 1px 2px rgba(0,0,0,0.55);}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:11px;height:11px;border-radius:50%;background:var(--ink);border:none;margin-top:-4px;box-shadow:0 1px 2px rgba(0,0,0,0.5);}
+  input[type=range]:hover::-webkit-slider-thumb{background:#FFFFFF;}
+  button{font-family:inherit;color:inherit;padding:0;}
+  button:focus-visible,input:focus-visible,select:focus-visible{outline:1.5px solid var(--ink-2);outline-offset:1px;}
+  [tabindex]:focus-visible{outline:1px solid var(--ink-2);outline-offset:-1px;} /* [R94-UT5·U-10b] inset ring for keyboard-focused clips / track headers */
+  button:disabled{opacity:.4;cursor:not-allowed;} /* [R94-UT5·U-30] real disabled buttons look disabled everywhere (matches .dis) */
+  @keyframes modalIn{from{opacity:0;transform:translateY(12px) scale(.99);}to{opacity:1;transform:none;}}
+  @keyframes overIn{from{opacity:0;}to{opacity:1;}}
+
+  .app{display:flex;flex-direction:column;height:100vh;width:100vw;background:var(--bg-1);}
+  /* top bar */
+  .top{height:28px;flex-shrink:0;display:flex;align-items:center;gap:9px;padding:0 10px;background:var(--surface);border-bottom:.5px solid rgba(255,255,255,0.09);}
+  .dot{width:6px;height:6px;border-radius:50%;background:#B4BAC1;flex-shrink:0;}
+  /* [U-18] segmented controls — ONE canonical look (surface-2 · border rgba .1 · radius 2). Variant rules below keep ONLY real size/padding differences. */
+  .seg,.vseg,.filtseg,.editseg,.groupseg,.seg2{background:var(--surface-2);border:.5px solid rgba(255,255,255,0.1);border-radius:2px;}
+  .seg,.vseg,.filtseg,.editseg,.groupseg{display:inline-flex;align-items:stretch;height:18px;overflow:hidden;}
+  .seg button,.vseg button,.filtseg button,.editseg button,.groupseg button{display:inline-flex;align-items:center;gap:5px;padding:0 9px;font-size:11px;font-weight:500;border:none;background:transparent;color:var(--ink-2);cursor:pointer;transition:background .12s,color .12s;}
+  .seg button+button,.vseg button+button,.filtseg button+button,.editseg button+button,.groupseg button+button{border-left:.5px solid rgba(255,255,255,0.1);}
+  .seg button:hover,.vseg button:hover,.filtseg button:hover,.editseg button:hover,.groupseg button:hover{background:var(--surface-3);}
+  .seg button.on,.vseg button.on,.filtseg button.on,.editseg button.on,.groupseg button.on,.seg2 button.on,.kindseg button.on{background:#454C55;color:#FFFFFF;}
+  .chip{font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;}
+
+  /* body wrappers: default = stagecol fills; tall-inspector mode moves #inspPane beside stagecol so it spans full height */
+  .bodyrow{flex:1;min-height:0;display:flex;}
+  .stagecol{flex:1;min-width:0;display:flex;flex-direction:column;}
+  .mid{flex:1;min-height:0;display:flex;background:var(--bg-1);}
+  aside{display:flex;flex-direction:column;background:var(--bg-2);}
+  .panhead{height:26px;flex-shrink:0;display:flex;align-items:center;gap:6px;padding:0 8px;background:#121316;border-bottom:.5px solid rgba(0,0,0,0.45);}
+  .pantab{display:flex;align-items:center;gap:6px;height:18px;padding:0 6px;background:transparent;border:none;border-radius:2px;}
+  .pantab .ttl{font-size:11px;font-weight:600;letter-spacing:-0.008em;color:#D7DADF;}
+  .countbadge{font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:9px;font-weight:500;color:var(--ink-faint);background:var(--bg-0);padding:1px 5px;border-radius:2px;}
+  .ibtn{width:22px;height:22px;display:grid;place-items:center;border-radius:2px;border:.5px solid rgba(255,255,255,0.09);background:var(--surface-2);color:#B4BAC1;cursor:pointer;transition:background .14s,transform .1s;} /* [U-20] 22² hit target (same icon, more inner padding) */
+  .ibtn:hover{background:var(--surface-3);} .ibtn:active{transform:scale(.9);}
+  .ibtn.flat{border:none;background:transparent;color:#9EA5AD;} .ibtn.flat:hover{color:var(--ink);} .ibtn.flat.on{color:var(--ink);}
+  .gutter{width:5px;flex-shrink:0;cursor:col-resize;background:transparent;margin:0 -2.5px;z-index:8;}
+  .gutter:hover{background:rgba(255,255,255,0.18);}
+
+  /* media */
+  .toolrow{display:flex;align-items:center;gap:7px;flex-shrink:0;border-bottom:.5px solid rgba(255,255,255,0.05);}
+  .searchbox{flex:1;min-width:0;display:flex;align-items:center;gap:6px;height:18px;padding:0 8px;border-radius:2px;background:#0C0D10;border:.5px solid rgba(255,255,255,0.07);box-shadow:inset 0 1px 2px rgba(0,0,0,0.3);}
+  .searchbox input{flex:1;min-width:0;background:transparent;border:none;outline:none;color:var(--ink);font-family:inherit;font-size:11px;}
+  .filtseg{flex-shrink:0;} /* [U-18] look shared with .seg */
+  .filtseg button{padding:0 7px;display:grid;place-items:center;}
+  .medialist{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:5px 6px 12px;}
+  .grphead{display:flex;align-items:center;gap:6px;height:24px;padding:0 8px;border-radius:2px;cursor:default;color:#B4BAC1;}
+  .grphead:hover{background:rgba(255,255,255,0.04);}
+  .mitem{display:flex;align-items:center;gap:9px;padding:5px 7px;margin-bottom:1px;border-radius:2px;cursor:grab;transition:background .12s;}
+  .mitem:hover{background:rgba(255,255,255,0.04);}
+  .mitem.sel{background:rgba(201,205,211,0.14);box-shadow:inset 0 0 0 1px rgba(201,205,211,0.55);}
+  .mtile.sel{border-color:var(--ink-2);box-shadow:0 0 0 1px var(--ink-2);}
+  /* media grid (square tiles) + folder navigation */
+  .mediagrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(72px,1fr));gap:6px;padding:7px;align-content:start;border:1px solid transparent;border-radius:4px;}
+  .mediagrid.dragover{border-color:rgba(201,205,211,0.5);background:rgba(201,205,211,0.06);}
+  .mtile.folderhdr.dragover,.mtile.backtile.dragover{border-color:var(--ink-2);box-shadow:0 0 0 2px rgba(201,205,211,0.35);}
+  .mtile{position:relative;border-radius:3px;overflow:hidden;cursor:grab;background:var(--bg-2);border:.5px solid rgba(255,255,255,0.08);display:flex;flex-direction:column;transition:border-color .12s;}
+  .mtile:hover{border-color:rgba(201,205,211,0.45);}
+  .mtile.missing{box-shadow:inset 0 0 0 1px rgba(201,205,211,0.5);}
+  .mtile .tthumb{aspect-ratio:1;background-size:cover;background-position:center;background-color:var(--bg-1);position:relative;}
+  .mtile .tthumb.mseq{outline:1.5px solid #454C55;outline-offset:-1.5px;}
+  .mtile .tdur{position:absolute;right:2px;bottom:2px;font:9px Geist;background:rgba(0,0,0,0.62);color:var(--ink-2);padding:0 3px;border-radius:2px;}
+  .mtile .tprox{position:absolute;left:2px;top:2px;font-size:9px;}
+  .mtile .tpbar{position:absolute;left:0;right:0;bottom:0;height:2px;background:rgba(0,0,0,0.5);} .mtile .tpbar>i{display:block;height:100%;background:#9EA5AD;}
+  .mtile .tlbl{font-size:9px;line-height:1.25;color:var(--ink-2);padding:3px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .mtile.foldertile,.mtile.backtile{cursor:pointer;background:var(--surface);}
+  .mthumb{width:50px;height:30px;flex-shrink:0;border-radius:2px;background-size:cover;background-position:center;border:.5px solid rgba(255,255,255,0.09);position:relative;overflow:hidden;background-color:var(--surface-2);}
+  .mthumb .dur{position:absolute;bottom:2px;right:3px;font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:9px;color:var(--ink);background:rgba(0,0,0,0.55);padding:0 3px;border-radius:2px;}
+  .mthumb .pbar{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(0,0,0,0.4);}
+  .mthumb .pbar>i{display:block;height:100%;width:0;background:#9EA5AD;}
+  .mname{font-size:11px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .mmeta{font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:9px;color:#9EA5AD;text-transform:uppercase;letter-spacing:0.06em;}
+  .mdot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
+  .drop{margin:8px;border:1px dashed rgba(255,255,255,0.12);border-radius:2px;padding:18px 10px;text-align:center;color:var(--ink-faint);cursor:pointer;font-size:11px;line-height:1.6;}
+  .drop:hover{border-color:var(--ink-2);color:#B4BAC1;} .drop b{color:#B4BAC1;}
+
+  /* viewport */
+  main{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--bg-1);position:relative;overflow:hidden;}
+  .vptool{height:28px;flex-shrink:0;display:flex;align-items:center;gap:7px;padding:0 8px;background:var(--surface);border-bottom:.5px solid rgba(0,0,0,0.35);overflow:hidden;}
+  .vseg button{height:100%;white-space:nowrap;} /* [U-18] look shared with .seg */
+  .vdiv{width:.5px;height:16px;background:rgba(255,255,255,0.08);flex-shrink:0;}
+  .vslab{display:inline-flex;align-items:center;gap:6px;height:18px;padding:0 7px;border-radius:2px;background:var(--surface-2);border-top:.5px solid rgba(255,255,255,0.05);border-bottom:.5px solid rgba(0,0,0,0.3);}
+  .vslab .k{font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:9px;letter-spacing:0.08em;color:var(--ink-faint);}
+  .vslab .v{font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:var(--ink);}
+  .stage{flex:1;min-height:0;position:relative;overflow:hidden;background:#000;}
+  .stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block;}
+  #grid{pointer-events:auto;}
+
+  /* inspector */
+  .insbody{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;}
+  .selhead{display:flex;align-items:center;gap:10px;padding:11px 12px 10px;}
+  .selthumb{width:44px;height:29px;border-radius:2px;background-size:cover;background-position:center;border:.5px solid rgba(255,255,255,0.14);background-color:var(--surface-2);}
+  .selname{font-size:12px;font-weight:600;letter-spacing:-0.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#DEE1E5;}
+  .selmeta{font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:9px;letter-spacing:0.02em;color:#8A9199;margin-top:2px;text-transform:uppercase;} /* [R92-T5] informational text lifted to ~4.5:1 (long dark-room sessions) */
+  .sechead{width:100%;display:flex;align-items:center;gap:6px;height:20px;padding:0 12px;border:none;background:transparent;cursor:pointer;}
+  .fxhdr .fxtog,.fxhdr .fxcol,.fxhdr .fxdel{background:none;border:none;} .fxhdr .fxtog:hover,.fxhdr .fxcol:hover,.fxhdr .fxdel:hover{background:var(--surface-3);} .fxhdr .fxdel:hover{color:var(--ink-2) !important;}
+  .aselect{appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%239EA5AD' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6 6-6'/></svg>");background-repeat:no-repeat;background-position:right 4px center;padding-right:15px;}
+  .sechead .t{font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:9px;letter-spacing:0.14em;text-transform:uppercase;color:#9EA5AD;}
+  .sechead .ln{flex:1;height:.5px;background:rgba(255,255,255,0.09);}
+  .prow{display:flex;align-items:center;gap:6px;padding:1px 12px;min-height:22px;border-bottom:.5px solid rgba(255,255,255,0.04);}
+  .prow .kf{width:18px;height:18px;flex-shrink:0;display:grid;place-items:center;border:none;background:transparent;cursor:pointer;color:var(--ink-faint);}
+  .prow .kf.on{color:#FFFFFF;}
+  .prow .reEn{width:18px;height:18px;flex-shrink:0;display:none;place-items:center;border:.5px solid rgba(255,255,255,0.25);border-radius:2px;background:transparent;cursor:pointer;color:var(--ink-2);font-size:12px;line-height:1;padding:0;}
+  .prow .reEn:hover{background:rgba(255,255,255,0.1);}
+  .prow .lab{width:52px;flex-shrink:0;font-size:11px;color:#B4BAC1;}
+  .prow.auto .lab{color:var(--ink);font-weight:500;} /* param carries automation (Ableton-style highlight) */
+  .prow .field{flex:1;display:flex;align-items:center;justify-content:flex-end;gap:8px;height:20px;cursor:ew-resize;}
+  .prow .track{flex:1;height:3px;border-radius:1px;background:var(--bg-0);box-shadow:inset 0 1px 2px rgba(0,0,0,0.55);position:relative;overflow:hidden;}
+  .prow .track>i{position:absolute;left:0;top:0;bottom:0;background:#FFFFFF;}
+  .prow .box{min-width:42px;display:flex;align-items:baseline;justify-content:flex-end;gap:2px;height:16px;padding:0 5px;border-radius:2px;background:var(--surface-2);}
+  .prow .box .num{font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:var(--ink);}
+  .prow .box .u{font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:9px;color:#8A9199;}
+  .prow .box input.numedit{width:44px;background:var(--bg-0);border:.5px solid var(--ink-2);border-radius:2px;outline:none;color:var(--ink);font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;text-align:right;padding:0 3px;box-shadow:0 0 0 2px rgba(201,205,211,0.22);}
+  .prow .nav{display:flex;align-items:center;flex-shrink:0;}
+  .prow .nav button{width:15px;height:18px;display:grid;place-items:center;border:none;background:transparent;cursor:pointer;color:var(--ink-faint);}
+  .prow .nav button:hover{color:#B4BAC1;}
+  .prow .nav button.on{color:var(--ink);} /* filled = the playhead sits on a keyframe of this param */
+  .togbtn,.togbtn2{display:inline-flex;align-items:center;gap:5px;height:18px;padding:0 9px;font-size:11px;font-weight:500;border-radius:2px;cursor:pointer;border:.5px solid rgba(255,255,255,0.09);background:var(--surface-2);color:#B4BAC1;} /* [U-18] .togbtn2 was a value-by-value clone */
+  .togbtn.on,.togbtn2.on{background:#454C55;color:#FFFFFF;border-color:rgba(255,255,255,0.16);}
+  .selsel{width:100%;height:18px;padding:0 7px;border-radius:2px;border:.5px solid rgba(255,255,255,0.15);background:var(--surface-2);color:var(--ink);font-family:inherit;font-size:11px;}
+  .insEmpty{display:flex;flex-direction:column;align-items:center;gap:10px;color:var(--ink-faint);text-align:center;padding:50px 20px;font-size:12px;line-height:1.6;}
+
+  /* transport */
+  .transport{height:30px;flex-shrink:0;display:flex;align-items:center;gap:7px;padding:0 10px;background:var(--surface);border-top:.5px solid rgba(0,0,0,0.4);border-bottom:.5px solid rgba(0,0,0,0.4);position:relative;}
+  .tccenter{position:absolute;left:50%;top:0;height:100%;transform:translateX(-50%);display:flex;align-items:center;gap:9px;}
+  .tbtn{width:22px;height:22px;display:grid;place-items:center;border:none;border-radius:2px;background:transparent;color:#B4BAC1;cursor:pointer;transition:background .12s,transform .1s;}
+  .tbtn:hover{background:var(--surface-2);color:var(--ink);} .tbtn:active{transform:scale(.88);}
+  .tbtn.on{color:#FFFFFF;background:#454C55;}
+  .playb{width:30px;height:22px;display:grid;place-items:center;border:.5px solid rgba(255,255,255,0.12);border-radius:2px;background:#3A4047;color:#FFFFFF;cursor:pointer;margin:0 2px;}
+  .playb:hover{filter:brightness(1.14);} .playb:active{transform:scale(.93);}
+  .tcbox{display:flex;align-items:center;justify-content:center;gap:9px;font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;height:22px;padding:0 11px;border-radius:2px;background:var(--bg-0);border:.5px solid rgba(255,255,255,0.06);box-shadow:inset 0 1px 3px rgba(0,0,0,0.5);}
+  .tcbox .tc{font-size:13px;font-weight:500;color:var(--ink);letter-spacing:0.02em;display:inline-block;min-width:72px;text-align:center;font-variant-numeric:tabular-nums;}
+  .tcbox .du{font-size:10px;color:var(--ink-faint);display:inline-block;min-width:50px;text-align:right;font-variant-numeric:tabular-nums;}
+  /* [U-18] .editseg fully covered by the shared segmented rules above */
+  .bpmbox{display:flex;align-items:baseline;gap:3px;height:18px;padding:0 9px;border-radius:2px;background:var(--surface-2);border-top:.5px solid rgba(255,255,255,0.05);border-bottom:.5px solid rgba(0,0,0,0.3);cursor:ew-resize;}
+  .seg2{display:inline-flex;gap:1px;padding:2px;} /* [U-18] padded variant — look shared with .seg */
+  .seg2 button{height:16px;padding:0 8px;font-size:11px;font-weight:500;border:none;border-radius:2px;background:transparent;color:var(--ink-2);cursor:pointer;}
+  .qsel{height:18px;padding:0 6px;font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:11px;border-radius:2px;border:.5px solid rgba(255,255,255,0.09);background:var(--surface-2);color:var(--ink-2);cursor:pointer;outline:none;}
+  .meters{display:flex;flex-direction:column;gap:3px;justify-content:center;height:22px;}
+  .meters .mrow{display:flex;align-items:center;gap:5px;}
+  .meters .mrow span{font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:9px;color:var(--ink-faint);width:7px;}
+  .meters .mbar{width:50px;height:4px;border-radius:2px;background:var(--bg-0);overflow:hidden;box-shadow:inset 0 1px 1px rgba(0,0,0,0.5);}
+  .meters .mbar>i{display:block;height:100%;width:0;background:linear-gradient(90deg,#8A9199 58%,#B4BAC1 82%,var(--ink));}
+  .curvedrawer{height:188px;flex-shrink:0;display:flex;border-top:.5px solid rgba(0,0,0,0.45);background:#121316;}
+  .curveparams{width:194px;flex-shrink:0;border-right:.5px solid rgba(0,0,0,0.4);overflow-y:auto;padding:5px 0;}
+  .curveparams button{display:flex;align-items:center;gap:8px;width:100%;text-align:left;padding:6px 11px;border:none;background:transparent;color:#B4BAC1;cursor:pointer;font-size:11px;}
+  .curveparams button.on{background:var(--surface);color:var(--ink);}
+  .curveparams button .sw{width:9px;height:9px;border-radius:2px;flex-shrink:0;}
+  .curvegraph{flex:1;position:relative;overflow:hidden;}
+  .curvegraph canvas{display:block;cursor:crosshair;}
+  .work{position:absolute;top:0;bottom:0;background:rgba(180,186,193,0.10);border-left:1.5px solid #B4BAC1;border-right:1.5px solid #B4BAC1;z-index:5;pointer-events:none;}
+  .work .wkbrace{position:absolute;top:0;left:0;right:0;height:11px;pointer-events:auto;cursor:grab;background:rgba(180,186,193,0.55);}
+  .work .wkbrace:active{cursor:grabbing;}
+  .work .wkh{position:absolute;top:0;height:11px;width:7px;pointer-events:auto;cursor:ew-resize;z-index:1;} .work .wkh.l{left:-3px;} .work .wkh.r{right:-3px;}
+  .timesel{position:absolute;top:0;bottom:0;background:rgba(201,205,211,0.13);border-left:1px solid rgba(201,205,211,0.6);border-right:1px solid rgba(201,205,211,0.6);z-index:4;pointer-events:none;}
+  .timesel.insert{background:transparent;border-right-width:0;} /* zero-width click = a single thin insert line (play starts here), not the thick playhead */
+  .zoomgrp{display:inline-flex;align-items:stretch;height:18px;border:.5px solid rgba(255,255,255,0.09);border-radius:2px;overflow:hidden;background:var(--bg-2);}
+  .zoomgrp button{width:24px;display:grid;place-items:center;border:none;background:transparent;color:#B4BAC1;cursor:pointer;}
+  .zoomgrp button+button{border-left:.5px solid rgba(255,255,255,0.09);}
+  .zoomgrp button:hover{background:var(--surface-3);}
+
+  /* timeline */
+  .timeline{flex-shrink:0;height:402px;display:flex;flex-direction:column;background:#121316;}
+  .hres{height:5px;flex-shrink:0;cursor:row-resize;background:transparent;z-index:9;}
+  .hres:hover{background:rgba(255,255,255,0.2);}
+  .tlmain{flex:1;min-height:0;display:flex;overflow:hidden;}
+  .toolrail{width:32px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 0;background:#1A1C20;border-right:.5px solid rgba(0,0,0,0.4);}
+  .toolrail button{width:24px;height:24px;display:grid;place-items:center;border:none;border-radius:2px;background:transparent;color:#828891;cursor:pointer;transition:background .12s,color .12s;}
+  .toolrail button:hover{background:var(--surface-3);} .toolrail button.on{background:#454C55;color:#FFFFFF;}
+  .trackhdr{width:152px;flex-shrink:0;background:var(--surface);border-right:.5px solid rgba(0,0,0,0.4);z-index:3;overflow-x:hidden;overflow-y:auto;position:relative;scrollbar-width:none;} /* [R92-T9] scrolls NATIVELY in sync with #tlscroll so its sticky audio module pins identically */
+  .trackhdr::-webkit-scrollbar{display:none;}
+  .trackhdr .rulerpad{height:22px;border-bottom:.5px solid rgba(0,0,0,0.4);background:var(--surface);position:sticky;top:0;z-index:6;} /* pinned time-bar corner */
+  .lanehdr{position:relative;display:flex;align-items:center;gap:5px;padding:0 7px 0 10px;border-bottom:.5px solid rgba(255,255,255,0.05);cursor:pointer;}
+  .lanehdr:hover{background:rgba(255,255,255,0.03);}
+  .lanehdr.sel{background:rgba(201,205,211,0.10);box-shadow:inset 0 0 0 1.5px rgba(255,255,255,0.5), inset 2px 0 0 var(--ink-2);} /* full inset outline stays visible even over a coloured (tinted) track */
+  .lanehdr .bar{position:absolute;left:0;top:0;bottom:0;width:3px;}
+  .lanehdr .tag{font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;font-weight:500;color:var(--ink-faint);width:18px;}
+  .lanehdr .nm{flex:1;font-size:11px;font-weight:500;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .lanehdr .ms{width:16px;height:16px;display:grid;place-items:center;border:.5px solid rgba(255,255,255,0.1);border-radius:2px;font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:9px;font-weight:500;cursor:pointer;color:var(--ink-faint);background:var(--surface-2);}
+  .lanehdr .ms.on{color:#FFFFFF;background:#454C55;}
+  .lanehdr .ms.solo.on{color:var(--bg-1);background:var(--ink-2);}
+  .lanehdr .lcol{width:16px;height:16px;flex-shrink:0;display:grid;place-items:center;border:none;background:transparent;color:#9EA5AD;cursor:pointer;padding:0;}
+  .lanehdr .lcol:hover{color:var(--ink);}
+  .lanehdr .laneres{position:absolute;left:0;right:0;bottom:-2px;height:6px;cursor:row-resize;z-index:4;}
+  .lanehdr .laneres:hover{background:rgba(255,255,255,0.25);}
+  .lanehdr.collapsed .nm{font-size:11px;color:#7A828B;} .lanehdr.collapsed .ms{height:15px;width:16px;}
+  .lane.collapsed .clip .tt{font-size:9px;height:100%;line-height:inherit;} .lane.collapsed .clip .fadeh,.lane.collapsed .clip .cpx,.lane.collapsed .clip .cpxbar,.lane.collapsed .clip .kfstrip{display:none;}
+  /* automation: envelope canvas drawn on the clip (child of .clip), below the reserved title band */
+  .clip .clipautocv{position:absolute;display:block;pointer-events:auto;cursor:crosshair;z-index:1;}
+  /* [R95·D1] Automation REC: armed = the dot goes red and breathes — the one place where red is allowed in this chrome */
+  #autoRecBtn .recdot{width:9px;height:9px;border-radius:50%;background:var(--ink-faint);display:block;}
+  #autoRecBtn.on{border-color:rgba(224,100,92,0.6);} #autoRecBtn.on .recdot{background:#E0645C;animation:recpulse 1.4s ease-in-out infinite;}
+  @keyframes recpulse{0%,100%{opacity:1}50%{opacity:.35}}
+  body.rm-on #autoRecBtn.on .recdot{animation:none;}
+  /* ===== [R95·C1] Modulation: the state lives ON the control (Bitwig), the stack in a panel, the audit line in plain text ===== */
+  .prow .modb{width:18px;height:18px;flex-shrink:0;display:grid;place-items:center;border:.5px solid rgba(255,255,255,0.1);border-radius:2px;background:#24272C;color:var(--ink-faint);cursor:pointer;padding:0;}
+  .prow .modb:hover{color:var(--ink);background:var(--surface-3);}
+  .prow.modon .modb{color:var(--auto-live);border-color:rgba(79,195,232,0.55);} /* cyan = this parameter is driven live */
+  .prow .field{position:relative;}
+  .prow .modarc{position:absolute;left:0;right:0;bottom:-1px;height:2px;pointer-events:none;display:none;border-radius:1px;}
+  .prow.modon .modarc{display:block;background:linear-gradient(90deg,transparent var(--m0,0%),var(--auto-live) var(--m0,0%),var(--auto-live) var(--m1,0%),transparent var(--m1,0%));} /* the modulated span, drawn OVER the base track — base and modulation never merge */
+  .prow.modon .num{color:var(--auto-live);}
+  .modpan{position:fixed;z-index:9000;width:360px;background:var(--surface);border:.5px solid rgba(255,255,255,0.16);border-radius:3px;box-shadow:0 8px 26px rgba(0,0,0,0.6);font-size:11px;color:var(--ink-2);}
+  .modpan .mph{display:flex;align-items:center;gap:6px;padding:7px 9px;border-bottom:.5px solid rgba(255,255,255,0.08);}
+  .modpan .mph b{color:var(--ink);font-weight:600;} .modpan .mpsub{color:var(--ink-faint);font-size:9px;text-transform:uppercase;letter-spacing:.08em;flex:1;}
+  .modpan .mpx{width:18px;height:18px;display:grid;place-items:center;background:none;border:none;color:var(--ink-faint);cursor:pointer;} .modpan .mpx:hover{color:var(--ink);}
+  .modpan .mplist{max-height:280px;overflow-y:auto;}
+  .modpan .mpempty{padding:12px 10px;color:var(--ink-faint);text-align:center;}
+  .modpan .mprow{padding:6px 9px;border-bottom:.5px solid rgba(255,255,255,0.05);} .modpan .mprow.off{opacity:.45;}
+  .modpan .mpr1,.modpan .mpr2{display:flex;align-items:center;gap:4px;} .modpan .mpr2{margin-top:4px;padding-left:20px;}
+  .modpan .mpon{width:16px;height:16px;background:none;border:none;color:var(--auto-live);cursor:pointer;font-size:10px;padding:0;flex-shrink:0;}
+  .modpan .mprow.off .mpon{color:var(--ink-faint);}
+  .modpan select.sysel{flex:1;min-width:0;} .modpan .mpsrc{max-width:108px;} .modpan .mpbl{max-width:104px;}
+  .modpan .tnum{width:46px;height:17px;background:var(--surface-2);border:.5px solid rgba(255,255,255,0.1);border-radius:2px;color:var(--ink);text-align:right;font-size:10px;padding:0 3px;}
+  .modpan .mpu,.modpan .mplab{color:var(--ink-faint);font-size:9px;flex-shrink:0;}
+  .modpan .mpsync{display:flex;align-items:center;gap:3px;color:var(--ink-faint);font-size:9px;cursor:pointer;flex-shrink:0;}
+  .modpan .mpup,.modpan .mpdel,.modpan .mpfrz{width:17px;height:17px;display:grid;place-items:center;background:var(--surface-2);border:.5px solid rgba(255,255,255,0.1);border-radius:2px;color:var(--ink-faint);cursor:pointer;font-size:9px;padding:0;flex-shrink:0;}
+  .modpan .mpup:hover,.modpan .mpdel:hover,.modpan .mpfrz:hover{color:var(--ink);}
+  .modpan .mpfrz.on{color:var(--auto-live);border-color:rgba(79,195,232,0.55);} /* frozen = cyan, same language as "driven live" */
+  /* [R95·C2] the spectrum picker: draw the band onto the real spectrum (Notch) and it becomes the modulation source (VDMX) */
+  .modpan .mpspec{margin:5px 0 1px 20px;}
+  .modpan .mpspeccv{display:block;width:100%;height:52px;border:.5px solid rgba(255,255,255,0.1);border-radius:2px;cursor:crosshair;background:var(--bg-0);}
+  .modpan .mpspecinfo{font-size:9px;color:var(--ink-faint);margin-top:2px;font-variant-numeric:tabular-nums;}
+  .modpan .mpadd{display:flex;gap:5px;padding:7px 9px;border-top:.5px solid rgba(255,255,255,0.08);}
+  .modpan .mpadd button{flex:1;height:20px;background:var(--surface-2);border:.5px solid rgba(255,255,255,0.1);border-radius:2px;color:var(--ink-2);cursor:pointer;font-size:10px;}
+  .modpan .mpadd button:hover{background:var(--surface-3);color:var(--ink);}
+  /* the audit line: "62% = base 40% + audio(low 55%, ...)" — answers "why is it that, right now?" without opening anything */
+  .modpan .mpformula{padding:7px 9px;border-top:.5px solid rgba(255,255,255,0.08);background:var(--bg-1);color:var(--auto-live);font-size:10px;line-height:1.45;font-variant-numeric:tabular-nums;word-break:break-word;}
+  /* [R93] Ableton chooser pair (device + parameter): lives in the TRACK HEADER (.autoctl) and in each sub-lane header */
+  /* [R95·E4] STACKED, like Ableton: device over parameter. Side by side in a 152px header each select got ~55px and
+     truncated to "Tra∨ ◆S∨"; stacked they get the full width and read in full. Same geometry as the text variant. */
+  .autoduo{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0;align-items:stretch;justify-content:center;overflow:hidden;}
+  .autoduo .aselect{width:100%;height:16px;font-size:10px;}
+  .autoduo .adev{color:var(--ink-faint);}
+  /* [R95·E4] unfocused lanes show device/parameter as 2-line text instead of two truncated dropdowns ("Tra∨ ◆S∨") */
+  .autoduo.txt{flex-direction:column;align-items:flex-start;justify-content:center;gap:0;cursor:pointer;line-height:1.25;overflow:hidden;}
+  .autoduo.txt .adev-t{font-size:9px;color:var(--ink-faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;}
+  .autoduo.txt .apar-t{font-size:11px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;}
+  .autoduo.txt:hover .apar-t{color:var(--ink);}
+  /* [R95·E1] the parameter's hue as a 3px side bar — the visual tie between a header and its curve (costs no width) */
+  .autohdr,.lanehdr .autoctl{position:relative;}
+  .autohdr::before,.lanehdr .autoctl::before{content:'';position:absolute;left:0;top:2px;bottom:2px;width:3px;border-radius:2px;background:var(--pc,transparent);}
+  .autohdr{padding-left:9px;} .lanehdr .autoctl{padding-left:7px;}
+  .autoduo .aselect{flex:1;min-width:0;height:18px;font-size:11px;color:var(--ink-2);background-color:var(--surface-2);border:.5px solid rgba(255,255,255,0.1);border-radius:2px;padding:0 13px 0 4px;cursor:pointer;}
+  .autoduo .adev{flex:0.8;}.autoduo .apar{flex:1.2;} /* [R94-UT2·U-15] the parameter name is the longer of the pair — give it the room */
+  .lanehdr .autoctl{position:absolute;left:20px;right:6px;bottom:3px;display:flex;gap:4px;align-items:center;z-index:4;}
+  .lanehdr .autoctl .asw{width:8px;height:8px;border-radius:2px;flex-shrink:0;}
+  .lanehdr .autoctl .abt{width:18px;height:18px;flex-shrink:0;display:grid;place-items:center;border:.5px solid rgba(255,255,255,0.1);border-radius:2px;background:var(--surface-2);color:var(--ink-faint);cursor:pointer;font-size:11px;line-height:1;padding:0;}
+  .lanehdr .autoctl .abt:hover{color:var(--ink);background:var(--surface-3);}
+  .lanehdr .autoctl .abt.on{color:#FFFFFF;border-color:rgba(201,205,211,0.5);}
+  .lanehdr .autoctl .abt.areen{display:none;color:var(--ink-2);border-color:rgba(201,205,211,0.5);} .lanehdr .autoctl .abt.areen.show{display:grid;}
+  .autolane{position:relative;border-bottom:.5px solid rgba(255,255,255,0.05);background:#0F1013;}
+  .autolane .autocv{position:absolute;left:0;top:0;display:block;pointer-events:auto;cursor:crosshair;}
+  .autohdr{position:relative;display:flex;align-items:center;gap:6px;padding:0 7px 0 22px;border-bottom:.5px solid rgba(255,255,255,0.05);background:#181A1E;}
+  .autohdr .autores{position:absolute;left:0;right:0;bottom:0;height:5px;cursor:ns-resize;background:transparent;}
+  .autohdr .autores:hover{background:rgba(255,255,255,0.25);}
+  .autohdr .asw{width:8px;height:8px;border-radius:2px;flex-shrink:0;}
+  .autohdr .alab{flex:1;font-size:11px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .autohdr .aselect{flex:1;min-width:0;height:18px;font-size:11px;color:var(--ink-2);background-color:var(--surface-2);border:.5px solid rgba(255,255,255,0.1);border-radius:2px;padding:0 15px 0 4px;cursor:pointer;}
+  .autohdr .abt{width:18px;height:18px;flex-shrink:0;display:grid;place-items:center;border:.5px solid rgba(255,255,255,0.1);border-radius:2px;background:var(--surface-2);color:var(--ink-faint);cursor:pointer;font-size:11px;line-height:1;padding:0;}
+  .autohdr .abt:hover{color:var(--ink);background:var(--surface-3);}
+  .autohdr .abt.on{color:#FFFFFF;border-color:rgba(201,205,211,0.5);}
+  .autohdr .abt.areen{display:none;color:var(--ink-2);border-color:rgba(201,205,211,0.5);} .autohdr .abt.areen.show{display:grid;}
+  .lanehdr .autoctl .abt.ovr,.autohdr .abt.ovr{color:#E5B567;border-color:rgba(229,181,103,0.55);} /* [R94-UT2·U-16] amber = automation overridden (Ableton-style), vs white "on" = following the curve */
+  .tlscroll{flex:1;overflow:auto;position:relative;}
+  .ruler{height:22px;position:sticky;top:0;background:var(--bg-2);border-bottom:.5px solid rgba(0,0,0,0.4);z-index:4;}
+  .ruler canvas{display:block;}
+  #clipExtent{position:absolute;bottom:0;height:3px;background:var(--ink-3);opacity:.75;border-radius:1px;pointer-events:none;z-index:5;display:none;} /* [R94d] Premiere-style bar spanning the clip extent of the sequence */
+  .tracks{position:relative;}
+  .lane{border-bottom:.5px solid rgba(255,255,255,0.05);position:relative;}
+  /* [R92-T8/T9] video↔audio divider (Premiere-style double line) — also the audio-module resize grip */
+  .trackdivider{height:9px;flex-shrink:0;background:var(--bg-0);border-top:1px solid rgba(255,255,255,0.14);border-bottom:1px solid rgba(255,255,255,0.14);box-shadow:inset 0 0 0 100px rgba(0,0,0,0.35);}
+  .trackdivider.resizable{cursor:row-resize;} .trackdivider.resizable:hover{background:#141619;border-top-color:rgba(201,205,211,0.55);border-bottom-color:rgba(201,205,211,0.55);}
+  .trackdivider.hdr{display:flex;align-items:center;padding:0 10px;}
+  .trackdivider.hdr .dvlab{font-family:'Geist',system-ui,sans-serif;font-size:9px;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink-faint);}
+  /* [R92-T9] pinned audio module — video tracks scroll behind it (Premiere) */
+  .audiozone{position:sticky;bottom:0;z-index:4;background:var(--bg-1);overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;scrollbar-width:none;} /* [R93b] fixed-height module: extra audio tracks scroll INSIDE (wheel); no visible scrollbar */
+  .audiozone::-webkit-scrollbar{display:none;}
+  .audiozone.covers{box-shadow:0 -8px 12px -6px rgba(0,0,0,0.55);} /* [R94-UT2·U-01] top shadow = video rows are hidden behind the pinned module */
+  .audiozone.hdr{background:var(--surface);z-index:6;}
+  .audiozone .trackdivider{position:sticky;top:0;z-index:7;} /* the divider (resize grip) stays pinned at the top of the module while its content scrolls */
+  .clip{position:absolute;top:4px;border-radius:2px;overflow:hidden;cursor:default;background:transparent;border:1px solid rgba(255,255,255,0.10);}
+  .clip .fill{position:absolute;inset:0;background-size:cover;background-position:center;opacity:.42;}
+  .clip .scrim{position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,0.05),rgba(0,0,0,0.22));}
+  .clip .cthumb{position:absolute;left:0;top:15px;bottom:0;background-size:cover;background-position:center;border-right:1px solid rgba(0,0,0,0.45);pointer-events:none;z-index:1;} /* [R94b] Premiere-style head thumbnail, fixed at the clip's left edge */
+  body.automode .clip .cthumb{display:none;} /* automation mode: the clip body is the envelope canvas — no thumbnail */
+  .lane.collapsed .clip .cthumb{display:none;}
+  .clip .tt{position:absolute;left:0;right:0;top:0;height:15px;line-height:15px;padding:0 7px;font-size:10px;font-weight:600;color:#F2F4F8;text-shadow:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:#3C4046;border-bottom:.5px solid rgba(0,0,0,0.25);cursor:grab;pointer-events:auto;z-index:2;}
+  .clip .tt:active{cursor:grabbing;} .clip.sel .tt{box-shadow:inset 0 0 0 1.5px rgba(255,255,255,0.7);}
+  /* [R94-UT2·U-09] automation mode: the clip body is the envelope canvas — highlight the title band as the ONLY grab zone */
+  body.automode .clip .tt{cursor:grab;box-shadow:inset 0 -1px 0 rgba(255,255,255,0.28);}
+  /* [R95·E3] with automation on, the material steps back so the envelope is the subject (Ableton dims the waveform) */
+  body.automode .clip .fill{opacity:.35;} body.automode .clip .cthumb{opacity:.3;} body.automode .clip .scrim{opacity:.5;}
+  /* [R94c] Simple clip view (Premiere): the whole block grabs — the title band stops being the only handle */
+  body.simpleclips .clip{cursor:grab;} body.simpleclips .clip:active{cursor:grabbing;}
+  body.simpleclips .clip .tt{box-shadow:none;}
+  body.automode .clip .tt:active{cursor:grabbing;}
+  body.automode .clip.sel .tt{box-shadow:inset 0 0 0 1.5px rgba(255,255,255,0.7),inset 0 -1px 0 rgba(255,255,255,0.28);}
+  .clip .cpx{position:absolute;left:7px;bottom:3px;font-size:9px;font-weight:600;letter-spacing:0.06em;color:var(--ink-2);text-shadow:0 1px 2px #000;white-space:nowrap;pointer-events:none;opacity:.92;}
+  .clip .cpxbar{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(0,0,0,0.45);pointer-events:none;}
+  .clip .cpxbar>i{display:block;height:100%;background:#9EA5AD;}
+  .clip.sel{border:1.5px solid var(--ink-2);box-shadow:0 0 0 1px var(--ink-2);}
+  .clip .hd{position:absolute;top:0;bottom:0;width:8px;cursor:ew-resize;z-index:2;}
+  .clip .hd.l{left:0;} .clip .hd.r{right:0;}
+  .clip .hd:hover{background:rgba(201,205,211,0.25);}
+  .clip .fadeh{position:absolute;top:0;width:11px;height:11px;z-index:4;cursor:ew-resize;}
+  .clip .fadeh::after{content:'';position:absolute;top:2px;width:7px;height:7px;border-radius:50%;background:var(--ink);border:1px solid var(--bg-1);box-shadow:0 1px 2px rgba(0,0,0,0.6);}
+  .clip .fadeh.fadeL{transform:translateX(-50%);} .clip .fadeh.fadeL::after{left:1px;}
+  .clip .fadeh.fadeR{transform:translateX(50%);} .clip .fadeh.fadeR::after{right:1px;}
+  .clip .fadeh:hover::after{background:var(--ink-2);}
+  .xfade{position:absolute;top:4px;bottom:4px;z-index:3;pointer-events:none;background-color:rgba(201,205,211,0.10);background-image:linear-gradient(to top right,transparent 48%,rgba(201,205,211,0.55) 50%,transparent 52%),linear-gradient(to bottom right,transparent 48%,rgba(201,205,211,0.55) 50%,transparent 52%);}
+  .clip .fadeenv{position:absolute;inset:0;z-index:3;pointer-events:none;overflow:visible;}
+  .clip .fadeenv polyline{fill:none;stroke:var(--ink-2);stroke-width:1.4;vector-effect:non-scaling-stroke;opacity:.92;}
+  .clip .kfstrip{position:absolute;left:0;right:0;bottom:0;height:9px;pointer-events:none;z-index:2;}
+  .clip .kfd{position:absolute;bottom:1px;width:7px;height:7px;background:var(--ink-2);transform:translateX(-50%) rotate(45deg);border:.5px solid var(--bg-1);pointer-events:auto;cursor:pointer;}
+  .clip .kfstrip.dim{opacity:.32;} .clip .kfstrip.dim .kfd{pointer-events:none;width:5px;height:5px;} /* [R92-T4] passive automation hint on unselected clips */
+  .playhead{position:absolute;top:22px;width:2px;background:#F2F4F6;z-index:6;pointer-events:none;} /* [R94f] starts BELOW the ruler: the head is the top cap, the line no longer runs through it. Height set in renderTimeline = all tracks */
+  /* [R94d] Premiere-style playhead head: a flat-topped shield (square shoulders + tapered tip) sitting in the ruler, not an arrow over the tracks */
+  #phTri{position:absolute;top:12px;width:11px;height:10px;background:#F2F4F6;transform:translateX(-4.5px);pointer-events:none;z-index:6;clip-path:polygon(0 0,100% 0,100% 55%,50% 100%,0 55%);border-radius:1px 1px 0 0;} /* [R94f] −15%; its tip lands exactly where the ruler ends and the line begins */
+  .snapline{position:absolute;top:0;width:1px;background:#F2F4F6;z-index:7;pointer-events:none;display:none;} /* crisp 1px line, no glow (R82: the blurred glow read as a stray thick line) — height set in renderTimeline = ruler + all tracks */
+  .snapline.free{opacity:0.5;width:1px;} /* razor hover preview (not snapped) */
+  /* timeline-header sequence tabs (Premiere-style) */
+  .seqtabs{display:flex;gap:4px;align-items:center;padding:4px 8px;background:#15171A;border-bottom:.5px solid rgba(0,0,0,0.45);overflow-x:auto;overflow-y:hidden;flex-shrink:0;scrollbar-width:thin;}
+  .seqtabs::-webkit-scrollbar{height:6px;} .seqtabs::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.12);border-radius:2px;}
+  .seqtab{display:inline-flex;align-items:center;font-size:11px;padding:2px 7px 2px 9px;border-radius:2px;background:var(--surface);border:.5px solid rgba(255,255,255,0.1);color:#B4BAC1;cursor:pointer;white-space:nowrap;flex-shrink:0;}
+  .seqtab .seqlab{max-width:150px;overflow:hidden;text-overflow:ellipsis;}
+  .seqtab.on{background:#454C55;color:#FFFFFF;border-color:var(--ink-2);}
+  .seqtab .seqx{margin:-4px -5px -4px 3px;opacity:.45;font-size:9px;line-height:1;padding:6px;border-radius:2px;} /* [U-20] ≥18px clickable area via padding; negative margins keep the tab size */
+  .seqtab .seqx:hover{opacity:1;color:var(--ink);background:rgba(255,255,255,0.15);}
+  .seqtab.seqadd{color:#B4BAC1;font-weight:700;padding:2px 9px;border-radius:2px;border-style:dashed;}
+  .seqtab.seqadd:hover{color:var(--ink);border-color:var(--ink-2);}
+  .mthumb.mseq{background:linear-gradient(135deg,#2E3238,#1E2126);display:flex;align-items:center;justify-content:center;}
+  .cmini{display:flex;flex-direction:column;gap:3px;flex:1;min-width:58px;font-size:10px;color:#B4BAC1;}
+  .cmini input{height:20px;background:var(--surface-2);border:.5px solid rgba(255,255,255,0.12);border-radius:2px;color:var(--ink);text-align:center;font-size:11px;font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;}
+  #cPrev,#icPrev{background:#0C0D10;border:.5px solid rgba(255,255,255,0.12);}
+  .cmedialist{flex:1;min-width:0;max-height:84px;overflow-y:auto;background:#0C0D10;border:.5px solid rgba(255,255,255,0.12);border-radius:2px;padding:3px;display:flex;flex-direction:column;gap:1px;}
+  .cmedialist::-webkit-scrollbar{width:7px;} .cmedialist::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.14);border-radius:2px;}
+  .cmediaitem{display:flex;align-items:center;gap:6px;padding:2px 4px;border-radius:2px;cursor:pointer;font-size:11px;color:var(--ink-2);min-width:0;}
+  .cmediaitem:hover{background:rgba(255,255,255,0.05);}
+  .cmediaitem input{flex-shrink:0;margin:0;} .cmediaitem .mdot{width:8px;height:8px;border-radius:50%;}
+  .cmediaitem .cmname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
+
+  /* status bar */
+  .status{height:24px;flex-shrink:0;display:flex;align-items:center;gap:14px;padding:0 12px;background:#141619;border-top:.5px solid rgba(0,0,0,0.4);font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:#8A9199;letter-spacing:0.04em;}
+  .status .ok{color:#B4BAC1;}
+
+  /* modals */
+  .overlay{position:fixed;inset:0;background:rgba(6,7,9,0.66);display:flex;align-items:center;justify-content:center;z-index:50;animation:overIn .12s;}
+  .modal{background:var(--bg-2);border:.5px solid rgba(255,255,255,0.12);border-radius:2px;box-shadow:0 24px 70px rgba(0,0,0,0.6);animation:modalIn .14s;width:520px;max-width:92vw;}
+  .modal .mh{display:flex;align-items:center;gap:9px;padding:14px 16px;border-bottom:.5px solid rgba(255,255,255,0.08);}
+  .modal .mh .t{font-size:13px;font-weight:600;letter-spacing:-0.01em;}
+  .modal .mb{padding:14px 16px;}
+  .frow{display:flex;align-items:center;gap:10px;margin-bottom:6px;}
+  .frow label{width:90px;flex-shrink:0;font-size:11px;color:#B4BAC1;}
+  .frow select,.frow input{flex:1;height:19px;padding:0 7px;border-radius:2px;border:.5px solid rgba(255,255,255,0.15);background:var(--surface-2);color:var(--ink);font-family:inherit;font-size:11px;}
+  .frow .tnum{font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;}
+  input[type=number]{cursor:ew-resize;} input[type=number]:focus{cursor:text;} /* [R72] drag horizontally to scrub the value; click to type */
+  .frow label.chk{font-size:11px !important;} /* inline checkbox labels follow the density guide */
+  /* compact monochrome checkboxes inside any modal (native ones render oversized on Windows) */
+  .modal input[type=checkbox]{appearance:none;-webkit-appearance:none;flex:0 0 13px;width:13px;height:13px;margin:0;border:.5px solid rgba(255,255,255,0.3);border-radius:2px;background:var(--surface-2);cursor:pointer;position:relative;} /* flex:0 0 13px overrides .frow input{flex:1} which otherwise stretches the box */
+  .modal input[type=checkbox]:checked{background:var(--ink-2);border-color:var(--ink-2);}
+  .modal input[type=checkbox]:checked::after{content:'';position:absolute;left:4px;top:1px;width:3px;height:6.5px;border:solid var(--bg-0);border-width:0 1.6px 1.6px 0;transform:rotate(45deg);}
+  .mbtn{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 11px;font-size:11px;font-weight:500;border-radius:2px;border:.5px solid rgba(255,255,255,0.12);background:var(--surface-2);color:var(--ink-2);cursor:pointer;}
+  .mbtn:hover{background:var(--surface-3);}
+  .mbtn.pri{background:var(--ink);border-color:transparent;color:var(--bg-1);font-weight:600;} .mbtn.pri:hover{filter:brightness(1.08);}
+  .queue{margin-top:6px;border-top:.5px solid rgba(255,255,255,0.08);padding-top:10px;}
+  .qjob{display:flex;align-items:center;gap:10px;padding:7px 0;font-size:11px;}
+  .qbar{flex:1;height:6px;border-radius:2px;background:var(--bg-0);overflow:hidden;} .qbar>i{display:block;height:100%;width:0;background:linear-gradient(90deg,#9EA5AD,var(--ink));}
+
+  .menu{position:fixed;z-index:60;background:var(--surface);border:.5px solid rgba(255,255,255,0.13);border-radius:2px;box-shadow:0 12px 34px rgba(0,0,0,0.55);padding:4px;min-width:170px;}
+  .menu button{display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:6px 9px;font-size:11px;border:none;background:transparent;color:var(--ink-2);cursor:pointer;border-radius:2px;}
+  .menu button:hover{background:var(--surface-3);} .menu button:focus-visible{background:var(--surface-3);} /* [R94-UT5·U-10a] arrow-key focus reads like hover (plus the global outline ring) */
+  .menu .sep{height:.5px;background:rgba(255,255,255,0.08);margin:4px 2px;}
+  .menu button.danger{color:var(--danger);}
+  .menu button.danger:hover{color:#E4A6A6;} /* same hue, brighter — stays legible on the hover surface */
+  .iosw{width:34px;height:18px;border-radius:9px;border:none;background:var(--surface-2);position:relative;cursor:pointer;transition:background .15s;}
+  .iosw>i{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#9EA5AD;transition:transform .15s,background .15s;}
+  .iosw.on{background:var(--ink-2);} .iosw.on>i{transform:translateX(16px);background:#1C1F23;} /* [U-41] on = light track + dark knob (reads at a glance) */
+  .rm-on *,.rm-on *::before,.rm-on *::after{transition:none!important;animation:none!important;}
+  .groupseg button{padding:0 7px;} /* [U-18] look shared with .seg */
+  .ringbtn{display:inline-flex;align-items:center;gap:5px;height:18px;padding:0 9px;font-size:11px;font-weight:500;white-space:nowrap;border-radius:2px;border:.5px solid rgba(255,255,255,0.14);background:var(--surface-2);color:var(--ink-2);cursor:pointer;}
+  .ringbtn:hover{background:#454C55;color:var(--ink);}
+  .grphead2{display:flex;align-items:center;gap:6px;height:24px;padding:0 6px;margin-top:4px;cursor:pointer;color:#9EA5AD;font-size:9px;font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;letter-spacing:0.12em;text-transform:uppercase;}
+  .folderhdr{text-transform:none;letter-spacing:0.02em;font-size:11px;border-radius:2px;border:.5px solid transparent;}
+  .folderhdr .fnm{cursor:pointer;} .folderhdr .fdel{opacity:0;color:#71777F;} .folderhdr:hover .fdel{opacity:1;} .folderhdr .fdel:hover{color:var(--ink);}
+  .folderdrop{margin:2px 6px 4px;padding:9px 8px;border:1px dashed rgba(255,255,255,0.16);border-radius:3px;color:#5E646C;font-size:11px;text-align:center;}
+  .folderhdr.dragover,.folderdrop.dragover{border-color:var(--ink-2);background:rgba(201,205,211,0.12);color:var(--ink);}
+  .folderhdr.fsel{background:rgba(201,205,211,0.10);border-color:rgba(201,205,211,0.35);color:var(--ink);} /* selected folder (tree view) — New Folder creates inside it */
+  /* disabled state */
+  .dis{opacity:.32 !important;pointer-events:none !important;}
+  #ringBtn.dis,#adjLayerBtn.dis{pointer-events:auto !important;cursor:not-allowed;} /* [R94-UT3·U-12] keep hover so the explanatory title tooltip shows; clicks are guarded in JS */
+  #exportBtn{position:relative;} .exbadge{position:absolute;top:1px;right:2px;width:14px;height:14px;border-radius:50%;background:var(--ink-2);color:#16181B;font-size:9px;font-weight:600;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums;pointer-events:none;} /* [R94-UT3·U-33] active+queued export jobs counter on the Export button */
+  /* collapsible panel rails */
+  .pane-collapsed{width:34px !important;min-width:34px !important;flex:0 0 34px !important;}
+  .pane-collapsed>*{display:none !important;}
+  .pane-collapsed>.railexp{display:flex !important;}
+  .railexp{display:none;flex-direction:column;align-items:center;gap:10px;width:100%;height:100%;padding-top:11px;border:none;background:transparent;color:#7A828B;cursor:pointer;}
+  .railexp:hover{color:var(--ink);}
+  .railexp .rlab{writing-mode:vertical-rl;font-size:9px;letter-spacing:0.12em;text-transform:uppercase;font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;margin-top:6px;}
+  /* composition groups */
+  .clip.gsel{box-shadow:0 0 0 1px var(--ink-2) inset;}
+  .kindseg{display:flex;flex-wrap:wrap;gap:4px;width:100%;}
+  .kindseg button{flex:1 1 28%;min-width:78px;height:18px;padding:0 6px;background:var(--surface-2);border:.5px solid rgba(255,255,255,0.1);border-radius:2px;color:var(--ink-2);font-size:11px;font-weight:500;cursor:pointer;white-space:nowrap;} /* [U-18] chrome per-button (wrapping grid) — canonical values */
+  .kindseg button.on{border-color:var(--ink-2);} /* bg/color from the shared .on rule */
+  .grpchip{display:flex;align-items:center;gap:8px;margin:8px 12px;padding:8px 10px;border-radius:2px;background:var(--surface);border:.5px solid rgba(255,255,255,0.14);font-size:11px;color:var(--ink-2);cursor:pointer;}
+  .grpchip:hover{background:var(--surface-2);} .grpchip .gc{color:#B4BAC1;display:flex;}
+  .grprng{flex:1;accent-color:#9EA5AD;}
+  /* hover tooltip (shows ~1s after resting on a tool/button) */
+  /* [R94-UT2·U-05] persistent automation grammar next to the Automation button — only while automation mode is on */
+  .dsp-tip{position:fixed;z-index:90;pointer-events:none;background:#2A2E34;color:var(--ink);border:.5px solid rgba(255,255,255,0.14);border-radius:2px;padding:4px 8px;font-size:11px;font-weight:500;letter-spacing:-0.005em;box-shadow:0 6px 20px rgba(0,0,0,0.5);max-width:260px;white-space:normal;line-height:1.4;opacity:0;transition:opacity .1s;} /* [U-28] long tooltips wrap instead of overflowing */
+  .dsp-tip.show{opacity:1;}
+  /* [U-17] native <select>s adopt the .aselect look (chevron data-URI + surface chrome). Placed LAST so it wins ties against the per-class size rules above. */
+  .selsel,.qsel,.frow select,select.sysel,.asel{appearance:none;-webkit-appearance:none;height:18px;background-color:var(--surface-2);background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%239EA5AD' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6 6-6'/></svg>");background-repeat:no-repeat;background-position:right 4px center;border:.5px solid rgba(255,255,255,0.1);border-radius:2px;color:var(--ink-2);padding:0 15px 0 7px;cursor:pointer;}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <!-- TOP BAR -->
+  <div class="top">
+    <span class="dot"></span>
+    <span style="font-size:11px;font-weight:600;letter-spacing:-0.008em;color:#D7DADF;white-space:nowrap;" id="projTitle">Immersive Dome · Show 01</span>
+    <span class="tnum" style="font-size:9px;letter-spacing:0.02em;color:var(--ink-faint);" id="fmtChip">4096² · 60p · PNG</span>
+    <div style="flex:1;"></div>
+    <button class="tbtn" id="undoBtn" title="Undo · Ctrl+Z"><i class="ic" data-ico="undo"></i></button>
+    <button class="tbtn" id="redoBtn" title="Redo · Ctrl+Shift+Z"><i class="ic" data-ico="redo"></i></button>
+    <div class="seg">
+      <button id="newBtn" title="New project · Ctrl+N"><i class="ic" data-ico="plus"></i> New</button>
+      <button id="openBtn" title="Open project · Ctrl+O"><i class="ic" data-ico="folder"></i> Open</button>
+      <button id="saveBtn" title="Save · Ctrl+S"><i class="ic" data-ico="save"></i> Save</button>
+      <button id="saveMenuBtn" title="Save As… / incremental · Ctrl+Shift+S" style="padding:0 6px;"><i class="ic" data-ico="chevDown"></i></button>
+      <button id="exportBtn" title="Export · Ctrl+Shift+E"><span style="color:#B4BAC1;display:flex;"><i class="ic" data-ico="share"></i></span> Export</button>
+    </div>
+    <button class="tbtn" id="helpBtn" title="All commands &amp; shortcuts · F1" style="font-size:12px;font-weight:600;">?</button>
+  </div>
+
+  <div class="bodyrow" id="bodyRow"><div class="stagecol" id="stageCol">
+  <!-- MIDDLE -->
+  <div class="mid">
+    <!-- MEDIA -->
+    <aside id="mediaPane" style="width:292px;flex-shrink:0;border-right:.5px solid rgba(255,255,255,0.09);">
+      <button class="railexp" id="mediaRail" title="Expand media panel"><i class="ic" data-ico="panelL"></i><span class="rlab">Media</span></button>
+      <div class="panhead">
+        <div class="pantab"><span style="color:#7A828B;display:flex;"><i class="ic" data-ico="folder"></i></span><span class="ttl">Media</span><span class="countbadge" id="mediaCount">0</span></div>
+        <div style="flex:1;"></div>
+        <div style="display:flex;align-items:center;gap:5px;">
+          <button class="ibtn" id="mediaViewBtn" title="Grid / list view"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg></button>
+          <button class="ibtn" id="newFolderBtn" title="New folder"><i class="ic" data-ico="folder"></i></button>
+          <button class="ibtn" id="textBtn" title="Add text / title"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 6h14"/><path d="M12 6v13"/></svg></button>
+          <button class="ibtn" id="shapeBtn" title="Add shape"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="7" width="16" height="10" rx="1.5"/></svg></button>
+          <button class="ibtn" id="importBtn" title="Import media" style="color:#B4BAC1;"><i class="ic" data-ico="plus"></i></button>
+          <button class="ibtn flat" id="hideMedia" title="Hide panel"><i class="ic" data-ico="panelL"></i></button>
+        </div>
+      </div>
+      <div class="toolrow" style="height:28px;padding:0 8px;gap:7px;">
+        <div class="filtseg" id="filtSeg">
+          <button data-f="all" class="on">All</button>
+          <button data-f="video" title="Video"><i class="ic" data-ico="video"></i></button>
+          <button data-f="image" title="Image"><i class="ic" data-ico="image"></i></button>
+          <button data-f="audio" title="Audio"><i class="ic" data-ico="audio"></i></button>
+        </div>
+        <div style="width:.5px;height:16px;background:rgba(255,255,255,0.08);flex-shrink:0;"></div>
+        <span class="tnum" id="groupLbl" style="display:none;">Group</span>
+        <div class="groupseg" id="groupSeg"><button data-g="none" class="on">None</button><button data-g="folder">Folder</button><button data-g="type">Type</button></div>
+      </div>
+      <div class="toolrow" style="height:28px;padding:0 8px;gap:5px;">
+        <div class="searchbox" style="flex:1;display:flex;align-items:center;gap:5px;min-width:0;">
+          <input id="mediaSearch" type="text" placeholder="Search media… (Ctrl+F)" spellcheck="false" style="flex:1;min-width:0;height:19px;background:#141619;border:.5px solid rgba(255,255,255,0.09);border-radius:2px;color:#E8EAED;font-family:inherit;font-size:11px;padding:0 6px;outline:none;">
+          <button class="ibtn" id="mediaSearchClr" title="Clear search" style="display:none;width:18px;height:18px;">✕</button><!-- [U-20] density exception: lives INSIDE the 18px search field (a 22² box would overflow it) -->
+        </div>
+        <button class="ringbtn" id="adjLayerBtn" title="Create an adjustment layer — its Reactive FX affect everything below it"><i class="ic" data-ico="layers"></i> Adjust</button>
+        <button class="ringbtn" id="ringBtn" title="Create composition (ring / grid / random)"><i class="ic" data-ico="ring"></i> Compose</button>
+      </div>
+      <div class="medialist" id="mediaList"></div>
+      <input id="fileInput" type="file" accept="image/*,video/*,audio/*" multiple style="display:none;">
+      <input id="projInput" type="file" accept=".rdome,application/json" style="display:none;">
+    </aside>
+    <div class="gutter" id="gutterL"></div>
+
+    <!-- VIEWPORT -->
+    <main>
+      <div class="vptool">
+        <div class="vseg" id="viewModeSeg">
+          <button data-v="2d" class="on"><i class="ic" data-ico="view2d"></i> Dome Master</button><!-- [U-42] industry term; updModeUI relabels it "2D Master" on flat/room sequences -->
+          <button data-v="3d"><i class="ic" data-ico="view3d"></i> 3D Preview</button>
+        </div>
+        <div class="vdiv" id="d3sep" style="display:none;"></div>
+        <div class="vseg" id="threeModeSeg" style="display:none;">
+          <button data-m="orbit" class="on"><i class="ic" data-ico="orbit"></i> Orbit</button>
+          <button data-m="spec"><i class="ic" data-ico="viewer"></i> Viewer</button>
+        </div>
+        <div class="vdiv"></div>
+        <div class="vseg" id="dispSeg">
+          <button data-d="grid" class="on"><i class="ic" data-ico="grid"></i> Grid</button>
+          <button data-d="safe"><i class="ic" data-ico="safe"></i> Safe</button>
+          <button data-d="outline"><i class="ic" data-ico="outline"></i> Outline</button>
+          <button data-d="hfade" title="Fade content near the dome horizon (spring line)"><i class="ic" data-ico="cull"></i> Horizon</button>
+        </div>
+        <div class="vdiv"></div>
+        <div class="vseg" id="qualitySeg" title="Preview quality (does not affect export)">
+          <button data-q="1" class="on">Full</button>
+          <button data-q="0.5">½</button>
+          <button data-q="0.25">¼</button>
+        </div>
+        <div class="vseg" id="proxyToggle" title="Viewport uses proxies (faster). Turn off to preview the original clips."><button data-p="proxy" class="on"><i class="ic" data-ico="bolt"></i> Proxy</button></div>
+        <div style="flex:1;"></div>
+        <div class="vslab" id="azelReadout"><span class="k">AZ <span class="v" id="azR">0°</span></span><span class="k">EL <span class="v" id="elR">35°</span></span></div>
+        <div class="vslab" id="fovCtl" style="display:none;"><span class="k">FOV</span><input type="range" min="40" max="160" value="60" id="fovRange" style="width:56px;accent-color:#7A828B;"><span class="v" id="fovLbl" style="width:24px;text-align:right;">60</span></div>
+        <div class="vslab" id="dollyCtl" style="display:none;"><span class="k">DOLLY</span><input type="range" min="-0.9" max="2.4" step="0.01" value="0.8" id="dollyRange" style="width:54px;accent-color:#7A828B;"><span class="v" id="dollyLbl" style="width:24px;text-align:right;">0.8</span></div>
+        <div class="vslab" id="distCtl" style="display:none;"><span class="k">DIST</span><input type="range" min="1.2" max="12" step="0.1" value="3" id="distRange" style="width:54px;accent-color:#7A828B;"><span class="v" id="distLbl" style="width:24px;text-align:right;">3.0</span></div>
+        <div class="vdiv"></div>
+        <div class="vseg">
+          <button id="vzOut" style="width:25px;padding:0;justify-content:center;"><i class="ic" data-ico="zoomOut"></i></button>
+          <button id="vzReset" class="tnum" style="width:42px;padding:0;justify-content:center;font-size:11px;">100%</button>
+          <button id="vzIn" style="width:25px;padding:0;justify-content:center;"><i class="ic" data-ico="zoomIn"></i></button>
+        </div>
+        <div class="vdiv"></div>
+        <div class="vseg"><button id="popoutBtn" title="Open a viewer-only window — drag it to a second screen" style="width:26px;padding:0;justify-content:center;"><i class="ic" data-ico="popout"></i></button></div>
+        <div class="vseg"><button id="ndiBtn" title="NDI output — broadcast the clean Dome master (1:1) over the network" style="width:26px;padding:0;justify-content:center;"><i class="ic" data-ico="ndi"></i></button></div>
+      </div>
+      <div class="stage" id="stage">
+        <canvas id="gl"></canvas>
+        <canvas id="grid"></canvas>
+      </div>
+    </main>
+
+    <!-- INSPECTOR -->
+    <div class="gutter" id="gutterR"></div>
+    <aside id="inspPane" style="width:300px;flex-shrink:0;border-left:.5px solid rgba(255,255,255,0.09);">
+      <button class="railexp" id="inspRail" title="Expand inspector"><i class="ic" data-ico="panel"></i><span class="rlab">Inspector</span></button>
+      <div class="panhead" id="inspTabs">
+        <button class="pantab instab on" data-tab="insp" style="background:none;border:none;cursor:pointer;color:inherit;"><span style="color:#7A828B;display:flex;"><i class="ic" data-ico="panel"></i></span><span class="ttl">Inspector</span></button>
+        <button class="pantab instab" data-tab="react" style="background:none;border:none;cursor:pointer;color:inherit;"><span style="color:#7A828B;display:flex;"><i class="ic" data-ico="curves"></i></span><span class="ttl">Reactive FX</span></button>
+        <div style="flex:1;"></div>
+        <button class="ibtn flat" id="tallInspBtn" title="Full-height inspector column (shrinks the timeline width)"><i class="ic" data-ico="tallpanel"></i></button>
+        <button class="ibtn flat" id="hideInsp" title="Collapse panel"><i class="ic" data-ico="panelL"></i></button>
+      </div>
+      <div class="insbody" id="insBody">
+        <div class="insEmpty" id="insEmpty"><span style="opacity:.5;"><i class="ic" data-ico="panel" data-s="26"></i></span>Select a clip<br>in the timeline or viewport</div>
+        <div id="insGroup" style="display:none;"></div>
+        <div id="insCtl" style="display:none;">
+          <div id="selColorBar" title="Clip / track color — click to change" style="height:4px;width:100%;flex-shrink:0;cursor:pointer;background:#3C4046;"></div>
+          <div class="selhead"><div class="selthumb" id="selThumb"></div><div style="flex:1;min-width:0;"><div class="selname" id="selName">—</div><div class="selmeta" id="selMeta">—</div></div></div>
+          <div id="grpChipHost"></div>
+          <button class="sechead" id="secTf"><span style="color:#6A7079;display:flex;"><i class="ic" data-ico="chevDown"></i></span><span class="t">Dome · Transform</span><span class="ln"></span></button>
+          <div id="tfRows"></div>
+          <div style="padding:6px 14px;" id="mirrorWrap"><button class="togbtn" id="mirrorBtn"><i class="ic" data-ico="mirror"></i> Mirror</button></div>
+          <button class="sechead" id="secFx"><span style="color:#6A7079;display:flex;"><i class="ic" data-ico="chevDown"></i></span><span class="t">Effects</span><span class="ln"></span></button>
+          <div id="fxRows"></div>
+          <div id="insAudio" style="display:none;"></div>
+        </div>
+        <div id="insReactive" style="display:none;"></div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- TRANSPORT -->
+  <div class="transport">
+    <div class="tccenter">
+      <button class="tbtn" id="markIn" title="Mark In · I (right-click clears the range)"><i class="ic" data-ico="markIn"></i></button>
+      <button class="tbtn" id="toStart" title="Go to start · Home"><i class="ic" data-ico="toStart"></i></button>
+      <button class="playb" id="playBtn" title="Play / Pause · Space"><i class="ic" data-ico="play"></i></button>
+      <button class="tbtn" id="toEnd" title="Go to end · End"><i class="ic" data-ico="toEnd"></i></button>
+      <button class="tbtn" id="markOut" title="Mark Out · O (right-click clears the range)"><i class="ic" data-ico="markOut"></i></button>
+      <button class="tbtn" id="autoRecBtn" title="Automation REC — play, then move any control to perform it; released gestures are baked to an editable curve"><span class="recdot"></span></button>
+      <button class="tbtn" id="followBtn" title="Follow playhead — scroll the timeline during playback"><i class="ic" data-ico="follow"></i></button>
+      <div class="tcbox"><span class="tc" id="tc">00:00:00</span><div style="width:.5px;height:14px;background:rgba(255,255,255,0.08);"></div><span class="du" id="bbt" style="font-size:10px;color:#B4BAC1;">0f</span></div>
+      <div class="seg2" id="tcModeSeg"><button data-t="timecode" class="on">TC</button><button data-t="frames">Frames</button></div>
+      <button class="tbtn" id="loopBtn" title="Loop selection · Ctrl+L"><i class="ic" data-ico="loop"></i></button>
+      <div style="display:flex;align-items:center;gap:1px;">
+        <button class="tbtn" id="prevMk" title="Previous locator · ," style="width:24px;"><i class="ic" data-ico="kfprev"></i></button>
+        <button class="tbtn" id="addMk" title="Add locator · L" style="width:26px;color:#9AA0A8;"><i class="ic" data-ico="flag"></i></button>
+        <button class="tbtn" id="nextMk" title="Next locator · ." style="width:24px;"><i class="ic" data-ico="kfnext"></i></button>
+      </div>
+    </div>
+    <div style="flex:1;"></div>
+    <div class="editseg">
+      <button id="snapBtn" title="Snap to Grid · S / Ctrl+4"><i class="ic" data-ico="snap"></i> Snap to Grid</button>
+      <button id="simpleClipBtn" title="Simple clips (Premiere-style): drag and select a clip from anywhere on it — range selection works outside clips only"><i class="ic" data-ico="clip"></i> Simple</button>
+      <button id="gridReadout" title="Grid spacing — click to toggle adaptive/fixed (Ctrl+5) · Ctrl+1 narrower · Ctrl+2 wider" style="font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:11px;font-weight:500;min-width:58px;">◇ 1 s</button>
+    </div>
+    <button class="togbtn2" id="reEnAll" title="Re-enable all overridden automation" style="display:none;color:#C9CDD3;border-color:rgba(201,205,211,0.4);">↻ Re-Enable</button>
+    <button class="togbtn2" id="curvesBtn" title="Show/hide automation (clip parameters + reactive FX) · A"><i class="ic" data-ico="curves"></i> Automation</button>
+    <div class="zoomgrp"><button id="tlZoomOut" title="Zoom out timeline"><i class="ic" data-ico="zoomOut"></i></button><button id="tlZoomIn" title="Zoom in timeline"><i class="ic" data-ico="zoomIn"></i></button></div>
+  </div>
+
+  <!-- TIMELINE -->
+  <div class="timeline">
+    <div class="hres" id="tlResize" title="Drag to resize the timeline"></div>
+    <div class="seqtabs" id="seqTabs"></div>
+    <div class="tlmain">
+      <div class="toolrail" id="toolRail">
+        <button data-t="select" class="on" title="Select (V)"><i class="ic" data-ico="cursor"></i></button>
+        <button data-t="hand" title="Hand / Pan (H)"><i class="ic" data-ico="hand"></i></button>
+        <button data-t="trim" title="Trim (T) — the cursor picks it: edge = ripple · over a cut = roll · title = slide · body = slip"><i class="ic" data-ico="trim"></i></button>
+        <button data-t="razor" title="Razor (B)"><i class="ic" data-ico="razor"></i></button>
+        <button data-t="zoom" title="Zoom (Z)"><i class="ic" data-ico="zoomIn"></i></button>
+      </div>
+      <div class="trackhdr" id="trackHdr"><div class="rulerpad"></div><div id="laneHeaders"></div><div id="audioHeadZone" class="audiozone hdr"></div></div>
+      <div class="tlscroll" id="tlscroll">
+        <div class="ruler" id="ruler"><canvas id="rulerCv"></canvas><div id="clipExtent"></div><div id="phTri"></div></div>
+        <div class="work" id="workArea" style="display:none;"><div class="wkbrace" title="Drag to move loop · ends resize"></div><div class="wkh l"></div><div class="wkh r"></div></div>
+        <div class="timesel" id="timeSel" style="display:none;"></div>
+        <div class="tracks" id="tracks"></div>
+        <div class="playhead" id="playhead" style="left:0;"></div>
+        <div class="snapline" id="snapline"></div>
+      </div>
+    </div>
+  </div>
+  </div></div><!-- /stagecol /bodyrow -->
+
+  <!-- STATUS -->
+  <div class="status">
+    <span id="statAuto">Ready</span><button class="ibtn" id="statXBtn" title="Cancel export" style="display:none;width:15px;height:15px;font-size:9px;color:#9AA0A8;flex-shrink:0;">✕</button><div style="flex:1;"></div><!-- [R94-UT3·U-02c] cancel the active export without reopening the modal -->
+    <span class="tnum" id="statPerf" title="CPU / RAM / GPU" style="color:#7A828B;letter-spacing:0.01em;"></span>
+    <span id="statSel">No selection</span>
+    <span class="ok" id="statEngine">WebGL · WebCodecs</span>
+  </div>
+</div>
+
+<script src="mp4-muxer.min.js"></script>
+<script>
+"use strict";
+/* ===== iconos (inline SVG, stroke ~1.8) ===== */
+function ICO(n,s){ s=s||13; const a=`width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"`;
+  const P={
+    save:`<path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7"/><rect x="8" y="13" width="8" height="6"/>`,
+    share:`<path d="M4 12v7h16v-7"/><path d="M12 16V4"/><path d="M8 8l4-4 4 4"/>`,
+    folder:`<path d="M3 7h6l2 2h10v9H3z"/>`,
+    plus:`<path d="M12 5v14M5 12h14"/>`,
+    panelL:`<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>`,
+    panel:`<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/>`,
+    search:`<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>`,
+    video:`<rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3z"/>`,
+    image:`<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M3 17l5-4 4 3 3-2 6 5"/>`,
+    audio:`<path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16 8a5 5 0 0 1 0 8"/>`,
+    view2d:`<circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18"/>`,
+    view3d:`<path d="M3 16a9 9 0 0 1 18 0"/><path d="M2 16h20"/>`,
+    viewer:`<circle cx="12" cy="12" r="3"/><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/>`,
+    orbit:`<circle cx="12" cy="12" r="3.5"/><ellipse cx="12" cy="12" rx="10" ry="4.2"/>`,
+    grid:`<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/>`,
+    safe:`<rect x="5" y="5" width="14" height="14" rx="2" stroke-dasharray="3 3"/>`,
+    outline:`<rect x="4" y="4" width="16" height="16" rx="2"/>`,
+    cull:`<path d="M3.5 13a8.5 8.5 0 0 1 17 0"/><path d="M2 13h20"/>`,
+    zoomOut:`<circle cx="11" cy="11" r="7"/><path d="M8 11h6M20 20l-3.5-3.5"/>`,
+    zoomIn:`<circle cx="11" cy="11" r="7"/><path d="M11 8v6M8 11h6M20 20l-3.5-3.5"/>`,
+    chevDown:`<path d="M6 9l6 6 6-6"/>`,
+    mirror:`<path d="M12 3v18"/><path d="M8 7l-4 5 4 5"/><path d="M16 7l4 5-4 5"/>`,
+    trim:`<path d="M8 4v16M16 4v16"/><path d="M3 12h4M17 12h4"/>`,
+    markIn:`<path d="M9 4H5v16h4"/><path d="M15 5v14" stroke-width="2.6"/>`,
+    markOut:`<path d="M15 4h4v16h-4"/><path d="M9 5v14" stroke-width="2.6"/>`,
+    toStart:`<path d="M6 5v14M18 5l-9 7 9 7z"/>`,
+    toEnd:`<path d="M18 5v14M6 5l9 7-9 7z"/>`,
+    play:`<path d="M7 5l12 7-12 7z" fill="currentColor" stroke="none"/>`,
+    pause:`<rect x="7" y="5" width="3.5" height="14" fill="currentColor" stroke="none"/><rect x="13.5" y="5" width="3.5" height="14" fill="currentColor" stroke="none"/>`,
+    loop:`<path d="M4 9a8 8 0 0 1 13-3l3 3"/><path d="M20 5v4h-4"/><path d="M20 15a8 8 0 0 1-13 3l-3-3"/><path d="M4 19v-4h4"/>`,
+    split:`<path d="M12 3v18"/><circle cx="6" cy="8" r="2.5"/><circle cx="6" cy="16" r="2.5"/>`,
+    snap:`<path d="M5 4v8a7 7 0 0 0 14 0V4"/><path d="M3 4h5M16 4h5"/>`,
+    trash:`<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>`,
+    undo:`<path d="M9 7L4 12l5 5"/><path d="M4 12h11a5 5 0 0 1 0 10h-3"/>`,
+    redo:`<path d="M15 7l5 5-5 5"/><path d="M20 12H9a5 5 0 0 0 0 10h3"/>`,
+    cursor:`<path d="M5 3l6 16 2.5-6L20 11z" fill="currentColor" stroke="none"/>`,
+    hand:`<path d="M8 11V6a1.5 1.5 0 0 1 3 0v4M11 10V5a1.5 1.5 0 0 1 3 0v5M14 10V6.5a1.5 1.5 0 0 1 3 0V13a7 7 0 0 1-7 7 6 6 0 0 1-5-3l-2.5-4a1.6 1.6 0 0 1 2.6-1.8L8 13"/>`,
+    razor:`<circle cx="7" cy="17" r="3"/><path d="M9 15L20 4"/><path d="M11 13l3 3"/>`,
+    kfFull:`<path d="M12 4l8 8-8 8-8-8z" fill="currentColor" stroke="none"/>`,
+    kfEmpty:`<path d="M12 4l8 8-8 8-8-8z"/>`,
+    kfprev:`<path d="M14 6l-6 6 6 6"/>`,
+    kfnext:`<path d="M10 6l6 6-6 6"/>`,
+    diamond:`<path d="M12 5l7 7-7 7-7-7z"/>`,
+    flag:`<path d="M6 3v18"/><path d="M6 4h11l-2.5 3.5L17 11H6"/>`,
+    fade:`<path d="M4 18L20 6"/><path d="M4 18h16"/>`,
+    curves:`<path d="M3 17C7 17 8 7 12 7s5 10 9 10"/>`,
+    upload:`<path d="M12 16V5"/><path d="M8 9l4-4 4 4"/><path d="M5 19h14"/>`,
+    ring:`<circle cx="12" cy="12" r="8"/><circle cx="12" cy="4.5" r="1.6" fill="currentColor"/><circle cx="19.5" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="19.5" r="1.6" fill="currentColor"/><circle cx="4.5" cy="12" r="1.6" fill="currentColor"/>`,
+    gear:`<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>`,
+    grip:`<circle cx="9" cy="6" r="1.1" fill="currentColor" stroke="none"/><circle cx="15" cy="6" r="1.1" fill="currentColor" stroke="none"/><circle cx="9" cy="12" r="1.1" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="1.1" fill="currentColor" stroke="none"/><circle cx="9" cy="18" r="1.1" fill="currentColor" stroke="none"/><circle cx="15" cy="18" r="1.1" fill="currentColor" stroke="none"/>`,
+    power:`<path d="M12 4v8"/><path d="M7.5 7.5a6 6 0 1 0 9 0"/>`,
+    react:`<path d="M3 12h3l2-6 3 13 3-9 2 5h5"/>`,
+    refresh:`<path d="M4 12a8 8 0 0 1 13.7-5.7L20 8"/><path d="M20 3.5V8h-4.5"/>`,
+    close:`<path d="M6 6l12 12M18 6L6 18"/>`,
+    tallpanel:`<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M14 3v18"/>`,
+    bolt:`<path d="M13 2L5 13h6l-1 9 9-12h-7z" fill="currentColor" stroke="none"/>`,
+    follow:`<circle cx="12" cy="12" r="6.5"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/>`,
+    popout:`<rect x="3" y="5" width="11" height="11" rx="1.5"/><path d="M15 4h5v5"/><path d="M20 4l-7 7"/>`,
+    layers:`<path d="M12 3l8 4.5-8 4.5-8-4.5z"/><path d="M4 12l8 4.5 8-4.5"/><path d="M4 16l8 4.5 8-4.5"/>`,
+    clip:`<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/>`,
+    ndi:`<circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/><path d="M8.5 8.5a5 5 0 0 0 0 7"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M6 6a9 9 0 0 0 0 12"/><path d="M18 6a9 9 0 0 1 0 12"/>`,
+  };
+  return `<svg ${a}>${P[n]||''}</svg>`;
+}
+/* re-render the ICO() holes that were placed as ${...} literally (they are real template literals at parse time, so already expanded). */
+</script>
+<script>/* load app.js — add a cache-bust query only over http (dev preview); file:// (packaged exe) loads it plain so the path stays valid */
+(function(){var v=location.protocol.indexOf('http')===0?('?v='+Date.now()):'';var s=document.createElement('script');s.src='app.js'+v;document.body.appendChild(s);})();</script>
+</body>
+</html>
