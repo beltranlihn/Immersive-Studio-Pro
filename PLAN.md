@@ -25,6 +25,8 @@ Verificado por CDP. Deploy a las 3.
 
 **Etapa 1 · [R2] ✔ (commit `244756a`)** — "clips deformados al renderizar" era cosmético (preview mientras renderiza; el archivo sale bien). Overlay opaco `#renderMask` sobre el viewport durante todo el export (el export sigue leyendo de #gl). Verificado por CDP + deploy.
 
+**Etapa 1 · [L1]/[L2] ✔ (commit `8cc6a61`)** — el bloque de audio flotaba arriba con pocas pistas (sticky solo ancla con overflow). Fix CSS: `.tracks`/`.trackhdr` flex-column que llenan el viewport + `.audiozone{margin-top:auto}` → audio anclado al fondo; sticky maneja el overflow. Verificado por CDP + deploy. **Etapa 1 cerrada** salvo [A1] (movido a Etapa 2).
+
 **[A1] diferido a Etapa 2** (dejar un solo botón de punto está acoplado al rediseño A2-A5). Limpieza pendiente (Etapa 2):
 plumbing muerto de perform-bake/freeze + DOM de `.reEn`/`#reEnAll`. **Próximo:** [R2] deformados al render (ambiguo →
 pedir captura), [L1]/[L2] glitches de pistas.
