@@ -83,7 +83,7 @@ const state = {
   mediaFilter:'all', mediaQuery:'', mediaGroupBy:'none', collapsedGroups:{}, folders:[], folderColors:{}, mediaView:'list', mediaFolder:null, selFolder:null,
   useProxies:true, previewQuality:1, markers:[], selMarkerId:null, clipboard:null,
   groups:[], selGroupId:null, dirty:false, selLane:null, selIds:[], openSeqs:[], activeSeqId:null, seqW:4096, seqH:4096, seqMode:'dome', seqCov:180,
-  shapeBox:null, easeClip:null, autoRec:false, shuttle:0, /* [R97] J/K/L speed: 0 = off (normal transport) · ±0.25…±8 */ // [R95] Shape Box holds live refs to keyframe objects → it must be dropped whenever those objects are replaced (undo, project/sequence load). easeClip = copied normalised easing. autoRec = perform-and-bake armed (never persisted: it's a take state, not a document one).
+  shapeBox:null, easeClip:null, shuttle:0, /* [R97] J/K/L speed: 0 = off (normal transport) · ±0.25…±8 */ // [R95] Shape Box holds live refs to keyframe objects → it must be dropped whenever those objects are replaced (undo, project/sequence load). easeClip = copied normalised easing. // [archivado 20260722·R137] autoRec (perform-and-bake) removido
   lang:'en',
   lastSaved:null,
 };
@@ -2696,41 +2696,12 @@ function angDist(az1,el1,az2,el2){ const d1=dirAzEl(az1,el1),d2=dirAzEl(az2,el2)
 /* [A6] manual edit of a parameter (inspector drag/type/wheel, viewport move). If the param is automated,
    editing by hand OVERRIDES the envelope (Ableton-style): the curve is bypassed (kept, not deleted) and the
    manual value is held; the Re-Enable affordance lights up. If not automated, it just writes the static value. */
-/* ===================== [R95·D1] PERFORM-AND-BAKE =====================
-   Hit REC, press play, and PERFORM the parameter with the mouse while the music runs — the gesture is written as keyframes and
-   simplified (RDP) on release, so you get an editable curve, not one key per frame. This is "Inventing on Principle" applied to
-   VJ work: play the move instead of typing it. Live's decision — the most elegant in the whole research — is to expose NO modes
-   and infer them from the device: a mouse means TOUCH, so writing stops the moment you let go (manualEdit simply stops firing).
-   Every manual edit in the app already funnels through manualEdit (inspector drag/type/wheel, viewport move), so this is the
-   single, complete capture point. */
-let _recTouch=new Map(); // 'clipId|param' → {c,p,t0,t1,last}
-function autoRecOn(){ return !!state.autoRec&&state.playing; }
-function toggleAutoRec(){ state.autoRec=!state.autoRec; const b=$('#autoRecBtn'); if(b)b.classList.toggle('on',state.autoRec);
-  if(!state.autoRec)bakeRecorded(); else flashStatus(T('Automation REC — play, then move any control to perform it','REC de automatización — reproduce y mueve cualquier control para interpretarlo')); }
-function recWrite(c,p,v){ const key=c.id+'|'+p; const t=state.playhead; let r=_recTouch.get(key);
-  if(!r){ r={c,p,t0:t,t1:t,last:t,own:new Set()}; _recTouch.set(key,r); if(!_recTouch._undone){ pushUndo(); _recTouch._undone=true; } if(c._autoOff)delete c._autoOff[p]; } // recording REPLACES the override: you're writing the curve, not bypassing it
-  const lt=Math.max(0,Math.min(c.dur,t-c.start)); const tol=Math.min(0.02,0.5/(state.fps||30));
-  { const ks=(c.kf&&c.kf[p])||null; if(ks){ const a=Math.min(r.last,t)-c.start-1e-4, b=Math.max(r.last,t)-c.start+1e-4; // wipe the PRE-EXISTING points the gesture just passed over (touch semantics: the performance wins in the span it covers)
-      for(let i=ks.length-1;i>=0;i--){ const k=ks[i]; if(r.own.has(k))continue; if(k.t>a&&k.t<b)ks.splice(i,1); } } } // ...but never the points THIS take wrote: the span always contains the previous frame's key, so wiping blindly erased the take one frame at a time and left a single point
-  setKf(c,p,t,v,'linear'); const nk=(c.kf[p]||[]).find(x=>Math.abs(x.t-lt)<=tol); if(nk)r.own.add(nk);
-  r.t1=Math.max(r.t1,t); r.t0=Math.min(r.t0,t); r.last=t; }
-/* on stop / REC off: thin every performed span down to the fewest points that keep its shape (Bitwig/Reaper do this on freehand) */
-function bakeRecorded(){ if(!_recTouch.size)return; let total=0;
-  for(const [,r] of _recTouch){ const c=r.c, p=r.p; const ks=c.kf&&c.kf[p]; if(!ks||ks.length<4)continue;
-    const d=paramDef(c,p); if(!d)continue; const mn=d[3],mx=d[4];
-    const a=r.t0-c.start, b=r.t1-c.start; const inSpan=ks.filter(k=>k.t>=a-1e-3&&k.t<=b+1e-3); if(inSpan.length<4)continue;
-    const pts=inSpan.map(k=>[k.t*state.tl.pxPerSec,(1-(k.v-mn)/((mx-mn)||1))*60]); const keep=rdpKeep(pts,1.2);
-    const drop=new Set(inSpan.filter((k,i)=>!keep.has(i))); if(!drop.size)continue;
-    c.kf[p]=ks.filter(k=>!drop.has(k)); total+=drop.size; }
-  _recTouch=new Map(); if(total)flashStatus(T('Performance baked — ','Interpretación horneada — ')+total+T(' points thinned',' puntos reducidos'));
-  renderTimeline(); renderInspector(); markDirty(); }
+// [archivado 20260722 · R137] perform-and-bake (_recTouch/autoRecOn/toggleAutoRec/recWrite/bakeRecorded) → _backup/deprecated/20260722-automation-override-and-perform-bake.js · sin efecto bajo el modelo After Effects (ADR-0006)
 function manualEdit(c,p,v){ if(!c)return; v=+v;
   // [A2/D1] After Effects model: if the param is ALREADY automated, editing its value writes/updates a keyframe at the
   // playhead (the automation never breaks); if it isn't automated, editing just sets the static value (no keyframe).
   if(hasKf(c,p)) setKf(c,p,state.playhead,v,curEase()); else c.props[p]=v; }
-function anyOverride(){ return state.clips.some(c=>c._autoOff&&Object.keys(c._autoOff).some(k=>c._autoOff[k])); }
-function reenableAll(){ pushUndo(); for(const c of state.clips){ if(c._autoOff)c._autoOff={}; } render(); renderTimeline(); refreshInspector(); updReEnableGlobal(); flashStatus(T('All automation re-enabled','Toda la automatización reactivada')); }
-function updReEnableGlobal(){ const b=$('#reEnAll'); if(!b)return; b.style.display=anyOverride()?'inline-flex':'none'; }
+// [archivado 20260722 · R137] override/re-enable (anyOverride/reenableAll/updReEnableGlobal) → _backup/deprecated/20260722-automation-override-and-perform-bake.js · sin efecto bajo el modelo After Effects (ADR-0006); #reEnAll ni existía en el DOM
 function vzLbl(){ $('#vzReset').textContent=Math.round(state.view.zoom/0.92*100)+'%'; }
 
 /* ===================== INSPECTOR ===================== */
@@ -3580,9 +3551,8 @@ function showAutomation(c){ if(!c||isAudioClip(c))return; state.inlineCurves=tru
     if(armed.length&&!(lane._autoP&&armed.includes(lane._autoP)))lane._autoP=armed[0]; } } // [A5] the clip's animated params open on ITS TRACK as the SINGLE overlay (first one, unless the current choice is already one of them) — one at a time
   renderTimeline(); }
 /* [A5] Return to Default: drop all automation on the clip, freezing each param at its current value (curve removed) */
-function returnToDefault(c){ if(!c)return; pushUndo(); for(const [p] of CURVE_PARAMS){ if(hasKf(c,p)){ c.props[p]=evalP(c,p,state.playhead); clearKf(c,p); } if(c._autoOff)delete c._autoOff[p]; } c._auto=[]; renderTimeline(); renderInspector(); render(); updReEnableGlobal(); flashStatus(T('Automation returned to default','Automatización restablecida')); }
-function reenableAuto(c,p){ if(c._autoOff)delete c._autoOff[p]; render(); renderTimeline(); refreshInspector(); updReEnableGlobal(); flashStatus(T('Automation re-enabled — parameter follows its curve again','Automatización reactivada — el parámetro vuelve a seguir su curva')); }
-function setAutoOff(c,p,off){ c._autoOff=c._autoOff||{}; if(off){ setParamBase(c,p,evalP(c,p,state.playhead)); c._autoOff[p]=true; } else delete c._autoOff[p]; render(); renderTimeline(); refreshInspector(); updReEnableGlobal(); } // overriding freezes the CURRENT curve value first (like manualEdit) so the picture never jumps to a stale base
+function returnToDefault(c){ if(!c)return; pushUndo(); for(const [p] of CURVE_PARAMS){ if(hasKf(c,p)){ c.props[p]=evalP(c,p,state.playhead); clearKf(c,p); } } c._auto=[]; renderTimeline(); renderInspector(); render(); flashStatus(T('Automation returned to default','Automatización restablecida')); }
+// [archivado 20260722 · R137] reenableAuto/setAutoOff → _backup/deprecated/20260722-automation-override-and-perform-bake.js · sin efecto bajo el modelo After Effects (ADR-0006)
 /* draw one parameter's curve inside an inline sub-lane canvas. The canvas lives inside #tracks and so scrolls
    horizontally with the clips — X is timeline-absolute, no scroll compensation needed. Reuses evalP (no second engine). */
 function autoSelMatch(c,p){ return (state.autoSel&&state.autoSel.cid===c.id&&state.autoSel.p===p)?state.autoSel.set:null; }
@@ -4197,7 +4167,7 @@ function shuttleKey(dir){ // dir −1 = J · +1 = L
   else if(Math.sign(cur)!==dir)v=dir; // reversing direction → 1× the other way
   else v=Math.min(SHUTTLE_MAX,Math.abs(cur)*2)*dir; // same direction again → double
   startShuttle(v); }
-function pause(){ state.playing=false; stopShuttle(); $('#playBtn').innerHTML=ICO('play'); bakeRecorded(); /* [R95·D1] stopping the transport ends the take → thin every performed span (BLOCK comment: pause() is a one-liner and a // here swallows the rest of it) */ if(playRaf)cancelAnimationFrame(playRaf); for(const m of state.media)if(m.kind==='video'&&m.el){try{m.el.pause();}catch(e){} stopVF(m);} for(const [,vi] of _vinst){ try{vi.vel&&vi.vel.pause();}catch(e){} try{vi.ael&&vi.ael.pause();}catch(e){} stopVFClip(vi); } stopAudio(); setMeters(0); startMotionPreview(); } // guard m.el: a missing/unrelinked video has el=null; resume live motion preview
+function pause(){ state.playing=false; stopShuttle(); $('#playBtn').innerHTML=ICO('play'); if(playRaf)cancelAnimationFrame(playRaf); for(const m of state.media)if(m.kind==='video'&&m.el){try{m.el.pause();}catch(e){} stopVF(m);} for(const [,vi] of _vinst){ try{vi.vel&&vi.vel.pause();}catch(e){} try{vi.ael&&vi.ael.pause();}catch(e){} stopVFClip(vi); } stopAudio(); setMeters(0); startMotionPreview(); } // guard m.el: a missing/unrelinked video has el=null; resume live motion preview
 function ploop(){ if(!state.playing)return; const now=performance.now(),dt=(now-lastT)/1000;lastT=now;
   if(_phLast!=null && Math.abs(state.playhead-_phLast)>0.06) startAudio(); // playhead was seeked externally while playing → reschedule audio to the new position
   if(audioSources.length&&actx){ state.playhead=_audioHead+(actx.currentTime-_audioBase); } else { state.playhead+=dt; } // slave visuals to the audio clock when audio is playing (no drift); else free-run on rAF
@@ -5626,7 +5596,7 @@ $('#loopBtn').onclick=()=>loopSelection(); // same as Ctrl+L: set the loop regio
 $('#tcModeSeg').querySelectorAll('button').forEach(b=>b.onclick=()=>{state.tl.tcMode=b.dataset.t;$('#tcModeSeg').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));renderTimeline();positionPlayhead();});
 $('#curvesBtn').onclick=toggleCurves; // [R93] single Automation button — the old Audio React view merged into it (fx lanes live in the same list)
 /* [A2] re-enable removed — the After-Effects model never overrides automation, so there is nothing to re-enable */
-{ const b=$('#autoRecBtn'); if(b)b.style.display='none'; } // [A2/D1] perform-and-bake removed → the REC arm is gone (editing an automated value already writes a keyframe)
+// [archivado 20260722·R137] #autoRecBtn removido del DOM (perform-and-bake fuera) → _backup/deprecated/
 /* [R94e] Mark In / Mark Out from the transport brackets (same as the I / O keys); right-click on either clears the range */
 { const bi=$('#markIn'), bo=$('#markOut');
   if(bi){ bi.onclick=()=>setWorkIn(); bi.addEventListener('contextmenu',e=>{e.preventDefault();clearWork();}); }

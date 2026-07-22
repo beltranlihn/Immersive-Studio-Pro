@@ -97,8 +97,8 @@
 | Motor de modulación | Pila base→capas (lfo/audio/space) | app.js · `evalModStack`/`modSignal` | ✅ | R95·C1 |
 | Panel de modulación | Lista de capas + espectro | app.js · `openModPanel` · `.modb` | ✅ | [A4] |
 | Motion procedural | Rotator/Translator infinitos | app.js · `animOffset` | ✅ | — |
-| Override / re-enable (legacy) | Máquina `_autoOff` de bypass | app.js · `setAutoOff`/`reenableAuto` · #reEnAll | 🗑️ | [A2]/[D1] quitar |
-| Perform-and-bake REC | Play + performar → keyframes | app.js · `recWrite`/`bakeRecorded` · #autoRecBtn | ⚠️🗑️ | [D1] quitar |
+| ~~Override / re-enable (legacy)~~ | **ARCHIVADO R137** — máquina `_autoOff` de bypass | `_backup/deprecated/20260722-automation-override-and-perform-bake.js` | 🗄️ | ADR-0006 |
+| ~~Perform-and-bake REC~~ | **ARCHIVADO R137** — play + performar → keyframes | `_backup/deprecated/20260722-automation-override-and-perform-bake.js` | 🗄️ | ADR-0006 |
 
 ### 5 · Export, proxies & decode → [detalle](#5--export-proxies--decode-detalle)
 | Componente | Qué hace | Ubicación | Estado | Roadmap |
@@ -195,7 +195,7 @@
 
 ## Deuda técnica & gaps detectados en el mapeo
 
-- **🗑️ Automatización legacy vestigial** — `_autoOff` (override/re-enable, `#reEnAll`) y perform-and-bake REC (`recWrite`/`bakeRecorded`, `#autoRecBtn`) siguen en el código aunque [A2]/[D1] mandan quitarlos; `evalP` ya ignora `_autoOff` → están muertos y en tensión con el modelo After Effects. **A limpiar.**
+- **🗄️ Automatización legacy — ARCHIVADO (R137).** Las funciones muertas (`_autoOff` override/re-enable + perform-and-bake `recWrite`/`bakeRecorded` + `#autoRecBtn`) se sacaron del software y viven en `_backup/deprecated/20260722-automation-override-and-perform-bake.js` (recuperables). Verificado por CDP: motor de automatización intacto. **Barrido menor pendiente:** quedan reads no-op de `_autoOff` en funciones vivas (sepAuto, returnToDefault, `drawAutoCurve` var `off`, fxKfToggle, borrado de fx) — inertes porque ya nadie setea `_autoOff`.
 - **⚠️ Sub-lanes apiladas coexisten** — `lane._auto` (sub-lanes múltiples) convive con el overlay uno-a-la-vez de [A5]. Revisar si queda residual.
 - **⚠️ Gap de grado en fulldome/equirect** — el inspector muestra ruedas/curvas/LUT para cualquier clip no-audio, pero las rutas PFD/PEQ no llaman `bindClipLUT`/`bindClipGrade`/`bindClipCurve` → esos controles son **inertes en silencio** para fuentes fulldome/equirect. Gap real sin ticket (ver observación #1 del informe).
 - **🚧 [D2] cola de export = snapshot congelado** — la cola actual muta el `state` vivo; falta el "snapshot congelado al enviar" que pide [D2].

@@ -322,11 +322,7 @@
   .lane.collapsed .clip .tt{font-size:11px;height:100%;line-height:inherit;} .lane.collapsed .clip .fadeh,.lane.collapsed .clip .cpx,.lane.collapsed .clip .cpxbar,.lane.collapsed .clip .kfstrip{display:none;}
   /* automation: envelope canvas drawn on the clip (child of .clip), below the reserved title band */
   .clip .clipautocv{position:absolute;display:block;pointer-events:auto;cursor:crosshair;z-index:1;}
-  /* [R95·D1] Automation REC: armed = the dot goes red and breathes — the one place where red is allowed in this chrome */
-  #autoRecBtn .recdot{width:9px;height:9px;border-radius:50%;background:var(--ink-faint);display:block;}
-  #autoRecBtn.on{border-color:rgba(224,100,92,0.6);} #autoRecBtn.on .recdot{background:#E0645C;animation:recpulse 1.4s ease-in-out infinite;}
-  @keyframes recpulse{0%,100%{opacity:1}50%{opacity:.35}}
-  body.rm-on #autoRecBtn.on .recdot{animation:none;}
+  /* [archivado 20260722·R137] CSS de #autoRecBtn (perform-and-bake) → _backup/deprecated/20260722-automation-override-and-perform-bake.js */
   /* NDI output LIVE: broadcasting costs a readback + network send every frame and is easy to leave on → the button must read unmistakably "on air". Cyan = the app's "live" language (red stays reserved for REC). */
   #ndiBtn.on,#spoutBtn.on{color:var(--auto-live);border-color:rgba(79,195,232,0.6);position:relative;}
   #ndiBtn.on::after,#spoutBtn.on::after{content:'';position:absolute;top:1px;right:1px;width:5px;height:5px;border-radius:50%;background:var(--auto-live);box-shadow:0 0 5px var(--auto-live);animation:recpulse 1.4s ease-in-out infinite;}
@@ -788,7 +784,6 @@
       <button class="playb" id="playBtn" title="Play / Pause · Space"><i class="ic" data-ico="play"></i></button>
       <button class="tbtn" id="toEnd" title="Go to end · End"><i class="ic" data-ico="toEnd"></i></button>
       <button class="tbtn" id="markOut" title="Mark Out · O (right-click clears the range)"><i class="ic" data-ico="markOut"></i></button>
-      <button class="tbtn" id="autoRecBtn" title="Automation REC — play, then move any control to perform it; released gestures are baked to an editable curve"><span class="recdot"></span></button>
       <button class="tbtn" id="followBtn" title="Follow playhead — scroll the timeline during playback"><i class="ic" data-ico="follow"></i></button>
       <div class="tcbox"><span class="tc" id="tc">00:00:00</span><div style="width:.5px;height:14px;background:rgba(255,255,255,0.08);"></div><span class="du" id="bbt" style="font-size:11px;color:var(--ink-2);">0f</span></div>
       <div class="seg2" id="tcModeSeg"><button data-t="timecode" class="on">TC</button><button data-t="frames">Frames</button></div>

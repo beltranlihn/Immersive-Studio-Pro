@@ -31,7 +31,7 @@ lo que indique, y actualizá `COMPONENTS.md`. Corré el syntax check.
 
 | Fecha | Archivo de respaldo | Origen (símbolo / #id) | Motivo | Ticket / ADR |
 |---|---|---|---|---|
-| _(vacío por ahora)_ | | | | |
+| 2026-07-22 | `20260722-automation-override-and-perform-bake.js` | app.js · `setAutoOff`/`reenableAuto`/`reenableAll`/`anyOverride`/`updReEnableGlobal` + `recWrite`/`bakeRecorded`/`autoRecOn`/`toggleAutoRec`/`_recTouch` · `state.autoRec` · index.html `#autoRecBtn` + CSS | Sin efecto bajo el modelo After Effects; sin llamadores (verificado). Motor de automatización verificado intacto por CDP tras sacarlo. | [A2]/[D1], ADR-0006 |
 
 <!-- Al archivar, agregá una fila aquí. Ejemplo:
 | 2026-07-22 | 20260722-auto-override.js | app.js · `setAutoOff`/`reenableAuto` · #reEnAll | Reemplazado por modelo After Effects; `evalP` ya lo ignora | [A2]/[D1], ADR-0006 |

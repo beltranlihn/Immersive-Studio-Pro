@@ -1,5 +1,25 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 137 — Limpieza de deuda técnica #1: automatización legacy (archivada, no borrada)
+
+Estreno de la política "archivar, no borrar" (ADR-0007). Se sacó del software la maquinaria de automatización que el
+modelo After Effects (ADR-0006 / [A2]/[D1]) dejó sin efecto, y se archivó verbatim en `_backup/deprecated/`.
+
+- **Archivado** (`_backup/deprecated/20260722-automation-override-and-perform-bake.js`, recuperable con encabezado
+  origen/motivo/restaurar):
+  - perform-and-bake: `_recTouch`, `autoRecOn`, `toggleAutoRec`, `recWrite`, `bakeRecorded` + `state.autoRec` +
+    `#autoRecBtn` (HTML+CSS) + la llamada `bakeRecorded()` en `pause()`.
+  - override/re-enable: `anyOverride`, `reenableAll`, `updReEnableGlobal`, `reenableAuto`, `setAutoOff` + la llamada
+    `updReEnableGlobal()` en `returnToDefault` (que queda vivo).
+- **Confirmado antes de sacar** (grep): `setAutoOff` (único setter de `_autoOff`), `recWrite`, `autoRecOn`,
+  `toggleAutoRec`, `reenableAll`, `reenableAuto` = sin llamadores; `#autoRecBtn` no estaba cableado; `#reEnAll` no existía.
+- **Verificado por CDP tras la cirugía:** los 9 símbolos → `undefined`; `#autoRecBtn` fuera del DOM; motor intacto —
+  `evalP` sigue la curva (0→100 → 50 a mitad), `manualEdit` escribe keyframe (modelo AE, val 77), `returnToDefault`
+  OK sin crash, render + `drawAutoCurve` OK, cero errores de consola. `node --check` OK.
+- **Barrido menor pendiente:** reads no-op de `_autoOff` en funciones vivas (sepAuto, returnToDefault, `drawAutoCurve`
+  var `off`, fxKfToggle, borrado de fx) — inertes; se dejaron para no tocar el hot-path del render en esta primera pasada.
+- **Nota de tooling:** se versionó la plomería `.claude` (skills/agents/commands/settings) con una excepción en `.gitignore`.
+
 ## ROUND 136 — Sistema de documentación / mapa vivo del proyecto
 
 Pedido de Beltrán: dejar de perder tiempo/tokens re-escaneando `app.js` en cada ajuste. Se investigó (C4, arc42,
