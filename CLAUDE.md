@@ -1,6 +1,13 @@
 # Immersive Studio Pro — contrato del proyecto (leer siempre)
 
-Editor de vídeo **inmersivo** (Domo fulldome 180° · 2D · Sala 360) de Alma Digital Studio (director creativo: Beltrán; developer: Claude). App de escritorio Electron, **sin build step**: `index.html` carga `mp4-muxer.min.js` y `app.js` con `<script>`. Un único `app.js` (~4700 líneas: motor WebGL2 + timeline + export WebCodecs) corre en el *renderer*; `main.js` (Electron main) sólo da diálogos nativos + disco vía `preload.js` (puente `DSP`, `IS_ELEC`).
+Editor de vídeo **inmersivo** (Domo fulldome 180° · 2D · Sala 360) de Alma Digital Studio (director creativo: Beltrán; developer: Claude). App de escritorio Electron, **sin build step**: `index.html` carga `mp4-muxer.min.js` y `app.js` con `<script>`. Un único `app.js` (~5000 líneas: motor WebGL2 + timeline + export WebCodecs) corre en el *renderer*; `main.js` (Electron main) sólo da diálogos nativos + disco vía `preload.js` (puente `DSP`, `IS_ELEC`).
+
+## 🗺️ Para ubicar cualquier cosa — LEER PRIMERO
+Antes de re-escanear `app.js`, consultá el **mapa vivo** (evita quemar tokens):
+- **`COMPONENTS.md`** = inventario de referencia: cada componente con `archivo · función` / `#domId` · estado · ticket. **Es la "estructura de carpetas"** que el código no tiene. Empezá por su índice maestro.
+- **`ARCHITECTURE.md`** = cómo funciona (render, flujos, conceptos transversales, riesgos/deuda).
+- **`docs/adr/`** = por qué (decisiones inmutables). · **Skill `arch-map`** = navegar/mantener el mapa. · Subagente **`arch-explorer`** = búsqueda aislada que devuelve `archivo:línea`.
+- **Anti-pudrición:** al cambiar código, actualizá la fila de `COMPONENTS.md` **en el mismo commit**.
 
 ## Convenciones (obligatorias)
 - **Idioma:** en el chat y en el software, **castellano neutro — PROHIBIDO el voseo/argentinismos**. La **UI del software va en inglés** (con `T('EN','ES')` para strings nuevos); botones en **infinitivo**.

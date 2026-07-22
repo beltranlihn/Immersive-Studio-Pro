@@ -1,5 +1,26 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 136 — Sistema de documentación / mapa vivo del proyecto
+
+Pedido de Beltrán: dejar de perder tiempo/tokens re-escaneando `app.js` en cada ajuste. Se investigó (C4, arc42,
+Diátaxis, ADR, docs-as-code + guías de Claude Code) y se construyó un **mapa vivo navegable**. Nada de código de app tocado.
+
+- **`COMPONENTS.md`** (raíz, ~1700 líneas) — *referencia* (Diátaxis): índice maestro (jump table por 8 subsistemas) +
+  bloques de detalle. Cada componente: `archivo · función` / `#domId` · estado (✅/🚧/⚠️/🗑️) · ticket. **Es la "estructura
+  de carpetas" que `app.js` no tiene.** Mapeado por **8 subagentes en paralelo** (cada uno leyó su subsistema en su propio
+  contexto → sin cargar las 5000 líneas en el hilo principal). Incluye sección "Deuda técnica & gaps".
+- **`ARCHITECTURE.md`** (raíz) — *explicación* (C4 + arc42): contexto, contenedores (main/preload/renderer/native),
+  componentes, flujos de render/color/export, conceptos transversales (binding manual, handedness, i18n), riesgos, glosario.
+- **`docs/adr/`** — 6 ADR inmutables (sin build step, sin FFmpeg, proxies manuales, handedness, `.isp`, automatización AE) + índice.
+- **Plomería Claude Code:** skill **`arch-map`** (navegar/mantener), subagente **`arch-explorer`** (Haiku, búsqueda aislada
+  que devuelve `archivo:línea`), `.claude/settings.json` (no leer `node_modules`/`dist`/`*.min.js`/`_backup`), puntero en
+  `CLAUDE.md` ("leer COMPONENTS.md primero"), y ritual anti-pudrición en `/commit` (actualizar la fila en el mismo commit).
+- **Hallazgos del mapeo (deuda técnica a limpiar):** automatización legacy vestigial (`_autoOff` + perform-and-bake que
+  [A2]/[D1] mandan quitar), sub-lanes apiladas residuales, gap de grado de color en fuentes PFD/PEQ, [D2] cola sin snapshot congelado.
+- **Política "archivar, no borrar" (ADR-0007):** el código deprecado que se saque del software se copia verbatim a
+  `_backup/deprecated/` (legible, recuperable) con encabezado origen/motivo/restaurar + índice; metido en el ritual de `/commit`
+  y en la skill `arch-map`. Pedido de Beltrán para no perder trabajo al limpiar deuda técnica.
+
 ## ROUND 135 — Etapa 10 · [D3] barra de menús File / Edit / Window · splash a 1080²
 
 **[F2] auditoría (sin cambios de código):** medido por CDP en dome/2D/room, el chrome del editor es **idéntico** en los
