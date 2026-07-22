@@ -2084,6 +2084,12 @@ function followPlayhead(){ if(!state.follow)return; const sc=$('#tlscroll'); if(
   // grow the timeline width to cover the centred target BEFORE scrolling (same trick as tlZoomAt) so scrollLeft doesn't clamp against the infinite-scroll width
   if((target+vw) > (state.tl._w||0)*state.tl.pxPerSec){ state.tl._scrollTarget=target+vw; renderTimeline(); state.tl._scrollTarget=0; }
   sc.scrollLeft=target; } // counter is fixed: white = timecode, gray = frames (the TC/Frames toggle only changes the ruler/grid)
+/* [T1] Zoom to clip — set the zoom so the clip fills ~96% of the visible timeline, then scroll its start to the left. */
+function zoomToClip(c){ if(!c)return; const sc=$('#tlscroll'); if(!sc)return; const vw=sc.clientWidth||1;
+  const dur=Math.max(0.05,c.dur); state.tl.pxPerSec=Math.max(0.1,Math.min(600,(vw*0.96)/dur));
+  const target=Math.max(0, Math.round(c.start*state.tl.pxPerSec - vw*0.02)); // small left margin
+  state.tl._scrollTarget=target+vw; renderTimeline(); state.tl._scrollTarget=0; // grow the content first so scrollLeft doesn't clamp (same trick as followPlayhead)
+  sc.scrollLeft=target; }
 /* work area */
 /* [R94d] Premiere-style clip-extent bar in the ruler: where the sequence actually has content (first clip start → last clip end) */
 function renderClipExtent(){ const el=$('#clipExtent'); if(!el)return; if(!state.clips.length){ el.style.display='none'; return; }
@@ -5516,9 +5522,13 @@ function pasteAttributes(){ if(!_attrClip){ flashStatus(T('Copy attributes from 
     c.props=Object.assign({},c.props,src.props); c.fx=src.fx; c.kf=nkf;
     if(src.anim)c.anim=src.anim; if(src.speed)c.speed=src.speed; else delete c.speed; }
   disposeAllVinst(); renderTimeline(); renderInspector(); render(); markDirty(); flashStatus(T('Attributes pasted to ','Atributos pegados en ')+sel.length+' clip(s)'); }
-$('#tracks').addEventListener('contextmenu',e=>{ const cd=e.target.closest('.clip'); if(!cd){ e.preventDefault(); const ln=e.target.closest('.lane'); const li=ln?+ln.dataset.lane:null; const knd=(li!=null&&state.lanes[li])?state.lanes[li].kind:undefined; openMenu(e.clientX,e.clientY,trackCreateItems(knd)); return; } // [R110b] right-click on a track row filters create-track by that row's kind e.preventDefault(); const id=+cd.dataset.clip; state.selId=id; laneDesel(); renderInspector();renderTimeline(); ensureClipVisible(clipById(id)); // [R94-UT2·U-01] after the re-render so the fresh row is measured
+$('#tracks').addEventListener('contextmenu',e=>{ const cd=e.target.closest('.clip');
+  if(!cd){ e.preventDefault(); const ln=e.target.closest('.lane'); const li=ln?+ln.dataset.lane:null; const knd=(li!=null&&state.lanes[li])?state.lanes[li].kind:undefined; openMenu(e.clientX,e.clientY,trackCreateItems(knd)); return; } // [R110b] right-click on a track row filters create-track by that row's kind
+  /* [T1] a `//` comment here used to swallow this whole body → the clip menu never got `id`/preventDefault and broke. */
+  e.preventDefault(); const id=+cd.dataset.clip; state.selId=id; if(!state.selIds.includes(id))state.selIds=[id]; laneDesel(); renderInspector(); renderTimeline(); ensureClipVisible(clipById(id)); // select the clip under the cursor (keep an existing multi-selection); re-render first so the fresh row is measured
   openMenu(e.clientX,e.clientY,[ {label:T('Rename','Renombrar'),key:'⌘R',fn:()=>{ state.selIds=[id]; state.selId=id; renameSelection(); }},
     {label:T('Split at playhead','Dividir en el cabezal'),ico:'split',fn:()=>{const c=clipById(id);if(c)razorClip(c,state.playhead);}},
+    {label:T('Zoom to clip','Ampliar al clip'),ico:'zoomIn',fn:()=>{const c=clipById(id);if(c)zoomToClip(c);}}, // [T1]
     {label:T('Duplicate','Duplicar'),key:'⌘D',ico:'diamond',fn:duplicateClip}, {label:T('Copy','Copiar'),key:'⌘C',fn:copyClip}, 'sep',
     {label:T('Set clip color…','Elegir color del clip…'),fn:()=>{ if(!state.selIds.includes(id)){state.selIds=[id];state.selId=id;} openClipColorPopup(e.clientX,e.clientY); }},
     {label:T('Change speed…','Cambiar velocidad…'),fn:()=>{const c=clipById(id);if(c)speedMenu(c);}},
