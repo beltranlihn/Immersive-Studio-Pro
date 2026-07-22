@@ -200,8 +200,7 @@
   .sechead .ln{flex:1;height:.5px;background:rgba(255,255,255,0.09);}
   /* [R102·D-T3] 24px de alto de fila: los controles de 20px en filas de 22px quedaban a 23px de centro a centro VERTICALMENTE (no entre ellos: entre filas). SC 2.5.8 AA pide 24. Nota: Blender envia 20px + buttonspacey 2 = paso 22, o sea que incumpliria la norma AA de 2023 — la norma es posterior a su diseno. Preferimos la norma. */
   .prow{display:flex;align-items:center;gap:var(--sp-8);padding:1px 12px;min-height:24px;border-bottom:.5px solid rgba(255,255,255,0.04);}
-  .prow .kf{width:20px;height:20px;flex-shrink:0;display:grid;place-items:center;border:none;background:transparent;cursor:pointer;color:var(--ink-faint);}
-  .prow .kf.on{color:var(--ink);}
+  .prow .kf{display:none;} /* [A1] the per-row stopwatch is gone — the diamond in .nav is the single point button; leftover .kf spacer spans in other rows collapse so every label left-aligns */
   .prow .reEn{width:18px;height:18px;flex-shrink:0;display:none;place-items:center;border:.5px solid rgba(255,255,255,0.25);border-radius:2px;background:transparent;cursor:pointer;color:var(--ink-2);font-size:13px;line-height:1;padding:0;}
   .prow .reEn:hover{background:rgba(255,255,255,0.1);}
   .prow .lab{width:52px;flex-shrink:0;font-size:11px;color:var(--ink-2);}
@@ -722,11 +721,15 @@
           <div id="selColorBar" title="Clip / track color — click to change" style="height:4px;width:100%;flex-shrink:0;cursor:pointer;background:var(--s2);"></div>
           <div class="selhead"><div class="selthumb" id="selThumb"></div><div style="flex:1;min-width:0;"><div class="selname" id="selName">—</div><div class="selmeta" id="selMeta">—</div></div></div>
           <div id="grpChipHost"></div>
-          <button class="sechead" id="secTf"><span style="color:var(--ink-dim);display:flex;"><i class="ic" data-ico="chevDown"></i></span><span class="t">Dome · Transform</span><span class="ln"></span></button>
+          <button class="sechead" id="secTf" data-sec="tf"><span style="color:var(--ink-dim);display:flex;"><i class="ic" data-ico="chevDown"></i></span><span class="t">Transform</span><span class="ln"></span></button>
           <div id="tfRows"></div>
           <div style="padding:6px 14px;" id="mirrorWrap"><button class="togbtn" id="mirrorBtn"><i class="ic" data-ico="mirror"></i> Mirror</button></div>
-          <button class="sechead" id="secFx"><span style="color:var(--ink-dim);display:flex;"><i class="ic" data-ico="chevDown"></i></span><span class="t">Effects</span><span class="ln"></span></button>
+          <button class="sechead" id="secFx" data-sec="clip"><span style="color:var(--ink-dim);display:flex;"><i class="ic" data-ico="chevDown"></i></span><span class="t">Clip</span><span class="ln"></span></button>
           <div id="fxRows"></div>
+          <button class="sechead" id="secColor" data-sec="color"><span style="color:var(--ink-dim);display:flex;"><i class="ic" data-ico="chevDown"></i></span><span class="t">Color</span><span class="ln"></span></button>
+          <div id="colorRows"></div>
+          <button class="sechead" id="secMotion" data-sec="motion"><span style="color:var(--ink-dim);display:flex;"><i class="ic" data-ico="chevDown"></i></span><span class="t">Motion</span><span class="ln"></span></button>
+          <div id="motionRows"></div>
           <div id="insAudio" style="display:none;"></div>
         </div>
         <div id="insReactive" style="display:none;"></div>
@@ -759,7 +762,6 @@
       <button id="simpleClipBtn" title="Simple clips (Premiere-style): drag and select a clip from anywhere on it — range selection works outside clips only"><i class="ic" data-ico="clip"></i> Simple</button>
       <button id="gridReadout" title="Grid spacing — click to toggle adaptive/fixed (Ctrl+5) · Ctrl+1 narrower · Ctrl+2 wider" style="font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:11px;font-weight:500;min-width:58px;">◇ 1 s</button>
     </div>
-    <button class="togbtn2" id="reEnAll" title="Re-enable all overridden automation" style="display:none;color:var(--ink-2);border-color:rgba(201,205,211,0.4);">↻ Re-Enable</button>
     <button class="togbtn2" id="curvesBtn" title="Show/hide automation (clip parameters + reactive FX) · A"><i class="ic" data-ico="curves"></i> Automation</button>
     <div class="zoomgrp"><button id="tlZoomOut" title="Zoom out timeline"><i class="ic" data-ico="zoomOut"></i></button><button id="tlZoomIn" title="Zoom in timeline"><i class="ic" data-ico="zoomIn"></i></button></div>
   </div>

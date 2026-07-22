@@ -1865,12 +1865,7 @@ function renderTimeline(){ reconcileVinst(); // free private decoders of clips t
       ac.style.setProperty('--pc',autoColor(P)); // [R95·E1] side bar in the parameter's hue
       const _sc=selClip(); const _foc=!!(_sc&&_sc.lane===li);
       const _pick=np=>{ lane._autoP=np; renderTimeline(); markDirty(); };
-      ac.appendChild(_foc?autoDuo(li,P,_pick):autoDuoText(li,P,_pick)); // [R95·E4] text until this track has focus
-      const btns=document.createElement('div'); btns.style.cssText='display:flex;gap:4px;align-items:center;flex-shrink:0;';
-      btns.innerHTML=`<button class="abt" data-a="add" title="${T('Add automation lane','Añadir carril de automatización')}">+</button>`;
-      ac.appendChild(btns);
-      for(const evn of ['pointerdown','click','dblclick'])btns.addEventListener(evn,ev=>ev.stopPropagation()); // don't select/drag/rename the track from its automation buttons
-      btns.querySelector('[data-a=add]').onclick=()=>addAutoLaneAt(li);
+      ac.appendChild(_foc?autoDuo(li,P,_pick):autoDuoText(li,P,_pick)); // [A5] ONE automation at a time — the chooser swaps which param's curve overlays the clips; no more stacked sub-lanes / '+' add-lane button
       hd.appendChild(ac); }
     hdrT.appendChild(hd);
     if(!_isAud)appendAutoLanes(li,W,tracks,heads); // [2] inline automation sub-lanes (video only) — unified: inspector params + reactive-fx params
@@ -2602,6 +2597,7 @@ function vzLbl(){ $('#vzReset').textContent=Math.round(state.view.zoom/0.92*100)
 const TF=[['az','Azimuth','°',0,360],['el','Elevation','°',0,90],['size','Size','°',5,300],['rot','Rotation','°',-180,180]]; // R88: dome Size up to 300° (was 160)
 const TF_FLAT=[['x','Pos X','%',-100,100],['y','Pos Y','%',-100,100],['scale','Scale','%',0,1000],['rot','Rotation','°',-180,180]]; // 2D (flat) transform rows — R88: Scale up to 1000% (was 300); drawClipFlat has no upper clamp so type past it too
 const FX=[['opacity','Opacity','%',0,100],['blur','Blur','px',0,20],['feather','Feather','%',0,100],['crop','Crop','%',0,90],['exposure','Exposure','',-100,100],['contrast','Contrast','',-100,100],['saturation','Saturation','',-100,100],['temperature','Temp','',-100,100],['tint','Tint','',-100,100],['glow','Glow','',0,100],['chroma','Chroma','',0,100]];
+const FX_COLOR_KEYS=new Set(['exposure','contrast','saturation','temperature','tint','glow','chroma']); // [I2] these FX rows go to the Color section; the rest (opacity/blur/feather/crop) stay in Clip
 const PLABELS={az:['Azimuth','Azimut'],el:['Elevation','Elevación'],size:['Size','Tamaño'],rot:['Rotation','Rotación'],x:['Pos X','Pos X'],y:['Pos Y','Pos Y'],scale:['Scale','Escala'],opacity:['Opacity','Opacidad'],blur:['Blur','Desenfoque'],feather:['Feather','Desvanecer'],crop:['Crop','Recortar'],exposure:['Exposure','Exposición'],contrast:['Contrast','Contraste'],saturation:['Saturation','Saturación'],temperature:['Temp','Temp'],tint:['Tint','Tinte'],glow:['Glow','Brillo'],chroma:['Chroma','Cromática']};
 const propLabel=p=>{const m=PLABELS[p];return m?T(m[0],m[1]):p;};
 function renderInspector(){ try{ _renderInspectorMain(); }catch(e){ console.error('inspector',e); } try{ renderReactivePanel(); }catch(e){} applyInspTab(); }
@@ -2620,7 +2616,7 @@ function _renderInspectorMain(){
     if(gg) $('#grpChip').onclick=()=>selectGroup(gg.id); }
   // Adjustment layer: no source media / no transform — just opacity (wet/dry) + a pointer to the Reactive FX tab
   if(c.adjust){ $('#selMeta').textContent=T('Adjustment layer','Capa de ajuste');
-    ['#secTf','#mirrorWrap','#tfRows'].forEach(s=>{const el=$(s);if(el)el.style.display='none';});
+    ['#secTf','#mirrorWrap','#tfRows','#secColor','#colorRows','#secMotion','#motionRows'].forEach(s=>{const el=$(s);if(el)el.style.display='none';});
     ['#secFx','#fxRows'].forEach(s=>{const el=$(s);if(el)el.style.display='';}); const ia0=$('#insAudio'); if(ia0)ia0.style.display='none';
     { const sf=$('#secFx'); if(sf){const tt=sf.querySelector('.t'); if(tt)tt.textContent=T('Adjustment Layer','Capa de ajuste');} }
     $('#fxRows').innerHTML=''; buildRows('#fxRows',[['opacity','Opacity','%',0,100]],c);
@@ -2628,11 +2624,15 @@ function _renderInspectorMain(){
     refreshInspector(); return; }
   // Audio clips get a dedicated Volume/Fade panel — the dome Transform/Effects don't apply to sound
   const isAud=!!(m&&m.kind==='audio')||isAudioClip(c);
-  { const d=isAud?'none':''; ['#secTf','#mirrorWrap','#secFx','#tfRows','#fxRows'].forEach(s=>{const el=$(s);if(el)el.style.display=d;}); const ia=$('#insAudio'); if(ia)ia.style.display=isAud?'block':'none'; }
+  { const d=isAud?'none':''; ['#secTf','#mirrorWrap','#secFx','#tfRows','#fxRows','#secColor','#colorRows','#secMotion','#motionRows'].forEach(s=>{const el=$(s);if(el)el.style.display=d;}); const ia=$('#insAudio'); if(ia)ia.style.display=isAud?'block':'none'; }
   if(isAud){ $('#tfRows').innerHTML=''; $('#fxRows').innerHTML=''; buildAudioInspector(c,m); return; }
   $('#mirrorBtn').classList.toggle('on',c.props.mirror);
   { const st=$('#secTf'); if(st){ const tt=st.querySelector('.t'); if(tt)tt.textContent=isFlat()?T('Transform','Transformación'):T('Dome · Transform','Domo · Transformación'); } }
-  buildRows('#tfRows', isFlat()?TF_FLAT:TF, c); buildRows('#fxRows', (!isFlat()&&c.props.fulldome)?FX.filter(f=>['opacity','feather','exposure','contrast','saturation','temperature','tint'].includes(f[0])):FX, c); // fulldome path (PFD) supports opacity + grade + mask/feather (mask dropdown added below)
+  { const sf=$('#secFx'); if(sf){ const tt=sf.querySelector('.t'); if(tt)tt.textContent=T('Clip','Clip'); } const sc=$('#secColor'); if(sc){ const tt=sc.querySelector('.t'); if(tt)tt.textContent=T('Color','Color'); } const sm=$('#secMotion'); if(sm){ const tt=sm.querySelector('.t'); if(tt)tt.textContent=T('Motion','Movimiento'); } } // [I2] section titles (secFx reused as the Clip section; Color/Motion are new)
+  buildRows('#tfRows', isFlat()?TF_FLAT:TF, c);
+  { const fxAll=(!isFlat()&&c.props.fulldome)?FX.filter(f=>['opacity','feather','exposure','contrast','saturation','temperature','tint'].includes(f[0])):FX; // fulldome path (PFD) supports opacity + grade + mask/feather
+    buildRows('#fxRows', fxAll.filter(f=>!FX_COLOR_KEYS.has(f[0])), c);   // [I2] Clip section: opacity/blur/feather/crop + (below) mask/blend/loop/keys
+    buildRows('#colorRows', fxAll.filter(f=>FX_COLOR_KEYS.has(f[0])), c); } // [I2] Color section: exposure/contrast/saturation/temp/tint/glow/chroma + (below) LUT
   // 360-room "Mask to wall": the clip is only visible inside the chosen wall(s) — multi-select
   if(isRoom()&&!c.adjust){ const room=activeSeq()&&activeSeq().room; if(room&&room.walls){ const host=$('#tfRows'); const cur=c.props.maskWalls||[];
     const row=document.createElement('div'); row.className='prow'; row.style.cssText='flex-direction:column;align-items:stretch;gap:6px;margin-top:2px;';
@@ -2719,7 +2719,7 @@ function _renderInspectorMain(){
         <button class="mbtn" id="lutLoad" style="height:18px;padding:0 8px;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${c.props.lut?(rec?rec.name:'LUT').slice(0,16):T('Load…','Cargar…')}</button>
         ${c.props.lut?`<input type="range" id="lutMix" min="0" max="100" value="${c.props.lutMix==null?100:c.props.lutMix}" style="flex:1;min-width:36px;"><span class="tnum" id="lutMixV" style="width:32px;color:var(--ink-dim);text-align:right;">${c.props.lutMix==null?100:c.props.lutMix}%</span><button class="mbtn" id="lutClear" title="${T('Remove LUT','Quitar LUT')}" style="height:18px;padding:0 7px;">✕</button>`:''}
       </div>`;
-    $('#fxRows').appendChild(lrow);
+    $('#colorRows').appendChild(lrow); // [I2] LUT lives in the Color section
     lrow.querySelector('#lutLoad').onclick=async()=>{ if(!(IS_ELEC&&DSP.pickFile)){ flashStatus(T('LUT loading needs the desktop app','Cargar LUT necesita la app de escritorio'),'err'); return; }
       const p=await DSP.pickFile({name:'Cube LUT',extensions:['cube'],title:T('Load LUT (.cube)','Cargar LUT (.cube)')}); if(!p)return;
       const r2=await loadLUT(p); if(!r2){ flashStatus(T('Not a valid 3D .cube LUT','No es una LUT .cube 3D válida'),'err'); return; }
@@ -2782,20 +2782,22 @@ function _renderInspectorMain(){
     srow.querySelector('#shpType').onchange=reShp; srow.querySelector('#shpFill').oninput=reShp; srow.querySelector('#shpStroke').oninput=reShp; srow.querySelector('#shpStrokeW').onchange=reShp;
   }
   // ===== Motion (procedural infinite animation — Rotator/Translator, keyframe-independent) =====
-  { const anrow=document.createElement('div'); anrow.className='prow'; anrow.style.cssText='flex-direction:column;align-items:stretch;gap:6px;';
+  { $('#motionRows').innerHTML=''; // [I2] Motion has its own section — clear it each render (it isn't rebuilt via buildRows, so it would otherwise accumulate)
+    const anrow=document.createElement('div'); anrow.className='prow'; anrow.style.cssText='flex-direction:column;align-items:stretch;gap:6px;';
     const chips=curAnimPresets().map(pz=>`<button class="animchip" draggable="true" data-k="${pz.key}" style="font-size:11px;padding:3px 9px;border-radius:2px;border:.5px solid rgba(255,255,255,0.14);background:var(--s2);color:var(--ink-2);cursor:grab;">${T(pz.label[0],pz.label[1])}</button>`).join('');
     anrow.innerHTML=`<div style="display:flex;align-items:center;gap:6px;">
-        <span class="lab" style="width:auto;color:var(--ink-2);display:flex;align-items:center;gap:6px;">${ICO('orbit',12)} ${T('Motion','Movimiento')}</span><span style="flex:1"></span>
+        <span style="flex:1"></span>
         <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--ink-3);cursor:pointer;" title="${T('Animate live in the editor while paused','Animar en vivo en el editor en pausa')}"><input type="checkbox" id="motionPrev" ${state.motionPreview!==false?'checked':''}> ${T('Live','En vivo')}</label></div>
       <div style="display:flex;flex-wrap:wrap;gap:6px;">${chips}</div>
       <div id="animList" style="display:flex;flex-direction:column;gap:6px;"></div>
       <span style="font-size:11px;color:var(--ink-dim);line-height:1.35;">${T('Click or drag a chip onto the clip. Loops forever — independent of keyframes.','Haz clic o arrastra un chip al clip. Bucle infinito, independiente de los keyframes.')}</span>`;
-    $('#fxRows').appendChild(anrow);
+    $('#motionRows').appendChild(anrow);
     $('#motionPrev').onchange=e=>{ state.motionPreview=e.target.checked; if(state.motionPreview)startMotionPreview(); else { stopMotionPreview(); _previewClock=0; render(); } };
     anrow.querySelectorAll('.animchip').forEach(b=>{ b.onclick=()=>{ const cc=selClip(); if(!cc)return; pushUndo(); addAnimPreset(cc,b.dataset.k); buildAnimList(cc); render(); renderTimeline(); startMotionPreview(); markDirty(); };
       b.addEventListener('dragstart', e=>{ try{ e.dataTransfer.setData('text/dsp-anim',b.dataset.k); e.dataTransfer.effectAllowed='copy'; }catch(_){} }); });
     buildAnimList(c);
   }
+  applySecCollapse(); // [I1] Transform expanded, Clip/Color/Motion collapsed by default (persisted in state.insCol)
   refreshInspector();
 }
 /* draw a real (max-abs envelope) waveform, amplitude scaled by the clip volume */
@@ -2870,17 +2872,19 @@ function fadeDrag(box,key){ box.addEventListener('pointerdown',e=>{e.preventDefa
 function buildRows(sel,defs,c){ const host=$(sel); host.innerHTML='';
   for(const [p,label,unit,mn,mx] of defs){
     const row=document.createElement('div'); row.className='prow'+(hasKf(c,p)?' auto':''); // .auto = param already automated → brighter label (Ableton-style)
-    row.innerHTML=`<button class="kf ${hasKf(c,p)?'on':''}" data-p="${p}" title="${hasKf(c,p)?T('Remove automation (deletes the whole curve — Ctrl+Z restores)','Quitar automatización (borra toda la curva — Ctrl+Z restaura)'):T('Animate','Animar')}">${ICO(hasKf(c,p)?'kfFull':'kfEmpty',13)}</button>
-      <button class="reEn" data-p="${p}" title="${T('Re-enable automation','Reactivar automatización')}" style="display:none">↻</button>
-      <span class="lab">${propLabel(p)}</span>
+    row.innerHTML=`<span class="lab">${propLabel(p)}</span>
       <div class="field" data-p="${p}"><div class="track"><i style="width:0%"></i></div><div class="modarc"></div><div class="box"><span class="num">0</span><span class="u">${unit}</span></div></div>
       <button class="modb" data-p="${p}" title="${T('Modulation — LFO · audio · dome space','Modulación — LFO · audio · espacio del domo')}">${ICO('react',11)}</button>
-      <div class="nav"><button data-k="prev">${ICO('kfprev',12)}</button><button data-k="add" title="${T('Keyframe','Fotograma clave')}">${ICO('diamond',12)}</button><button data-k="next">${ICO('kfnext',12)}</button></div>`;
+      <div class="nav"><button data-k="prev" title="${T('Previous keyframe','Fotograma anterior')}">${ICO('kfprev',12)}</button><button data-k="add" title="${T('Add / remove keyframe here · right-click to clear automation','Añadir / quitar fotograma aquí · clic derecho borra la automatización')}">${ICO('diamond',12)}</button><button data-k="next" title="${T('Next keyframe','Fotograma siguiente')}">${ICO('kfnext',12)}</button></div>`;
     host.appendChild(row);
-    row.querySelector('.kf').onclick=()=>{ const cc=selClip(); if(hasKf(cc,p)){ pushUndo(); clearKf(cc,p);if(cc._autoOff)delete cc._autoOff[p];cc.props[p]=evalP(cc,p,state.playhead);closeAuto(cc,p);flashStatus(T('Automation removed — Ctrl+Z restores it','Automatización eliminada — Ctrl+Z la restaura')); } else { if(state.playhead<cc.start-1e-6||state.playhead>cc.start+cc.dur+1e-6){flashStatus(T('The playhead is outside this clip','El cabezal está fuera de este clip'),'err');return;} pushUndo(); setKf(cc,p,state.playhead,evalP(cc,p,state.playhead),curEase());openAuto(cc,p); } renderInspector();renderTimeline();render();markDirty(); }; // [2] stopwatch opens the inline automation sub-lane for this param
-    row.querySelector('.reEn').onclick=()=>{ const cc=selClip(); reenableAuto(cc,p); updReEnableGlobal(); }; // [A6] re-enable this param's automation
     row.querySelector('.modb').onclick=ev=>{ ev.stopPropagation(); openModPanel(selClip(),p,ev.currentTarget); }; // [R95·C1] the modulation stack lives behind this button
-    row.querySelector('[data-k=add]').onclick=()=>{ const cc=selClip(); if(state.playhead<cc.start-1e-6||state.playhead>cc.start+cc.dur+1e-6){flashStatus(T('The playhead is outside this clip','El cabezal está fuera de este clip'),'err');return;} pushUndo(); setKf(cc,p,state.playhead,evalP(cc,p,state.playhead),curEase()); renderInspector();renderTimeline();render();markDirty(); };
+    // [A1] single point button: the diamond toggles a keyframe at the playhead (add if none / remove if on one); the first one reveals the curve on the track; right-click clears the whole automation
+    row.querySelector('[data-k=add]').onclick=()=>{ const cc=selClip(); if(!cc)return; if(state.playhead<cc.start-1e-6||state.playhead>cc.start+cc.dur+1e-6){flashStatus(T('The playhead is outside this clip','El cabezal está fuera de este clip'),'err');return;}
+      const wasAuto=hasKf(cc,p), onKf=kfAt(cc,p); pushUndo();
+      if(onKf){ cc.kf[p]=cc.kf[p].filter(k=>k!==onKf); if(!cc.kf[p].length){ const v=evalP(cc,p,state.playhead); delete cc.kf[p]; cc.props[p]=v; closeAuto(cc,p); } } // remove the point under the playhead; last one freezes the value
+      else { setKf(cc,p,state.playhead,evalP(cc,p,state.playhead),curEase()); if(!wasAuto)openAuto(cc,p); } // first point reveals the single automation overlay on the track
+      renderInspector();renderTimeline();render();markDirty(); };
+    row.querySelector('[data-k=add]').oncontextmenu=e=>{ e.preventDefault(); const cc=selClip(); if(!cc||!hasKf(cc,p))return; const v=evalP(cc,p,state.playhead); pushUndo(); clearKf(cc,p); cc.props[p]=v; closeAuto(cc,p); flashStatus(T('Automation cleared — Ctrl+Z restores it','Automatización borrada — Ctrl+Z la restaura')); renderInspector();renderTimeline();render();markDirty(); }; // [A1] right-click the diamond = remove the whole curve (freezes at the current value)
     row.querySelector('[data-k=prev]').onclick=()=>jumpKf(p,-1); row.querySelector('[data-k=next]').onclick=()=>jumpKf(p,1);
     const field=row.querySelector('.field'); const box=row.querySelector('.box');
     field.addEventListener('pointerdown',e=>{ if(e.target.tagName==='INPUT')return; startValDrag(e,p,mn,mx); });
@@ -2920,17 +2924,15 @@ function renderGroupInspector(g){ const host=$('#insGroup'); const n=groupMember
 }
 function refreshInspector(){ const c=selClip(); if(!c)return; const t=state.playhead;
   refreshMotionWet(); refreshModFormula(); // keep the Motion Mix sliders / keyframe dots + the modulation audit line synced to the playhead
-  for(const sel of ['#tfRows','#fxRows']) $$(sel+' .prow').forEach(row=>{ const field=row.querySelector('.field'); if(!field||!field.dataset.p)return; const p=field.dataset.p; const def=TF.concat(TF_FLAT).concat(FX).find(d=>d[0]===p); if(!def)return; const [_,__,unit,mn,mx]=def;
+  for(const sel of ['#tfRows','#fxRows','#colorRows']) $$(sel+' .prow').forEach(row=>{ const field=row.querySelector('.field'); if(!field||!field.dataset.p)return; const p=field.dataset.p; const def=TF.concat(TF_FLAT).concat(FX).find(d=>d[0]===p); if(!def)return; const [_,__,unit,mn,mx]=def;
     const v=evalP(c,p,t); const vm=evalR(c,p,t); const md=hasMod(c,p); // [R95·C1] base vs resolved: the number reads the FINAL value, the track keeps the base — like Bitwig's ring over the knob
     row.classList.toggle('modon',!!md);
     row.querySelector('.num').textContent=Math.round((md?vm:v)*10)/10; row.querySelector('.track>i').style.width=((v-mn)/(mx-mn)*100)+'%';
     if(md){ const arc=row.querySelector('.modarc'); if(arc){ const a=Math.max(0,Math.min(100,(v-mn)/(mx-mn)*100)), b=Math.max(0,Math.min(100,(vm-mn)/(mx-mn)*100));
       arc.style.setProperty('--m0',Math.min(a,b)+'%'); arc.style.setProperty('--m1',Math.max(a,b)+'%'); } } // the span between base and modulated = what the modulation is doing right now
-    const kb=row.querySelector('.kf'); const kfd=!!hasKf(c,p); row.classList.toggle('auto',kfd); kb.classList.toggle('on',kfd); kb.innerHTML=ICO(kfd?'kfFull':'kfEmpty',13); kb.title=kfd?T('Remove automation (deletes the whole curve — Ctrl+Z restores)','Quitar automatización (borra toda la curva — Ctrl+Z restaura)'):T('Animate','Animar'); // !!  → real boolean (hasKf returns undefined for un-animated params, and classList.toggle(x,undefined) FLIPS instead of forcing off)
-    const ab=row.querySelector('[data-k=add]'); if(ab)ab.classList.toggle('on',!!kfAt(c,p)); // filled state = the playhead sits on a keyframe of this param
-    const re=row.querySelector('.reEn'); if(re)re.style.display=(c._autoOff&&c._autoOff[p])?'inline-flex':'none'; // [A6] override indicator
+    row.classList.toggle('auto',!!hasKf(c,p)); // [A1] automated state = the row highlight (Ableton-style brighter label); the stopwatch is gone
+    const ab=row.querySelector('[data-k=add]'); if(ab)ab.classList.toggle('on',!!kfAt(c,p)); // filled diamond = the playhead sits on a keyframe of this param
   });
-  updReEnableGlobal();
 }
 function kfAt(c,p){ if(!hasKf(c,p))return null; const lt=state.playhead-c.start; return c.kf[p].find(k=>Math.abs(k.t-lt)<0.06)||null; }
 function jumpKf(p,dir){ const c=selClip(); if(!hasKf(c,p))return; const lt=state.playhead-c.start; const ks=c.kf[p];
@@ -3040,8 +3042,7 @@ function autoDuo(li,cur,onPick){ const types=laneFxTypes(li); const isT=isFxtKey
   wrap.appendChild(dev); wrap.appendChild(par); return wrap; }
 /* [R93] legacy per-clip Audio-React lanes (c._arAuto, keys 'fx:<id>:<p>') → track lanes with type-keys */
 function migrateArAuto(){ for(const c of state.clips){ if(!Array.isArray(c._arAuto)){ if(c._arAuto!=null)delete c._arAuto; continue; } const lane=state.lanes[c.lane];
-  if(lane&&lane.kind!=='audio'){ lane._auto=Array.isArray(lane._auto)?lane._auto:[];
-    for(const key of c._arAuto){ const q=String(key).split(':'); const fx=(c.fx||[]).find(f=>f.id===+q[1]); if(fx&&FXBY[fx.type]){ const lk='fxt:'+fx.type+':'+q[2]; if(!lane._auto.includes(lk))lane._auto.push(lk); } } }
+  if(lane&&lane.kind!=='audio'){ for(const key of c._arAuto){ const q=String(key).split(':'); const fx=(c.fx||[]).find(f=>f.id===+q[1]); if(fx&&FXBY[fx.type]){ const lk='fxt:'+fx.type+':'+q[2]; if(!lane._autoP)lane._autoP=lk; } } } // [A5] one automation at a time — the first migrated key becomes the single overlay
   delete c._arAuto; } }
 /* [R70] curve clipboard — copy a curve (or the selected breakpoints) and paste it into any lane/param */
 function copyAutoCurve(c,p,set){ const ks=(c.kf&&c.kf[p])||[]; const src=(set&&set.size)?ks.filter(k=>set.has(k)):ks.slice(); if(!src.length){ flashStatus(T('Nothing to copy','Nada que copiar')); return; }
@@ -3236,7 +3237,6 @@ function openModPanel(c,p,anchor){ closeModPanel(); if(!c)return; c.mod=c.mod||{
       row.innerHTML=`<div class="mpr1"><button class="mpon" title="${T('Enable / bypass','Activar / puentear')}">${m.on===false?'○':'●'}</button>
           <select class="mpsrc sysel">${srcSel}</select><select class="mpbl sysel">${blSel}</select>
           <input class="mpdep tnum" type="number" step="1" value="${Math.round(m.depth)}" title="${T('Depth','Profundidad')}"><span class="mpu">${unitTxt}</span>
-          <button class="mpfrz${m.frz!=null?' on':''}" title="${T('Freeze this layer at its current value (live safety)','Congelar esta capa en su valor actual (seguridad en vivo)')}">${m.frz!=null?'❄':'❅'}</button>
           <button class="mpup" title="${T('Move up','Subir')}">↑</button><button class="mpdel" title="${T('Remove layer','Quitar capa')}">${ICO('close',10)}</button></div>
         <div class="mpr2"></div>`;
       const r2=row.querySelector('.mpr2');
@@ -3259,7 +3259,6 @@ function openModPanel(c,p,anchor){ closeModPanel(); if(!c)return; c.mod=c.mod||{
           <label class="mpsync"><input type="checkbox" class="mpinv"${m.inv?' checked':''}> ${T('inv','inv')}</label>`; }
       const upd=()=>{ renderTimeline(); render(); markDirty(); refreshModFormula(); };
       row.querySelector('.mpon').onclick=()=>{ m.on=(m.on===false); rebuild(); upd(); };
-      row.querySelector('.mpfrz').onclick=()=>{ if(m.frz!=null)delete m.frz; else { const f=m.frz; delete m.frz; m.frz=modSignal(c,m,state.playhead); } rebuild(); upd(); }; // [R95·D4] freeze samples the live signal (delete first so modSignal reads the source, not the frozen value)
       row.querySelector('.mpsrc').onchange=e=>{ const nm=modDefaults(e.target.value); nm.id=m.id; nm.blend=m.blend; nm.depth=m.depth; st[i]=nm; rebuild(); upd(); };
       row.querySelector('.mpbl').onchange=e=>{ m.blend=e.target.value; rebuild(); upd(); };
       row.querySelector('.mpdep').onchange=e=>{ m.depth=+e.target.value||0; upd(); };
@@ -3285,8 +3284,8 @@ function refreshModFormula(){ if(!_modPanel)return; const el=_modPanel.querySele
   _modPanel.querySelectorAll('.mpspeccv').forEach(cv=>{ if(cv._paint)cv._paint(); }); } // [R95·C2] the spectrum must be LIVE — it repaints with the playhead, like Notch's
 /* [A5] Show Automation: ensure inline lanes are visible and at least one lane is open for this clip */
 function showAutomation(c){ if(!c||isAudioClip(c))return; state.inlineCurves=true; syncAutoUI(); const cb=$('#curvesBtn'); if(cb)cb.classList.add('on');
-  { const lane=state.lanes[c.lane]; if(lane&&lane.kind!=='audio'){ lane._auto=Array.isArray(lane._auto)?lane._auto:[]; const armed=CURVE_PARAMS.filter(d=>hasKf(c,d[0])).map(d=>d[0]);
-    if(armed.length)lane._autoP=armed[0]; for(const p of armed.slice(1))if(!lane._auto.includes(p)&&p!==lane._autoP)lane._auto.push(p); } } // [R93] the clip's animated params open on ITS TRACK: first one as the primary overlay, the rest as sub-lanes
+  { const lane=state.lanes[c.lane]; if(lane&&lane.kind!=='audio'){ const armed=CURVE_PARAMS.filter(d=>hasKf(c,d[0])).map(d=>d[0]);
+    if(armed.length&&!(lane._autoP&&armed.includes(lane._autoP)))lane._autoP=armed[0]; } } // [A5] the clip's animated params open on ITS TRACK as the SINGLE overlay (first one, unless the current choice is already one of them) — one at a time
   renderTimeline(); }
 /* [A5] Return to Default: drop all automation on the clip, freezing each param at its current value (curve removed) */
 function returnToDefault(c){ if(!c)return; pushUndo(); for(const [p] of CURVE_PARAMS){ if(hasKf(c,p)){ c.props[p]=evalP(c,p,state.playhead); clearKf(c,p); } if(c._autoOff)delete c._autoOff[p]; } c._auto=[]; renderTimeline(); renderInspector(); render(); updReEnableGlobal(); flashStatus(T('Automation returned to default','Automatización restablecida')); }
@@ -3616,7 +3615,8 @@ function attachClipAuto(cd,c,li){ if(!state.inlineCurves)return; const lane=stat
    across every clip of the track, and stay visible regardless of the selection. Resizable per (lane,param).
    [R93] Each header carries the Ableton chooser PAIR (device + parameter) — fx lanes use type-keys 'fxt:<type>:<p>'. */
 function laneAutoH(lane,p){ return Math.max(AUTO_MIN_H,Math.min(AUTO_MAX_H,(lane._autoH&&lane._autoH[p])||AUTO_H)); }
-function appendAutoLanes(li,W,tracks,heads){ if(!state.inlineCurves)return; const lane=state.lanes[li]; if(!lane||lane.kind==='audio')return; const list=Array.isArray(lane._auto)?lane._auto:[]; if(!list.length)return;
+function appendAutoLanes(li,W,tracks,heads){ return; /* [A5] one automation at a time — stacked sub-lanes removed; the single active param overlays the clips via attachClipAuto + the track-header chooser */
+  if(!state.inlineCurves)return; const lane=state.lanes[li]; if(!lane||lane.kind==='audio')return; const list=Array.isArray(lane._auto)?lane._auto:[]; if(!list.length)return;
   list.forEach((p,idx)=>{ if(!paramDef(null,p))return; const LHa=laneAutoH(lane,p);
     const sub=document.createElement('div'); sub.className='autolane'; sub.style.height=LHa+'px'; sub.style.width=W+'px';
     const cv=document.createElement('canvas'); cv.className='autocv'; cv.style.height=LHa+'px'; cv._H=LHa; cv._c=null; cv._li=li; cv._p=p; cv._kind='lane'; sub.appendChild(cv); tracks.appendChild(sub);
@@ -5217,7 +5217,11 @@ function colorPopup(x,y,cur,onPick,onClear){ document.querySelectorAll('.lanecol
   setTimeout(()=>{ document.addEventListener('pointerdown',close,true); document.addEventListener('keydown',esc,true); },0); }
 function openLaneColorPopup(li,x,y){ const lane=state.lanes[li]; if(!lane)return; colorPopup(x,y,lane.color,col=>{ pushUndo(); lane.color=col; renderTimeline(); render(); markDirty(); }, ()=>{ pushUndo(); delete lane.color; renderTimeline(); render(); markDirty(); }); } // track colour = the lane header only (R84c)
 function openClipColorPopup(x,y){ const sel=(state.selIds&&state.selIds.length?state.selIds:(state.selId!=null?[state.selId]:[])).map(clipById).filter(Boolean); if(!sel.length)return; colorPopup(x,y,sel[0].color,col=>{ pushUndo(); for(const c of sel)c.color=col; renderTimeline(); render(); renderInspector(); markDirty(); }, ()=>{ pushUndo(); for(const c of sel)c.color=null; renderTimeline(); render(); renderInspector(); markDirty(); }); } // per-clip colour (all selected)
-function wireSecHeads(){ document.querySelectorAll('#insCtl .sechead').forEach(h=>{ if(h._wired)return; h._wired=true; h.onclick=()=>{ const col=h.classList.toggle('seccollapsed'); let n=h.nextElementSibling; while(n && !n.classList.contains('sechead')){ n.style.display=col?'none':''; n=n.nextElementSibling; } const chev=h.querySelector('.ic'); if(chev)chev.style.transform=col?'rotate(-90deg)':''; }; }); }
+function insColState(){ if(!state.insCol)state.insCol={clip:true,color:true,motion:true}; return state.insCol; } // [I1] default: Transform expanded, Clip/Color/Motion collapsed
+function applySecCollapse(){ const st=insColState(); document.querySelectorAll('#insCtl .sechead[data-sec]').forEach(h=>{ const col=!!st[h.dataset.sec];
+    h.classList.toggle('seccollapsed',col); const chev=h.querySelector('.ic'); if(chev)chev.style.transform=col?'rotate(-90deg)':'';
+    let n=h.nextElementSibling; while(n && !(n.classList&&n.classList.contains('sechead'))){ if(n.id!=='insAudio')n.style.display=col?'none':''; n=n.nextElementSibling; } }); } // walk this header's rows up to the next header; insAudio is never section-owned
+function wireSecHeads(){ document.querySelectorAll('#insCtl .sechead[data-sec]').forEach(h=>{ if(h._wired)return; h._wired=true; h.onclick=()=>{ const st=insColState(); st[h.dataset.sec]=!st[h.dataset.sec]; applySecCollapse(); }; }); }
 wireSecHeads();
 function openSaveMenu(x,y){ openMenu(x,y,[{label:T('Save','Guardar'),key:'⌘S',ico:'save',fn:()=>saveProject()},{label:T('Save As… (new file)','Guardar como… (archivo nuevo)'),key:'⇧⌘S',fn:()=>saveProject(true)},{label:T('Save incremental (_vNN)','Guardar incremental (_vNN)'),fn:saveIncremental}]); }
 $('#saveBtn').onclick=()=>saveProject(); $('#saveBtn').oncontextmenu=e=>{ e.preventDefault(); openSaveMenu(e.clientX,e.clientY); }; // right-click the Save button → Save As / incremental
@@ -5275,7 +5279,7 @@ $('#loopBtn').onclick=()=>loopSelection(); // same as Ctrl+L: set the loop regio
 /* (BPM box removed from the transport — tempo/bars no longer exposed in the header) */
 $('#tcModeSeg').querySelectorAll('button').forEach(b=>b.onclick=()=>{state.tl.tcMode=b.dataset.t;$('#tcModeSeg').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));renderTimeline();positionPlayhead();});
 $('#curvesBtn').onclick=toggleCurves; // [R93] single Automation button — the old Audio React view merged into it (fx lanes live in the same list)
-$('#reEnAll').onclick=reenableAll;
+/* [A2] re-enable removed — the After-Effects model never overrides automation, so there is nothing to re-enable */
 { const b=$('#autoRecBtn'); if(b)b.style.display='none'; } // [A2/D1] perform-and-bake removed → the REC arm is gone (editing an automated value already writes a keyframe)
 /* [R94e] Mark In / Mark Out from the transport brackets (same as the I / O keys); right-click on either clears the range */
 { const bi=$('#markIn'), bo=$('#markOut');
@@ -5898,7 +5902,7 @@ function applyLang(){ const L=state.lang; document.documentElement.lang=L;
   ttl('#inspRail','Expand inspector','Expandir inspector'); txt('#inspRail .rlab','Inspector','Inspector');
   txt('#inspPane .pantab .ttl','Inspector','Inspector'); ttl('#hideInsp','Collapse panel','Contraer panel');
   const ie=$('#insEmpty'); if(ie){ ie.innerHTML='<span style="opacity:.5;"><i class="ic" data-ico="panel" data-s="26"></i></span>'+T('Select a clip','Selecciona un clip')+'<br>'+T('in the timeline or viewport','en la línea de tiempo o el visor'); const ic=ie.querySelector('[data-ico]'); if(ic){ic.innerHTML=ICO(ic.dataset.ico,+ic.dataset.s||13);ic.style.display='inline-flex';} }
-  const sh=$$('#insCtl > .sechead .t'); if(sh[0])sh[0].textContent=T('Dome · Transform','Domo · Transformar'); if(sh[1])sh[1].textContent=T('Effects','Efectos');
+  { const secLbl=(sec,en,es)=>{const h=document.querySelector('#insCtl .sechead[data-sec="'+sec+'"] .t'); if(h)h.textContent=T(en,es);}; secLbl('tf',isFlat()?'Transform':'Dome · Transform',isFlat()?'Transformar':'Domo · Transformar'); secLbl('clip','Clip','Clip'); secLbl('color','Color','Color'); secLbl('motion','Motion','Movimiento'); }
   tn('#mirrorBtn','Mirror','Reflejar');
   ttl('#toStart','Go to start · Home','Ir al inicio · Inicio'); ttl('#playBtn','Play / Pause · Space','Reproducir / Pausar · Espacio'); ttl('#toEnd','Go to end · End','Ir al final · Fin'); ttl('#loopBtn','Loop selection · Ctrl+L','Bucle de selección · Ctrl+L');
   ttl('#prevMk','Previous locator · ,','Localizador anterior · ,'); ttl('#addMk','Add locator · L','Añadir localizador · L'); ttl('#nextMk','Next locator · .','Localizador siguiente · .');
@@ -5907,7 +5911,7 @@ function applyLang(){ const L=state.lang; document.documentElement.lang=L;
   ttl('#markIn','Mark In · I (right-click clears the range)','Marcar entrada · I (clic derecho borra el rango)'); ttl('#markOut','Mark Out · O (right-click clears the range)','Marcar salida · O (clic derecho borra el rango)'); // [R94e]
   tn('#snapBtn','Snap to Grid','Ajustar a cuadrícula'); ttl('#snapBtn','Snap to Grid · S','Ajustar a la cuadrícula · S');
   tn('#simpleClipBtn','Simple','Simple'); ttl('#simpleClipBtn','Simple clips (Premiere-style): drag and select a clip from anywhere on it — range selection works outside clips only','Clips simples (estilo Premiere): arrastra y selecciona el clip desde cualquier punto — la selección de rango solo funciona fuera de los clips'); // [R94c]
-  tn('#curvesBtn','Automation','Automatización'); ttl('#curvesBtn','Show/hide automation (clip parameters + reactive FX) · A','Mostrar/ocultar automatización (parámetros del clip + FX reactivos) · A'); tn('#reEnAll','↻ Re-Enable','↻ Reactivar'); ttl('#reEnAll','Re-enable all overridden automation','Reactivar toda la automatización anulada');
+  tn('#curvesBtn','Automation','Automatización'); ttl('#curvesBtn','Show/hide automation (clip parameters + reactive FX) · A','Mostrar/ocultar automatización (parámetros del clip + FX reactivos) · A');
   ttl('#tlZoomOut','Zoom out timeline','Alejar línea de tiempo'); ttl('#tlZoomIn','Zoom in timeline','Acercar línea de tiempo');
   ttl('#toolRail button[data-t="select"]','Select (V)','Seleccionar (V)'); ttl('#toolRail button[data-t="hand"]','Hand / Pan (H)','Mano / Desplazar (H)'); ttl('#toolRail button[data-t="razor"]','Razor (B / C)','Cuchilla (B / C)'); ttl('#toolRail button[data-t="zoom"]','Zoom (Z)','Zoom (Z)');
   if(!state.lastSaved){ const sa=$('#statAuto'); if(sa)sa.textContent=T('Ready','Listo'); }

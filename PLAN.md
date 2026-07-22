@@ -1,5 +1,46 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 118 — Correcciones v2 · Etapa 2 (Inspector) · [I1]/[I2] orden + colapso
+
+**[I1]/[I2] ✔** — el inspector tenía solo **Transform** + un cajón **Effects** que mezclaba grado de color, máscara,
+blend, loop, keys, LUT y movimiento. Reorganizado en **4 secciones colapsables**: **Transform** (az/el/size/rot +
+Mirror) · **Clip** (opacity/blur/feather/crop + máscara, blend, react, fulldome/fisheye, quitar negro, texto/forma) ·
+**Color** (exposure/contrast/saturation/temp/tint/glow/chroma + LUT) · **Motion** (chips de movimiento + lista).
+Implementación: se reusó `#secFx`/`#fxRows` como la sección **Clip** (menos churn); se añadieron secciones nuevas
+`#secColor`/`#colorRows` y `#secMotion`/`#motionRows` en `index.html`. `FX_COLOR_KEYS` divide las filas de `FX` entre
+Clip y Color al construir (`buildRows`). El LUT y el bloque Motion cambiaron su destino de `appendChild`. `refreshInspector`
+ahora también escanea `#colorRows`. **Colapso** vía `state.insCol` (default `{clip:true,color:true,motion:true}` → solo
+Transform abierta); `applySecCollapse()` aplica el estado tras cada render (sobrevive re-render); `wireSecHeads` togglea
+`state.insCol[sec]`. Motion se limpia (`innerHTML=''`) cada render porque no pasa por `buildRows` (evita duplicados).
+Verificado por CDP: 4 secciones con títulos correctos, Transform expandida y las otras colapsadas, LUT dentro de Color,
+Motion con 8 chips, y el colapso persiste al re-renderizar. **Sin deploy/push** (pendiente `/deploy` a pedido).
+
+**[A5-core] ✔ una sola automatización a la vez** — eliminadas las **sub-lanes apiladas** (`lane._auto`): `appendAutoLanes`
+ahora es no-op (también ignora `_auto` de proyectos viejos), se quitó el botón `+` "Add automation lane" del header de
+pista y `showAutomation`/`migrateArAuto` fijan un único `lane._autoP`. La automatización activa se superpone sobre el
+clip (`attachClipAuto`) y el chooser del header intercambia CUÁL parámetro se ve — una a la vez. Verificado por CDP
+(`addLaneButtons:0`, `stackedSubLanes:0`, `appendAutoLanesIsNoop:true`).
+
+**[A2-limpieza] ✔ código muerto** — quitados **freeze** del panel de modulación (`.mpfrz` botón+handler; el motor sigue
+leyendo `m.frz` solo por compat de proyectos viejos), los botones **re-enable** (`.reEn` por fila + `#reEnAll` global +
+wiring/idioma) y confirmado que **perform-and-bake** ya no tiene call-sites (`recWrite`/`autoRecOn` inertes; REC oculto).
+`updReEnableGlobal` queda como no-op seguro (guarda `if(!b)return`). Verificado por CDP (`reEnRowButtons:0`,
+`reEnAllElementExists:false`, `freezeButtonsInModPanel:0`).
+
+**[A1] ✔ un solo botón de punto** (decisión de Beltrán: dejar el diamante) — quitado el cronómetro `.kf` de cada fila del
+inspector; el diamante `‹◆›` de `.nav` es el botón único: **◆ togglea** el keyframe en el cabezal (agrega si no hay /
+quita si el cabezal está sobre uno), el **primer punto revela** la curva en la pista (`openAuto`→ el único `_autoP`),
+**clic-derecho** sobre el diamante **borra toda la automatización** (congela el valor actual). El estado "automatizado"
+se ve por el **resaltado de la fila** (`.prow.auto`, label más brillante). CSS: `.prow .kf{display:none}` colapsa los
+espaciadores `.kf` que quedaban en otras filas → todas las etiquetas alinean a la izquierda. Verificado por CDP
+(crear→revela+`_autoP`+fila auto · re-clic quita · clic-derecho borra).
+
+**[A4] ✔ (ya existía)** — la modulación cierra al clic-afuera vía `_modOutside` (salvo si se clica sobre `.modb`).
+Confirmado por CDP (el panel se cierra con un pointerdown externo una vez enganchado el listener).
+
+**Pendiente Etapa 2:** [A5] dos niveles efectos→parámetros + indicador de "automatizado" en la lista de efectos ·
+[I3] Mask pen-tool estilo Premiere (puntos, invertir, feather, varias máscaras).
+
 ## ROUND 117 — Correcciones v2: Etapa 0 (Git) + Etapa 1 · [L7] modelo de automatización After Effects
 
 **Contexto:** Beltrán entregó `CORRECCIONES-V2.md` (roadmap grande post-testeo, ~40 tickets + funciones mayores, por
