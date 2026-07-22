@@ -564,7 +564,8 @@
   .rs-sec{display:flex;align-items:center;gap:8px;margin:16px 2px 8px;font-size:9.5px;font-weight:600;letter-spacing:0.13em;text-transform:uppercase;color:var(--ink-3);}
   .rs-sec::after{content:'';flex:1;height:.5px;background:var(--line-soft);}
   .rs-sec .rs-note{color:var(--ink-dim);letter-spacing:0.01em;text-transform:none;font-weight:500;font-size:10px;}
-  .rs-hdr,.rs-wall{display:grid;grid-template-columns:20px minmax(0,1.2fr) 42px 62px 62px minmax(0,1.3fr);gap:8px;align-items:center;}
+  .rs-hdr,.rs-wall{display:grid;grid-template-columns:20px 42px minmax(0,1.2fr) 62px 62px minmax(0,1.3fr);gap:8px;align-items:center;}
+  .rs-ordnum{justify-self:center;font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:12px;font-weight:600;color:var(--ink-2);} /* [F3] fixed screen-order number */
   .rs-hdr{padding:0 8px 6px;font-size:9px;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--ink-3);}
   .rs-hdr>span:nth-child(n+3){text-align:center;}
   .rs-wall{padding:5px 8px;border-radius:3px;border:.5px solid transparent;transition:background .1s,border-color .1s;}

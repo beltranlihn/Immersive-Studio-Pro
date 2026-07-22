@@ -1,5 +1,29 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 125 — Correcciones v2 · Etapa 6 (Formatos) · [F5] + [F3]/[F4] (setup de sala) + [F1]
+
+- **[F1] ✔ (sustancial) Resolución editable en el panel de ajustes** — `openSeqSettings` (el panel de formato, alcanzable
+  desde el chip de formato y el menú de pestaña de secuencia) ahora deja **editar la resolución** además de la cobertura:
+  domo = select de presets cuadrados (1024–8192), 2D = inputs W×H; se **re-adapta en vivo** (`applyRes`: actualiza
+  `as.w/h` + `state.seqW/H` + render + updFmtChip). Seguro porque el composite máster es cuadrado 2048² fijo (la
+  resolución es el tamaño de export + aspecto de display; los clips se colocan proporcionalmente). Sala = solo lectura
+  (viene de los muros). Con la cobertura editable (R114) el panel cumple el núcleo de [F1] (pixelaje + ángulo con
+  re-adaptación). Verificado por CDP (4096²→1024² actualiza todo). Pendiente de [F1]: unificar más el "punto único".
+
+
+- **[F5] ✔ Canvas de orden** — en el diálogo "Nueva sala 360", bajo el visor iso+plano, un tercer canvas `#rsStrip`
+  (`drawRoomStrip`) muestra la **tira 2D en orden 1..N**, cada muro con su resolución y el **total** (ancho sumado ×
+  alto). Se refresca junto con el iso. Verificado por CDP (canvas presente y pintado).
+- **[F3]/[F4] ✔ (aclarado por Beltrán)** — el "enredo" era poder elegir **Wall** y **Order** por separado. Ahora:
+  **columna 1 = Order** (fijo `1,2,3,4` según cantidad de muros, no editable); **columna 2 = Wall** (dropdown editable).
+  Al elegir un rol que ya existe en otra fila, **se intercambian los dos muros** (las medidas viajan con el rol; las
+  posiciones de Order quedan fijas), garantizando roles **únicos** (siempre Front/Right/Back/Left una sola vez). CSS del
+  grid reordenado (`20px 42px minmax(0,1.2fr) …`). Verificado por CDP (order fijo, sin input de order, swap correcto,
+  todos únicos). El piso se dejó como está (la aclaración apuntaba a los muros; sus cm siguen para la geometría 3D).
+
+**Pendiente Etapa 6:** [F1] panel único de configuración de proyecto (parcial: cobertura R114); [F2] consistencia de
+layout entre modos; [F7] importar equirectangular + rotar cámara (el más grande).
+
 ## ROUND 124 — Correcciones v2 · Etapa 6 (Formatos) · [F8] + [F6]=[N1]
 
 - **[F8] ✔ Fondo de referencia con cuadrícula (alpha)** — toggle **"Alpha"** en la barra del visor (`#dispSeg`): un

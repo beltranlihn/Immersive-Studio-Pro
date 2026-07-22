@@ -4892,6 +4892,21 @@ function drawRoomIso(cv,walls,floorOn,activeRole){ if(!cv)return; const ctx=cv.g
     ctx.textAlign='left'; ctx.textBaseline='middle'; ctx.fillStyle='rgba(170,170,170,0.9)'; ctx.font=`500 ${7.5*U}px Geist,system-ui`; ctx.fillText((m>=1?m+' m':(m*100)+' cm'), bx+bp+5*U, by); } }
 function getRoomPresets(){ try{ return JSON.parse(localStorage.getItem('iseRoomPresets')||'[]'); }catch(e){ return []; } }
 function saveRoomPresets(a){ try{ localStorage.setItem('iseRoomPresets',JSON.stringify(a)); }catch(e){} }
+/* [F5] the "screen order" canvas: the walls as the summed 2D strip, in order 1..N, each with its resolution + the total width in px */
+function drawRoomStrip(cv,walls,floorOn,activeRole){ if(!cv)return; const ctx=cv.getContext('2d'); const W=cv.width,H=cv.height,U=W/1056; ctx.clearRect(0,0,W,H);
+  const ordered=[...walls].sort((a,b)=>(a.order||0)-(b.order||0)); if(!ordered.length)return;
+  const totalPx=ordered.reduce((s,w)=>s+(+w.pxW||0),0)||1; const maxH=Math.max(...ordered.map(w=>+w.pxH||0),1);
+  const pad=12*U, gap=3*U, labelH=30*U, availW=W-pad*2-gap*(ordered.length-1), availH=H-pad-labelH;
+  let x=pad;
+  ordered.forEach((w,i)=>{ const ww=Math.max(6*U, availW*((+w.pxW||0)/totalPx)); const hh=Math.max(4*U, (availH-6*U)*((+w.pxH||0)/maxH)); const col=ROOM_ROLE_COL[w.role]||'#8892A0'; const act=(w.role===activeRole);
+    const y=pad+(availH-hh);
+    ctx.fillStyle=hexA(col,act?0.34:0.18); ctx.strokeStyle=act?'#fff':col; ctx.lineWidth=act?1.5:1; ctx.fillRect(x,y,ww,hh); ctx.strokeRect(x+0.5,y+0.5,ww-1,hh-1);
+    ctx.fillStyle=col; ctx.font=`700 ${13*U}px Geist`; ctx.textAlign='center'; ctx.textBaseline='middle'; if(ww>14*U)ctx.fillText(String(i+1), x+ww/2, y+hh/2);
+    ctx.fillStyle='#C9CDD3'; ctx.font=`${10*U}px Geist`; ctx.textBaseline='alphabetic'; ctx.fillText(roomRoleLabel(w.role), x+ww/2, pad+availH+11*U);
+    ctx.fillStyle='#7B828C'; ctx.font=`${9*U}px Geist`; ctx.fillText((+w.pxW||0)+'×'+(+w.pxH||0), x+ww/2, pad+availH+22*U);
+    x+=ww+gap; });
+  ctx.textAlign='right'; ctx.textBaseline='alphabetic'; ctx.fillStyle='#9AA0A8'; ctx.font=`600 ${10*U}px Geist`;
+  ctx.fillText(T('Total','Total')+': '+totalPx+' × '+maxH+' px', W-pad, H-4*U); ctx.textAlign='left'; }
 function roomSetupDialog(cb){ const ov=document.createElement('div'); ov.className='overlay'; ov.style.zIndex='320'; ov.style.alignItems='flex-start';
   const defWall=(role,order)=>({role,order,wcm:(role==='Left'||role==='Right')?400:500,hcm:300,pxW:1920,pxH:1080});
   let n=4, floor=true, walls=[defWall('Front',1),defWall('Right',2),defWall('Back',3),defWall('Left',4)];
@@ -4899,33 +4914,37 @@ function roomSetupDialog(cb){ const ov=document.createElement('div'); ov.classNa
   let activeRole=null;
   ov.innerHTML=`<div class="modal" style="width:560px;margin-top:56px;"><div class="mh"><span style="color:var(--ink-2);display:flex;">${ICO('ring',16)}</span><span class="t">${T('New 360 room','Nueva sala 360')}</span></div><div class="mb">
     <canvas id="rsIso" class="rs-cv" width="1056" height="440"></canvas>
+    <div class="rs-sec" style="margin-top:8px;">${T('Screen order','Orden de pantallas')}<span class="rs-note">${T('the 2D strip, in order · summed resolution','la tira 2D, en orden · resolución sumada')}</span></div>
+    <canvas id="rsStrip" width="1056" height="150" style="width:100%;height:75px;display:block;background:var(--s0);border-radius:2px;"></canvas>
     <div class="frow" style="margin-top:12px;"><label>${T('Preset','Preajuste')}</label><select id="rsPreset" style="flex:1;"><option value="">—</option></select><button class="mbtn" id="rsSavePreset" style="height:20px;padding:0 10px;">${T('Save','Guardar')}</button><button class="mbtn" id="rsDelPreset" title="${T('Delete preset','Eliminar preajuste')}" style="height:20px;padding:0 9px;">✕</button></div>
     <div class="frow"><label>${T('Walls','Muros')}</label><div class="kindseg" id="rsN" style="max-width:160px;">${[2,3,4].map(k=>`<button data-n="${k}" class="${k===n?'on':''}">${k}</button>`).join('')}</div>
       <label class="chk" style="display:flex;align-items:center;gap:7px;margin-left:auto;color:var(--ink-2);cursor:pointer;white-space:nowrap;"><input type="checkbox" id="rsFloor" ${floor?'checked':''}> ${T('Add floor','Añadir piso')}</label></div>
     <div class="rs-sec">${T('Walls','Muros')}<span class="rs-note">${T('order = position in the 2D strip','orden = posición en la tira 2D')}</span></div>
-    <div class="rs-hdr"><span></span><span>${T('Wall','Muro')}</span><span>${T('Order','Orden')}</span><span>${T('Width','Ancho')}</span><span>${T('Height','Alto')}</span><span>${T('Pixels','Píxeles')}</span></div>
+    <div class="rs-hdr"><span></span><span style="justify-self:center;">${T('Order','Orden')}</span><span>${T('Wall','Muro')}</span><span>${T('Width','Ancho')}</span><span>${T('Height','Alto')}</span><span>${T('Pixels','Píxeles')}</span></div>
     <div id="rsWalls" style="display:flex;flex-direction:column;gap:3px;"></div>
     <div id="rsFloorRow"></div>
     <div class="rs-sec">${T('Output','Salida')}</div>
     <div class="frow"><label>${T('Frame rate','Cuadros/s')}</label><select id="rsFps" style="max-width:120px;"><option>24</option><option>25</option><option>30</option><option>48</option><option>50</option><option selected>60</option></select><span class="tnum" style="color:var(--ink-dim);">fps</span></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;"><button class="mbtn" id="rsCancel">${T('Cancel','Cancelar')}</button><button class="mbtn pri" id="rsGo">${ICO('ring')} ${T('Create room','Crear sala')}</button></div></div></div>`;
   document.body.appendChild(ov); const close=()=>ov.remove(); ov.querySelector('#rsCancel').onclick=close; ov.addEventListener('pointerdown',e=>{if(e.target===ov)close();});
-  const refreshIso=()=>{ try{ drawRoomIso($('#rsIso'),walls,floor,activeRole); }catch(e){} };
+  const refreshIso=()=>{ try{ drawRoomIso($('#rsIso'),walls,floor,activeRole); }catch(e){} try{ drawRoomStrip($('#rsStrip'),walls,floor,activeRole); }catch(e){} };
   const setActive=(r)=>{ activeRole=r; ov.querySelectorAll('#rsWalls .rs-wall').forEach(x=>x.classList.toggle('act',x.dataset.role===r)); refreshIso(); };
   const drawWalls=()=>{ const host=$('#rsWalls'); host.innerHTML='';
-    walls.forEach((w,i)=>{ const row=document.createElement('div'); row.className='rs-wall'; row.dataset.i=i; row.dataset.role=w.role;
+    walls.forEach((w,i)=>{ w.order=i+1; const row=document.createElement('div'); row.className='rs-wall'; row.dataset.i=i; row.dataset.role=w.role; // [F3] Order = the row's position (screen order), fixed
       row.innerHTML=`<span class="rs-dot" style="background:${ROOM_ROLE_COL[w.role]||'#8892A0'};"></span>
+        <span class="rs-ordnum">${i+1}</span>
         <select data-k="role" class="sysel rs-role">${ROOM_ROLES.map(r=>`<option value="${r}" ${r===w.role?'selected':''}>${roomRoleLabel(r)}</option>`).join('')}</select>
-        <label class="rs-well rs-ord"><input type="number" class="tnum" data-k="order" value="${w.order}" min="1" max="9"></label>
         ${well(w.wcm,'wcm',1,100000,'cm')}
         ${well(w.hcm,'hcm',1,100000,'cm')}
         <div class="rs-px">${well(w.pxW,'pxW',16,16384)}<span class="x">×</span>${well(w.pxH,'pxH',16,16384)}</div>`;
       row.addEventListener('pointerenter',()=>setActive(walls[i].role));
       row.addEventListener('pointerleave',()=>setActive(null));
-      row.querySelector('[data-k=role]').onchange=e=>{ walls[i].role=e.target.value; drawWalls(); setActive(e.target.value); }; // rebuild so the colour dot + schematic follow
+      // [F3] Wall roles are unique: picking a role already used elsewhere SWAPS the two walls (dims travel; the fixed Order positions stay), so you always have exactly Front/Right/Back/Left once
+      row.querySelector('[data-k=role]').onchange=e=>{ const nr=e.target.value; const j=walls.findIndex((ww,k)=>k!==i&&ww.role===nr);
+        if(j>=0){ const t=walls[i]; walls[i]=walls[j]; walls[j]=t; walls[i].order=i+1; walls[j].order=j+1; } else { walls[i].role=nr; }
+        drawWalls(); setActive(walls[i].role); };
       row.querySelectorAll('input[data-k]').forEach(inp=>{ inp.addEventListener('focus',()=>setActive(walls[i].role));
-        if(inp.dataset.k==='order'){ inp.onchange=e=>{ let v=Math.max(1,Math.min(walls.length,Math.round(+e.target.value||1))); const old=walls[i].order; if(v!==old){ const j=walls.findIndex((w,k)=>k!==i&&w.order===v); if(j>=0)walls[j].order=old; walls[i].order=v; } drawWalls(); }; } // strip order is unique 1..N: changing one auto-swaps the collider
-        else { const h=e=>{ walls[i][e.target.dataset.k]=+e.target.value||walls[i][e.target.dataset.k]; refreshIso(); }; inp.onchange=h; inp.oninput=h; } });
+        const h=e=>{ walls[i][e.target.dataset.k]=+e.target.value||walls[i][e.target.dataset.k]; refreshIso(); }; inp.onchange=h; inp.oninput=h; });
       host.appendChild(row); }); refreshIso(); };
   const drawFloor=()=>{ const host=$('#rsFloorRow'); if(!floor){ host.innerHTML=''; return; } host.dataset.wcm=host.dataset.wcm||500; host.dataset.dcm=host.dataset.dcm||400; host.dataset.pxW=host.dataset.pxW||1920; host.dataset.pxH=host.dataset.pxH||1080;
     host.innerHTML=`<div class="rs-sec">${T('Floor','Piso')}<span class="rs-note">${T('separate flat sequence · depth spans front-to-back','secuencia plana aparte · el fondo va de frente a fondo')}</span></div>
@@ -4965,13 +4984,19 @@ function openSeqSettings(){ const as=activeSeq(); if(!as)return; const isDome=(a
   const ov=document.createElement('div'); ov.className='overlay'; ov.style.zIndex='320';
   ov.innerHTML=`<div class="modal" style="width:420px;"><div class="mh"><span class="t">${T('Sequence settings','Ajustes de secuencia')}</span></div><div class="mb">
     ${isDome?`<canvas id="ssViz" class="rs-cv" width="776" height="330" style="height:165px;margin-bottom:12px;"></canvas>
-    <div class="frow"><label>${T('Resolution','Resolución')}</label><span class="tnum" style="color:var(--ink-2);">${as.w||4096} × ${as.h||4096} px</span></div>
+    <div class="frow"><label>${T('Resolution','Resolución')}</label><select id="ssRes" style="flex:1;">${(function(){ const opts=[1024,2048,3072,4096,6144,8192]; const cur=as.w||4096; if(!opts.includes(cur))opts.push(cur); opts.sort((a,b)=>a-b); return opts.map(r=>`<option value="${r}" ${r===cur?'selected':''}>${r} × ${r} px</option>`).join(''); })()}</select></div>
     <div class="frow"><label>${T('Coverage','Cobertura')}</label><select id="ssCov">${DOME_COV.map(c=>`<option value="${c}" ${c===origCov?'selected':''}>${c}°${c===180?' · '+T('fulldome','domo completo'):''}</option>`).join('')}</select><span class="tnum" style="color:var(--ink-dim);">FOV</span></div>
-    <div style="font-size:11px;color:var(--ink-dim);margin-top:2px;">${T('Changing coverage re-deforms every clip in this sequence to the new fisheye — updates live.','Cambiar la cobertura redeforma cada clip de esta secuencia al nuevo ojo de pez — se actualiza en vivo.')}</div>`
-    :`<div class="frow"><label>${T('Format','Formato')}</label><span class="tnum" style="color:var(--ink-2);">${as.mode==='room'?T('360 Room','Sala 360'):'2D'} · ${as.w} × ${as.h} px</span></div>
-      <div style="font-size:11px;color:var(--ink-dim);margin-top:2px;">${T('Only dome sequences have adjustable coverage.','Sólo las secuencias de domo tienen cobertura ajustable.')}</div>`}
+    <div style="font-size:11px;color:var(--ink-dim);margin-top:2px;">${T('Resolution is the export size; coverage re-deforms every clip to the new fisheye — both update live.','La resolución es el tamaño de export; la cobertura redeforma cada clip al nuevo ojo de pez — ambas se actualizan en vivo.')}</div>`
+    :as.mode==='room'?`<div class="frow"><label>${T('Format','Formato')}</label><span class="tnum" style="color:var(--ink-2);">${T('360 Room','Sala 360')} · ${as.w} × ${as.h} px</span></div>
+      <div style="font-size:11px;color:var(--ink-dim);margin-top:2px;">${T('The room resolution comes from the walls (set at creation).','La resolución de la sala viene de los muros (definidos al crear).')}</div>`
+    :`<div class="frow"><label>${T('Resolution','Resolución')}</label><input id="ssW" type="number" class="tnum" value="${as.w}" min="128" max="8192" style="width:78px;"><span style="color:var(--ink-dim);">×</span><input id="ssH" type="number" class="tnum" value="${as.h}" min="128" max="8192" style="width:78px;"><span class="tnum" style="color:var(--ink-dim);">px</span></div>
+      <div style="font-size:11px;color:var(--ink-dim);margin-top:2px;">${T('Changing the resolution re-adapts the 2D canvas live (clips are placed proportionally).','Cambiar la resolución re-adapta el lienzo 2D en vivo (los clips se colocan proporcionalmente).')}</div>`}
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;"><button class="mbtn pri" id="ssDone">${T('Done','Listo')}</button></div></div></div>`;
   document.body.appendChild(ov); const close=()=>ov.remove(); ov.querySelector('#ssDone').onclick=close; ov.addEventListener('pointerdown',e=>{if(e.target===ov)close();});
+  // [F1] resolution is editable and re-adapts live (output/export size; clips are placed proportionally so nothing needs rebuilding)
+  const applyRes=(w,h)=>{ w=Math.max(128,Math.min(8192,Math.round(w||as.w))); h=Math.max(128,Math.min(8192,Math.round(h||as.h))); as.w=w; as.h=h; if(as.id===state.activeSeqId){ state.seqW=w; state.seqH=h; } markDirty(); if(_raOn)raInvalidate(); render(); updFmtChip(); };
+  { const rs=ov.querySelector('#ssRes'); if(rs)rs.onchange=e=>{ const v=+e.target.value||4096; applyRes(v,v); flashStatus(T('Resolution','Resolución')+': '+v+'²'); };
+    const sw=ov.querySelector('#ssW'), sh=ov.querySelector('#ssH'); if(sw&&sh){ const fh=()=>{ applyRes(+sw.value,+sh.value); flashStatus(T('Resolution','Resolución')+': '+as.w+'×'+as.h); }; sw.onchange=fh; sh.onchange=fh; } }
   if(isDome){ const viz=()=>{ try{ drawSeqViz(ov.querySelector('#ssViz'),'dome',{cov:+ov.querySelector('#ssCov').value||180}); }catch(e){} }; viz();
     ov.querySelector('#ssCov').onchange=e=>{ const cov=+e.target.value||180; as.cov=cov; if(as.id===state.activeSeqId)state.seqCov=cov; viz(); markDirty(); if(_raOn)raInvalidate(); render(); updFmtChip(); flashStatus(T('Coverage','Cobertura')+': '+cov+'°'); }; } }
 function serSeqRef(){ return { openSeqs:(state.openSeqs||[]).slice(), activeSeqId:state.activeSeqId }; }
