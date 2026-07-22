@@ -8,6 +8,7 @@ Antes de re-escanear `app.js`, consultá el **mapa vivo** (evita quemar tokens):
 - **`ARCHITECTURE.md`** = cómo funciona (render, flujos, conceptos transversales, riesgos/deuda).
 - **`docs/adr/`** = por qué (decisiones inmutables). · **Skill `arch-map`** = navegar/mantener el mapa. · Subagente **`arch-explorer`** = búsqueda aislada que devuelve `archivo:línea`.
 - **Anti-pudrición:** al cambiar código, actualizá la fila de `COMPONENTS.md` **en el mismo commit**.
+- **`docs/NEXT.md`** = cola de trabajo activa (checklist rápido→complejo); tachar `[x]` a medida que se cierra.
 
 ## Convenciones (obligatorias)
 - **Idioma:** en el chat y en el software, **castellano neutro — PROHIBIDO el voseo/argentinismos**. La **UI del software va en inglés** (con `T('EN','ES')` para strings nuevos); botones en **infinitivo**.
