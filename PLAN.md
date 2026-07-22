@@ -23,6 +23,8 @@ handler `contextmenu` de `#tracks` (`e.preventDefault(); const id=+cd.dataset.cl
 Línea partida. Añadido **"Zoom to clip"** (`zoomToClip`: el clip ocupa ~96% del viewport + scroll a la izquierda).
 Verificado por CDP. Deploy a las 3.
 
+**Etapa 1 · [R2] ✔ (commit `244756a`)** — "clips deformados al renderizar" era cosmético (preview mientras renderiza; el archivo sale bien). Overlay opaco `#renderMask` sobre el viewport durante todo el export (el export sigue leyendo de #gl). Verificado por CDP + deploy.
+
 **[A1] diferido a Etapa 2** (dejar un solo botón de punto está acoplado al rediseño A2-A5). Limpieza pendiente (Etapa 2):
 plumbing muerto de perform-bake/freeze + DOM de `.reEn`/`#reEnAll`. **Próximo:** [R2] deformados al render (ambiguo →
 pedir captura), [L1]/[L2] glitches de pistas.
