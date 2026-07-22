@@ -177,6 +177,9 @@
   .vslab .k{font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:11px;letter-spacing:0.08em;color:var(--ink-faint);}
   .vslab .v{font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:11px;color:var(--ink);}
   .stage{flex:1;min-height:0;position:relative;overflow:hidden;background:#000;}
+  /* [F8] alpha-reference checkerboard behind the (transparent) GL canvas */
+  .checkerbg{position:absolute;inset:0;z-index:0;display:none;background-color:#ffffff;background-image:linear-gradient(45deg,#bfbfbf 25%,transparent 25%,transparent 75%,#bfbfbf 75%),linear-gradient(45deg,#bfbfbf 25%,transparent 25%,transparent 75%,#bfbfbf 75%);background-size:26px 26px;background-position:0 0,13px 13px;}
+  .checkerbg.on{display:block;}
   .stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block;}
   /* [R2] while exporting, glc is resized to the export resolution → the on-screen canvas would show a stretched
      stale frame. This opaque mask hides that; the export still reads from #gl underneath. */
@@ -675,6 +678,7 @@
           <button data-d="safe"><i class="ic" data-ico="safe"></i> Safe</button>
           <button data-d="outline"><i class="ic" data-ico="outline"></i> Outline</button>
           <button data-d="hfade" title="Fade content near the dome horizon (spring line)"><i class="ic" data-ico="cull"></i> Horizon</button>
+          <button data-d="checker" title="Checkerboard background — see how the alpha behaves"><i class="ic" data-ico="grid"></i> Alpha</button>
         </div>
         <div class="vdiv"></div>
         <div class="vseg" id="qualitySeg" title="Preview quality (does not affect export)">
@@ -700,6 +704,7 @@
         <div class="vseg"><button id="spoutBtn" title="Spout output — share the clean Dome master (1:1) as a local GPU texture (Resolume / TouchDesigner / OBS)" style="width:26px;padding:0;justify-content:center;font:600 10px Geist,system-ui,sans-serif;letter-spacing:.03em;">SP</button></div>
       </div>
       <div class="stage" id="stage">
+        <div class="checkerbg" id="checkerBg"></div>
         <canvas id="gl"></canvas>
         <canvas id="grid"></canvas>
         <div class="rendermask" id="renderMask"><div class="rmlabel"><span class="rmdot"></span>Rendering…</div></div>

@@ -1,5 +1,18 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 124 — Correcciones v2 · Etapa 6 (Formatos) · [F8] + [F6]=[N1]
+
+- **[F8] ✔ Fondo de referencia con cuadrícula (alpha)** — toggle **"Alpha"** en la barra del visor (`#dispSeg`): un
+  `#checkerBg` (cuadrícula blanco-gris CSS) detrás del `#gl`. Funciona porque el canvas GL se crea con `alpha:true` y el
+  path de display 2D ya limpia a transparente; los paths 3D (dome/room) limpian a transparente cuando el checker está
+  activo (`clearColor(...,checkerBg?0:1)`). Verificado por CDP (toggle on→`#checkerBg` display block; off→none).
+- **[F6] ✔ = [N1]** — un elemento ya-domemaster escala con `size` (uniform `u_scale` del shader PFD, R123).
+
+**Pendiente Etapa 6 (más de fondo, requieren explorar el editor de sala / pipeline equirect):** [F1] panel único de
+configuración de proyecto (pixelaje/sala/ángulo con re-adaptación — parcial: cobertura editable R114); [F2] consistencia
+de layout entre modos (barras del mismo ancho; 360 ajusta tamaños); [F3] Wall fijo (no editable); [F4] Floor solo píxeles;
+[F5] canvas de orden (tira de pantallas sumadas bajo el 3D+plano); [F7] importar equirectangular + rotar cámara.
+
 ## ROUND 123 — Correcciones v2 · Etapa 5 (Compose/Nest) COMPLETA · [N1][N2][N4][N5]
 
 - **[N1] ✔ Compose/Nest se comporta como clip (scale + rotar)** — la rotación ya andaba (el path fulldome PFD usa

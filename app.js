@@ -75,7 +75,7 @@ const state = {
   clips:[],
   playhead:0, playing:false, loop:false, follow:false,
   selId:null, selMediaId:null, selMediaIds:[], selMediaAnchor:null,
-  view:{ mode:'2d', three:'orbit', zoom:0.92, pan:[0,0], showGrid:true, showSafe:false, showOutline:true, cull:false, useProxy:true,
+  view:{ mode:'2d', three:'orbit', zoom:0.92, pan:[0,0], showGrid:true, showSafe:false, showOutline:true, cull:false, useProxy:true, checkerBg:false,
          cw:400, ch:400, cam:{yaw:0, pitch:0.5, dist:3.0, fov:60, back:0.8} },
   tl:{ pxPerSec:80, tool:'select', snap:false, tcMode:'timecode', bpm:120, sig:4, gridDiv:0, gridFixed:false, gridFixedBase:1, selA:null, selB:null, audioCollapsed:false, simpleClips:true }, // [R94c/f] snap to grid OFF by default; simpleClips = Premiere-style whole-clip grab, ON by default. [R110] audioCollapsed = the audio module is compacted to just its bar
   workIn:null, workOut:null,
@@ -821,7 +821,7 @@ function roomCameraMVP(spec,aspect){ const g=(_roomGeo&&_roomGeo.norm)||{midZ:0.
   else { ctr=[0,0,g.midZ]; const d=cam.dist; eye=[Math.cos(cam.pitch)*Math.cos(cam.yaw)*d,Math.cos(cam.pitch)*Math.sin(cam.yaw)*d,g.midZ+Math.sin(cam.pitch)*d]; }
   return {mvp:mul4(proj,lookAt(eye,ctr,[0,0,1])), eye}; }
 function renderRoom3D(wallsTex){ const seq=activeSeq(); const room=seq&&seq.room; const W=glc.width,H=glc.height;
-  gl.bindFramebuffer(gl.FRAMEBUFFER,null); gl.viewport(0,0,W,H); gl.enable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE); gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null); gl.viewport(0,0,W,H); gl.enable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE); gl.clearColor(0,0,0,state.view.checkerBg?0:1); gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT); // [F8] transparent → CSS checkerboard shows behind the room
   if(!room){ gl.disable(gl.DEPTH_TEST); return; }
   if(_roomGeoSeq!==seq.id||!_roomGeo)buildRoomGeo(seq);
   let floorTex=null; if(room.floorSeqId){ const fm=mediaById(room.floorSeqId); if(fm&&isSeqMedia(fm))floorTex=compositeFloorTex(fm,1024); }
@@ -847,7 +847,7 @@ function render(){ if(glLost)return;
   if(state.view.mode==='3d' && isRoom()){ renderRoom3D(_srcTex); }
   else if(state.view.mode==='3d' && !_flat){
     gl.viewport(0,0,W,H); gl.enable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE);
-    gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+    gl.clearColor(0,0,0,state.view.checkerBg?0:1); gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT); // [F8] transparent clear lets the CSS checkerboard show behind the dome
     const spec=state.view.three==='spec'; const mvp=cameraMVP(spec);
     buildDomeMesh(curCovHalf()); // cap geometry follows the sequence's coverage (cheap: rebuilds only on change)
     gl.useProgram(P3); gl.bindVertexArray(domeVAO);
@@ -5345,7 +5345,8 @@ function updViewCtl(){ const is3=state.view.mode==='3d',spec=state.view.three===
   if(is3&&spec){ const fr=$('#fovRange'); if(fr){ fr.value=state.view.cam.fov; const fl=$('#fovLbl'); if(fl)fl.textContent=Math.round(state.view.cam.fov); } const dr2=$('#dollyRange'); if(dr2){ dr2.value=state.view.cam.back; const dl2=$('#dollyLbl'); if(dl2)dl2.textContent=(+state.view.cam.back).toFixed(1); } } // reflect the live FOV/dolly on the sliders when entering Viewer mode
   const dc=$('#distCtl'); if(dc){ dc.style.display=(is3&&!spec)?'inline-flex':'none'; const dr=$('#distRange'); if(dr){ dr.value=state.view.cam.dist; const dl=$('#distLbl'); if(dl)dl.textContent=(+state.view.cam.dist).toFixed(1); } } } // orbit: on-screen DIST (zoom) slider
 $('#dispSeg').querySelectorAll('button').forEach(b=>b.onclick=()=>{ const d=b.dataset.d; if(d==='grid')state.view.showGrid=!state.view.showGrid; if(d==='safe')state.view.showSafe=!state.view.showSafe; if(d==='outline')state.view.showOutline=!state.view.showOutline; if(d==='hfade'){ state.view.hfade=!state.view.hfade; flashStatus(state.view.hfade?T('Horizon fade on','Desvanecido de horizonte activado'):T('Horizon fade off','Desvanecido de horizonte desactivado')); }
-  b.classList.toggle('on', d==='grid'?state.view.showGrid:d==='safe'?state.view.showSafe:d==='outline'?state.view.showOutline:state.view.hfade); render(); });
+  if(d==='checker'){ state.view.checkerBg=!state.view.checkerBg; const cb=$('#checkerBg'); if(cb)cb.classList.toggle('on',state.view.checkerBg); flashStatus(state.view.checkerBg?T('Alpha checkerboard on','Cuadrícula de alpha activada'):T('Alpha checkerboard off','Cuadrícula de alpha desactivada')); } // [F8]
+  b.classList.toggle('on', d==='grid'?state.view.showGrid:d==='safe'?state.view.showSafe:d==='outline'?state.view.showOutline:d==='checker'?state.view.checkerBg:state.view.hfade); render(); });
 /* [R105] La calidad de previsualización se persiste entre sesiones. NO era el bug de coherencia que creí
    (verificado: newProject y cambiar de modo la respetan, y el botón siempre dice la verdad) — el hueco real
    es que no sobrevivía al reinicio y volvía a Full. Se guarda en localStorage, como el último export. */
