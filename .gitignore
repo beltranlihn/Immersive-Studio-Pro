@@ -15,5 +15,12 @@ scratchpad/*.png
 Thumbs.db
 .DS_Store
 
-# Claude Code local config/skills (not app source)
-.claude/
+# Claude Code: versionar el tooling reusable (skills/agents/commands/settings),
+# dejar fuera el estado/config local y lo sensible (settings.local.json, caches, etc.)
+.claude/*
+!.claude/skills/
+!.claude/agents/
+!.claude/commands/
+!.claude/settings.json
+.claude/settings.local.json
+.claude/*.local.json
