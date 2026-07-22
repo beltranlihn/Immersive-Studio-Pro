@@ -291,6 +291,31 @@ const LFD={p:gl.getAttribLocation(PFD,'a_p'),mir:gl.getUniformLocation(PFD,'u_mi
 const fdVAO=gl.createVertexArray(); gl.bindVertexArray(fdVAO);
 (()=>{const vb=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,vb);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,-1,1,1,-1,1]),gl.STATIC_DRAW);gl.enableVertexAttribArray(LFD.p);gl.vertexAttribPointer(LFD.p,2,gl.FLOAT,false,0,0);})();
 gl.bindVertexArray(null);
+/* [F7] equirectangular (360°) source → dome master: for each disc pixel, reconstruct the view ray (rho→zenith, azimuth),
+   rotate it by yaw/pitch (the "camera"), then sample the 2:1 equirect. Additive — a separate program, the core warp is untouched. */
+const VSEQ=`#version 300 es
+in vec2 a_p; out vec2 v_p; void main(){ v_p=a_p; gl_Position=vec4(a_p,0.0,1.0); }`;
+const FSEQ=`#version 300 es
+precision highp float; in vec2 v_p; uniform sampler2D u_tex; uniform sampler2D u_maskTex;
+uniform float u_op,u_exp,u_con,u_sat,u_tmp,u_tnt,u_premul,u_mask,u_feather,u_blend,u_maskScale,u_covHalf,u_yaw,u_pitch,u_mir; out vec4 o;
+void main(){ float rho=length(v_p); if(rho>1.0) discard;
+  float zen=rho*u_covHalf; float h=atan(v_p.x*u_mir, -v_p.y);
+  vec3 ray=vec3(sin(zen)*cos(h), sin(zen)*sin(h), cos(zen));
+  float cy=cos(u_yaw), sy=sin(u_yaw); ray=vec3(ray.x*cy-ray.y*sy, ray.x*sy+ray.y*cy, ray.z);          // yaw around zenith
+  float cp=cos(u_pitch), sp=sin(u_pitch); ray=vec3(ray.x, ray.y*cp-ray.z*sp, ray.y*sp+ray.z*cp);       // pitch (tilt)
+  float az=atan(ray.y, ray.x); float lat=asin(clamp(ray.z,-1.0,1.0));
+  vec2 uv=vec2(az*0.15915494+0.5, 0.5 - lat*0.31830989); // az/(2π)+0.5 , 0.5 − lat/π
+  vec4 c=texture(u_tex, uv); vec3 col=c.rgb;
+  col*=exp2(u_exp); col=(col-0.5)*(1.0+u_con)+0.5; float L=dot(col,vec3(0.2126,0.7152,0.0722)); col=mix(vec3(L),col,1.0+u_sat); col*=vec3(1.0+u_tmp,1.0,1.0-u_tmp); col*=vec3(1.0-u_tnt*0.5,1.0+u_tnt,1.0-u_tnt*0.5); col=clamp(col,0.0,1.0);
+  float a=c.a; float fe=max(u_feather,0.001); vec2 p=v_p/max(u_maskScale,0.02);
+  if(u_mask<0.5){} else if(u_mask<1.5){ a*=smoothstep(1.0,1.0-fe,length(p)); } else if(u_mask<2.5){ vec2 q=abs(p)-0.55; float r=length(max(q,0.0))+min(max(q.x,q.y),0.0)-0.42; a*=smoothstep(0.04,-fe,r); } else if(u_mask<3.5){ a*=smoothstep(1.0,1.0-fe,abs(p.x)+abs(p.y)); } else if(u_mask<4.5){ a*=smoothstep(1.0,0.25,length(p)); } else { vec4 ms=texture(u_maskTex, p*0.5+0.5); a*=(ms.a<0.999?ms.a:dot(ms.rgb,vec3(0.3333))); }
+  float ef=a*u_op;
+  if(u_blend>1.5){ o=vec4(mix(vec3(0.0),col,ef),0.0); } else if(u_blend>0.5){ o=vec4(mix(vec3(1.0),col,ef),1.0); } else { o=vec4(mix(col,col*ef,u_premul), ef); } }`;
+const PEQ=prog(VSEQ,FSEQ);
+const LEQ={p:gl.getAttribLocation(PEQ,'a_p'),tex:gl.getUniformLocation(PEQ,'u_tex'),maskTex:gl.getUniformLocation(PEQ,'u_maskTex'),op:gl.getUniformLocation(PEQ,'u_op'),exp:gl.getUniformLocation(PEQ,'u_exp'),con:gl.getUniformLocation(PEQ,'u_con'),sat:gl.getUniformLocation(PEQ,'u_sat'),tmp:gl.getUniformLocation(PEQ,'u_tmp'),tnt:gl.getUniformLocation(PEQ,'u_tnt'),premul:gl.getUniformLocation(PEQ,'u_premul'),mask:gl.getUniformLocation(PEQ,'u_mask'),feather:gl.getUniformLocation(PEQ,'u_feather'),blend:gl.getUniformLocation(PEQ,'u_blend'),maskScale:gl.getUniformLocation(PEQ,'u_maskScale'),covHalf:gl.getUniformLocation(PEQ,'u_covHalf'),yaw:gl.getUniformLocation(PEQ,'u_yaw'),pitch:gl.getUniformLocation(PEQ,'u_pitch'),mir:gl.getUniformLocation(PEQ,'u_mir')};
+const eqVAO=gl.createVertexArray(); gl.bindVertexArray(eqVAO);
+(()=>{const vb=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,vb);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,-1,1,1,-1,1]),gl.STATIC_DRAW);gl.enableVertexAttribArray(LEQ.p);gl.vertexAttribPointer(LEQ.p,2,gl.FLOAT,false,0,0);})();
+gl.bindVertexArray(null);
 
 /* 3D dome */
 const VS3=`#version 300 es
@@ -599,6 +624,13 @@ function drawClip(c,m,t,xf){
   if(_drawFlat){ const opf=Math.max(0,Math.min(1,evalR(c,'opacity',t)/100))*fadeFactor(c,t)*(xf==null?1:xf); drawClipFlat(c,m,t,xf,ntex,opf); return; } // FLAT (2D) sequence: place clip as a rectangle (x/y/scale/rot), no dome projection
   const spin=evalR(c,'spin',t); let az=evalR(c,'az',t)+spin, el=evalR(c,'el',t); let size=Math.max(1,evalR(c,'size',t)); if(c.props.react==='audio')size*=(1+audioLevelAt(t)*(c.props.reactAmt||0)/100*1.5);
   let op=Math.max(0,Math.min(1,evalR(c,'opacity',t)/100))*fadeFactor(c,t)*(xf==null?1:xf);
+  if(c.props.equirect){ gl.useProgram(PEQ); gl.bindVertexArray(eqVAO); // [F7] equirectangular 360° source → dome: az (Azimuth+Spin) = yaw (rotate the camera), eqPitch tilts
+    gl.uniform1f(LEQ.op,op); gl.uniform1f(LEQ.mir,c.props.mirror?-1:1); gl.uniform1f(LEQ.covHalf, curCovHalf()); gl.uniform1f(LEQ.yaw, az*D2R); gl.uniform1f(LEQ.pitch, (c.props.eqPitch||0)*D2R);
+    gl.uniform1f(LEQ.exp,(evalP(c,'exposure',t)||0)/100); gl.uniform1f(LEQ.con,(evalP(c,'contrast',t)||0)/100); gl.uniform1f(LEQ.sat,(evalP(c,'saturation',t)||0)/100); gl.uniform1f(LEQ.tmp,(evalP(c,'temperature',t)||0)/100*0.15); gl.uniform1f(LEQ.tnt,(evalP(c,'tint',t)||0)/100*0.15);
+    gl.uniform1f(LEQ.mask, MASK_IDX[c.props.mask||'none']||0); gl.uniform1f(LEQ.feather,(evalP(c,'feather',t)||0)/100); gl.uniform1f(LEQ.maskScale, c.props.maskScale||1);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,ntex); gl.uniform1i(LEQ.tex,0);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, c.maskTex||m.tex); gl.uniform1i(LEQ.maskTex,1);
+    const bmq=c.props.blend||'normal'; setBlend(bmq); gl.uniform1f(LEQ.premul,(bmq==='screen'||bmq==='multiply')?1:0); gl.uniform1f(LEQ.blend,BLEND_ID[bmq]||0); gl.drawArrays(gl.TRIANGLES,0,6); if(bmq!=='normal')NORMAL_BLEND(); gl.bindVertexArray(null); return; }
   if(c.props.fulldome){ gl.useProgram(PFD); gl.bindVertexArray(fdVAO);
     gl.uniform1f(LFD.op,op); gl.uniform1f(LFD.mir,c.props.mirror?-1:1); gl.uniform1f(LFD.spin, az*D2R); gl.uniform1f(LFD.scale, Math.max(0.05, size/55)); // [N1] Size scales the fulldome content (55 = 1:1, the default → no change for existing clips); az/spin rotate it — so a compose nest behaves like a clip
     gl.uniform1f(LFD.exp,(evalP(c,'exposure',t)||0)/100); gl.uniform1f(LFD.con,(evalP(c,'contrast',t)||0)/100); gl.uniform1f(LFD.sat,(evalP(c,'saturation',t)||0)/100); gl.uniform1f(LFD.tmp,(evalP(c,'temperature',t)||0)/100*0.15); gl.uniform1f(LFD.tnt,(evalP(c,'tint',t)||0)/100*0.15);
@@ -1703,7 +1735,7 @@ function deleteMedia(m){ if(!m)return; if(isSeqMedia(m)){ deleteSequenceMedia(m.
 /* ===================== TIMELINE ===================== */
 function makeClip(m,lane,start,props,extra){
   return Object.assign({id:uid(),mediaId:m.id,lane,start:Math.max(0,start),dur:m.dur||6,inP:0,name:m.name,color:m.color,
-    fadeIn:0,fadeOut:0,props:Object.assign({az:0,el:35,size:55,rot:0,spin:0,mirror:false,opacity:100,blur:0,feather:0,crop:0,mask:'none',blend:'normal',exposure:0,contrast:0,saturation:0,temperature:0,tint:0,glow:0,chroma:0,react:'none',reactAmt:60,fulldome:false,fisheye:false,fisheyeAmt:60,blackKey:false,blackKeyAmt:15,blackKeySoft:30,warp:'patch',secAz:60,secEl:30,volume:100,x:0,y:0,scale:100,lut:null,lutMix:100},props||{}),kf:{},fx:[]}, extra||{});
+    fadeIn:0,fadeOut:0,props:Object.assign({az:0,el:35,size:55,rot:0,spin:0,mirror:false,opacity:100,blur:0,feather:0,crop:0,mask:'none',blend:'normal',exposure:0,contrast:0,saturation:0,temperature:0,tint:0,glow:0,chroma:0,react:'none',reactAmt:60,fulldome:false,fisheye:false,fisheyeAmt:60,equirect:false,eqPitch:0,blackKey:false,blackKeyAmt:15,blackKeySoft:30,warp:'patch',secAz:60,secEl:30,volume:100,x:0,y:0,scale:100,lut:null,lutMix:100},props||{}),kf:{},fx:[]}, extra||{});
 }
 function addClip(m,lane,start){
   if(isSeqMedia(m)&&(m.id===state.activeSeqId||seqReaches(m.id,state.activeSeqId))){ flashStatus(T("Can't nest a sequence inside itself (would create a loop)",'No se puede anidar una secuencia que crearía un bucle'),'err'); return; } // [R94-UT3·U-21]
@@ -2727,7 +2759,18 @@ function _renderInspectorMain(){
     fdrow.innerHTML=`<span class="kf" style="cursor:default;"></span><span class="lab">${T('Fulldome src','Fuente fulldome')}</span>
       <label style="display:flex;align-items:center;gap:6px;flex:1;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="fdToggle" ${c.props.fulldome?'checked':''}> ${T('Map 1:1 to dome (no warp)','Mapear 1:1 al domo (sin warp)')}</label>`;
     $('#fxRows').appendChild(fdrow);
-    fdrow.querySelector('#fdToggle').onchange=e=>{const cc=selClip();if(cc){pushUndo();cc.props.fulldome=e.target.checked;if(_raOn)raInvalidate();render();}};
+    fdrow.querySelector('#fdToggle').onchange=e=>{const cc=selClip();if(cc){pushUndo();cc.props.fulldome=e.target.checked; if(e.target.checked)cc.props.equirect=false; if(_raOn)raInvalidate();render();renderInspector();}};
+    // [F7] Equirect 360° source: the clip is a 2:1 panorama → mapped onto the dome. Azimuth (Transform) = camera yaw; Tilt = pitch. Mutually exclusive with Fulldome src.
+    const eqrow=document.createElement('div'); eqrow.className='prow';
+    eqrow.innerHTML=`<span class="kf" style="cursor:default;"></span><span class="lab">${T('Equirect 360°','Equirect 360°')}</span>
+      <label style="display:flex;align-items:center;gap:6px;flex:1;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="eqToggle" ${c.props.equirect?'checked':''}> ${T('Map panorama to dome (Azimuth = camera yaw)','Mapear panorama al domo (Azimut = giro de cámara)')}</label>`;
+    $('#fxRows').appendChild(eqrow);
+    eqrow.querySelector('#eqToggle').onchange=e=>{const cc=selClip();if(cc){pushUndo();cc.props.equirect=e.target.checked; if(e.target.checked)cc.props.fulldome=false; if(_raOn)raInvalidate();render();renderInspector();}};
+    if(c.props.equirect){ const eprow=document.createElement('div'); eprow.className='prow';
+      eprow.innerHTML=`<span class="kf" style="cursor:default;visibility:hidden;"></span><span class="lab" style="font-size:11px;color:var(--ink-2);">${T('Tilt','Inclinación')}</span>
+        <input type="range" id="eqPitch" min="-90" max="90" value="${Math.round(c.props.eqPitch||0)}" style="flex:1;height:20px;"><span class="tnum" id="eqPitchV" style="width:40px;text-align:right;color:var(--ink-dim);">${Math.round(c.props.eqPitch||0)}°</span>`;
+      $('#fxRows').appendChild(eprow);
+      const pr=eprow.querySelector('#eqPitch'); pr.onpointerdown=()=>pushUndo(); pr.oninput=e=>{ const cc=selClip(); if(!cc)return; cc.props.eqPitch=+e.target.value; eprow.querySelector('#eqPitchV').textContent=(+e.target.value)+'°'; if(_raOn)raInvalidate(); render(); }; pr.onchange=()=>markDirty(); }
     // Fisheye pre-warp (R83) — for FLAT clips that lack the fisheye curvature a dome master needs
     const fhrow=document.createElement('div'); fhrow.className='prow';
     fhrow.innerHTML=`<span class="kf" style="cursor:default;"></span><span class="lab">${T('Fisheye','Ojo de pez')}</span>

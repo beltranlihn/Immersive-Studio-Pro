@@ -1,5 +1,20 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 126 — Correcciones v2 · Etapa 6 · [F7] importar equirectangular + rotar cámara
+
+- **[F7] ✔ (fase 1) Equirect 360° → domo** — programa de shader **nuevo y aditivo** `PEQ` (VSEQ/FSEQ, VAO `eqVAO`), no
+  toca el warp core. Para cada píxel del disco reconstruye el rayo (`rho→zenith`, `azimuth`), lo rota por **yaw/pitch**
+  (la "cámara") y muestrea el panorama 2:1 (`uv = az/2π+0.5 , 0.5−lat/π`). Rama en `drawClip` antes de fulldome; incluye
+  grade + máscara + blend + opacidad como PFD. UI en la sección Clip: toggle **"Equirect 360°"** (mutuamente excluyente
+  con Fulldome src) + slider **Tilt** (pitch); el **Azimuth** de Transform = giro de cámara (yaw). Props
+  `equirect/eqPitch` en los defaults. Verificado por CDP: PEQ compila+linka (sin riesgo de domo negro), toggle excluye
+  fulldome, el equirect muestrea la textura (31/49 muestras con contenido dentro del disco). **GOTCHA:** tocó GLSL (nuevo
+  programa) → verificar el panorama con una imagen equirect real en el `.exe` (GPU RTX). Fase 2 posible: auto-detectar
+  2:1 al importar, equirect en el visor 3D orbitando la esfera completa.
+
+**Etapa 6:** hechos F1/F3/F4/F5/F6/F7/F8. Queda **[F2]** (consistencia de layout entre modos — vago, necesita señalar
+qué descuadra).
+
 ## ROUND 125 — Correcciones v2 · Etapa 6 (Formatos) · [F5] + [F3]/[F4] (setup de sala) + [F1]
 
 - **[F1] ✔ (sustancial) Resolución editable en el panel de ajustes** — `openSeqSettings` (el panel de formato, alcanzable
