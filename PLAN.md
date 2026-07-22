@@ -1,5 +1,42 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 119 — Correcciones v2 · Etapa 2 · [A3]/[A5] efectos + [I3] Mask pen-tool + fix regresión R118
+
+**[I3] ✔ Máscara de puntos (pen-tool) estilo Premiere** — nueva máscara editable con puntos, **aparte** de las formas
+(círculo/rombo…) y del PNG. Modelo `c.penMasks=[{pts:[[x,y]…0..1], feather, invert, on}]` + `c.penExpand`. Motor de
+**riesgo mínimo**: se rasteriza la unión de polígonos (feather vía shadowBlur, invert vía `source-out`, expand escalando
+los puntos al centro) a un canvas → `c.maskTex`, y se reusa el sampler de máscara custom añadiendo `pen:5` a `MASK_IDX`
+(**sin tocar GLSL**). Funciona en domo y flat, y en export (mismo path de render). UI en la sección **Clip**: botón
+*Add mask*, **editor canvas** (clic añade punto, arrastrar mueve, doble-clic quita; fondo con el thumbnail del clip),
+lista de máscaras con **Invert** + **Feather** por máscara + borrar, y slider **Expand** global. Copia profunda de
+`penMasks` en duplicar/dividir/nest/pegar (evita aliasing) y rasterizado en carga/undo. Verificado por CDP: rasterizado
+correcto (inside α=255 / outside α=0; invert lo espeja; feather borde α=102) y UI (Add mask → canvas visible, modo `pen`).
+*Limitación v1:* la edición de puntos es en el canvas del inspector (con el clip de fondo), no dibujando directo sobre el
+visor principal — se evita así el mapeo inverso del fisheye del domo. Dibujo sobre el visor = posible fase 2.
+
+
+
+**REGRESIÓN de R118 corregida** — la regla CSS `.prow .kf{display:none}` que puse en [A1] (para colapsar los
+espaciadores del cronómetro) **también ocultaba el botón de keyframe funcional de las tarjetas de efecto**
+(`fxFaderRow` usa `<button class="kf" data-kf>`). Cambiado a `.prow .kf:not([data-kf]){display:none}` (+ restaurado el
+estilo base de `.kf`/`.kf.on`): los espaciadores se colapsan pero el toggle de keyframe de FX (que lleva `data-kf`) queda
+visible. **El build R118 (9b12f0b) desplegado tiene esta regresión → re-deployar con este cambio.**
+
+**[A5] ✔ estado automatizado visible en el listado de efectos** — cada tarjeta de efecto (Reactive FX › Effects Chain)
+muestra un **◆** cian en la cabecera cuando cualquiera de sus parámetros tiene automatización (`fxAnyKf`). Además **todos
+los parámetros del efecto son ahora automatizables uno a uno** (antes solo Intensity tenía el toggle de keyframe; ahora
+también Reactivity y los `def.params` del shader — `showKf=true`).
+
+**[A3] ✔ clic-derecho sobre efecto → "Show Automation"** — la cabecera de cada tarjeta (`.fxhdr`) tiene menú contextual
+con **Show Automation** (revela la curva del efecto en la pista vía `fxShowAutomation`: fija `lane._autoP` al primer
+parámetro automatizado del efecto —o Intensity— y enciende la vista de curvas), **Bypass/Enable** y **Remove**.
+
+Verificado por CDP (4 toggles de keyframe visibles por tarjeta, ◆ oculto→visible al automatizar, Show Automation fija
+`_autoP=fxt:<tipo>:int`, menú contextual enganchado).
+
+**Etapa 2 restante:** [I3] Mask pen-tool estilo Premiere. (Nota: la visión mayor de la sección 4 del doc — mover los
+efectos "reactive" a la sección **Motion** del inspector como no-reactivos con "Add Effect" — es un feature grande aparte.)
+
 ## ROUND 118 — Correcciones v2 · Etapa 2 (Inspector) · [I1]/[I2] orden + colapso
 
 **[I1]/[I2] ✔** — el inspector tenía solo **Transform** + un cajón **Effects** que mezclaba grado de color, máscara,

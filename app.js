@@ -212,7 +212,7 @@ const LW={flat:gl.getAttribLocation(PW,'a_flat'),uv:gl.getAttribLocation(PW,'a_u
   fmode:gl.getUniformLocation(PW,'u_flat'),fc:gl.getUniformLocation(PW,'u_fc'),fx:gl.getUniformLocation(PW,'u_fx'),fy:gl.getUniformLocation(PW,'u_fy'),
   blur:gl.getUniformLocation(PW,'u_blur'),feather:gl.getUniformLocation(PW,'u_feather'),crop:gl.getUniformLocation(PW,'u_crop'),mask:gl.getUniformLocation(PW,'u_mask'),exp:gl.getUniformLocation(PW,'u_exp'),con:gl.getUniformLocation(PW,'u_con'),sat:gl.getUniformLocation(PW,'u_sat'),tmp:gl.getUniformLocation(PW,'u_tmp'),tnt:gl.getUniformLocation(PW,'u_tnt'),glow:gl.getUniformLocation(PW,'u_glow'),ca:gl.getUniformLocation(PW,'u_ca'),premul:gl.getUniformLocation(PW,'u_premul'),blend:gl.getUniformLocation(PW,'u_blend'),maskTex:gl.getUniformLocation(PW,'u_maskTex'),tile:gl.getUniformLocation(PW,'u_tile'),maskScale:gl.getUniformLocation(PW,'u_maskScale'),lut:gl.getUniformLocation(PW,'u_lut'),hasLut:gl.getUniformLocation(PW,'u_hasLut'),lutMix:gl.getUniformLocation(PW,'u_lutMix')};
 const BLEND_ID={normal:0,add:0,screen:0,multiply:0,darken:1,lighten:2}; // u_blend: 0=premul path, 1=darken(MIN-neutral white), 2=lighten(MAX-neutral black)
-const MASK_IDX={none:0,circle:1,rounded:2,diamond:3,vignette:4,custom:5};
+const MASK_IDX={none:0,circle:1,rounded:2,diamond:3,vignette:4,custom:5,pen:5}; // [I3] pen (point) masks rasterize into c.maskTex and reuse the custom sampler branch (index 5) — no shader change
 gl.useProgram(PW); gl.uniform1f(LW.covHalf, HALF_PI); // safe default (180° fulldome) so a never-set uniform is never 0 → no divide-by-zero in the flat path
 /* R116 · creative 3D LUT (.cube): a registry of GL 3D textures keyed by file path, an identity default so the
    sampler3D is always valid, a .cube parser, and per-clip {props.lut = path, props.lutMix = 0..100}. */
@@ -703,8 +703,8 @@ function nestSelection(){ const ids=(state.selIds&&state.selIds.length)?state.se
   const used=[...new Set(clips.map(c=>c.lane))].sort((a,b)=>a-b); const lm={};
   const nestLanes=used.map((li,i)=>{ lm[li]=i; const L=state.lanes[li]; return {id:uid(),name:(L?L.name:'Video '+(i+1)),tag:(L?L.tag:'V'+(i+1)),kind:(L?L.kind:'video')}; });
   if(!nestLanes.length)nestLanes.push({id:uid(),name:'Video 1',tag:'V1',kind:'video'});
-  const nestClips=clips.map(c=>({...c,id:uid(),start:c.start-minStart,lane:(lm[c.lane]||0),props:{...c.props},kf:JSON.parse(JSON.stringify(c.kf||{})),fx:JSON.parse(JSON.stringify(c.fx||[])),maskTex:null})); nestClips.forEach((nc,i)=>sepAuto(nc,clips[i]));
-  for(const nc2 of nestClips)if(nc2.maskData)rebuildMaskTex(nc2);
+  const nestClips=clips.map(c=>({...c,id:uid(),start:c.start-minStart,lane:(lm[c.lane]||0),props:{...c.props},kf:JSON.parse(JSON.stringify(c.kf||{})),fx:JSON.parse(JSON.stringify(c.fx||[])),maskTex:null,_penCv:null,penMasks:c.penMasks?JSON.parse(JSON.stringify(c.penMasks)):undefined})); nestClips.forEach((nc,i)=>sepAuto(nc,clips[i]));
+  for(const nc2 of nestClips)if(nc2.maskData||(nc2.penMasks&&nc2.penMasks.length))rebuildMaskTex(nc2);
   const nest=newSeqMedia(T('Nest ','Nido ')+(state.media.filter(isSeqMedia).length+1), state.fps, state.seqW, state.seqH, nestClips, nestLanes, isFlat()?'flat':'dome'); nest.dur=dur; // [R92-T1 C4] inherit the compositing mode — a nest made in a 2D/room sequence must NOT default to dome warping (room content nests as flat: the strip IS rectangular)
   state.media.push(nest);
   { const rx=state.reactive; if(rx&&rx.srcClipId!=null){ const ri=clips.findIndex(c=>c.id===rx.srcClipId); if(ri>=0){ rx.srcClipId=nestClips[ri].id; _arCache=null; try{arRecompute();}catch(e){} } } } // [R92-T1 C5] the reactive source clip gets a NEW id inside the nest — remap so audio-reactive FX keep reacting
@@ -2285,9 +2285,9 @@ function showMoveGhosts(d,applied,targetLane,copy){ clearMoveGhosts(); const pps
     g.style.left=(ns*pps)+'px'; g.style.top=(rowEl.offsetTop+4)+'px'; g.style.width=Math.max(14,oc.dur*pps)+'px'; g.style.height=(rowEl.offsetHeight-8)+'px';
     g.innerHTML='<div style="position:absolute;left:0;top:0;right:0;height:15px;line-height:15px;font:600 10px Geist;padding:0 5px;color:'+textOn(oc.color)+';background:'+oc.color+';white-space:nowrap;overflow:hidden;">'+(copy?'＋ ':'')+oc.name+'</div>';
     _gp.appendChild(g); } }
-function duplicateClipAt(c,start,lane){ const n=Object.assign({},c,{id:uid(),start:Math.max(0,start),lane:(lane!=null?lane:c.lane),maskTex:null,props:Object.assign({},c.props),kf:JSON.parse(JSON.stringify(c.kf||{})),fx:JSON.parse(JSON.stringify(c.fx||[]))});
+function duplicateClipAt(c,start,lane){ const n=Object.assign({},c,{id:uid(),start:Math.max(0,start),lane:(lane!=null?lane:c.lane),maskTex:null,_penCv:null,penMasks:c.penMasks?JSON.parse(JSON.stringify(c.penMasks)):undefined,props:Object.assign({},c.props),kf:JSON.parse(JSON.stringify(c.kf||{})),fx:JSON.parse(JSON.stringify(c.fx||[]))});
   sepAuto(n,c);
-  if(n.maskData)rebuildMaskTex(n); return n; }
+  if(n.maskData||(n.penMasks&&n.penMasks.length))rebuildMaskTex(n); return n; }
 function onTLMove(e){ if(!drag)return; const c=clipById(drag.id);if(!c)return; const dt=(e.clientX-drag.x0)/state.tl.pxPerSec; let snap=null;
   const m=mediaById(c.mediaId); const srcLim=!!(m&&(m.kind==='video'||m.kind==='audio'||isSeqMedia(m))); const srcDur=(m&&isSeqMedia(m))?seqDur(m):(m?m.dur:Infinity); // a nest clip can't exceed its inner content (live seqDur, not the possibly-stale m.dur)
   if(drag.mode==='move'){ let ns=Math.max(0,drag.start0+dt); const sn=applySnap(ns,c.id); const durMv=(drag.dur0!=null?drag.dur0:c.dur);
@@ -2368,9 +2368,9 @@ function razorCore(c,tAbs){ if(tAbs<=c.start+0.02||tAbs>=c.start+c.dur-0.02)retu
     } else ks.push({t:left,v:evalP(c,p,tAbs),e:A.e||'linear'});
     ks.sort((a,b)=>a.t-b.t); }
   const reb=(kfo,lo,hi,shift)=>{ const r={}; for(const p in (kfo||{})){ const a=kfo[p].filter(k=>k.t>=lo-1e-6&&k.t<=hi+1e-6).map(k=>{ const n={...k,t:Math.max(0,k.t-shift)}; if(n.hOut)n.hOut={...n.hOut}; if(n.hIn)n.hIn={...n.hIn}; return n; }); if(a.length)r[p]=a; } return r; }; // handles deep-copied — the two halves must never share handle objects
-  const c2={...c,id:uid(),start:tAbs,dur:c.dur-left,inP:c.inP+left*(c.speed||1),maskTex:null,props:{...c.props},kf:reb(c.kf,left,Infinity,left),fx:JSON.parse(JSON.stringify(c.fx||[])),fadeIn:0}; sepAuto(c2,c); // [R92-T4 F6] inP advances in SOURCE seconds (left×speed)
+  const c2={...c,id:uid(),start:tAbs,dur:c.dur-left,inP:c.inP+left*(c.speed||1),maskTex:null,_penCv:null,penMasks:c.penMasks?JSON.parse(JSON.stringify(c.penMasks)):undefined,props:{...c.props},kf:reb(c.kf,left,Infinity,left),fx:JSON.parse(JSON.stringify(c.fx||[])),fadeIn:0}; sepAuto(c2,c); // [R92-T4 F6] inP advances in SOURCE seconds (left×speed)
   if(Array.isArray(c2.anim)) c2.anim=c2.anim.map(aa=>({...aa,wetKf:Array.isArray(aa.wetKf)?aa.wetKf.map(k=>({...k,t:k.t-left})).filter(k=>k.t>=-1e-6):aa.wetKf})); // [R92-T4 F11] right half's wet ramps rebased like kf
-  if(c2.maskData)rebuildMaskTex(c2); c.kf=reb(c.kf,0,left,0); c.dur=left; c.fadeOut=0; state.clips.push(c2); return c2; } // drop the fades that now land at the cut: left half keeps only its fadeIn, right half only its fadeOut
+  if(c2.maskData||(c2.penMasks&&c2.penMasks.length))rebuildMaskTex(c2); c.kf=reb(c.kf,0,left,0); c.dur=left; c.fadeOut=0; state.clips.push(c2); return c2; } // drop the fades that now land at the cut: left half keeps only its fadeIn, right half only its fadeOut
 function razorClip(c,tAbs){ if(tAbs<=c.start+0.02||tAbs>=c.start+c.dur-0.02)return; pushUndo(); razorCore(c,tAbs); renderTimeline(); render(); reschedAudio(); }
 /* Ctrl+E — Ableton-style Split: cut every clip crossing the time-selection boundaries (or the playhead if no range) */
 function splitAtSelection(){ const s=state.tl; const hasRange=s.selA!=null&&s.selB!=null&&Math.abs(s.selB-s.selA)>1e-3; const hasInsert=s.selA!=null&&!hasRange;
@@ -2681,6 +2681,8 @@ function _renderInspectorMain(){
     const big=Math.max(im.naturalWidth,im.naturalHeight)||1, s=Math.min(1,1024/big); const mc=document.createElement('canvas'); mc.width=Math.max(1,Math.round(im.naturalWidth*s)); mc.height=Math.max(1,Math.round(im.naturalHeight*s)); mc.getContext('2d').drawImage(im,0,0,mc.width,mc.height);
     cc.maskData=mc.toDataURL('image/png'); // persisted so the mask survives save/load
     if(!cc.maskTex)cc.maskTex=newTex(); upTex(cc.maskTex,mc); cc.props.mask='custom'; cc.maskName=f.name; mrow.querySelector('#maskSel').value='custom'; URL.revokeObjectURL(url); render(); flashStatus(T('Mask PNG applied','Máscara PNG aplicada')); }; im.src=url; }; inp.click(); };
+  // [I3] pen (point) mask editor — separate from the shape/PNG mask above
+  buildPenMaskUI($('#fxRows'),c);
   // Blend mode
   const brow=document.createElement('div'); brow.className='prow';
   brow.innerHTML=`<span class="kf" style="cursor:default;"></span><span class="lab">${T('Blend','Fusión')}</span>
@@ -2829,6 +2831,57 @@ function buildAudioInspector(c,m){ const host=$('#insAudio'); if(!host)return; c
   const fi=host.querySelector('#auFi'), fo=host.querySelector('#auFo');
   fi.onchange=()=>{ const cc=selClip(); if(!cc)return; pushUndo(); cc.fadeIn=Math.max(0,+fi.value||0); renderTimeline(); if(state.playing)startAudio(); markDirty(); };
   fo.onchange=()=>{ const cc=selClip(); if(!cc)return; pushUndo(); cc.fadeOut=Math.max(0,+fo.value||0); renderTimeline(); if(state.playing)startAudio(); markDirty(); };
+}
+/* [I3] pen (point) mask editor: draw silhouettes with points, invert, feather, expand — several per clip. Renders through
+   rasterizePenMasks → c.maskTex (the custom-mask sampler). Points are 0..1 in the clip's mask space. */
+function buildPenMaskUI(host,c){ if(!c)return; const S=220; const masks=c.penMasks||(c.penMasks=[]);
+  if(c._penSel==null||c._penSel>=masks.length) c._penSel=masks.length?masks.length-1:-1;
+  const wrap=document.createElement('div'); wrap.className='prow'; wrap.style.cssText='flex-direction:column;align-items:stretch;gap:6px;';
+  wrap.innerHTML=`<div style="display:flex;align-items:center;gap:6px;">
+      <span class="lab" style="width:auto;color:var(--ink-2);">${T('Point mask','Máscara de puntos')}</span><span style="flex:1"></span>
+      <button class="mbtn" id="penAdd" style="height:18px;padding:0 8px;">${ICO('plus',11)} ${T('Add mask','Añadir máscara')}</button></div>
+    <canvas id="penCv" width="${S}" height="${S}" style="width:100%;aspect-ratio:1;border:.5px solid rgba(255,255,255,0.12);border-radius:2px;background:#0c0d10;cursor:crosshair;touch-action:none;display:${masks.length?'block':'none'};"></canvas>
+    <div id="penList" style="display:flex;flex-direction:column;gap:3px;"></div>
+    <div class="prow" id="penExpRow" style="padding:0;gap:6px;display:${masks.length?'flex':'none'};"><span class="lab" style="width:auto;color:var(--ink-3);">${T('Expand','Expandir')}</span><input type="range" id="penExp" min="20" max="200" value="${Math.round((c.penExpand||1)*100)}" style="flex:1;"><span class="tnum" id="penExpV" style="width:38px;text-align:right;color:var(--ink-dim);">${Math.round((c.penExpand||1)*100)}%</span></div>
+    <span style="font-size:11px;color:var(--ink-dim);line-height:1.35;display:${masks.length?'block':'none'}" id="penHint">${T('Click the canvas to add points · drag to move · double-click a point to remove.','Clic en el lienzo para añadir puntos · arrastra para mover · doble clic en un punto para quitarlo.')}</span>`;
+  host.appendChild(wrap);
+  const cv=wrap.querySelector('#penCv'), ctx=cv.getContext('2d'), m=mediaById(c.mediaId);
+  const draw=()=>{ ctx.clearRect(0,0,S,S); ctx.fillStyle='#0c0d10'; ctx.fillRect(0,0,S,S);
+    if(m&&m.thumb){ ctx.globalAlpha=0.18; const im=draw._im||(draw._im=new Image()); if(im.src!==m.thumb){ im.onload=draw; im.src=m.thumb; } if(im.complete&&im.naturalWidth)ctx.drawImage(im,0,0,S,S); ctx.globalAlpha=1; }
+    ctx.strokeStyle='rgba(255,255,255,0.06)'; ctx.beginPath(); ctx.moveTo(S/2,0);ctx.lineTo(S/2,S);ctx.moveTo(0,S/2);ctx.lineTo(S,S/2);ctx.stroke();
+    const ex=Math.max(0.2,c.penExpand||1);
+    (c.penMasks||[]).forEach((mk,mi)=>{ if(!mk.pts||!mk.pts.length)return; const active=mi===c._penSel; const P=p=>[(0.5+(p[0]-0.5)*ex)*S,(0.5+(p[1]-0.5)*ex)*S];
+      ctx.lineWidth=active?1.5:1; ctx.strokeStyle=active?'#4FC3E8':'rgba(255,255,255,0.4)'; ctx.fillStyle=active?'rgba(79,195,232,0.10)':'rgba(255,255,255,0.05)';
+      ctx.beginPath(); mk.pts.forEach((p,i)=>{ const q=P(p); i?ctx.lineTo(q[0],q[1]):ctx.moveTo(q[0],q[1]); }); if(mk.pts.length>=3)ctx.closePath(); ctx.fill(); ctx.stroke();
+      if(active)mk.pts.forEach(p=>{ const q=P(p); ctx.fillStyle='#4FC3E8'; ctx.beginPath(); ctx.arc(q[0],q[1],3.6,0,6.283); ctx.fill(); ctx.fillStyle='#0c0d10'; ctx.beginPath(); ctx.arc(q[0],q[1],1.5,0,6.283); ctx.fill(); }); }); };
+  const commit=()=>{ rasterizePenMasks(c); render(); markDirty(); draw(); };
+  const rebuildList=()=>{ const L=wrap.querySelector('#penList'); L.innerHTML='';
+    (c.penMasks||[]).forEach((mk,mi)=>{ const row=document.createElement('div'); row.style.cssText='display:flex;align-items:center;gap:5px;font-size:11px;padding:2px 3px;border-radius:2px;background:'+(mi===c._penSel?'rgba(79,195,232,0.14)':'transparent')+';';
+      row.innerHTML=`<button class="penSel" title="${T('Edit this mask','Editar esta máscara')}" style="width:15px;height:15px;border:none;background:none;color:${mi===c._penSel?'#4FC3E8':'var(--ink-3)'};cursor:pointer;font-size:10px;">◆</button>
+        <span style="flex:0 0 auto;color:var(--ink-2);">${T('Mask','Máscara')} ${mi+1}</span>
+        <label style="display:flex;align-items:center;gap:3px;color:var(--ink-3);cursor:pointer;"><input type="checkbox" class="penInv" ${mk.invert?'checked':''}> ${T('Invert','Invertir')}</label>
+        <span style="color:var(--ink-3);flex-shrink:0;">${T('Feather','Suavizar')}</span><input type="range" class="penFe" min="0" max="60" value="${Math.round(mk.feather||0)}" style="flex:1;min-width:24px;">
+        <button class="penDel" title="${T('Delete mask','Eliminar máscara')}" style="width:15px;height:15px;border:none;background:none;color:var(--ink-3);cursor:pointer;">✕</button>`;
+      L.appendChild(row);
+      row.querySelector('.penSel').onclick=()=>{ c._penSel=mi; rebuildList(); draw(); };
+      row.querySelector('.penInv').onchange=e=>{ pushUndo(); mk.invert=e.target.checked; commit(); };
+      const fe=row.querySelector('.penFe'); fe.oninput=e=>{ mk.feather=+e.target.value; rasterizePenMasks(c); render(); }; fe.onpointerdown=()=>pushUndo(); fe.onchange=()=>markDirty();
+      row.querySelector('.penDel').onclick=()=>{ pushUndo(); c.penMasks.splice(mi,1); if(c._penSel>=c.penMasks.length)c._penSel=c.penMasks.length-1;
+        const vis=c.penMasks.length?'block':'none'; cv.style.display=vis; wrap.querySelector('#penExpRow').style.display=c.penMasks.length?'flex':'none'; wrap.querySelector('#penHint').style.display=vis;
+        if(!penMaskActive(c)&&c.props.mask==='pen')c.props.mask='none'; rebuildList(); commit(); }; }); };
+  const toXY=e=>{ const r=cv.getBoundingClientRect(); const ex=Math.max(0.2,c.penExpand||1); // invert the expand so dragging lands where the cursor is
+    return [Math.max(0,Math.min(1,0.5+(((e.clientX-r.left)/r.width)-0.5)/ex)), Math.max(0,Math.min(1,0.5+(((e.clientY-r.top)/r.height)-0.5)/ex))]; };
+  const hit=(mk,xy)=>{ if(!mk||!mk.pts)return -1; const tol=(11/S); for(let i=0;i<mk.pts.length;i++){ const dx=mk.pts[i][0]-xy[0],dy=mk.pts[i][1]-xy[1]; if(dx*dx+dy*dy<tol*tol)return i; } return -1; };
+  let drag=null;
+  cv.addEventListener('pointerdown',e=>{ e.preventDefault(); const mk=c.penMasks[c._penSel]; if(!mk)return; const xy=toXY(e); const hi=hit(mk,xy);
+    if(hi>=0){ drag={pi:hi}; pushUndo(); try{cv.setPointerCapture(e.pointerId);}catch(_){} } else { pushUndo(); mk.pts.push(xy); commit(); } });
+  cv.addEventListener('pointermove',e=>{ if(!drag)return; const mk=c.penMasks[c._penSel]; if(!mk)return; mk.pts[drag.pi]=toXY(e); rasterizePenMasks(c); render(); draw(); });
+  cv.addEventListener('pointerup',()=>{ if(drag){ drag=null; markDirty(); } });
+  cv.addEventListener('dblclick',e=>{ const mk=c.penMasks[c._penSel]; if(!mk)return; const hi=hit(mk,toXY(e)); if(hi>=0&&mk.pts.length>3){ pushUndo(); mk.pts.splice(hi,1); commit(); } });
+  wrap.querySelector('#penAdd').onclick=()=>{ pushUndo(); c.penMasks=c.penMasks||[]; c.penMasks.push({pts:[[0.35,0.35],[0.65,0.35],[0.65,0.65],[0.35,0.65]],feather:0,invert:false,on:true}); c._penSel=c.penMasks.length-1;
+    cv.style.display='block'; wrap.querySelector('#penExpRow').style.display='flex'; wrap.querySelector('#penHint').style.display='block'; rebuildList(); commit(); };
+  const expR=wrap.querySelector('#penExp'); if(expR){ expR.onpointerdown=()=>pushUndo(); expR.oninput=()=>{ c.penExpand=Math.max(0.2,(+expR.value)/100); wrap.querySelector('#penExpV').textContent=(+expR.value)+'%'; rasterizePenMasks(c); render(); draw(); }; expR.onchange=()=>markDirty(); }
+  rebuildList(); if(masks.length)draw();
 }
 /* build the per-clip list of active motion modifiers into #animList */
 function animWetKfAt(a,c){ if(!a.wetKf)return null; const lt=state.playhead-c.start; return a.wetKf.find(k=>Math.abs(k.t-lt)<0.03)||null; }
@@ -4614,7 +4667,7 @@ function serMedia(m){ return {id:m.id,name:m.name,kind:m.kind,w:m.w,h:m.h,mode:m
   nestMarkers:(m.kind==='nest'?(m.nestMarkers||[]):null), nestGroups:(m.kind==='nest'?(m.nestGroups||[]):null), nestPlayhead:(m.kind==='nest'?(m.nestPlayhead||0):null), nestWorkIn:(m.kind==='nest'?(m.nestWorkIn??null):null), nestWorkOut:(m.kind==='nest'?(m.nestWorkOut??null):null), comp:(m.comp||null),
   thumb:(m.kind==='audio'?m.thumb:null)}; }
 let _serLight=false; // when true (autosave), drop heavy fields (maskData PNGs) to stay under the localStorage quota
-function serClip(c){ const o=JSON.parse(JSON.stringify(c)); delete o.maskTex; delete o._elB; delete o._szB; if(_serLight)delete o.maskData; return o; } // maskTex is a live GL texture; _elB/_szB are transient drag baselines; maskData (dataURL) kept except in the light autosave copy
+function serClip(c){ const o=JSON.parse(JSON.stringify(c)); delete o.maskTex; delete o._penCv; delete o._elB; delete o._szB; if(_serLight)delete o.maskData; return o; } // maskTex is a live GL texture; _penCv is the pen-mask raster canvas (rebuilt from penMasks); _elB/_szB are transient drag baselines; maskData (dataURL) kept except in the light autosave copy
 /* ===================== SEQUENCES (Premiere-style; a sequence IS a media item, kind 'nest') ===================== */
 function isSeqMedia(m){ return !!(m&&m.kind==='nest'); }
 function seqReaches(rootId,targetId){ const seen=new Set(); const walk=id=>{ if(id===targetId)return true; if(seen.has(id))return false; seen.add(id); const mm=mediaById(id); return !!(mm&&isSeqMedia(mm)&&(mm.nestClips||[]).some(c=>walk(c.mediaId))); }; return walk(rootId); } // does sequence rootId (transitively) already contain targetId?
@@ -4953,12 +5006,33 @@ async function newRoomProject(cfg){ if(!(await confirmDiscard()))return; if(stat
   clearAllUndo(); currentPath=null; state.dirty=false;
   renderMedia(); renderSeqBar(); renderTimeline(); renderInspector(); render(); updStatus(); projTitle(); updFmtChip();
   flashStatus(T('New 360 room','Nueva sala 360')+' · '+walls.length+' '+T('walls','muros')+(cfg.floor?' + '+T('floor','piso'):'')); }
-function rebuildMaskTex(c){ if(!c.maskData)return; const im=new Image(); im.onload=()=>{ if(!c.maskTex)c.maskTex=newTex(); upTex(c.maskTex,im); render(); }; im.src=c.maskData; }
+function rebuildMaskTex(c){ if(c&&c.penMasks&&c.penMasks.length){ rasterizePenMasks(c); return; } if(!c||!c.maskData)return; const im=new Image(); im.onload=()=>{ if(!c.maskTex)c.maskTex=newTex(); upTex(c.maskTex,im); render(); }; im.src=c.maskData; }
+/* [I3] pen (point) masks — a per-clip list of polygons (points in 0..1), each with feather + invert. Rasterised (union)
+   to c.maskTex via a 2D canvas and rendered through the existing custom-mask sampler (u_mask=5). Independent of the
+   shape/PNG mask. penExpand scales every point around the centre (works in dome AND flat; baked into the raster). */
+function penMaskActive(c){ return !!(c&&Array.isArray(c.penMasks)&&c.penMasks.some(mk=>mk&&mk.on!==false&&Array.isArray(mk.pts)&&mk.pts.length>=3)); }
+function rasterizePenMasks(c){ if(!c)return;
+  if(!penMaskActive(c)){ if(c.props&&c.props.mask==='pen')c.props.mask='none'; return; }
+  const S=512; let cv=c._penCv; if(!cv){ cv=c._penCv=document.createElement('canvas'); cv.width=cv.height=S; }
+  const x=cv.getContext('2d'); x.clearRect(0,0,S,S);
+  let sc=rasterizePenMasks._sc; if(!sc){ sc=rasterizePenMasks._sc=document.createElement('canvas'); sc.width=sc.height=S; }
+  const sx=sc.getContext('2d'); const ex=Math.max(0.05,c.penExpand||1); // expand: scale points around the centre
+  x.globalCompositeOperation='lighten'; // union of all masks (max of the white channel)
+  for(const mk of c.penMasks){ if(!mk||mk.on===false||!Array.isArray(mk.pts)||mk.pts.length<3)continue;
+    sx.setTransform(1,0,0,1,0,0); sx.clearRect(0,0,S,S); sx.globalCompositeOperation='source-over';
+    const fe=Math.max(0,Math.min(1,(mk.feather||0)/100))*S*0.5; // feather radius (px)
+    sx.beginPath(); mk.pts.forEach((p,i)=>{ const px=(0.5+(p[0]-0.5)*ex)*S, py=(0.5+(p[1]-0.5)*ex)*S; if(i===0)sx.moveTo(px,py); else sx.lineTo(px,py); }); sx.closePath();
+    sx.fillStyle='#fff'; if(fe>0.5){ sx.shadowColor='#fff'; sx.shadowBlur=fe; } sx.fill(); sx.shadowBlur=0;
+    if(mk.invert){ sx.globalCompositeOperation='source-out'; sx.fillStyle='#fff'; sx.fillRect(0,0,S,S); sx.globalCompositeOperation='source-over'; } // invert = white where the polygon ISN'T (feathered edge preserved)
+    x.drawImage(sc,0,0);
+  }
+  x.globalCompositeOperation='source-over';
+  if(!c.maskTex)c.maskTex=newTex(); upTex(c.maskTex,cv); c.props.mask='pen'; }
 function loadProject(obj){ if(state.playing)pause(); disposeAllVinst(); try{freeFxResources();}catch(e){} for(const _tid in (state.mediaTrash||{})) disposeMedia(state.mediaTrash[_tid]); state.mediaTrash={}; // free deleted-media textures + FX history from the previous project
   clearAllUndo(); // [R92-T1 C2] undo history belongs to the PREVIOUS project — Ctrl+Z after opening must never inject its clips here (newProject already did this; loadProject didn't)
   state.fps=obj.fps||60; state.lanes=obj.lanes||state.lanes; state.clips=(obj.clips||[]).map(c=>({...c,kf:c.kf||{},maskTex:null})); state.playhead=obj.playhead||0; state.markers=obj.markers||[]; state.selMarkerId=null; state.groups=obj.groups||[]; state.selGroupId=null;
   // restore custom PNG masks from their persisted dataURL (or drop a stale 'custom' that has no data)
-  for(const c of state.clips){ if(c.maskData)rebuildMaskTex(c); else if(c.props&&c.props.mask==='custom')c.props.mask='none'; }
+  for(const c of state.clips){ if((c.penMasks&&c.penMasks.length)||c.maskData)rebuildMaskTex(c); else if(c.props&&(c.props.mask==='custom'||c.props.mask==='pen'))c.props.mask='none'; }
   state.media=(obj.media||[]).map(md=>({...md,el:null,originalEl:null,tex:null,buffer:null,missing:true,_loading:true,proxyReady:false,proxyPct:0})); // _loading: file exists but is still decoding → show "loading", NOT "missing" (esp. audio, which decodes slowly)
   try{ closeAllNdi(); }catch(e){} // drop any NDI receivers from the previous project
   for(const m of state.media){ if(m.kind==='text'){ renderTextMedia(m); m.missing=false; } else if(m.kind==='shape'){ renderShapeMedia(m); m.missing=false; } else if(m.kind==='ndi'){ m.tex=newTex(); try{ upTexRaw(m.tex,16,16,new Uint8Array(16*16*4).fill(24)); }catch(e){} m.w=m.w||16; m.h=m.h||16; m.dur=m.dur||60; m._ndiLive=false; m._thumbT=0; m.missing=false; try{ if(m.ndiSource&&DSP&&DSP.ndi)DSP.ndi.recvOpen(m.ndiSource); }catch(e){} ndiStartPump(); } else if(m.kind==='nest'){ m.nestClips=(m.nestClips||[]).map(c=>({...c,maskTex:null,kf:c.kf||{}})); for(const c of m.nestClips)if(c.maskData)rebuildMaskTex(c); m.nestLanes=(m.nestLanes&&m.nestLanes.length)?m.nestLanes:defLanes(); m.nestMarkers=m.nestMarkers||[]; m.nestGroups=m.nestGroups||[]; m.fbo=null; m.tex=null; m.w=m.w||4096; m.h=m.h||4096; m.fps=m.fps||obj.fps||60; m.missing=false; } } // text/shape re-render from params; nest = a sequence (keeps its own w/h/fps)
@@ -4982,7 +5056,7 @@ function loadProject(obj){ if(state.playing)pause(); disposeAllVinst(); try{free
   } else if(Array.isArray(obj.sequences)&&obj.sequences.length){ const ids=[]; let mx2=_id-1;
     for(const sq of obj.sequences){ const m=newSeqMedia(sq.name||'Sequence',obj.fps||60,obj.seqW||4096,obj.seqH||4096,(sq.clips||[]).map(c=>({...c,kf:c.kf||{},maskTex:null})),sq.lanes||defLanes());
       if(sq.id)m.id=sq.id; m.nestMarkers=sq.markers||[]; m.nestGroups=sq.groups||[]; m.nestPlayhead=sq.playhead||0; m.nestWorkIn=sq.workIn??null; m.nestWorkOut=sq.workOut??null;
-      for(const c of m.nestClips){ if(c.maskData)rebuildMaskTex(c); else if(c.props&&c.props.mask==='custom')c.props.mask='none'; mx2=Math.max(mx2,c.id); if(c.fx)for(const f of c.fx)mx2=Math.max(mx2,f.id||0); } for(const l of m.nestLanes)mx2=Math.max(mx2,l.id); mx2=Math.max(mx2,m.id);
+      for(const c of m.nestClips){ if((c.penMasks&&c.penMasks.length)||c.maskData)rebuildMaskTex(c); else if(c.props&&(c.props.mask==='custom'||c.props.mask==='pen'))c.props.mask='none'; mx2=Math.max(mx2,c.id); if(c.fx)for(const f of c.fx)mx2=Math.max(mx2,f.id||0); } for(const l of m.nestLanes)mx2=Math.max(mx2,l.id); mx2=Math.max(mx2,m.id);
       state.media.push(m); ids.push(m.id); }
     _id=mx2+1; state.openSeqs=ids; state.activeSeqId=(obj.activeSeqId&&ids.includes(obj.activeSeqId))?obj.activeSeqId:ids[0]; loadSeqIntoState(activeSeq());
   } else { state.openSeqs=[]; state.activeSeqId=null; ensureSequences(); }
@@ -5081,7 +5155,7 @@ function pushUndo(){ const st=_ustk(); const s=snapshot(); st.u.push(s); st.byte
   let total=0,count=0; for(const k in _undoBySeq){ total+=_undoBySeq[k].bytes; count+=_undoBySeq[k].u.length; }
   while(count>80||(total>UNDO_BYTE_CAP&&count>8)){ let bk=null; for(const k in _undoBySeq)if(_undoBySeq[k].u.length&&(bk==null||_undoBySeq[k].bytes>_undoBySeq[bk].bytes))bk=k; if(bk==null)break; const d=_undoBySeq[bk].u.shift(); _undoBySeq[bk].bytes-=d.length; total-=d.length; count--; } // evict oldest from the heaviest sequence — caps are global across all stacks
   markDirty(); }
-function restore(s){ const o=JSON.parse(s); state.clips=o.clips.map(c=>({...c,maskTex:null})); state.lanes=o.lanes; state.autoSel=null; state.hoverAuto=null; state.shapeBox=null; /* [R95·B1] the box holds live keyframe refs — undo/sequence switch replaces those objects, so it must go with them */ state.selId=o.selId; state.selIds=Array.isArray(o.selIds)?o.selIds:(o.selId!=null?[o.selId]:[]); state.selLane=o.selLane??null; if(o.markers)state.markers=o.markers; state.selMarkerId=o.selMarkerId??null; state.groups=o.groups||[]; state.selGroupId=o.selGroupId??null; if(o.reactive!==undefined){state.reactive=o.reactive;} if(o.autoItems!==undefined)state.autoItems=o.autoItems; /* [R95·D2] */ _arCache=null; _fxEnvCache.clear(); for(const c of state.clips)if(c.maskData)rebuildMaskTex(c);
+function restore(s){ const o=JSON.parse(s); state.clips=o.clips.map(c=>({...c,maskTex:null})); state.lanes=o.lanes; state.autoSel=null; state.hoverAuto=null; state.shapeBox=null; /* [R95·B1] the box holds live keyframe refs — undo/sequence switch replaces those objects, so it must go with them */ state.selId=o.selId; state.selIds=Array.isArray(o.selIds)?o.selIds:(o.selId!=null?[o.selId]:[]); state.selLane=o.selLane??null; if(o.markers)state.markers=o.markers; state.selMarkerId=o.selMarkerId??null; state.groups=o.groups||[]; state.selGroupId=o.selGroupId??null; if(o.reactive!==undefined){state.reactive=o.reactive;} if(o.autoItems!==undefined)state.autoItems=o.autoItems; /* [R95·D2] */ _arCache=null; _fxEnvCache.clear(); for(const c of state.clips)if(c.maskData||(c.penMasks&&c.penMasks.length))rebuildMaskTex(c);
   if(state.mediaTrash){ const need=new Set(); for(const s of state.media)if(isSeqMedia(s)){ const arr=(s.id===state.activeSeqId?state.clips:s.nestClips)||[]; for(const c of arr)need.add(c.mediaId); } for(const c of state.clips)need.add(c.mediaId); for(const id in state.mediaTrash){ if(need.has(+id)){ if(!mediaById(+id)){ const tm=state.mediaTrash[id]; state.media.push(tm); if(tm._trashed){ delete tm._trashed; tm.missing=false; tm._loading=true; try{ reloadMedia(tm); }catch(e){} } } delete state.mediaTrash[id]; } } renderMedia(); }
   saveActiveSeq(); markDirty(); // re-heal the state.clips ⇄ activeSeq().nestClips alias (stale nestClips broke seqDur/seqReaches after undo) + an undone edit IS an unsaved change
   renderTimeline();renderInspector();render();updStatus(); reschedAudio(); }
@@ -5430,7 +5504,7 @@ window.addEventListener('beforeunload',e=>{ if(!IS_ELEC&&state.dirty){ e.prevent
 window.addEventListener('keydown',e=>{ if(e.key==='Escape'){ const ovs=document.querySelectorAll('.overlay'); if(!ovs.length)return; const ov=ovs[ovs.length-1]; const cb=ov.querySelector('#exClose, #prefClose, [data-close], .mclose'); if(cb)cb.click(); else ov.remove(); } }); // [U-23] Escape runs the modal's real close handler (fmtChip restore etc.); bare remove() only as fallback
 
 /* ===================== CLIPBOARD / EDIT COMMANDS ===================== */
-function duplicateClip(){ const c=selClip(); if(!c)return; pushUndo(); const n={...c,id:uid(),start:c.start+c.dur,maskTex:null,groupId:undefined,slot:undefined,props:{...c.props},kf:JSON.parse(JSON.stringify(c.kf||{})),fx:JSON.parse(JSON.stringify(c.fx||[]))}; sepAuto(n,c); if(n.maskData)rebuildMaskTex(n); state.clips.push(n); state.selId=n.id; state.selIds=[n.id]; laneDesel(); renderTimeline();renderInspector();render(); reschedAudio(); }
+function duplicateClip(){ const c=selClip(); if(!c)return; pushUndo(); const n={...c,id:uid(),start:c.start+c.dur,maskTex:null,_penCv:null,penMasks:c.penMasks?JSON.parse(JSON.stringify(c.penMasks)):undefined,groupId:undefined,slot:undefined,props:{...c.props},kf:JSON.parse(JSON.stringify(c.kf||{})),fx:JSON.parse(JSON.stringify(c.fx||[]))}; sepAuto(n,c); if(n.maskData||(n.penMasks&&n.penMasks.length))rebuildMaskTex(n); state.clips.push(n); state.selId=n.id; state.selIds=[n.id]; laneDesel(); renderTimeline();renderInspector();render(); reschedAudio(); }
 function copyClip(){ const c=selClip(); if(c)state.clipboard=JSON.parse(JSON.stringify(c)); }
 function pasteClip(){ if(!state.clipboard)return; const src=JSON.parse(JSON.stringify(state.clipboard)); const m=mediaById(src.mediaId);
   if(!m){ flashStatus(T("Can't paste — the clip's media no longer exists",'No se puede pegar — el medio del clip ya no existe'),'err'); return; } // [R92-T1 F8] clipboard can outlive its media · [R94-UT3·U-21]
@@ -5438,7 +5512,7 @@ function pasteClip(){ if(!state.clipboard)return; const src=JSON.parse(JSON.stri
   pushUndo(); const n={...src,id:uid(),start:state.playhead,maskTex:null,groupId:undefined,slot:undefined};
   { const kind=(m.kind==='audio')?'audio':'video'; const L=state.lanes[n.lane]; // [R92-T1 F8] clamp the lane: pasting into a sequence with fewer/other tracks left the clip invisible (and audio kept SOUNDING with no visible clip)
     if(!L||L.kind!==kind){ let li=state.lanes.findIndex(l=>l.kind===kind); if(li<0){ const t=state.lanes.filter(l=>l.kind===kind).length+1; state.lanes.push({id:uid(),name:(kind==='audio'?'Audio ':'Video ')+t,tag:(kind==='audio'?'A':'V')+t,kind}); li=state.lanes.length-1; } n.lane=li; } }
-  if(n.maskData)rebuildMaskTex(n); state.clips.push(n); state.selId=n.id; state.selIds=[n.id]; renderTimeline();renderInspector();render(); reschedAudio(); }
+  if(n.maskData||(n.penMasks&&n.penMasks.length))rebuildMaskTex(n); state.clips.push(n); state.selId=n.id; state.selIds=[n.id]; renderTimeline();renderInspector();render(); reschedAudio(); }
 function rippleDelete(){ const c=selClip(); if(!c)return; pushUndo(); const lane=c.lane,end=c.start+c.dur,gap=c.dur; state.clips=state.clips.filter(x=>x.id!==c.id);
   for(const x of state.clips) if(x.lane===lane&&x.start>=end) x.start-=gap; state.selId=null; state.selIds=[]; renderTimeline();renderInspector();render();updStatus(); reschedAudio(); }
 
@@ -5476,7 +5550,7 @@ function makeClipUnique(c){ if(!c)return; const m=mediaById(c.mediaId); if(!m||!
   nm.nestLanes=(nm.nestLanes&&nm.nestLanes.length)?nm.nestLanes:defLanes(); nm.nestMarkers=nm.nestMarkers||[]; nm.nestGroups=nm.nestGroups||[];
   if(nm.comp)nm.comp={...nm.comp, id:uid()};
   state.media.push(nm);
-  for(const cc of nm.nestClips) if(cc.maskData) rebuildMaskTex(cc);
+  for(const cc of nm.nestClips) if(cc.maskData||(cc.penMasks&&cc.penMasks.length)) rebuildMaskTex(cc);
   c.mediaId=nm.id;
   renderMedia(); renderTimeline(); renderInspector(); render(); markDirty(); flashStatus(T('Made unique — edit its parameters independently','Convertido en único — edita sus parámetros por separado')); }
 /* ---- R80-1: per-clip speed ---- */
@@ -6418,6 +6492,11 @@ function fxKfToggle(host,f,k){ const key=fxKey(f,k); pushUndo(); if(fxHasKf(host
   else { if(!host.kf)host.kf={}; const base=(k==='int'?f.int:k==='amt'?f.amt:(f.params?f.params[k]:0)); host.kf[key]=[{t:Math.max(0,state.playhead-host.start),v:base,e:curEase()}];
     { const lane=state.lanes[host.lane]; if(lane&&lane.kind!=='audio'&&FXBY[f.type])lane._autoP='fxt:'+f.type+':'+k; } state.inlineCurves=true; syncAutoUI(); { const b=$('#curvesBtn'); if(b)b.classList.add('on'); } renderTimeline(); } // [R93] reveal in the unified automation view: the track's primary lane shows this fx param
   markDirty(); }
+/* [A3] Show Automation for an effect: reveal its curve on the track (the single overlay), picking an already-automated param if there is one, else Intensity */
+function fxShowAutomation(host,f){ const def=FXBY[f.type]; if(!def)return; if(isAudioClip(host)){ flashStatus(T('Audio clips have no visual automation','Los clips de audio no tienen automatización visual'),'err'); return; }
+  const keys=['int','amt'].concat((def.params||[]).map(p=>p.k)); let k=keys.find(kk=>fxHasKf(host,f,kk))||'int';
+  const lane=state.lanes[host.lane]; if(lane&&lane.kind!=='audio')lane._autoP='fxt:'+f.type+':'+k;
+  state.inlineCurves=true; syncAutoUI(); { const b=$('#curvesBtn'); if(b)b.classList.add('on'); } renderTimeline(); flashStatus(T('Showing automation · ','Mostrando automatización · ')+T(def.label[0],def.label[1])); }
 const _fxCollapsed=new Set(); // collapsed effect cards (by fx id) — UI only, not serialized
 const FX_META={atk:1,rel:1,curve:1,spring:1}; // per-effect modulation-shaping fields (live on the fx object, not automatable shader params)
 function setFxParam(host,fx,k,v){ if(FX_META[k]){ fx[k]=v; return; } if(k==='int')fx.int=v; else if(k==='amt')fx.amt=v; else { fx.params=fx.params||{}; fx.params[k]=v; } } // meta changes need no cache invalidation: the shaping signature is part of the env-cache key
@@ -6436,7 +6515,8 @@ function fxFaderRow(host,fx,k,label,mn,mx,unit,showKf){ const v=fxParamVal(fx,k)
   </div>`; }
 /* audio-engine fader (same look), bound to state.reactive[prop] */
 function arFaderRow(prop,label,mn,mx,val,unit){ const pct=Math.max(0,Math.min(100,(val-mn)/((mx-mn)||1)*100)); return `<div class="prow" style="gap:8px;"><span class="kf" style="cursor:default;visibility:hidden;"></span><span class="lab">${label}</span><div class="field arfld" data-prop="${prop}" data-mn="${mn}" data-mx="${mx}" data-lbl="${label}"><div class="track"><i style="width:${pct}%"></i></div><div class="box"><span class="num">${Math.round(val)}</span><span class="u">${unit}</span></div></div></div>`; }
-function fxCardHtml(c,f){ const def=FXBY[f.type]; if(!def)return ''; const nm=T(def.label[0],def.label[1]); const open=!_fxCollapsed.has(c.id+':'+f.id); const on=f.on!==false;
+function fxAnyKf(c,f){ const def=FXBY[f.type]; if(!def)return false; if(fxHasKf(c,f,'int')||fxHasKf(c,f,'amt'))return true; return (def.params||[]).some(p=>fxHasKf(c,f,p.k)); } // [A5] any of this effect's parameters carries automation
+function fxCardHtml(c,f){ const def=FXBY[f.type]; if(!def)return ''; const nm=T(def.label[0],def.label[1]); const open=!_fxCollapsed.has(c.id+':'+f.id); const on=f.on!==false; const autod=fxAnyKf(c,f);
   const bands=[['bass',T('Bass','Bajo')],['mid',T('Mid','Medio')],['treble',T('Treble','Agudo')],['bright',T('Bright','Brillo')],['none',T('None','Ninguna')]];
   const modes=[['follow',T('Follow','Seguir')],['trigger',T('Trigger','Disparo')],['lfo','LFO']];
   const shapes=[['sine','Sine'],['tri','Tri'],['saw','Saw'],['square','Square'],['sh',T('Random','Aleatorio')]];
@@ -6453,12 +6533,12 @@ function fxCardHtml(c,f){ const def=FXBY[f.type]; if(!def)return ''; const nm=T(
         <select class="fxdiv selsel" title="${T('Cycle length (synced to BPM)','Duración del ciclo (sincronizado al BPM)')}" style="flex:1;height:18px;">${divs.map(b=>`<option value="${b[0]}" ${f.lfoDiv===b[0]?'selected':''}>${b[1]}</option>`).join('')}</select>
       </div>`:''}
       ${fxFaderRow(c,f,'int',T('Intensity','Intensidad'),0,100,'%',true)}
-      ${fxFaderRow(c,f,'amt',T('Reactivity','Reactividad'),0,100,'%',false)}
+      ${fxFaderRow(c,f,'amt',T('Reactivity','Reactividad'),0,100,'%',true)}
       ${!isLfo?fxFaderRow(c,f,'atk',T('Attack','Ataque'),0,400,'ms',false)+fxFaderRow(c,f,'rel',T('Release','Caída'),10,1500,'ms',false):''}
       ${fxFaderRow(c,f,'curve',T('Curve','Curva'),0,100,'',false)}
       ${isFollow?fxFaderRow(c,f,'spring',T('Bounce','Rebote'),0,100,'',false):''}
       <div style="height:2px;border-bottom:.5px solid rgba(255,255,255,0.07);margin:1px 0 2px;"></div>
-      ${def.params.map(p=>fxFaderRow(c,f,p.k,T(p.label[0],p.label[1]),p.min,p.max,p.unit,false)).join('')}
+      ${def.params.map(p=>fxFaderRow(c,f,p.k,T(p.label[0],p.label[1]),p.min,p.max,p.unit,true)).join('')}
     </div>` : '';
   const ib='width:16px;height:16px;display:flex;align-items:center;justify-content:center;border-radius:2px;padding:0;cursor:pointer;';
   return `<div class="fxcard${on?'':' fxoff'}" data-fx="${f.id}" style="margin:0 10px 5px;border:.5px solid rgba(255,255,255,0.10);border-radius:2px;background:var(--s0);overflow:hidden;${on?'':'opacity:.5;'}">
@@ -6466,6 +6546,7 @@ function fxCardHtml(c,f){ const def=FXBY[f.type]; if(!def)return ''; const nm=T(
       <span class="fxdrag" title="${T('Drag to reorder','Arrastra para reordenar')}" style="cursor:grab;color:#565C66;display:flex;padding:0 1px;">${ICO('grip',12)}</span>
       <button class="fxtog" title="${on?T('Bypass effect','Omitir efecto'):T('Enable effect','Activar efecto')}" style="${ib}color:${on?'#C9CDD3':'#565C66'};">${ICO('power',11)}</button>
       <span class="fxname" title="${T('Collapse / expand','Contraer / expandir')}" style="flex:1;min-width:0;font-size:11px;color:${on?'#DEE1E5':'#8b929c'};font-weight:600;letter-spacing:.01em;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${nm}</span>
+      <span class="fxauto" title="${T('This effect has automation — right-click the header to show it','Este efecto tiene automatización — clic derecho en la cabecera para verla')}" style="flex-shrink:0;font-size:10px;color:var(--auto-live);${autod?'':'display:none;'}">◆</span>
       <i class="fxsig" data-fxid="${f.id}" title="${T('Live modulation level','Nivel de modulación en vivo')}" style="width:26px;height:4px;border-radius:2px;background:#23262B;overflow:hidden;display:block;position:relative;margin:0 2px;"><b style="position:absolute;left:0;top:0;bottom:0;width:0%;background:var(--ink);display:block;"></b></i>
       <button class="fxcol" title="${open?T('Collapse','Contraer'):T('Expand','Expandir')}" style="${ib}color:var(--ink-3);"><span style="display:inline-flex;transform:rotate(${open?0:-90}deg);">${ICO('chevDown',11)}</span></button>
       <button class="fxdel" title="${T('Remove','Quitar')}" style="${ib}color:var(--ink-3);">${ICO('trash',11)}</button>
@@ -6513,6 +6594,12 @@ function renderReactivePanel(){ const host=$('#insReactive'); if(!host)return; c
 }
 function wireReactiveChain(c){ if(!c)return; $$('#arChain .fxcard').forEach(card=>{ const id=+card.dataset.fx; const f=(c.fx||[]).find(x=>x.id===id); if(!f)return;
   const tog=card.querySelector('.fxtog'); if(tog)tog.onclick=()=>{ pushUndo(); f.on=(f.on===false); if(_raOn)raInvalidate(); render(); markDirty(); renderReactivePanel(); };
+  { const hdr=card.querySelector('.fxhdr'); if(hdr)hdr.oncontextmenu=ev=>{ ev.preventDefault(); ev.stopPropagation(); openMenu(ev.clientX,ev.clientY,[ // [A3] right-click the effect → Show Automation (reveals its curve on the track)
+    {label:T('Show Automation','Mostrar automatización'),ico:'curves',fn:()=>fxShowAutomation(c,f)},
+    {label:(f.on===false)?T('Enable effect','Activar efecto'):T('Bypass effect','Omitir efecto'),fn:()=>{ pushUndo(); f.on=(f.on===false); if(_raOn)raInvalidate(); render(); markDirty(); renderReactivePanel(); }},
+    'sep',
+    {label:T('Remove','Quitar'),danger:true,fn:()=>{ const del=card.querySelector('.fxdel'); if(del)del.onclick&&del.onclick(); }}
+  ]); }; }
   const _coll=()=>{ const ck=c.id+':'+id; if(_fxCollapsed.has(ck))_fxCollapsed.delete(ck); else _fxCollapsed.add(ck); renderReactivePanel(); };
   const col=card.querySelector('.fxcol'); if(col)col.onclick=_coll;
   const nmEl=card.querySelector('.fxname'); if(nmEl)nmEl.onclick=_coll;
