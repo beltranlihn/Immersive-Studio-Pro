@@ -18,9 +18,14 @@ playhead, si no, solo cambia el valor estático. Perform-and-bake removido (REC 
 recuperar" se auto-ocultan. Verificado por CDP (editar x=99 @ t=2 en clip animado → keyframe nuevo, sin `_autoOff`; y
 no automatizado → estático). Build + deploy a las 3.
 
+**Etapa 1 · [T1] ✔ (commit `f2873d3`)** — clic-derecho sobre clip no funcionaba: OTRO `//` se tragó el cuerpo del
+handler `contextmenu` de `#tracks` (`e.preventDefault(); const id=+cd.dataset.clip; …` comentado → `id` indefinido).
+Línea partida. Añadido **"Zoom to clip"** (`zoomToClip`: el clip ocupa ~96% del viewport + scroll a la izquierda).
+Verificado por CDP. Deploy a las 3.
+
 **[A1] diferido a Etapa 2** (dejar un solo botón de punto está acoplado al rediseño A2-A5). Limpieza pendiente (Etapa 2):
-plumbing muerto de perform-bake/freeze + DOM de `.reEn`/`#reEnAll`. **Próximo:** [T1] clic-derecho clip, [R2] deformados
-al render, [L1]/[L2] glitches de pistas.
+plumbing muerto de perform-bake/freeze + DOM de `.reEn`/`#reEnAll`. **Próximo:** [R2] deformados al render (ambiguo →
+pedir captura), [L1]/[L2] glitches de pistas.
 
 ## ROUND 116 — Grado de color · Fase 1: import de LUT `.cube` (3D LUT en GPU)
 
