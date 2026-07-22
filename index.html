@@ -278,7 +278,7 @@
   .toolrail{width:32px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 0;background:var(--s1);border-right:.5px solid rgba(0,0,0,0.4);}
   .toolrail button{width:24px;height:24px;display:grid;place-items:center;border:none;border-radius:2px;background:transparent;color:var(--ink-3);cursor:pointer;transition:background .12s,color .12s;}
   .toolrail button:hover{background:var(--surface-3);} .toolrail button.on{background:var(--state-on);color:var(--ink);}
-  .trackhdr{width:152px;flex-shrink:0;background:var(--surface);border-right:.5px solid rgba(0,0,0,0.4);z-index:3;overflow-x:hidden;overflow-y:auto;position:relative;scrollbar-width:none;} /* [R92-T9] scrolls NATIVELY in sync with #tlscroll so its sticky audio module pins identically */
+  .trackhdr{width:152px;flex-shrink:0;display:flex;flex-direction:column;background:var(--surface);border-right:.5px solid rgba(0,0,0,0.4);z-index:3;overflow-x:hidden;overflow-y:auto;position:relative;scrollbar-width:none;} /* [R92-T9] scrolls NATIVELY in sync with #tlscroll so its sticky audio module pins identically · [L2] flex-column so #audioHeadZone (margin-top:auto) pins to the bottom in step with the clip column */
   .trackhdr::-webkit-scrollbar{display:none;}
   .trackhdr .rulerpad{height:22px;border-bottom:.5px solid rgba(0,0,0,0.4);background:var(--surface);position:sticky;top:0;z-index:6;display:flex;align-items:center;padding:0 10px;} /* pinned time-bar corner — also holds the VIDEO group label */
   .lanehdr{position:relative;display:flex;align-items:center;gap:var(--sp-8);padding:0 7px 0 10px;border-bottom:.5px solid rgba(255,255,255,0.05);cursor:pointer;}
@@ -388,7 +388,7 @@
   .ruler{height:22px;position:sticky;top:0;background:var(--bg-2);border-bottom:.5px solid rgba(0,0,0,0.4);z-index:4;}
   .ruler canvas{display:block;}
   #clipExtent{position:absolute;bottom:0;height:3px;background:var(--ink-3);opacity:.75;border-radius:1px;pointer-events:none;z-index:5;display:none;} /* [R94d] Premiere-style bar spanning the clip extent of the sequence */
-  .tracks{position:relative;}
+  .tracks{position:relative;display:flex;flex-direction:column;min-height:calc(100% - 22px);} /* [L2] fill the viewport (minus the 22px ruler) so the audio module (margin-top:auto) pins to the BOTTOM even with few video tracks; the explicit width (set in JS) keeps horizontal scroll intact */
   /* [R102·D-T2] Filas alternas al 2% de blanco. Blender envía `row_alternate = #ffffff05` (~2%): la mayoría
      usa 10–15% y eso zumba sobre 30 pistas. Alfa, no un gris: sobrevive a un cambio de tema. */
   .lane{border-bottom:.5px solid var(--line-soft);position:relative;}
@@ -402,7 +402,7 @@
   .trackdivider.hdr .dvchev{font-size:9px;color:var(--ink-3);line-height:1;}
   .lanehdr.aud .laneres,.lanehdr.aud .lcol{display:none;} /* [R110] audio tracks: fixed height → no per-lane resize / collapse */
   /* [R92-T9] pinned audio module — video tracks scroll behind it (Premiere) */
-  .audiozone{position:sticky;bottom:0;z-index:4;background:var(--bg-1);overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;scrollbar-width:none;} /* [R93b] fixed-height module: extra audio tracks scroll INSIDE (wheel); no visible scrollbar */
+  .audiozone{position:sticky;bottom:0;z-index:4;margin-top:auto;background:var(--bg-1);overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;scrollbar-width:none;} /* [R93b] fixed-height module: extra audio tracks scroll INSIDE (wheel); no visible scrollbar · [L2] margin-top:auto pins it to the bottom when there's free space, sticky handles the overflow case */
   .audiozone::-webkit-scrollbar{display:none;}
   .audiozone.covers{box-shadow:0 -8px 12px -6px rgba(0,0,0,0.55);} /* [R94-UT2·U-01] top shadow = video rows are hidden behind the pinned module */
   .audiozone.hdr{background:var(--surface);z-index:6;}
