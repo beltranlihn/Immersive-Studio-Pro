@@ -384,7 +384,7 @@ function bezSegY(lt,A,B){ const seg=B.t-A.t; if(seg<=0)return A.v;
   for(let i=0;i<26;i++){ const mt=1-u; const x=mt*mt*mt*x0+3*mt*mt*u*x1+3*mt*u*u*x2+u*u*u*x3; if(x<lt)lo=u; else hi=u; u=(lo+hi)/2; }
   const mt=1-u; return mt*mt*mt*y0+3*mt*mt*u*y1+3*mt*u*u*y2+u*u*u*y3; }
 function evalP(c,p,t){ const ks=c.kf&&c.kf[p]; const base=(typeof p==='string'&&p.indexOf('fx:')===0)?fxBaseFor(c,p):c.props[p];
-  if(!ks||!ks.length||(c._autoOff&&c._autoOff[p])) return base; // _autoOff = automation disabled for this param ([21] re-enable)
+  if(!ks||!ks.length) return base; // [A2/D1] After Effects model: a keyframed param ALWAYS follows its curve — automation never breaks (no _autoOff override)
   const lt=t-c.start; if(lt<=ks[0].t)return ks[0].v; const last=ks[ks.length-1]; if(lt>=last.t)return last.v;
   for(let i=0;i<ks.length-1;i++) if(lt>=ks[i].t&&lt<=ks[i+1].t){
     if(ks[i].e==='bezier'||ks[i].hOut||ks[i+1].hIn) return bezSegY(lt,ks[i],ks[i+1]);
@@ -2584,8 +2584,9 @@ function bakeRecorded(){ if(!_recTouch.size)return; let total=0;
   _recTouch=new Map(); if(total)flashStatus(T('Performance baked — ','Interpretación horneada — ')+total+T(' points thinned',' puntos reducidos'));
   renderTimeline(); renderInspector(); markDirty(); }
 function manualEdit(c,p,v){ if(!c)return; v=+v;
-  if(autoRecOn()&&state.playhead>=c.start-1e-6&&state.playhead<=c.start+c.dur+1e-6){ recWrite(c,p,v); c.props[p]=v; return; } // [R95·D1] REC + rolling → the gesture becomes the curve
-  if(hasKf(c,p)){ c._autoOff=c._autoOff||{}; if(!c._autoOff[p]){ c._autoOff[p]=true; flashStatus(T('Automation overridden — Re-Enable to follow the curve again','Automatización anulada — Reactiva para volver a seguir la curva')); } c.props[p]=v; } else { c.props[p]=v; } }
+  // [A2/D1] After Effects model: if the param is ALREADY automated, editing its value writes/updates a keyframe at the
+  // playhead (the automation never breaks); if it isn't automated, editing just sets the static value (no keyframe).
+  if(hasKf(c,p)) setKf(c,p,state.playhead,v,curEase()); else c.props[p]=v; }
 function anyOverride(){ return state.clips.some(c=>c._autoOff&&Object.keys(c._autoOff).some(k=>c._autoOff[k])); }
 function reenableAll(){ pushUndo(); for(const c of state.clips){ if(c._autoOff)c._autoOff={}; } render(); renderTimeline(); refreshInspector(); updReEnableGlobal(); flashStatus(T('All automation re-enabled','Toda la automatización reactivada')); }
 function updReEnableGlobal(){ const b=$('#reEnAll'); if(!b)return; b.style.display=anyOverride()?'inline-flex':'none'; }
@@ -5268,7 +5269,7 @@ $('#loopBtn').onclick=()=>loopSelection(); // same as Ctrl+L: set the loop regio
 $('#tcModeSeg').querySelectorAll('button').forEach(b=>b.onclick=()=>{state.tl.tcMode=b.dataset.t;$('#tcModeSeg').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));renderTimeline();positionPlayhead();});
 $('#curvesBtn').onclick=toggleCurves; // [R93] single Automation button — the old Audio React view merged into it (fx lanes live in the same list)
 $('#reEnAll').onclick=reenableAll;
-{ const b=$('#autoRecBtn'); if(b)b.onclick=()=>toggleAutoRec(); } // [R95·D1]
+{ const b=$('#autoRecBtn'); if(b)b.style.display='none'; } // [A2/D1] perform-and-bake removed → the REC arm is gone (editing an automated value already writes a keyframe)
 /* [R94e] Mark In / Mark Out from the transport brackets (same as the I / O keys); right-click on either clears the range */
 { const bi=$('#markIn'), bo=$('#markOut');
   if(bi){ bi.onclick=()=>setWorkIn(); bi.addEventListener('contextmenu',e=>{e.preventDefault();clearWork();}); }
