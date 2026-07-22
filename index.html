@@ -178,6 +178,13 @@
   .vslab .v{font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:11px;color:var(--ink);}
   .stage{flex:1;min-height:0;position:relative;overflow:hidden;background:#000;}
   .stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block;}
+  /* [R2] while exporting, glc is resized to the export resolution → the on-screen canvas would show a stretched
+     stale frame. This opaque mask hides that; the export still reads from #gl underneath. */
+  .rendermask{position:absolute;inset:0;z-index:6;display:none;align-items:center;justify-content:center;background:var(--s0);}
+  .rendermask.on{display:flex;}
+  .rendermask .rmlabel{display:flex;align-items:center;gap:9px;color:var(--ink-2);font-size:12px;letter-spacing:0.12em;text-transform:uppercase;}
+  .rendermask .rmdot{width:8px;height:8px;border-radius:50%;background:var(--auto-live);animation:rmpulse 1s ease-in-out infinite;}
+  @keyframes rmpulse{0%,100%{opacity:0.25;transform:scale(0.8);}50%{opacity:1;transform:scale(1);}}
   #grid{pointer-events:auto;}
 
   /* inspector */
@@ -693,6 +700,7 @@
       <div class="stage" id="stage">
         <canvas id="gl"></canvas>
         <canvas id="grid"></canvas>
+        <div class="rendermask" id="renderMask"><div class="rmlabel"><span class="rmdot"></span>Rendering…</div></div>
       </div>
     </main>
 
