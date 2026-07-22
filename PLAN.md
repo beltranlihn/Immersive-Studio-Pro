@@ -1,5 +1,67 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 129 — Correcciones v2 · Etapa 9 (UI/Branding) · [U4]/[U6]/[U7]
+
+Decisiones de Beltrán: [U4] la "línea amarilla del 3D" es la spring line (contorno) → dejarla **gris delgada** como las
+líneas de grilla. [U6] el "botón de frames" es el readout de espaciado de grilla ("◇ 1 s", a la izq. de Simple) → quitarlo.
+[U7] las "herramientas de edición" (iconos) tipo Premiere → revisar y agregar lo que falte.
+
+- **[U4] ✔ Spring line gris delgada** — en el shader 3D (`FS3`) el contorno del rim pasó de ámbar `vec3(0.79,0.55,0.29)`
+  a **gris** `vec3(0.52,0.56,0.60)` con menor intensidad (0.5) y banda más fina — combina con las líneas grises de la
+  grilla. Verificado por CDP (P3 compila, render 3D OK).
+- **[U6] ✔ Quitar readout de grilla** — removido `#gridReadout` ("◇ 1 s") y su wiring (onclick/contextmenu); el espaciado
+  de grilla sigue por Ctrl+1/2 (angosta/ancha), Ctrl+5 (fija/adaptativa), Ctrl+4 (snap). Verificado.
+- **[U7] ✔ Review de herramientas + Track Select** — CONCLUSIÓN: el toolset ya cubre Premiere: **Select, Hand, Trim
+  (contextual: edge=ripple · cut=roll · title=slide · body=slip — más elegante que Premiere), Razor, Zoom**. Faltaba
+  **Track Select Forward**: nuevo tool `trackselect` (botón en `#toolRail`, cursor `e-resize`) — clic en un clip
+  selecciona ese + todos los de su derecha en la pista (Shift = todas las pistas). Sin atajo 'A' (ya es Automation).
+  Verificado por CDP (selección hacia adelante correcta: 2 de 3, sin el anterior).
+
+- **[U8] ✔ Herramienta de texto con edición de párrafo** — Beltrán aclaró: "texto" = la herramienta de AGREGAR texto al
+  editor (no la UI). El editor de texto del inspector ahora tiene: **fuente** (dropdown con 11 presets + fuentes propias),
+  **peso** (Light/Regular/Medium/Bold/Black), **itálica**, **tamaño**, **alineación L/C/R**, **interlineado**, color y
+  contorno. `renderTextMedia` honra `talign`/`tlineH`/`titalic` (antes siempre centraba). **Fuentes propias**:
+  `loadCustomFont` lee un .ttf/.otf/.woff2 por `DSP.openRead`/`readAt`, lo registra con `FontFace` y lo suma a la lista
+  (session-scoped). Campos nuevos serializados (`talign/tlineH/titalic`). Verificado por CDP (todos los controles; font/
+  weight/align/italic aplican y re-renderizan). GOTCHA: la carga de fuente propia (file picker) verificar en el .exe.
+
+**Pendiente Etapa 9:** [U1] menos texto en botones (Snap→S, Automation→A…); [U2] quitar instrucciones escritas de la UI
+(hover+"?").
+
+## ROUND 128 — Correcciones v2 · Etapa 9 (UI/Branding) · [U9] homepage + loop de logo
+
+Beltrán entregó los **75 frames** del loop de logo (`assets/frames logo/frame_000..074.png`, 1080² c/u). [U9] usa esos
+frames en vez del WebM VP9 originalmente previsto.
+
+- **[U9] ✔ Página de inicio + loop de logo** — helpers `logoFramePath`/`preloadLogoFrames`/`startLogoLoop` (precarga las
+  75 imágenes y cicla el `src` de un `<img>` a ~26 fps; ruta con `%20` por el espacio en "frames logo", funciona en el
+  asar). **Landing** rediseñada: logo **animado** (104px), título "Immersive Studio Pro", **Version 1.0**, y pie
+  **"Created by Alma Digital Studio — all rights reserved"**. El loop se detiene en `hideLanding`. **Pantalla de carga**
+  nueva (`showLoadingScreen`/`hideLoadingScreen`/`loadingWaitMedia`) con el mismo loop, mostrada durante `loadProject`
+  mientras los medios/proxys bufferean (mensaje "Cargando proyecto/medios/proxys…"; se oculta cuando no queda media
+  `_loading`/proxy en curso, o a los 20 s). Verificado por CDP (frame carga 1080², loop cicla, Version 1.0 + créditos
+  presentes, loading screen aparece/oculta).
+
+- **[U5] ✔ Quitar botones Undo/Redo** — removidos de la barra superior; los atajos Ctrl+Z / Ctrl+Shift+Z siguen (el
+  wiring ya estaba guardado con `if($(...))`). Verificado por CDP (botones ausentes, app carga OK).
+
+**Pendiente Etapa 9 (UI/Branding, section 11):** [U1] menos texto en botones (A/S…); [U2] quitar instrucciones escritas
+(solo hover + "?"); [U3] toggle grilla (ya existe); [U4] quitar línea amarilla del 3D (= la "spring line" ámbar del
+shader 3D, línea ~335 — confirmar si borrar o togglear); [U6] quitar botón de frames (el toggle TC/Frames — confirmar si
+todo el seg o solo Frames); [U7] revisar herramientas a la izquierda; [U8] tipografías propias (grande).
+
+## ROUND 127 — Correcciones v2 · Etapa 7 (Viewer/Performance) · [V2] Full Performance
+
+- **[V2] ✔ Botón "Full Performance"** — junto a popout/NDI/Spout, un botón (`#perfBtn`) que pone el visor a **pantalla
+  completa** ocultando todo el editor: `body.perfmode` promociona `#stage` a `position:fixed;inset:0;z-index:1000` (el
+  resto del DOM queda cubierto, sin desmontar), y `setPerfMode` llama `resize()`+`render()` para que el canvas llene la
+  pantalla. Muestra el visor 2D o 3D según el modo activo. Se sale con el botón **Exit** (`#perfExit`, tenue salvo hover)
+  o **Esc** (guarda temprana en el keydown: solo si no hay modal abierto). Verificado por CDP (entra fixed/z-1000/exit
+  visible; salen el botón Exit y `setPerfMode(false)`; la guarda de Esc es correcta).
+
+**Pendiente Etapa 7:** [V1] viewer-only en todos los formatos y que siga el cambio 2D/3D; [V3] Spout In en Media (addon
+nativo — grande, solo Windows). Y de la Etapa 6 queda [F2] (consistencia de layout entre modos — vago).
+
 ## ROUND 126 — Correcciones v2 · Etapa 6 · [F7] importar equirectangular + rotar cámara
 
 - **[F7] ✔ (fase 1) Equirect 360° → domo** — programa de shader **nuevo y aditivo** `PEQ` (VSEQ/FSEQ, VAO `eqVAO`), no

@@ -332,7 +332,7 @@ void main(){
     float le=abs(fract(e/15.0-0.5)-0.5)/max(fwidth(e/15.0),1e-4); float la=abs(fract(az/30.0-0.5)-0.5)/max(fwidth(az/30.0),1e-4);
     col=mix(col,vec3(0.34,0.40,0.46),(1.0-min(min(le,la),1.0))*0.4);
     float dIn=(90.0-e)/max(fwidth(e),1e-4); // px inward from the mesh rim
-    col=mix(col,vec3(0.79,0.55,0.29),(1.0-smoothstep(0.7,1.9,abs(dIn-2.6)))*0.7); } // [R94f] spring line: a ~2px band floating just INSIDE the rim, smooth on both sides. It used to be centred on e=90 = the rim itself, so its outer half was clipped by the 96-gon edge and (canvas is antialias:false by design, R92-T3) read as jagged. Now the aliased rim is black-on-black and only the smooth band shows.
+    col=mix(col,vec3(0.52,0.56,0.60),(1.0-smoothstep(0.7,1.7,abs(dIn-2.6)))*0.5); } // [U4] the rim/spring line is now a thin GREY contour (was amber) — matches the grey grid lines; a ~2px band just inside the rim
   o=vec4(col,1.0);
 }`;
 const P3=prog(VS3,FS3);
@@ -1261,14 +1261,27 @@ function addSequence(files,name,fps){ fps=Math.max(1,Math.min(120,+fps||24)); co
   files.forEach((f,i)=>{ const url=URL.createObjectURL(f); m._frameUrls.push(url); const img=new Image(); img.onload=()=>{ const fit=fitImage(img); frames[i]=fit.src; if(i===0){ m.w=fit.w; m.h=fit.h; m.thumb=url; upTex(m.tex,fit.src); m._curFrame=0; } if(++loaded===total){ renderMedia(); render(); } }; img.onerror=()=>{ if(++loaded===total)renderMedia(); }; img.src=url; });
   state.media.push(m); adopt(m); renderMedia(); markDirty(); return m; }
 /* text / title clip — rendered to a canvas texture (no external media; round-trips in any build) */
-function renderTextMedia(m){ const fs=Math.max(8,m.tfontSize||140), ff=m.tfont||'Inter, sans-serif', weight=m.tweight||'700', pad=Math.round(fs*0.4);
-  const meas=document.createElement('canvas').getContext('2d'); meas.font=weight+' '+fs+'px '+ff;
+/* [U8] custom fonts — load a .ttf/.otf/.woff2 from disk, register it with FontFace, and expose it in the text-tool font list (session-scoped) */
+let _customFonts=[];
+async function loadCustomFont(){ if(!(IS_ELEC&&DSP.pickFile&&DSP.openRead&&DSP.readAt)){ flashStatus(T('Loading fonts needs the desktop app','Cargar fuentes necesita la app de escritorio'),'err'); return null; }
+  const p=await DSP.pickFile({name:'Font',extensions:['ttf','otf','woff','woff2'],title:T('Load font','Cargar fuente')}); if(!p)return null;
+  try{ const h=await DSP.openRead(p); if(!h||!h.id&&h.id!==0){ throw new Error('open'); } const raw=await DSP.readAt(h.id,0,h.size||0); try{await DSP.closeRead(h.id);}catch(_){}
+    let bytes; if(raw instanceof Uint8Array)bytes=raw; else if(raw instanceof ArrayBuffer)bytes=new Uint8Array(raw); else if(raw&&raw.buffer)bytes=new Uint8Array(raw.buffer); else if(raw&&Array.isArray(raw.data))bytes=Uint8Array.from(raw.data); else if(typeof raw==='string')bytes=Uint8Array.from(atob(raw),c=>c.charCodeAt(0)); else if(Array.isArray(raw))bytes=Uint8Array.from(raw); else throw new Error('bytes');
+    const base=(DSP.basename?DSP.basename(p):(p.split(/[\\/]/).pop()||p)); const fam=base.replace(/\.(ttf|otf|woff2?|)$/i,'').trim()||'Custom';
+    const ff=new FontFace(fam, bytes.buffer); await ff.load(); document.fonts.add(ff);
+    if(!_customFonts.includes(fam))_customFonts.push(fam);
+    flashStatus(T('Font loaded: ','Fuente cargada: ')+fam); return fam;
+  }catch(e){ flashStatus(T('Could not load that font','No se pudo cargar esa fuente'),'err'); return null; } }
+function renderTextMedia(m){ const fs=Math.max(8,m.tfontSize||140), ff=m.tfont||'Inter, sans-serif', weight=m.tweight||'700', style=m.titalic?'italic ':'', pad=Math.round(fs*0.4);
+  const align=m.talign||'center', lhF=Math.max(0.7,m.tlineH||1.25); // [U8] paragraph controls: font · weight · italic · size · alignment · line height
+  const meas=document.createElement('canvas').getContext('2d'); meas.font=style+weight+' '+fs+'px '+ff;
   const lines=String(m.text==null?'':m.text).split('\n'); let maxw=1; for(const ln of lines)maxw=Math.max(maxw,meas.measureText(ln||' ').width);
-  const lh=fs*1.25, W=Math.min(4096,Math.max(8,Math.ceil(maxw)+pad*2)), H=Math.min(4096,Math.max(8,Math.ceil(lines.length*lh)+pad*2));
+  const lh=fs*lhF, W=Math.min(4096,Math.max(8,Math.ceil(maxw)+pad*2)), H=Math.min(4096,Math.max(8,Math.ceil(lines.length*lh)+pad*2));
   const cv=document.createElement('canvas'); cv.width=W; cv.height=H; const x=cv.getContext('2d');
   if(m.tbg&&m.tbg!=='transparent'){ x.fillStyle=m.tbg; x.fillRect(0,0,W,H); }
-  x.font=weight+' '+fs+'px '+ff; x.textAlign='center'; x.textBaseline='middle';
-  lines.forEach((ln,i)=>{ const y=pad+lh*(i+0.5); if(m.tstroke){ x.lineWidth=Math.max(2,fs*0.09); x.strokeStyle=m.tstrokeColor||'#000000'; x.lineJoin='round'; x.strokeText(ln,W/2,y); } x.fillStyle=m.tcolor||'#ffffff'; x.fillText(ln,W/2,y); });
+  x.font=style+weight+' '+fs+'px '+ff; x.textAlign=align; x.textBaseline='middle';
+  const ax=align==='left'?pad:align==='right'?(W-pad):W/2;
+  lines.forEach((ln,i)=>{ const y=pad+lh*(i+0.5); if(m.tstroke){ x.lineWidth=Math.max(2,fs*0.09); x.strokeStyle=m.tstrokeColor||'#000000'; x.lineJoin='round'; x.strokeText(ln,ax,y); } x.fillStyle=m.tcolor||'#ffffff'; x.fillText(ln,ax,y); });
   m.w=W; m.h=H; m.el=cv; m.originalEl=cv; if(!m.tex)m.tex=newTex(); upTex(m.tex,cv); try{m.thumb=cv.toDataURL();}catch(e){} }
 function createTextClip(preset){ preset=(preset&&typeof preset==='object'&&!preset.preventDefault)?preset:{};
   const m={id:uid(),kind:'text',name:preset.name||T('Text','Texto'),text:preset.text||'TITLE',tfontSize:preset.tfontSize||160,tweight:preset.tweight||'700',tfont:'Inter, sans-serif',tcolor:preset.tcolor||'#ffffff',tbg:'transparent',tstroke:!!preset.tstroke,tstrokeColor:'#000000',dur:6,fps:0,color:clipColorFor('text'),folder:(state.mediaView==='grid'&&state.mediaFolder)||null}; // file into the folder being browsed (R88 audit)
@@ -2001,12 +2014,32 @@ function appAlert(message,cb){ try{closeMenu();}catch(e){}
 
 /* ===== Recent projects + Start screen (landing) ===== */
 const LOGO_SVG='<svg viewBox="0 0 1024 1024" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg"><rect x="0" y="0" width="1024" height="1024" rx="236" fill="#14171C"/><g fill="none" stroke="#fff"><rect x="197" y="197" width="630" height="630" rx="206" stroke-width="80"/><rect x="335" y="335" width="354" height="354" rx="130" stroke-width="76"/><rect x="442" y="442" width="140" height="140" rx="56" stroke-width="60"/></g></svg>';
+/* [U9] animated logo loop — 75 square PNG frames in assets/frames logo/. Preloaded, then cycled on an <img>. */
+const LOGO_FRAMES=75;
+function logoFramePath(i){ return 'assets/frames%20logo/frame_'+String(i).padStart(3,'0')+'.png'; }
+let _logoImgs=null;
+function preloadLogoFrames(){ if(_logoImgs)return _logoImgs; _logoImgs=[]; for(let i=0;i<LOGO_FRAMES;i++){ const im=new Image(); im.src=logoFramePath(i); _logoImgs.push(im); } return _logoImgs; }
+function startLogoLoop(imgEl,fps){ if(!imgEl)return ()=>{}; preloadLogoFrames(); fps=fps||26; let i=0,raf=0,last=0;
+  imgEl.src=logoFramePath(0);
+  const step=t=>{ if(!last)last=t; if(t-last>=1000/fps){ i=(i+1)%LOGO_FRAMES; imgEl.src=logoFramePath(i); last=t; } raf=requestAnimationFrame(step); };
+  raf=requestAnimationFrame(step); return ()=>{ if(raf)cancelAnimationFrame(raf); raf=0; }; }
 function getRecents(){ try{ const a=JSON.parse(localStorage.getItem('domeProRecents')||'[]'); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
 function saveRecents(a){ try{ localStorage.setItem('domeProRecents', JSON.stringify(a.slice(0,12))); }catch(e){} }
 function projThumb(){ try{ if(!glc.width)return null; const w=200, h=Math.max(1,Math.round(w*glc.height/glc.width)); const c=document.createElement('canvas'); c.width=w; c.height=h; c.getContext('2d').drawImage(glc,0,0,w,h); return c.toDataURL('image/jpeg',0.72); }catch(e){ return null; } }
 function addRecent(path,thumb){ if(!path||!IS_ELEC)return; const base=(DSP.basename?DSP.basename(path):(path.split(/[\\/]/).pop()||path)); const name=base.replace(/\.(isp|ise|rdome)$/i,''); const folder=path.replace(/[\\/][^\\/]*$/,''); const prev=getRecents().find(r=>r.path===path); const a=getRecents().filter(r=>r.path!==path); a.unshift({path,name,folder,t:Date.now(),thumb:thumb||(prev&&prev.thumb)||null}); saveRecents(a); }
 function relTime(ts){ if(!ts)return ''; const d=(Date.now()-ts)/1000; if(d<60)return T('just now','ahora mismo'); if(d<3600)return Math.floor(d/60)+' min'; if(d<86400)return Math.floor(d/3600)+' h'; if(d<604800)return Math.floor(d/86400)+' d'; try{return new Date(ts).toLocaleDateString();}catch(e){return '';} }
-function hideLanding(){ const o=document.getElementById('landingOv'); if(o)o.remove(); }
+function hideLanding(){ const o=document.getElementById('landingOv'); if(o){ if(o._stopLogo)o._stopLogo(); o.remove(); } }
+/* [U9] loading screen with the logo loop — shown while a project opens and its media/proxies buffer */
+let _loadingOv=null,_loadingStop=null,_loadingPoll=0;
+function showLoadingScreen(msg){ if(_loadingOv)return; const ov=document.createElement('div'); ov.id='loadingOv'; ov.style.cssText='position:fixed;inset:0;z-index:340;background:#0E0F11;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;';
+  ov.innerHTML=`<img id="ldLogo" width="120" height="120" style="width:120px;height:120px;object-fit:contain;border-radius:26px;" alt=""><div id="ldMsg" style="font-size:13px;color:var(--ink-3);letter-spacing:0.02em;">${msg||T('Loading…','Cargando…')}</div>`;
+  document.body.appendChild(ov); _loadingOv=ov; _loadingStop=startLogoLoop(ov.querySelector('#ldLogo'),26); }
+function setLoadingMsg(m){ if(_loadingOv){ const e=_loadingOv.querySelector('#ldMsg'); if(e)e.textContent=m; } }
+function hideLoadingScreen(){ if(_loadingPoll){clearTimeout(_loadingPoll);_loadingPoll=0;} if(_loadingStop){_loadingStop();_loadingStop=null;} if(_loadingOv){_loadingOv.remove();_loadingOv=null;} }
+function loadingWaitMedia(deadline){ if(!_loadingOv)return; const anyLoading=state.media.some(m=>m._loading&&!m.missing); const proxying=state.media.some(m=>m._pxGen||(m.proxyPct>0&&!m.proxyReady));
+  if((!anyLoading&&!proxying)||Date.now()>deadline){ hideLoadingScreen(); return; }
+  setLoadingMsg(proxying?T('Buffering proxies…','Cargando proxys…'):T('Loading media…','Cargando medios…'));
+  _loadingPoll=setTimeout(()=>loadingWaitMedia(deadline),300); }
 function escAttr(s){ return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
 function showLanding(){ if(document.getElementById('landingOv'))return;
   const recents=IS_ELEC?getRecents():[];
@@ -2015,10 +2048,11 @@ function showLanding(){ if(document.getElementById('landingOv'))return;
       <div style="aspect-ratio:16/10;background:var(--s0) ${r.thumb?`center/cover no-repeat url(${r.thumb})`:''};display:flex;align-items:center;justify-content:center;border-bottom:.5px solid rgba(255,255,255,0.06);">${r.thumb?'':domeGlyph}</div>
       <div style="padding:8px 11px;min-width:0;"><div style="font-size:13px;color:var(--ink);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escAttr(r.name)}</div><div style="font-size:11px;color:var(--ink-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;">${relTime(r.t)}${r.folder?' · '+escAttr(r.folder.split(/[\\/]/).pop()):''}</div></div></button>`;
   const ov=document.createElement('div'); ov.className='overlay'; ov.id='landingOv'; ov.style.background='#0E0F11'; ov.style.zIndex='300';
-  ov.innerHTML=`<div style="width:min(900px,92vw);max-height:88vh;display:flex;flex-direction:column;gap:24px;">
-     <div style="display:flex;align-items:center;gap:16px;">
-       <div style="width:54px;height:54px;flex-shrink:0;">${LOGO_SVG}</div>
-       <div><div style="font-size:20px;font-weight:600;color:var(--ink);letter-spacing:-0.01em;">Immersive Studio Pro</div><div style="font-size:13px;color:var(--ink-3);margin-top:2px;">${T('Dome · 2D · 360 room','Domo · 2D · sala 360')} · Alma Digital Studio</div></div>
+  ov.innerHTML=`<div style="width:min(900px,92vw);max-height:88vh;display:flex;flex-direction:column;gap:22px;">
+     <div style="display:flex;align-items:center;gap:20px;">
+       <img id="lgLogo" width="104" height="104" style="width:104px;height:104px;flex-shrink:0;object-fit:contain;border-radius:22px;" alt="Immersive Studio Pro">
+       <div><div style="font-size:25px;font-weight:600;color:var(--ink);letter-spacing:-0.015em;">Immersive Studio Pro</div>
+         <div style="font-size:13px;color:var(--ink-3);margin-top:4px;">${T('Dome · 2D · 360 room','Domo · 2D · sala 360')} · <b style="color:var(--ink-2);font-weight:500;">Version 1.0</b></div></div>
      </div>
      <div style="display:flex;gap:12px;flex-wrap:wrap;">
        <button id="lgNew" class="mbtn pri" style="height:40px;padding:0 18px;font-size:13px;">${ICO('plus',16)} ${T('New dome project','Nuevo proyecto domo')}</button>
@@ -2032,8 +2066,10 @@ function showLanding(){ if(document.getElementById('landingOv'))return;
          ${recents.length? recents.map(card).join('') : `<div style="color:var(--ink-2);font-size:13px;padding:6px 0;">${T('No recent projects yet — create one to get started.','Aún no hay proyectos recientes — crea uno para empezar.')}</div>`}
        </div>
      </div>
+     <div style="font-size:11px;color:var(--ink-dim);letter-spacing:0.02em;padding-top:2px;">Created by Alma Digital Studio — all rights reserved</div>
    </div>`;
   document.body.appendChild(ov);
+  ov._stopLogo=startLogoLoop(ov.querySelector('#lgLogo')); // [U9] animated logo loop
   ov.querySelector('#lgNew').onclick=()=>{ domeSetupDialog(cfg=>{ hideLanding(); newProject('dome',cfg.res,cfg.res,cfg.fps,cfg.cov); }); };
   ov.querySelector('#lgNew2d').onclick=()=>{ flatResDialog((w,h,fps)=>{ hideLanding(); newProject('flat',w,h,fps); }); };
   { const rb=ov.querySelector('#lgNewRoom'); if(rb)rb.onclick=()=>{ roomSetupDialog(cfg=>{ hideLanding(); newRoomProject(cfg); }); }; }
@@ -2158,6 +2194,8 @@ $('#tracks').addEventListener('pointerdown',e=>{
   if(tool==='hand'){ startPan(e); return; }
   if(!cd){ if(tool==='zoom'){tlZoomAt(e,e.altKey?-1:1);} else { startTimeSelect(e); } return; } // empty area → time selection (Ableton)
   const id=+cd.dataset.clip, c=clipById(id);
+  if(tool==='trackselect'){ e.preventDefault(); const from=c.start-0.002; const ids=state.clips.filter(o=>(e.shiftKey||o.lane===c.lane)&&o.start>=from).map(o=>o.id); // [U7] Premiere "Track Select Forward" (A): this clip + everything to its right on the track (Shift = all tracks)
+    state.selIds=ids; state.selId=c.id; state.selGroupId=null; laneDesel(); $$('.clip').forEach(x=>x.classList.toggle('sel',ids.includes(+x.dataset.clip))); renderInspector(); updStatus(); flashStatus(ids.length+' '+T('clips selected forward','clips seleccionados hacia adelante')); return; }
   if(e.target.classList.contains('kfd')&&id===state.selId){ state.playhead=c.start+parseFloat(e.target.dataset.t); scrubRender(); return; }
   // double-click detection (the #tracks dblclick can be eaten by the move-drag, so detect it here):
   //  · a sequence/nest/compose clip → open it as a tab · a plain clip's TITLE → rename it in place (each cut portion is its own clip → renamed independently)
@@ -2480,7 +2518,7 @@ $('#tlscroll').addEventListener('scroll',()=>{ const th=$('#trackHdr'); if(th)th
 $('#tlscroll').addEventListener('pointerdown',e=>{ if(e.button!==1)return; e.preventDefault(); const sl=$('#tlscroll'); const x0=e.clientX,y0=e.clientY,sx=sl.scrollLeft,sy=sl.scrollTop; sl.style.cursor='grabbing';
   const mv=ev=>{ sl.scrollLeft=sx-(ev.clientX-x0); sl.scrollTop=sy-(ev.clientY-y0); }; const up=()=>{ sl.style.cursor=''; window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up); }; window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); });
 const RAZOR_CUR="url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"22\" height=\"22\" viewBox=\"0 0 22 22\"><line x1=\"11\" y1=\"1\" x2=\"11\" y2=\"21\" stroke=\"%233CE0D6\" stroke-width=\"2\"/><path d=\"M7 1 L11 5 L15 1 Z\" fill=\"%233CE0D6\"/></svg>') 11 11, crosshair";
-function applyToolCursor(){ const cur={select:'default',hand:'grab',razor:RAZOR_CUR,zoom:'zoom-in',trim:'col-resize'}[state.tl.tool]; $('#tracks').style.cursor=cur; $('#ruler').style.cursor='pointer';
+function applyToolCursor(){ const cur={select:'default',trackselect:'e-resize',hand:'grab',razor:RAZOR_CUR,zoom:'zoom-in',trim:'col-resize'}[state.tl.tool]; $('#tracks').style.cursor=cur; $('#ruler').style.cursor='pointer';
   const sel=(state.tl.tool==='select'); $$('.clip').forEach(c=>c.style.cursor=sel?(state.tl.simpleClips?'grab':'default'):cur); } // select: body = arrow (the .tt headband keeps grab via CSS → hand only on the title bar) · [R94c] simple-clip view: the whole block grabs (inline style beats the CSS rule, so it must be set here)
 
 /* media drag to timeline */
@@ -2818,20 +2856,36 @@ function _renderInspectorMain(){
     kr.querySelector('#bkToggle').onchange=e=>{const cc=selClip();if(cc){pushUndo();cc.props.blackKey=e.target.checked;bk2.style.display=e.target.checked?'':'none';if(_raOn)raInvalidate();render();}};
     bk2.querySelector('#bkThr').onchange=e=>{const cc=selClip();if(cc){pushUndo();cc.props.blackKeyAmt=Math.max(0,Math.min(100,+e.target.value||0));if(_raOn)raInvalidate();render();}};
     bk2.querySelector('#bkSoft').onchange=e=>{const cc=selClip();if(cc){pushUndo();cc.props.blackKeySoft=Math.max(0,Math.min(100,+e.target.value||0));if(_raOn)raInvalidate();render();}}; }
-  // Text editor (only for text clips)
+  // Text editor (only for text clips) — [U8] a useful paragraph tool: font · weight · italic · size · alignment · line height · colour · outline · load custom font
   if(m && m.kind==='text'){
+    const FONTS=['Inter','Geist','Arial','Helvetica','Georgia','Times New Roman','Courier New','Verdana','Trebuchet MS','Tahoma','Impact'].concat(_customFonts.filter(f=>!['Inter','Geist'].includes(f)));
+    const curFont=String(m.tfont||'Inter').replace(/,.*/,'').replace(/['"]/g,'').trim();
+    const WEIGHTS=[['300','Light'],['400','Regular'],['500','Medium'],['700','Bold'],['900','Black']]; const curW=String(m.tweight||'700');
+    const align=m.talign||'center';
+    const inp='height:20px;background:var(--s2);border:.5px solid rgba(255,255,255,0.12);border-radius:2px;color:var(--ink);text-align:center;';
     const trow=document.createElement('div'); trow.className='prow'; trow.style.cssText='flex-direction:column;align-items:stretch;gap:6px;';
     trow.innerHTML=`<span class="lab" style="width:auto;">${T('Text content','Contenido de texto')}</span>
       <textarea id="txtContent" rows="2" spellcheck="false" style="width:100%;box-sizing:border-box;background:var(--s2);border:.5px solid rgba(255,255,255,0.12);border-radius:2px;color:var(--ink);font:13px/1.3 Inter;padding:6px;resize:vertical;"></textarea>
-      <div style="display:flex;gap:8px;align-items:center;">
-        <input type="color" id="txtColor" value="${m.tcolor||'#ffffff'}" title="${T('Color','Color')}" style="width:32px;height:18px;padding:0;background:none;border:none;cursor:pointer;">
-        <input type="number" id="txtSize" value="${m.tfontSize||160}" min="20" max="600" title="${T('Size (px)','Tamaño (px)')}" style="width:60px;height:18px;background:var(--s2);border:.5px solid rgba(255,255,255,0.12);border-radius:2px;color:var(--ink);text-align:center;">
-        <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="txtStroke" ${m.tstroke?'checked':''}> ${T('Outline','Contorno')}</label>
-      </div>`;
+      <div style="display:flex;gap:6px;align-items:center;">
+        <select id="txtFont" class="selsel" style="flex:1;min-width:100px;height:20px;">${FONTS.map(f=>`<option value="${f}" ${f===curFont?'selected':''}>${f}</option>`).join('')}</select>
+        <select id="txtWeight" class="selsel" style="height:20px;width:84px;">${WEIGHTS.map(w=>`<option value="${w[0]}" ${w[0]===curW?'selected':''}>${w[1]}</option>`).join('')}</select>
+        <button id="txtItalic" class="togbtn${m.titalic?' on':''}" title="${T('Italic','Itálica')}" style="height:20px;width:26px;justify-content:center;font-style:italic;font-weight:600;">I</button>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+        <div class="seg2" id="txtAlign" style="height:20px;">${[['left','L'],['center','C'],['right','R']].map(a=>`<button data-a="${a[0]}" class="${align===a[0]?'on':''}" title="${a[0]}">${a[1]}</button>`).join('')}</div>
+        <input type="number" id="txtSize" value="${m.tfontSize||160}" min="8" max="600" title="${T('Size (px)','Tamaño (px)')}" style="width:54px;${inp}">
+        <input type="number" id="txtLineH" value="${(m.tlineH||1.25)}" min="0.7" max="3" step="0.05" title="${T('Line height','Interlineado')}" style="width:50px;${inp}">
+        <input type="color" id="txtColor" value="${m.tcolor||'#ffffff'}" title="${T('Color','Color')}" style="width:30px;height:20px;padding:0;background:none;border:none;cursor:pointer;">
+        <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="txtStroke" ${m.tstroke?'checked':''}> ${T('Outline','Contorno')}</label>
+      </div>
+      <button class="mbtn" id="txtLoadFont" style="height:20px;justify-content:center;gap:6px;">${ICO('upload',12)} ${T('Load font…','Cargar fuente…')}</button>`;
     $('#fxRows').appendChild(trow);
     trow.querySelector('#txtContent').value=m.text||'';
-    const reTxt=()=>{ const cc=selClip(); if(!cc)return; const mm=mediaById(cc.mediaId); if(!mm)return; mm.text=$('#txtContent').value; mm.tcolor=$('#txtColor').value; mm.tfontSize=+$('#txtSize').value||160; mm.tstroke=$('#txtStroke').checked; renderTextMedia(mm); renderMedia(); render(); markDirty(); };
-    trow.querySelector('#txtContent').oninput=reTxt; trow.querySelector('#txtColor').oninput=reTxt; trow.querySelector('#txtSize').onchange=reTxt; trow.querySelector('#txtStroke').onchange=reTxt;
+    const reTxt=()=>{ const cc=selClip(); if(!cc)return; const mm=mediaById(cc.mediaId); if(!mm)return; mm.text=$('#txtContent').value; mm.tcolor=$('#txtColor').value; mm.tfontSize=+$('#txtSize').value||160; mm.tstroke=$('#txtStroke').checked; mm.tfont=$('#txtFont').value; mm.tweight=$('#txtWeight').value; mm.tlineH=Math.max(0.7,+$('#txtLineH').value||1.25); renderTextMedia(mm); renderMedia(); render(); markDirty(); };
+    trow.querySelector('#txtContent').oninput=reTxt; trow.querySelector('#txtColor').oninput=reTxt; trow.querySelector('#txtSize').onchange=reTxt; trow.querySelector('#txtStroke').onchange=reTxt; trow.querySelector('#txtFont').onchange=reTxt; trow.querySelector('#txtWeight').onchange=reTxt; trow.querySelector('#txtLineH').onchange=reTxt;
+    trow.querySelector('#txtItalic').onclick=()=>{ const cc=selClip(); if(!cc)return; const mm=mediaById(cc.mediaId); if(!mm)return; mm.titalic=!mm.titalic; trow.querySelector('#txtItalic').classList.toggle('on',mm.titalic); renderTextMedia(mm); renderMedia(); render(); markDirty(); };
+    trow.querySelectorAll('#txtAlign button').forEach(b=>b.onclick=()=>{ const cc=selClip(); if(!cc)return; const mm=mediaById(cc.mediaId); if(!mm)return; mm.talign=b.dataset.a; trow.querySelectorAll('#txtAlign button').forEach(x=>x.classList.toggle('on',x===b)); renderTextMedia(mm); renderMedia(); render(); markDirty(); });
+    trow.querySelector('#txtLoadFont').onclick=()=>loadCustomFont().then(fam=>{ if(fam){ const cc=selClip(); const mm=cc&&mediaById(cc.mediaId); if(mm){ mm.tfont=fam; renderTextMedia(mm); renderMedia(); render(); markDirty(); } } });
   }
   // Shape editor (only for shape clips)
   if(m && m.kind==='shape'){
@@ -4727,7 +4781,7 @@ function markDirty(){ state.dirty=true; projTitle(); raInvalidate(); }
 function currentTitle(){ return (currentPath&&IS_ELEC)?DSP.basename(currentPath).replace(/\.(isp|ise|rdome)$/i,''):T('Untitled project','Proyecto sin título'); }
 function projTitle(){ const md=(activeSeq()&&activeSeq().mode)||state.seqMode; const pre=md==='flat'?'2D':md==='room'?T('360 Room','Sala 360'):T('Immersive Dome','Domo inmersivo'); const t=$('#projTitle'); if(t)t.textContent=pre+' · '+currentTitle()+(state.dirty?' *':''); if(IS_ELEC){try{DSP.setTitle('Immersive Studio Pro — '+currentTitle()+(state.dirty?' *':''));}catch(e){} try{if(DSP.setUiState)DSP.setUiState({dirty:!!state.dirty,lang:state.lang});}catch(e){}} }
 function serMedia(m){ return {id:m.id,name:m.name,kind:m.kind,w:m.w,h:m.h,mode:m.mode||null,cov:m.cov||null,room:m.room||null,roomFloorOf:m.roomFloorOf||null,dur:m.dur,fps:m.fps,color:m.color,path:m.path||null,fsize:m.fsize||0,folder:m.folder||null,framePaths:m.framePaths||null,ndiSource:m.ndiSource||null,
-  text:m.text,tfontSize:m.tfontSize,tweight:m.tweight,tfont:m.tfont,tcolor:m.tcolor,tbg:m.tbg,tstroke:m.tstroke,tstrokeColor:m.tstrokeColor,
+  text:m.text,tfontSize:m.tfontSize,tweight:m.tweight,tfont:m.tfont,talign:m.talign,tlineH:m.tlineH,titalic:m.titalic,tcolor:m.tcolor,tbg:m.tbg,tstroke:m.tstroke,tstrokeColor:m.tstrokeColor,
   shape:m.shape,fill:m.fill,stroke:m.stroke,strokeW:m.strokeW,sw:m.sw,sh:m.sh,
   nestClips:(m.kind==='nest'?(m.nestClips||[]).map(serClip):null), nestLanes:(m.kind==='nest'?m.nestLanes:null),
   nestMarkers:(m.kind==='nest'?(m.nestMarkers||[]):null), nestGroups:(m.kind==='nest'?(m.nestGroups||[]):null), nestPlayhead:(m.kind==='nest'?(m.nestPlayhead||0):null), nestWorkIn:(m.kind==='nest'?(m.nestWorkIn??null):null), nestWorkOut:(m.kind==='nest'?(m.nestWorkOut??null):null), comp:(m.comp||null),
@@ -5119,7 +5173,8 @@ function rasterizePenMasks(c){ if(!c)return;
   }
   x.globalCompositeOperation='source-over';
   if(!c.maskTex)c.maskTex=newTex(); upTex(c.maskTex,cv); c.props.mask='pen'; }
-function loadProject(obj){ if(state.playing)pause(); disposeAllVinst(); try{freeFxResources();}catch(e){} for(const _tid in (state.mediaTrash||{})) disposeMedia(state.mediaTrash[_tid]); state.mediaTrash={}; // free deleted-media textures + FX history from the previous project
+function loadProject(obj){ try{ showLoadingScreen(T('Loading project…','Cargando proyecto…')); }catch(e){} // [U9] logo-loop loading screen while the project + its proxies buffer
+  if(state.playing)pause(); disposeAllVinst(); try{freeFxResources();}catch(e){} for(const _tid in (state.mediaTrash||{})) disposeMedia(state.mediaTrash[_tid]); state.mediaTrash={}; // free deleted-media textures + FX history from the previous project
   clearAllUndo(); // [R92-T1 C2] undo history belongs to the PREVIOUS project — Ctrl+Z after opening must never inject its clips here (newProject already did this; loadProject didn't)
   state.fps=obj.fps||60; state.lanes=obj.lanes||state.lanes; state.clips=(obj.clips||[]).map(c=>({...c,kf:c.kf||{},maskTex:null})); state.playhead=obj.playhead||0; state.markers=obj.markers||[]; state.selMarkerId=null; state.groups=obj.groups||[]; state.selGroupId=null;
   // restore custom PNG masks from their persisted dataURL (or drop a stale 'custom' that has no data)
@@ -5155,7 +5210,8 @@ function loadProject(obj){ if(state.playing)pause(); disposeAllVinst(); try{free
   renderWork();
   if(IS_ELEC){ for(const m of state.media) reloadMedia(m); }
   renderMedia(); renderTimeline(); renderInspector(); render(); updRelink(); updStatus(); projTitle(); try{preloadLUTs();}catch(e){} flashStatus(T('Project loaded','Proyecto cargado'));
-  hideLanding(); if(currentPath)addRecent(currentPath, projThumb()); }
+  hideLanding(); if(currentPath)addRecent(currentPath, projThumb());
+  try{ loadingWaitMedia(Date.now()+20000); }catch(e){ hideLoadingScreen(); } } // [U9] keep the loading screen until media/proxies finish buffering (or a 20 s deadline)
 async function reloadMedia(m){
   if(m.kind==='adjust'){ m.missing=false; m._loading=false; return; } // adjustment layer template — no file
   if(m.kind==='ndi'){ m.missing=false; m._loading=false; return; } // live NDI input — no file to relink
@@ -5433,6 +5489,9 @@ $('#vzIn').onclick=()=>{state.view.zoom=Math.min(12,state.view.zoom*1.2);vzLbl()
 $('#vzOut').onclick=()=>{state.view.zoom=Math.max(0.2,state.view.zoom/1.2);vzLbl();render();};
 $('#vzReset').onclick=()=>{state.view.zoom=0.92;state.view.pan=[0,0];vzLbl();render();};
 if($('#popoutBtn'))$('#popoutBtn').onclick=openViewerWindow;
+/* [V2] Full Performance: the viewer takes over the whole window (editor stays in the DOM, just covered); Esc exits */
+function setPerfMode(on){ on=!!on; document.body.classList.toggle('perfmode',on); const b=$('#perfBtn'); if(b)b.classList.toggle('on',on); try{ resize(); }catch(e){} render(); flashStatus(on?T('Full performance — Esc to exit','Rendimiento total — Esc para salir'):T('Editor restored','Editor restaurado')); }
+{ const pb=$('#perfBtn'); if(pb)pb.onclick=()=>setPerfMode(!document.body.classList.contains('perfmode')); const pe=$('#perfExit'); if(pe)pe.onclick=()=>setPerfMode(false); }
 if($('#ndiBtn')){ const nb=$('#ndiBtn'); nb.onclick=e=>{ const r=nb.getBoundingClientRect(); ndiMenu(r.left, r.bottom+4); }; if(!(IS_ELEC&&window.dsp&&window.dsp.ndi))nb.style.display='none'; } // NDI is desktop-only
 if($('#spoutBtn')){ const sb=$('#spoutBtn'); sb.onclick=e=>{ const r=sb.getBoundingClientRect(); spoutMenu(r.left, r.bottom+4); }; if(!(IS_ELEC&&window.dsp&&window.dsp.spout))sb.style.display='none'; } // Spout is Windows desktop-only
 if($('#fmtChip'))$('#fmtChip').onclick=openSeqSettings; // click the format chip → re-configure the active sequence (dome coverage)
@@ -5454,16 +5513,7 @@ $('#curvesBtn').onclick=toggleCurves; // [R93] single Automation button — the 
   if(bo){ bo.onclick=()=>setWorkOut(); bo.addEventListener('contextmenu',e=>{e.preventDefault();clearWork();}); } }
 $('#snapBtn').onclick=()=>toggleSnap();
 { const b=$('#simpleClipBtn'); if(b)b.onclick=()=>toggleSimpleClips(); } // [R94c]
-$('#gridReadout').onclick=()=>gridToggleFixed();
-$('#gridReadout').addEventListener('contextmenu',e=>{ e.preventDefault(); openMenu(e.clientX,e.clientY,[
-  {label:T('Narrower grid','Grilla más estrecha')+'  ⌘1',fn:gridNarrow},
-  {label:T('Wider grid','Grilla más ancha')+'  ⌘2',fn:gridWiden},
-  'sep',
-  {label:(state.tl.gridFixed?'✓ ':'')+T('Fixed grid','Grilla fija')+'  ⌘5',fn:gridToggleFixed},
-  {label:(!state.tl.gridFixed?'✓ ':'')+T('Adaptive grid','Grilla adaptativa'),fn:()=>{ if(state.tl.gridFixed)gridToggleFixed(); }},
-  'sep',
-  {label:(state.tl.snap?'✓ ':'')+T('Snap to Grid','Ajustar a cuadrícula')+'  ⌘4',fn:toggleSnap},
-  {label:(state.tl.simpleClips?'✓ ':'')+T('Simple clips','Clips simples'),fn:toggleSimpleClips} ]); }); // [R94c]
+/* [U6] gridReadout button removed — grid spacing stays adjustable via Ctrl+1/2 (narrower/wider), Ctrl+5 (fixed/adaptive), Ctrl+4 (snap) */
 /* loop brace: drag the top strip to move the loop, the ends to resize (snaps to grid) */
 (function wireLoopBrace(){ const w=$('#workArea'); if(!w)return; w.addEventListener('pointerdown',e=>{ if(e.button!==0)return; if(state.workIn==null||state.workOut==null)return; e.stopPropagation(); e.preventDefault();
   const pps=state.tl.pxPerSec, downX=e.clientX, a0=state.workIn, b0=state.workOut; const mode=e.target.classList.contains('l')?'l':e.target.classList.contains('r')?'r':'mid';
@@ -5510,6 +5560,7 @@ document.addEventListener('pointerdown',e=>{ const inp=e.target; if(!(inp&&inp.t
   const up=()=>{ document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up); document.body.style.userSelect=''; if(scrub)inp.dispatchEvent(new Event('change',{bubbles:true})); };
   document.addEventListener('pointermove',mv); document.addEventListener('pointerup',up); },true);
 window.addEventListener('keydown',e=>{ const tag=(e.target.tagName||'').toLowerCase(); const mod=e.ctrlKey||e.metaKey;
+  if(e.key==='Escape'&&document.body.classList.contains('perfmode')&&!document.querySelector('.overlay')){ e.preventDefault(); setPerfMode(false); return; } // [V2] Esc leaves Full Performance (unless a modal is open — that Esc closes the modal)
   if(tag==='input'||tag==='textarea'||e.target.isContentEditable)return; // typing in a text field — leave the keys to the field
   if(tag==='select'&&!mod&&e.code!=='Space')return; // a focused <select> keeps its own nav keys, but Ctrl/Cmd shortcuts + Space (play) still fire
   if(document.querySelector('.overlay'))return; // a modal (Export/Compose/Prefs/New-sequence/palette) is open — don't fire timeline shortcuts behind it (Escape still handled separately)

@@ -177,6 +177,12 @@
   .vslab .k{font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:11px;letter-spacing:0.08em;color:var(--ink-faint);}
   .vslab .v{font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:11px;color:var(--ink);}
   .stage{flex:1;min-height:0;position:relative;overflow:hidden;background:#000;}
+  /* [V2] Full Performance: the viewer takes over the whole window; everything else stays in the DOM, just covered */
+  body.perfmode #stage{position:fixed !important;inset:0 !important;z-index:1000 !important;}
+  .perfexit{display:none;position:absolute;top:12px;right:14px;z-index:1001;align-items:center;gap:6px;height:26px;padding:0 11px;border-radius:4px;background:rgba(18,20,24,0.70);color:var(--ink-2);font-size:11px;cursor:pointer;border:.5px solid rgba(255,255,255,0.16);}
+  .perfexit:hover{color:var(--ink);background:rgba(28,31,36,0.85);}
+  body.perfmode #perfExit{display:flex;}
+  body.perfmode #perfExit:not(:hover){opacity:0.25;transition:opacity .2s;}
   /* [F8] alpha-reference checkerboard behind the (transparent) GL canvas */
   .checkerbg{position:absolute;inset:0;z-index:0;display:none;background-color:#ffffff;background-image:linear-gradient(45deg,#bfbfbf 25%,transparent 25%,transparent 75%,#bfbfbf 75%),linear-gradient(45deg,#bfbfbf 25%,transparent 25%,transparent 75%,#bfbfbf 75%);background-size:26px 26px;background-position:0 0,13px 13px;}
   .checkerbg.on{display:block;}
@@ -606,8 +612,7 @@
     <span style="font-size:11px;font-weight:600;letter-spacing:-0.008em;color:var(--ink-2);white-space:nowrap;" id="projTitle">Immersive Dome · Show 01</span>
     <span class="tnum" style="font-size:11px;letter-spacing:0.02em;color:var(--ink-faint);cursor:pointer;" id="fmtChip" title="Sequence settings">4096² · 60p · PNG</span>
     <div style="flex:1;"></div>
-    <button class="tbtn" id="undoBtn" title="Undo · Ctrl+Z"><i class="ic" data-ico="undo"></i></button>
-    <button class="tbtn" id="redoBtn" title="Redo · Ctrl+Shift+Z"><i class="ic" data-ico="redo"></i></button>
+    <!-- [U5] Undo/Redo buttons removed — Ctrl+Z / Ctrl+Shift+Z only -->
     <div class="seg">
       <button id="newBtn" title="New project · Ctrl+N"><i class="ic" data-ico="plus"></i> New</button>
       <button id="openBtn" title="Open project · Ctrl+O"><i class="ic" data-ico="folder"></i> Open</button>
@@ -700,6 +705,7 @@
           <button id="vzIn" style="width:25px;padding:0;justify-content:center;"><i class="ic" data-ico="zoomIn"></i></button>
         </div>
         <div class="vdiv"></div>
+        <div class="vseg"><button id="perfBtn" title="Full performance — hide the editor, show only the viewer (Esc to exit)" style="width:26px;padding:0;justify-content:center;"><i class="ic" data-ico="tallpanel"></i></button></div>
         <div class="vseg"><button id="popoutBtn" title="Open a viewer-only window — drag it to a second screen" style="width:26px;padding:0;justify-content:center;"><i class="ic" data-ico="popout"></i></button></div>
         <div class="vseg"><button id="ndiBtn" title="NDI output — broadcast the clean Dome master (1:1) over the network" style="width:26px;padding:0;justify-content:center;"><i class="ic" data-ico="ndi"></i></button></div>
         <div class="vseg"><button id="spoutBtn" title="Spout output — share the clean Dome master (1:1) as a local GPU texture (Resolume / TouchDesigner / OBS)" style="width:26px;padding:0;justify-content:center;font:600 10px Geist,system-ui,sans-serif;letter-spacing:.03em;">SP</button></div>
@@ -709,6 +715,7 @@
         <canvas id="gl"></canvas>
         <canvas id="grid"></canvas>
         <div class="rendermask" id="renderMask"><div class="rmlabel"><span class="rmdot"></span>Rendering…</div></div>
+        <button class="perfexit" id="perfExit" title="Exit performance · Esc"><i class="ic" data-ico="panelL"></i> Exit</button>
       </div>
     </main>
 
@@ -769,7 +776,7 @@
     <div class="editseg">
       <button id="snapBtn" title="Snap to Grid · S / Ctrl+4"><i class="ic" data-ico="snap"></i> Snap to Grid</button>
       <button id="simpleClipBtn" title="Simple clips (Premiere-style): drag and select a clip from anywhere on it — range selection works outside clips only"><i class="ic" data-ico="clip"></i> Simple</button>
-      <button id="gridReadout" title="Grid spacing — click to toggle adaptive/fixed (Ctrl+5) · Ctrl+1 narrower · Ctrl+2 wider" style="font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:11px;font-weight:500;min-width:58px;">◇ 1 s</button>
+      <!-- [U6] grid-spacing readout removed (unnecessary) — grid still adjustable via Ctrl+1/2/4/5 -->
     </div>
     <button class="togbtn2" id="curvesBtn" title="Show/hide automation (clip parameters + reactive FX) · A"><i class="ic" data-ico="curves"></i> Automation</button>
     <div class="zoomgrp"><button id="tlZoomOut" title="Zoom out timeline"><i class="ic" data-ico="zoomOut"></i></button><button id="tlZoomIn" title="Zoom in timeline"><i class="ic" data-ico="zoomIn"></i></button></div>
@@ -782,6 +789,7 @@
     <div class="tlmain">
       <div class="toolrail" id="toolRail">
         <button data-t="select" class="on" title="Select (V)"><i class="ic" data-ico="cursor"></i></button>
+        <button data-t="trackselect" title="Track Select Forward — click a clip to select it and everything after it (Shift = all tracks)"><i class="ic" data-ico="kfnext"></i></button>
         <button data-t="hand" title="Hand / Pan (H)"><i class="ic" data-ico="hand"></i></button>
         <button data-t="trim" title="Trim (T) — the cursor picks it: edge = ripple · over a cut = roll · title = slide · body = slip"><i class="ic" data-ico="trim"></i></button>
         <button data-t="razor" title="Razor (B)"><i class="ic" data-ico="razor"></i></button>
