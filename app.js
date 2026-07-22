@@ -3247,7 +3247,7 @@ function fxParamDefOf(def,p,k){ const nm=T(def.label[0],def.label[1]); if(k==='i
 function paramDef(c,p){ if(isFxtKey(p)){ const q=p.split(':'); const def=(typeof FXBY!=='undefined')?FXBY[q[1]]:null; return def?fxParamDefOf(def,p,q[2]):null; } // type-based → no clip needed (lane headers/ranges work with an empty track)
   if(isFxKey(p)){ const parts=p.split(':'); const fx=(c&&c.fx)?c.fx.find(f=>f.id===+parts[1]):null; if(!fx)return null; const def=(typeof FXBY!=='undefined')?FXBY[fx.type]:null; return def?fxParamDefOf(def,p,parts[2]):null; } return CURVE_PARAMS.find(d=>d[0]===p); }
 /* deep-copy the per-clip automation UI-state arrays onto a clone, so split/duplicate/nest don't share (and corrupt) them by reference */
-function sepAuto(n,c){ for(const k of ['_auto']) if(Array.isArray(c[k])) n[k]=c[k].slice(); for(const k of ['_autoOff']) if(c[k]&&typeof c[k]==='object') n[k]=Object.assign({},c[k]); if(Array.isArray(c.anim)) n.anim=JSON.parse(JSON.stringify(c.anim)); if(c.mod&&typeof c.mod==='object'){ n.mod=JSON.parse(JSON.stringify(c.mod)); for(const p in n.mod)for(const m of n.mod[p])m.id=uid(); }
+function sepAuto(n,c){ for(const k of ['_auto']) if(Array.isArray(c[k])) n[k]=c[k].slice(); if(Array.isArray(c.anim)) n.anim=JSON.parse(JSON.stringify(c.anim)); if(c.mod&&typeof c.mod==='object'){ n.mod=JSON.parse(JSON.stringify(c.mod)); for(const p in n.mod)for(const m of n.mod[p])m.id=uid(); }
   if(c.kfLink&&typeof c.kfLink==='object')n.kfLink=Object.assign({},c.kfLink); // [R95·D2] the copy stays an INSTANCE of the same item (that's the point of pooling: duplicate a clip, edit either, both follow)
   return n; } // [R95·C1] the modulation stack is deep-copied (fresh ids) — split/duplicate/nest must never share layer objects by reference // anim (motion modifiers + wetKf) deep-copied too — split/duplicate/nest copies must never share modifier objects
 function isAudioClip(c){ const l=c&&state.lanes[c.lane]; return !!(l&&l.kind==='audio'); }
@@ -3574,18 +3574,18 @@ function drawAutoCurve(cv,c,p){ const laneMode=(cv._li!=null);
   const Y=v=>padT+(1-(v-mn)/(mx-mn))*gh;
   const handles=[]; let firstVx=W;
   for(const cc of clist){ const cp=laneKey(cc,p); if(!cp)continue; // [R93] fx-type lanes resolve per clip; a clip without that effect draws nothing
-    const X=t=>(cc.start+t)*pps-ox; const off=!!(cc._autoOff&&cc._autoOff[cp]); const cx0=X(0),cx1=X(cc.dur); if(cx1<-4||cx0>W+4)continue;
+    const X=t=>(cc.start+t)*pps-ox; const cx0=X(0),cx1=X(cc.dur); if(cx1<-4||cx0>W+4)continue;
     // [R102·D-T2] La rejilla sigue la polaridad de SU campo: en la banda de automatización el suelo es s1
     // (elevado) → la rejilla va OSCURA; sobre el clip el campo es el propio clip → sigue clara. Blender hace
     // exactamente esta inversión entre su editor de curvas y su secuenciador.
     ctx.strokeStyle=laneMode?'rgba(0,0,0,0.38)':'rgba(255,255,255,0.05)';ctx.lineWidth=1; {const y=padT+gh/2;ctx.beginPath();ctx.moveTo(Math.max(0,cx0),y);ctx.lineTo(Math.min(W,cx1),y);ctx.stroke();}
     const automated=!!(cc.kf&&cc.kf[cp]&&cc.kf[cp].length);
     const vx0=Math.max(cx0,-2), vx1=Math.min(cx1,W+2); if(vx0<firstVx)firstVx=vx0; // only the visible slice of the clip is sampled
-    if(vx1>vx0){ ctx.setLineDash(automated?[]:[5,4]); ctx.globalAlpha=A_ON; ctx.strokeStyle=off?'rgba(150,150,150,0.6)':(automated?col:'rgba(232,236,242,0.5)'); ctx.lineWidth=automated?W_ON:1.4; ctx.beginPath();
+    if(vx1>vx0){ ctx.setLineDash(automated?[]:[5,4]); ctx.globalAlpha=A_ON; ctx.strokeStyle=automated?col:'rgba(232,236,242,0.5)'; ctx.lineWidth=automated?W_ON:1.4; ctx.beginPath();
       const t0=Math.max(0,(vx0+ox)/pps-cc.start), t1=Math.min(cc.dur,(vx1+ox)/pps-cc.start); const SS=Math.max(8,Math.floor((vx1-vx0)/3)+1);
-      const ks=(automated&&!off)?cc.kf[cp]:null; let si=0; // incremental segment walk (t is monotonic) — no per-sample O(n) rescan
+      const ks=automated?cc.kf[cp]:null; let si=0; // incremental segment walk (t is monotonic) — no per-sample O(n) rescan
       for(let i=0;i<=SS;i++){ const t=t0+(t1-t0)*i/SS; let v;
-        if(!ks){ v=off?paramBase(cc,cp):(automated?evalP(cc,cp,cc.start+t):paramBase(cc,cp)); }
+        if(!ks){ v=automated?evalP(cc,cp,cc.start+t):paramBase(cc,cp); }
         else if(t<=ks[0].t)v=ks[0].v; else if(t>=ks[ks.length-1].t)v=ks[ks.length-1].v;
         else { while(si<ks.length-2&&t>ks[si+1].t)si++; while(si>0&&t<ks[si].t)si--; const A=ks[si],B=ks[si+1];
           if(A.e==='bezier'||A.hOut||B.hIn)v=bezSegY(t,A,B); else { const f=easeF((t-A.t)/((B.t-A.t)||1),A.e||'linear'); v=A.v+(B.v-A.v)*f; } }
@@ -3598,7 +3598,7 @@ function drawAutoCurve(cv,c,p){ const laneMode=(cv._li!=null);
     if(cc.kf&&cc.kf[cp])for(const k of cc.kf[cp]){const x=X(k.t); if(x<-24||x>W+24)continue; const y=Y(k.v),hov=(cv._hoverKf===k),isS=selset&&selset.has(k),s=(hov||isS)?6:4;
       if(hov||isS){ ctx.strokeStyle=col; ctx.globalAlpha=isS?0.5:0.3; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(x,y,s+5,0,7); ctx.stroke(); ctx.globalAlpha=1; } // pre-click grab ring
       ctx.globalAlpha=(hov||isS)?1:A_ON; // [R95·E2/E5] points fade with their lane, but hover/selection always reads at full white
-      ctx.fillStyle=isS?'#FFFFFF':(hov?'#fff':(off?'#888':col));ctx.strokeStyle=UI.s0;ctx.lineWidth=1;ctx.beginPath();ctx.rect(x-s,y-s,2*s,2*s);ctx.fill();ctx.stroke(); ctx.globalAlpha=1;
+      ctx.fillStyle=isS?'#FFFFFF':(hov?'#fff':col);ctx.strokeStyle=UI.s0;ctx.lineWidth=1;ctx.beginPath();ctx.rect(x-s,y-s,2*s,2*s);ctx.fill();ctx.stroke(); ctx.globalAlpha=1;
       if(isS){ctx.strokeStyle=UI.ink2;ctx.lineWidth=1;ctx.strokeRect(x-s-2,y-s-2,2*s+4,2*s+4);}}
   }
   // [R70] scale labels (sub-lanes) / param label (clip overlays) + value at the playhead
@@ -6769,7 +6769,7 @@ function addAdjustmentLayer(){ pushUndo();
 function reactiveAudioClips(){ return state.clips.filter(c=>{ const m=mediaById(c.mediaId); return m&&m.kind==='audio'; }); }
 function fxKey(f,k){ return 'fx:'+f.id+':'+k; }
 function fxHasKf(host,f,k){ const key=fxKey(f,k); return !!(host.kf&&host.kf[key]&&host.kf[key].length); }
-function fxKfToggle(host,f,k){ const key=fxKey(f,k); pushUndo(); if(fxHasKf(host,f,k)){ delete host.kf[key]; if(host._autoOff)delete host._autoOff[key]; }
+function fxKfToggle(host,f,k){ const key=fxKey(f,k); pushUndo(); if(fxHasKf(host,f,k)){ delete host.kf[key]; }
   else { if(!host.kf)host.kf={}; const base=(k==='int'?f.int:k==='amt'?f.amt:(f.params?f.params[k]:0)); host.kf[key]=[{t:Math.max(0,state.playhead-host.start),v:base,e:curEase()}];
     { const lane=state.lanes[host.lane]; if(lane&&lane.kind!=='audio'&&FXBY[f.type])lane._autoP='fxt:'+f.type+':'+k; } state.inlineCurves=true; syncAutoUI(); { const b=$('#curvesBtn'); if(b)b.classList.add('on'); } renderTimeline(); } // [R93] reveal in the unified automation view: the track's primary lane shows this fx param
   markDirty(); }
@@ -6885,7 +6885,7 @@ function wireReactiveChain(c){ if(!c)return; $$('#arChain .fxcard').forEach(card
   const col=card.querySelector('.fxcol'); if(col)col.onclick=_coll;
   const nmEl=card.querySelector('.fxname'); if(nmEl)nmEl.onclick=_coll;
   const del=card.querySelector('.fxdel'); if(del)del.onclick=()=>{ pushUndo(); freeFxHistOne(c.id,id); _fxCollapsed.delete(c.id+':'+id); c.fx=(c.fx||[]).filter(x=>x.id!==id);
-    const pre='fx:'+id+':'; if(c.kf)for(const k of Object.keys(c.kf))if(k.indexOf(pre)===0)delete c.kf[k]; if(c._autoOff)for(const k of Object.keys(c._autoOff))if(k.indexOf(pre)===0)delete c._autoOff[k]; if(state.autoSel&&state.autoSel.cid===c.id&&state.autoSel.p.indexOf(pre)===0)state.autoSel=null;
+    const pre='fx:'+id+':'; if(c.kf)for(const k of Object.keys(c.kf))if(k.indexOf(pre)===0)delete c.kf[k]; if(state.autoSel&&state.autoSel.cid===c.id&&state.autoSel.p.indexOf(pre)===0)state.autoSel=null;
     for(const l of state.lanes){ if(Array.isArray(l._auto))l._auto=l._auto.filter(k=>!isFxtKey(k)||laneFxTypes(state.lanes.indexOf(l)).includes(k.split(':')[1])); if(l._autoP&&isFxtKey(l._autoP)&&!laneFxTypes(state.lanes.indexOf(l)).includes(l._autoP.split(':')[1]))delete l._autoP; } // [R93] drop fx-type lanes whose TYPE left the whole track — [R70] purge the removed FX's keyframes/overrides/lanes
     renderReactivePanel(); renderTimeline(); render(); markDirty(); };
   const drag=card.querySelector('.fxdrag'); if(drag)drag.addEventListener('pointerdown',e=>fxDragHandle(e,c,id));

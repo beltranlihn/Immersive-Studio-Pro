@@ -16,8 +16,10 @@ modelo After Effects (ADR-0006 / [A2]/[D1]) dejó sin efecto, y se archivó verb
 - **Verificado por CDP tras la cirugía:** los 9 símbolos → `undefined`; `#autoRecBtn` fuera del DOM; motor intacto —
   `evalP` sigue la curva (0→100 → 50 a mitad), `manualEdit` escribe keyframe (modelo AE, val 77), `returnToDefault`
   OK sin crash, render + `drawAutoCurve` OK, cero errores de consola. `node --check` OK.
-- **Barrido menor pendiente:** reads no-op de `_autoOff` en funciones vivas (sepAuto, returnToDefault, `drawAutoCurve`
-  var `off`, fxKfToggle, borrado de fx) — inertes; se dejaron para no tocar el hot-path del render en esta primera pasada.
+- **Barrido menor HECHO** (mismo día): quitados los reads no-op de `_autoOff` en `sepAuto`, `returnToDefault`,
+  `drawAutoCurve` (var `off` simplificada a su rama `false` en 5 puntos del hot-path), `fxKfToggle` y borrado de fx.
+  Solo queda `_autoOff` en un comentario (L463). Verificado por CDP: el canvas de automatización PINTA la curva sin error,
+  `evalP`=50, `sepAuto` OK, `manualEdit`=77. `node --check` OK.
 - **Nota de tooling:** se versionó la plomería `.claude` (skills/agents/commands/settings) con una excepción en `.gitignore`.
 
 ## ROUND 136 — Sistema de documentación / mapa vivo del proyecto
