@@ -1,5 +1,27 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 117 — Correcciones v2: Etapa 0 (Git) + Etapa 1 · [L7] modelo de automatización After Effects
+
+**Contexto:** Beltrán entregó `CORRECCIONES-V2.md` (roadmap grande post-testeo, ~40 tickets + funciones mayores, por
+etapas). Trabajo por etapas, un ticket a la vez, verificando en vivo. Detalle y decisiones en la memoria
+`correcciones-v2-roadmap`.
+
+**Etapa 0 · [D6] Git ✔** — `git init` + `.gitignore` (excluye node_modules/dist/.claude/native builds) + commit inicial +
+push a `github.com/beltranlihn/Immersive-Studio-Pro` (`main`) + tag `baseline-r116` (restauración pre-refactor). `gh` NO
+está instalado; credential-manager cacheado hace funcionar el push. El doc quedó versionado como `CORRECCIONES-V2.md`.
+
+**Etapa 1 · [L7]+[A2/D1] ✔ (commit `412a6a8`)** — "automatización no corre en Play". Reproducido por CDP: la evaluación
+base SÍ corría; el culpable era **`_autoOff`** (el override estilo Ableton: editar un valor sobre un parámetro
+automatizado lo congelaba). Cambio al modelo **After Effects** (decisión de Beltrán): `evalP` ya no lee `_autoOff` (la
+automatización NUNCA se rompe); `manualEdit` → si el parámetro ya está automatizado escribe/actualiza keyframe en el
+playhead, si no, solo cambia el valor estático. Perform-and-bake removido (REC `#autoRecBtn` oculto). Los botones "↻
+recuperar" se auto-ocultan. Verificado por CDP (editar x=99 @ t=2 en clip animado → keyframe nuevo, sin `_autoOff`; y
+no automatizado → estático). Build + deploy a las 3.
+
+**[A1] diferido a Etapa 2** (dejar un solo botón de punto está acoplado al rediseño A2-A5). Limpieza pendiente (Etapa 2):
+plumbing muerto de perform-bake/freeze + DOM de `.reEn`/`#reEnAll`. **Próximo:** [T1] clic-derecho clip, [R2] deformados
+al render, [L1]/[L2] glitches de pistas.
+
 ## ROUND 116 — Grado de color · Fase 1: import de LUT `.cube` (3D LUT en GPU)
 
 **Objetivo (Beltrán):** hacerla competitiva a nivel mercado en color. Fase 1 = **LUTs creativas `.cube`** (lo que un
