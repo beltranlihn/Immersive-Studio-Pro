@@ -1,5 +1,27 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 123 — Correcciones v2 · Etapa 5 (Compose/Nest) COMPLETA · [N1][N2][N4][N5]
+
+- **[N1] ✔ Compose/Nest se comporta como clip (scale + rotar)** — la rotación ya andaba (el path fulldome PFD usa
+  `az/spin`). Faltaba **scale**: añadido `uniform u_scale` al shader PFD (VSFD divide la coord de muestreo; FSFD hace
+  `discard` fuera de [0,1] → borde transparente limpio al reducir). Se maneja con `Size` mapeado `size/55` (55 = 1:1, el
+  default → **sin regresión** en clips fulldome existentes). Verificado por CDP (PFD compila, `LFD.scale` presente, domo
+  NO negro).
+- **[N2] ✔ Opciones del inspector según el tipo de compose** — los 3 campos rápidos ahora dependen del kind: domegrid →
+  Rings/Segments; grid → Columns/Arc; spiral/wave → Count/Turns; resto → Count/Elevation (+ Size siempre). Cambiar el
+  kind reconstruye los campos (renderInspector). Los cambios aplican live (`regenComposeNest`+`scrubRender`). Verificado.
+- **[N4] ✔ Cambios relativos dentro del nest (no se resetea)** — `regenComposeNest` ahora **reutiliza** los clips
+  internos por slot (preserva opacity/mask/fades/keyframes/fx) y aplica el layout **relativo al delta del usuario**:
+  guarda `_layBase` (baseline del layout) y hace `props = nuevoLayout + (props - baseAnterior)`. Un elemento escalado a
+  mano ya no vuelve a 0 al recomponer desde afuera. Props controlados por el layout (`warp/secAz/secEl`) SÍ siguen al
+  layout (setear/borrar). Verificado por CDP (opacity preservada; size relativo 40→base60+delta20 = 80).
+- **[N5] ✔ Dome Fill: randomization + rings no deformados** — en domegrid el inspector expone **Randomize** (baraja qué
+  medio va en cada celda, `g.shuffle`) y **Flat tiles** (`g.noWarp`: baldosas sin deformar en vez de sectores curvados;
+  `compElProps` omite `warp/secAz`). Verificado (Flat tiles quita el warp de los 8 elementos y vuelve al desactivar).
+
+**Etapa 5 completa. Roadmap: Etapas 0-5 hechas.** GOTCHA: [N1] tocó el shader PFD → probar en el `.exe` real (GPU RTX
+forzada) además del dev. Próximo: Etapa 6 (Formatos [F1]-[F8]) u otra.
+
 ## ROUND 122 — Correcciones v2 · Etapa 5 (Compose/Nest) · [N3] (parcial)
 
 - **[N3] ✔ Quitar la mask en compose** — en `_renderInspectorMain`, toda la sección de máscara (dropdown de formas/PNG,

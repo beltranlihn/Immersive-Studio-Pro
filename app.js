@@ -269,11 +269,11 @@ const quadVAO=gl.createVertexArray(); gl.bindVertexArray(quadVAO);
 gl.bindVertexArray(null);
 /* fulldome source: clip texture is already a fisheye/dome master → drawn 1:1 into the composite (no gnomonic patch warp) */
 const VSFD=`#version 300 es
-in vec2 a_p; uniform float u_mir,u_spin; out vec2 v_uv; out vec2 v_p;
-void main(){ v_p=a_p; float s=sin(u_spin),c=cos(u_spin); vec2 pr=vec2(a_p.x*c-a_p.y*s, a_p.x*s+a_p.y*c); v_uv=vec2((pr.x*u_mir)*0.5+0.5, pr.y*0.5+0.5); gl_Position=vec4(a_p,0.0,1.0); }`;
+in vec2 a_p; uniform float u_mir,u_spin,u_scale; out vec2 v_uv; out vec2 v_p;
+void main(){ v_p=a_p; float s=sin(u_spin),c=cos(u_spin); vec2 pr=vec2(a_p.x*c-a_p.y*s, a_p.x*s+a_p.y*c); pr/=max(u_scale,0.05); v_uv=vec2((pr.x*u_mir)*0.5+0.5, pr.y*0.5+0.5); gl_Position=vec4(a_p,0.0,1.0); }`; // [N1] u_scale zooms the fulldome content (scale>1 = bigger); the disc clip stays via v_p=a_p
 const FSFD=`#version 300 es
 precision highp float; in vec2 v_uv; in vec2 v_p; uniform sampler2D u_tex; uniform sampler2D u_maskTex; uniform float u_op,u_exp,u_con,u_sat,u_tmp,u_tnt,u_premul,u_mask,u_feather,u_blend,u_maskScale; out vec4 o;
-void main(){ if(length(v_p)>1.0) discard; vec4 c=texture(u_tex,v_uv); vec3 col=c.rgb;
+void main(){ if(length(v_p)>1.0) discard; if(v_uv.x<0.0||v_uv.x>1.0||v_uv.y<0.0||v_uv.y>1.0) discard; vec4 c=texture(u_tex,v_uv); vec3 col=c.rgb; // [N1] zoom-out (scale<1) samples outside the source → discard for a clean transparent border instead of edge smear
   col*=exp2(u_exp); col=(col-0.5)*(1.0+u_con)+0.5; float L=dot(col,vec3(0.2126,0.7152,0.0722)); col=mix(vec3(L),col,1.0+u_sat); col*=vec3(1.0+u_tmp,1.0,1.0-u_tmp); col*=vec3(1.0-u_tnt*0.5,1.0+u_tnt,1.0-u_tnt*0.5); col=clamp(col,0.0,1.0);
   float dz=fract(sin(dot(gl_FragCoord.xy,vec2(12.9898,78.233)))*43758.5453); col+=(dz-0.5)/255.0;
   float a=c.a; float fe=max(u_feather,0.001); vec2 p=v_p/max(u_maskScale,0.02); // mask shapes use the dome-disc coordinate (scalable)
@@ -287,7 +287,7 @@ void main(){ if(length(v_p)>1.0) discard; vec4 c=texture(u_tex,v_uv); vec3 col=c
   else if(u_blend>0.5){ o=vec4(mix(vec3(1.0),col,ef),1.0); }
   else { o=vec4(mix(col,col*ef,u_premul), ef); } }`;
 const PFD=prog(VSFD,FSFD);
-const LFD={p:gl.getAttribLocation(PFD,'a_p'),mir:gl.getUniformLocation(PFD,'u_mir'),spin:gl.getUniformLocation(PFD,'u_spin'),tex:gl.getUniformLocation(PFD,'u_tex'),op:gl.getUniformLocation(PFD,'u_op'),exp:gl.getUniformLocation(PFD,'u_exp'),con:gl.getUniformLocation(PFD,'u_con'),sat:gl.getUniformLocation(PFD,'u_sat'),tmp:gl.getUniformLocation(PFD,'u_tmp'),tnt:gl.getUniformLocation(PFD,'u_tnt'),premul:gl.getUniformLocation(PFD,'u_premul'),mask:gl.getUniformLocation(PFD,'u_mask'),feather:gl.getUniformLocation(PFD,'u_feather'),blend:gl.getUniformLocation(PFD,'u_blend'),maskTex:gl.getUniformLocation(PFD,'u_maskTex'),maskScale:gl.getUniformLocation(PFD,'u_maskScale')};
+const LFD={p:gl.getAttribLocation(PFD,'a_p'),mir:gl.getUniformLocation(PFD,'u_mir'),spin:gl.getUniformLocation(PFD,'u_spin'),tex:gl.getUniformLocation(PFD,'u_tex'),op:gl.getUniformLocation(PFD,'u_op'),exp:gl.getUniformLocation(PFD,'u_exp'),con:gl.getUniformLocation(PFD,'u_con'),sat:gl.getUniformLocation(PFD,'u_sat'),tmp:gl.getUniformLocation(PFD,'u_tmp'),tnt:gl.getUniformLocation(PFD,'u_tnt'),premul:gl.getUniformLocation(PFD,'u_premul'),mask:gl.getUniformLocation(PFD,'u_mask'),feather:gl.getUniformLocation(PFD,'u_feather'),blend:gl.getUniformLocation(PFD,'u_blend'),maskTex:gl.getUniformLocation(PFD,'u_maskTex'),maskScale:gl.getUniformLocation(PFD,'u_maskScale'),scale:gl.getUniformLocation(PFD,'u_scale')};
 const fdVAO=gl.createVertexArray(); gl.bindVertexArray(fdVAO);
 (()=>{const vb=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,vb);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,-1,1,1,-1,1]),gl.STATIC_DRAW);gl.enableVertexAttribArray(LFD.p);gl.vertexAttribPointer(LFD.p,2,gl.FLOAT,false,0,0);})();
 gl.bindVertexArray(null);
@@ -600,7 +600,7 @@ function drawClip(c,m,t,xf){
   const spin=evalR(c,'spin',t); let az=evalR(c,'az',t)+spin, el=evalR(c,'el',t); let size=Math.max(1,evalR(c,'size',t)); if(c.props.react==='audio')size*=(1+audioLevelAt(t)*(c.props.reactAmt||0)/100*1.5);
   let op=Math.max(0,Math.min(1,evalR(c,'opacity',t)/100))*fadeFactor(c,t)*(xf==null?1:xf);
   if(c.props.fulldome){ gl.useProgram(PFD); gl.bindVertexArray(fdVAO);
-    gl.uniform1f(LFD.op,op); gl.uniform1f(LFD.mir,c.props.mirror?-1:1); gl.uniform1f(LFD.spin, az*D2R); // az already folds in spin → both Spin and Orbit rotate a fulldome composition
+    gl.uniform1f(LFD.op,op); gl.uniform1f(LFD.mir,c.props.mirror?-1:1); gl.uniform1f(LFD.spin, az*D2R); gl.uniform1f(LFD.scale, Math.max(0.05, size/55)); // [N1] Size scales the fulldome content (55 = 1:1, the default → no change for existing clips); az/spin rotate it — so a compose nest behaves like a clip
     gl.uniform1f(LFD.exp,(evalP(c,'exposure',t)||0)/100); gl.uniform1f(LFD.con,(evalP(c,'contrast',t)||0)/100); gl.uniform1f(LFD.sat,(evalP(c,'saturation',t)||0)/100); gl.uniform1f(LFD.tmp,(evalP(c,'temperature',t)||0)/100*0.15); gl.uniform1f(LFD.tnt,(evalP(c,'tint',t)||0)/100*0.15);
     gl.uniform1f(LFD.mask, MASK_IDX[c.props.mask||'none']||0); gl.uniform1f(LFD.feather,(evalP(c,'feather',t)||0)/100); gl.uniform1f(LFD.maskScale, c.props.maskScale||1);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,ntex); gl.uniform1i(LFD.tex,0);
@@ -2650,21 +2650,33 @@ function _renderInspectorMain(){
     row.querySelectorAll('.wmaskchip').forEach(b=>b.onclick=()=>{ const cc=selClip(); if(!cc)return; pushUndo(); const arr=(cc.props.maskWalls||[]).slice(); const r=b.dataset.role; const i=arr.indexOf(r); if(i>=0)arr.splice(i,1); else arr.push(r); if(arr.length)cc.props.maskWalls=arr; else delete cc.props.maskWalls; renderInspector(); render(); markDirty(); }); } }
   // Composition tools — when the selected clip is a nest created from a Compose, expose its layout controls + live dome schematic
   if(m && m.comp){ const g=m.comp; const cap=s=>s.charAt(0).toUpperCase()+s.slice(1); const kinds=['ring','domegrid','grid','spiral','phyllo','wave','fib','line','random'];
+    const isDG=g.kind==='domegrid', isGrid=g.kind==='grid', isSpi=(g.kind==='spiral'||g.kind==='wave'); // [N2] the quick fields follow the compose type
+    let f1,f2; // [id, label, value, min, max, key]
+    if(isDG){ f1=['icRings',T('Rings','Anillos'),g.rings||3,1,12,'rings']; f2=['icSegs',T('Segments','Segmentos'),g.segs||8,1,48,'segs']; }
+    else if(isGrid){ f1=['icCols',T('Columns','Columnas'),g.cols||3,1,12,'cols']; f2=['icArc',T('Arc','Arco'),g.arc||140,10,360,'arc']; }
+    else if(isSpi){ f1=['icN',T('Count','Cantidad'),g.count,2,32,'count']; f2=['icTurns',T('Turns','Vueltas'),g.turns||3,1,8,'turns']; }
+    else { f1=['icN',T('Count','Cantidad'),g.count,2,32,'count']; f2=['icEl',T('Elevation','Elevación'),g.el,0,85,'el']; }
+    const fld=f=>`<label class="cmini">${f[1]}<input type="number" id="${f[0]}" value="${f[2]}" min="${f[3]}" max="${f[4]}" data-key="${f[5]}"></label>`;
+    const dgTog=isDG?`<div style="display:flex;flex-wrap:wrap;gap:10px;font-size:11px;color:var(--ink-2);">
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;" title="${T('Offset alternate rings','Desfasar anillos alternos')}"><input type="checkbox" id="icBrick" ${g.brick?'checked':''}> ${T('Brick','Ladrillo')}</label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;" title="${T('Undeformed tiles instead of warped sectors','Baldosas sin deformar en vez de sectores curvados')}"><input type="checkbox" id="icNoWarp" ${g.noWarp?'checked':''}> ${T('Flat tiles','Sin deformar')}</label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;" title="${T('Shuffle which media lands in each cell','Barajar qué medio va en cada celda')}"><input type="checkbox" id="icShuf" ${g.shuffle?'checked':''}> ${T('Randomize','Aleatorio')}</label>
+      </div>`:'';
     const crow=document.createElement('div'); crow.className='prow'; crow.style.cssText='flex-direction:column;align-items:stretch;gap:8px;background:var(--s1);border:.5px solid rgba(255,255,255,0.12);border-radius:2px;padding:8px;margin-bottom:7px;';
     crow.innerHTML=`<span class="lab" style="width:auto;color:var(--ink-2);display:flex;align-items:center;gap:6px;">${ICO('ring',12)} ${T('Composition','Composición')}</span>
       <canvas id="icPrev" width="150" height="150" style="align-self:center;border-radius:7px;"></canvas>
       <div class="kindseg" id="icKind">${kinds.map(k=>`<button data-k="${k}" class="${k===g.kind?'on':''}">${cap(kindES(k))}</button>`).join('')}</div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;">
-        <label class="cmini">${T('Count','Cantidad')}<input type="number" id="icN" value="${g.count}" min="2" max="32"></label>
-        <label class="cmini">${T('Elevation','Elevación')}<input type="number" id="icEl" value="${g.el}" min="0" max="85"></label>
-        <label class="cmini">${T('Size','Tamaño')}<input type="number" id="icSize" value="${g.size}" min="5" max="120"></label>
-      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">${fld(f1)}${fld(f2)}<label class="cmini">${T('Size','Tamaño')}<input type="number" id="icSize" value="${g.size}" min="5" max="120" data-key="size"></label></div>
+      ${dgTog}
       <button class="mbtn" id="icMore" style="width:100%;">${T('More options…','Más opciones…')}</button>`;
     $('#tfRows').insertBefore(crow,$('#tfRows').firstChild);
     const draw=()=>drawComposePreview(g,crow.querySelector('#icPrev'));
-    const apply=()=>{ pushUndo(); g.count=Math.max(2,Math.min(32,+crow.querySelector('#icN').value||g.count)); g.el=+crow.querySelector('#icEl').value; g.size=+crow.querySelector('#icSize').value; ensureRand(g); regenComposeNest(m); renderTimeline(); scrubRender(); markDirty(); draw(); }; // R88: scrubRender re-seeks the rebuilt inner videos to the CURRENT frame (no jump to frame 1)
-    crow.querySelectorAll('#icKind button').forEach(b=>b.onclick=()=>{ g.kind=b.dataset.k; crow.querySelectorAll('#icKind button').forEach(x=>x.classList.toggle('on',x===b)); apply(); });
-    ['#icN','#icEl','#icSize'].forEach(id=>{ crow.querySelector(id).onchange=apply; });
+    const apply=()=>{ pushUndo(); crow.querySelectorAll('input[data-key]').forEach(inp=>{ const k=inp.dataset.key; let v=+inp.value||0; if(k==='count')v=Math.max(2,Math.min(32,v||g.count)); g[k]=v; });
+      if(isDG){ g.brick=crow.querySelector('#icBrick').checked; const nw=crow.querySelector('#icNoWarp').checked; g.noWarp=nw; const sh=crow.querySelector('#icShuf').checked; if(sh!==g.shuffle)g._orderR=true; g.shuffle=sh; }
+      ensureRand(g); regenComposeNest(m); renderTimeline(); scrubRender(); markDirty(); draw(); }; // R88: scrubRender re-seeks the rebuilt inner videos to the CURRENT frame
+    crow.querySelectorAll('#icKind button').forEach(b=>b.onclick=()=>{ g.kind=b.dataset.k; ensureRand(g); regenComposeNest(m); renderTimeline(); scrubRender(); markDirty(); renderInspector(); }); // [N2] changing the kind rebuilds the quick fields for that type
+    crow.querySelectorAll('input[data-key]').forEach(inp=>{ inp.onchange=apply; });
+    if(isDG)['#icBrick','#icNoWarp','#icShuf'].forEach(id=>{ const el=crow.querySelector(id); if(el)el.onchange=apply; });
     crow.querySelector('#icMore').onclick=()=>openCompose(g.kind,null,m);
     draw();
   }
@@ -5762,10 +5774,11 @@ function compLayout(g){ const out=[],n=g.count;
   return out; }
 /* props for one composed element. With g.tile, the element is an annular SECTOR (dome-tile) sized to seamlessly tile its ring/grid cell — perfect rings, no diagonal overlap. */
 function compElProps(g,p){ if(p.x!=null){ return { x:Math.round(p.x*10)/10, y:Math.round(p.y*10)/10, scale:Math.round(p.scale), rot:0, mask:g.mask||'none' }; } // flat/room element: x/y/scale
-  const dome=(p._secAz!=null)||(g.tile&&(g.kind==='ring'||g.kind==='grid'));
+  const noWarp=!!g.noWarp; // [N5] Dome Fill "flat tiles": place undeformed patches at the ring/segment centres instead of warped annular sectors
+  const dome=(!noWarp&&p._secAz!=null)||(!noWarp&&g.tile&&(g.kind==='ring'||g.kind==='grid'));
   const pr={az:dome?p.az:Math.round(p.az), el:dome?p.el:Math.round(p.el), size:Math.round(p.size), mask:g.mask||'none'}; // keep centers EXACT in dome mode so adjacent sectors tile with no seam
-  if(p._secAz!=null){ pr.warp='dome'; pr.secAz=p._secAz; pr.secEl=p._secEl; } // per-element spans (domegrid)
-  else if(g.tile){ let secAz=360/Math.max(1,g.count||1), secEl=(g.band||30);
+  if(!noWarp&&p._secAz!=null){ pr.warp='dome'; pr.secAz=p._secAz; pr.secEl=p._secEl; } // per-element spans (domegrid)
+  else if(!noWarp&&g.tile){ let secAz=360/Math.max(1,g.count||1), secEl=(g.band||30);
     if(g.kind==='grid'){ const cols=Math.max(1,g.cols||1), rows=Math.max(1,Math.ceil((g.count||1)/cols)); secAz=(cols>1?(g.arc||360)/(cols-1):(g.arc||60)); secEl=(rows>1?(g.elMax-g.elMin)/(rows-1):((g.elMax-g.elMin)||30)); }
     pr.warp='dome'; pr.secAz=secAz; pr.secEl=secEl; }
   return pr; }
@@ -5805,7 +5818,7 @@ function createComposition(opts){ pushUndo();
   // build the nest: one composed element per nest-lane (no same-lane overlap → no spurious crossfade), geometry from compLayout; media cycle across elements
   const nestLanes=lay.map((p,i)=>({id:uid(),name:'V'+(i+1),tag:'V'+(i+1),kind:'video'}));
   ensureCompOrder(g,lay.length,srcs.length);
-  const nestClips=lay.map((p,i)=>{ const src=srcs[compMediaIndex(g,i,srcs.length)]; const c=makeClip(src,i,0,compElProps(g,p),{name:src.name+' ['+(i+1)+']',color:CLIP_COLORS[i%CLIP_COLORS.length]}); c.dur=dur; if(scope){ c.inP=scope.inP||0; if(scope.speed&&scope.speed!==1)c.speed=scope.speed; } return c; });
+  const nestClips=lay.map((p,i)=>{ const src=srcs[compMediaIndex(g,i,srcs.length)]; const layP=compElProps(g,p); const c=makeClip(src,i,0,layP,{name:src.name+' ['+(i+1)+']',color:CLIP_COLORS[i%CLIP_COLORS.length]}); c.dur=dur; c.slot=i; c._layBase={...layP}; if(scope){ c.inP=scope.inP||0; if(scope.speed&&scope.speed!==1)c.speed=scope.speed; } return c; }); // [N4] _layBase = the layout baseline so later recomposes preserve the user's manual delta
   if(!flat && g.kind==='line'&&g.scroll) for(const cc of nestClips) cc.anim=[{id:uid(),param:'el',mode:'linear',speed:(g.scrollSpeed!=null?g.scrollSpeed:20),amp:0,phase:0,on:true}]; // dome infinite strip: scroll along the diameter (wrap makes it reappear)
   if(flat && g.infinite) for(const cc of nestClips) cc.anim=[{id:uid(),param:'x',mode:'linear',speed:(g.scrollSpeed!=null?g.scrollSpeed:12),amp:0,phase:0,on:true}]; // 360 infinite extension: scroll horizontally (room wrap makes it seamless)
   const ncount=state.media.filter(m=>m.kind==='nest').length;
@@ -5821,9 +5834,17 @@ function createComposition(opts){ pushUndo();
 /* rebuild a compose-nest's inner clips/lanes from its stored comp params (live edit from the inspector / Recompose dialog) */
 function regenComposeNest(m){ if(!m||!m.comp)return false; const g=m.comp; const ids=(g.mediaIds&&g.mediaIds.length)?g.mediaIds:(g.mediaId!=null?[g.mediaId]:[]); const srcs=ids.map(mediaById).filter(Boolean); if(!srcs.length)return false; g.mediaIds=srcs.map(s=>s.id); g.mediaId=srcs[0].id; ensureRand(g); const flat=flatLikeMode(m.mode); const lay=flat?compLayoutFlat(g):compLayout(g);
   const dur=Math.max(0.1, m.dur||Math.max(...srcs.map(s=>s.dur||6)));
+  const prev=Array.isArray(m.nestClips)?m.nestClips:[]; // [N4] reuse the existing inner clips so per-element tweaks survive a recompose
+  for(const c of prev)if(c.slot>=lay.length&&c.maskTex){try{gl.deleteTexture(c.maskTex);}catch(e){}} // free dropped slots' masks
   m.nestLanes=lay.map((p,i)=>({id:uid(),name:'V'+(i+1),tag:'V'+(i+1),kind:'video'}));
   ensureCompOrder(g,lay.length,srcs.length);
-  m.nestClips=lay.map((p,i)=>{ const src=srcs[compMediaIndex(g,i,srcs.length)]; const c=makeClip(src,i,0,compElProps(g,p),{name:src.name+' ['+(i+1)+']',color:CLIP_COLORS[i%CLIP_COLORS.length]}); c.dur=dur; if(g.scopeInP!=null)c.inP=g.scopeInP; if(g.scopeSpeed)c.speed=g.scopeSpeed; return c; }); // R88: re-apply the persisted cut in-point (don't revert to the source's frame 0)
+  m.nestClips=lay.map((p,i)=>{ const src=srcs[compMediaIndex(g,i,srcs.length)]; const layP=compElProps(g,p); const ex=prev[i];
+    if(ex && ex.mediaId===src.id){ // [N4] keep this element's manual tweaks (opacity/mask/fades/keyframes/fx) AND apply the new layout RELATIVE to the user's delta, so a hand-scaled item doesn't snap back to 0
+      const base=ex._layBase||{};
+      for(const k in layP){ if(typeof layP[k]==='number'){ const d=(typeof ex.props[k]==='number'&&typeof base[k]==='number')?(ex.props[k]-base[k]):0; ex.props[k]=layP[k]+d; } } // numeric positional props carry the user's offset; mask (string) is left as the user set it
+      for(const k of ['warp','secAz','secEl']){ if(layP[k]!=null)ex.props[k]=layP[k]; else delete ex.props[k]; } // [N5] warp/sector props are layout-controlled (not user tweaks) → follow the layout (e.g. Flat tiles removes them)
+      ex._layBase={...layP}; ex.lane=i; ex.slot=i; ex.dur=dur; if(g.scopeInP!=null)ex.inP=g.scopeInP; if(g.scopeSpeed)ex.speed=g.scopeSpeed; return ex; }
+    const c=makeClip(src,i,0,layP,{name:src.name+' ['+(i+1)+']',color:CLIP_COLORS[i%CLIP_COLORS.length]}); c.dur=dur; c.slot=i; c._layBase={...layP}; if(g.scopeInP!=null)c.inP=g.scopeInP; if(g.scopeSpeed)c.speed=g.scopeSpeed; return c; }); // R88: re-apply the persisted cut in-point (don't revert to the source's frame 0)
   if(!flat && g.kind==='line'&&g.scroll) for(const cc of m.nestClips) cc.anim=[{id:uid(),param:'el',mode:'linear',speed:(g.scrollSpeed!=null?g.scrollSpeed:20),amp:0,phase:0,on:true}]; // dome infinite strip scroll
   if(flat && g.infinite) for(const cc of m.nestClips) cc.anim=[{id:uid(),param:'x',mode:'linear',speed:(g.scrollSpeed!=null?g.scrollSpeed:12),amp:0,phase:0,on:true}]; // 360 infinite extension scroll
   m.dur=dur; if(m.id===state.activeSeqId)loadSeqIntoState(m); raInvalidate(); return true; }
