@@ -1,5 +1,35 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 146 — [I2·Motion] efectos reactivos como no-reactivos en la sección Motion del inspector
+
+Última pieza del rediseño del inspector (sección 4 del doc): los mismos efectos de `c.fx` que hoy viven en la pestaña
+**Reactive FX** ahora también se editan en la sección **Motion** del inspector como efectos **no-reactivos** (estáticos +
+automatizables), quedando Reactive solo como el lugar donde esos efectos corren **live al audio**.
+
+- **Un solo array, dos vistas:** `fxCardHtml(c,f,reactive)` — `reactive=true` = tarjeta completa (Routing banda/modo/inv +
+  Response int/amt/atk/rel/curve/spring + Parameters); `reactive=false` = tarjeta **Motion**: solo **Intensity** + los
+  **Parameters** del efecto, todos con diamante de keyframe (kf `fx:<id>:<param>`), sin ruteo de audio ni lámpara de señal.
+- **Wiring generalizado (reuso, sin duplicar):** `wireReactiveChain(c)` → `wireFxCards(c,'#arChain',renderReactivePanel)`;
+  la sección Motion usa `wireFxCards(c,'#motionFx',renderInspector)`. Los controles solo-reactivos (`.fxband/.fxmode/.fxinv/
+  .fxshape/.fxdiv`) no existen en la tarjeta Motion → sus guardas `if(el)` simplemente no hacen nada. `fxDragHandle` y
+  `fxEditVal` parametrizados (`sel`/`reRender`; `fxEditVal`→`renderInspector`, superset que refresca ambos paneles).
+- **Add Effect en Motion:** `openFxMenu(e,true)` → `addFxToClip(c,key,true)` crea un efecto **estático visible**
+  (`int=100, band='none'`; se puede volver reactivo luego desde la pestaña Reactive). El add reactivo normal sigue igual
+  (`int=0, band='bass'`).
+- **Modelo unificado:** intensidad renderizada = `clamp01(int/100 + amt/100·mod_audio)` — Motion controla el piso estático
+  `int`; Reactive suma la modulación de audio. Un mismo efecto puede ser ambas cosas.
+- **Guardas:** la sección Motion solo se construye para clips visuales (audio y capas de ajuste retornan antes).
+- **Verificado por CDP:** tarjeta Motion sin `.fxband`, con Intensity + param `size`; el mismo efecto en Reactive SÍ trae
+  `.fxband`; kf de param crea `fx:id:size` + carril de automatización en la pista; regresión del panel Reactive intacta
+  (add reactivo = `int:0/band:bass/amt:100`, medidor y render sin error). Captura en `scratchpad/motion-fx2.png`.
+- **Ajustes de `/code-review` (5 hallazgos, aplicados y re-verificados):** (1) add desde Motion pasa a `int=60` en vez de
+  100 → deja headroom para que el audio empuje por encima si luego se hace reactivo; (2/5) nuevo **`renderMotionFx(c)`**
+  acotado = reRender propio de la sección Motion (los edits reconstruyen solo `#motionFx`, no todo el inspector — igual que
+  `renderReactivePanel` aísla su panel; `fxEditVal` recibe el `reRender`); (4) clave de colapso `_fxCollapsed` **namespaced
+  por vista** (`m:` para Motion) → colapsar en un panel no mueve el otro. (3, construir tarjetas con la sección colapsada,
+  se dejó: bajo impacto). Verificado por CDP: kf en Motion NO llama `renderInspector` (0×), colapso desacoplado, panel
+  Reactive intacto.
+
 ## ROUND 145b — Ajustes de la revisión de código (R144/R145)
 
 `/code-review` (high effort) sobre `f17f895` → 6 hallazgos, **todos corregidos y re-verificados** por CDP:

@@ -67,10 +67,28 @@
       **código muerto**. Archivados en `_backup/deprecated/20260723-…` y quitados. El modelo vigente `lane._autoP`
       (una superposición por pista) queda intacto. Verificado por CDP.
 
-## Diferido por Beltrán (para el final)
-- [ ] **[D2]** Cola/encoder de export en segundo plano (snapshot congelado).
-- [ ] **[P1]** Mac + **[D5]** instalador cerrado.
-- [ ] **[D4]** Grilla 3D infinita (sobre la costura de "output target").
+## Pendientes reales (construibles y verificables por Claude)
+- [x] **[I2·Motion]** — **HECHO (R146).** Los efectos de `c.fx` se muestran también en la sección **Motion** del inspector
+      como **no-reactivos**: cada tarjeta trae solo **Intensity + sus parámetros** (sin ruteo de banda/modo), todos
+      automatizables (diamante ◆ por fila + indicador ◆ en la cabecera), con **"Add Effect"**. Mismo `c.fx` compartido con
+      la pestaña Reactive (que sigue siendo donde corren *live al audio*). `fxCardHtml(c,f,reactive)` + wiring generalizado
+      `wireFxCards(c,sel,reRender)` + `fxDragHandle(…,sel,reRender)`; añadir desde Motion → efecto **estático** (`int=100`,
+      `band='none'`). Verificado por CDP (tarjeta sin banda, param con kf, se comparte con Reactive, regresión del panel
+      Reactive intacta: add reactivo sigue `int=0/band=bass`). _(R146)_
+- [ ] **[F7 fase 2]** — equirect en el **visor 3D** (esfera completa) + **auto-detección 2:1** al importar. La fase 1
+      (warp equirect→domo en el composite 2D, shader `PEQ`) ya está (R126). GL, verificable.
+- [ ] **[D2]** — cola/encoder de export en **segundo plano** con **snapshot congelado** del proyecto al enviar (seguir
+      editando/borrando mientras exporta; encolar varios con progreso). **Grande** pero JS + verificable. (Beltrán lo tenía
+      "para el final"; sigue en pie, es el de mayor esfuerzo.)
+
+## Necesitan el entorno de Beltrán para cerrarse
+- [ ] **[V3] Spout In** — Spout como fuente en Media (addon nativo, solo Windows). Requiere rebuild del `.node` + un
+      **emisor Spout real** para validar; Claude puede escribir todo pero no verificarlo solo.
+
+## En pausa por Beltrán (no tocar hasta aviso)
+- **[P1] Mac + [D5] instalador cerrado** — hasta que Beltrán lo pida.
+- **[D4] Grilla 3D infinita** — RETIRADA de la cola: idea que Beltrán quiere **reestructurar** antes de encararla (fase 2).
+      Solo queda la nota de diseño (dejar el mapeo de salida como capa "output target" intercambiable cuando se toque el motor).
 
 ---
 

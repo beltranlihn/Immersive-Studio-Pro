@@ -3198,6 +3198,9 @@ function _renderInspectorMain(){
     anrow.querySelectorAll('.animchip').forEach(b=>{ b.onclick=()=>{ const cc=selClip(); if(!cc)return; pushUndo(); addAnimPreset(cc,b.dataset.k); buildAnimList(cc); render(); renderTimeline(); startMotionPreview(); markDirty(); };
       b.addEventListener('dragstart', e=>{ try{ e.dataTransfer.setData('text/dsp-anim',b.dataset.k); e.dataTransfer.effectAllowed='copy'; }catch(_){} }); });
     buildAnimList(c);
+    // [I2·Motion] the SAME c.fx effects, surfaced here as NON-reactive (static intensity + automatable params). Reactive FX tab = where these run live to audio.
+    const fxb=document.createElement('div'); fxb.id='motionFx'; fxb.style.cssText='display:flex;flex-direction:column;gap:5px;margin-top:8px;';
+    $('#motionRows').appendChild(fxb); renderMotionFx(c); // scoped fill + wire (edits re-render only #motionFx, not the whole inspector)
   }
   applySecCollapse(); // [I1] Transform expanded, Clip/Color/Motion collapsed by default (persisted in state.insCol)
   refreshInspector();
@@ -7048,7 +7051,7 @@ function fxParamVal(fx,k){ if(FX_META[k]){ const cfg=ensureReactive(); return fx
 function startFxFader(e,host,fx,k,mn,mx){ e.preventDefault(); const field=e.currentTarget; const x0=e.clientX, v0=fxParamVal(fx,k), span=(mx-mn)||1; let pushed=false; const bar=field.querySelector('.track>i'), num=field.querySelector('.num');
   const mv=ev=>{ let sp=span/300; if(ev.shiftKey)sp/=5; if(ev.altKey)sp*=4; let nv=Math.max(mn,Math.min(mx,v0+(ev.clientX-x0)*sp)); nv=Math.round(nv*100)/100; if(!pushed){pushUndo();pushed=true;} setFxParam(host,fx,k,nv); if(bar)bar.style.width=((nv-mn)/span*100)+'%'; if(num)num.textContent=Math.round(nv*10)/10; if(_raOn)raInvalidate(); render(); };
   const up=()=>{ pushed=false; markDirty(); window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up); }; window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); }
-function fxEditVal(host,fx,k,field){ const mn=+field.dataset.mn,mx=+field.dataset.mx; appPrompt(field.dataset.lbl||T('Value','Valor'),String(fxParamVal(fx,k)),v=>{ if(v==null)return; const nv=parseFloat(String(v).replace(',','.')); if(isNaN(nv))return; pushUndo(); setFxParam(host,fx,k,Math.max(mn,Math.min(mx,nv))); markDirty(); if(_raOn)raInvalidate(); renderReactivePanel(); render(); }); }
+function fxEditVal(host,fx,k,field,reRender){ const mn=+field.dataset.mn,mx=+field.dataset.mx; appPrompt(field.dataset.lbl||T('Value','Valor'),String(fxParamVal(fx,k)),v=>{ if(v==null)return; const nv=parseFloat(String(v).replace(',','.')); if(isNaN(nv))return; pushUndo(); setFxParam(host,fx,k,Math.max(mn,Math.min(mx,nv))); markDirty(); if(_raOn)raInvalidate(); (reRender||renderInspector)(); render(); }); } // reRender = the host panel's scoped rebuild (renderReactivePanel or renderMotionFx)
 function fxFaderRow(host,fx,k,label,mn,mx,unit,showKf){ const v=fxParamVal(fx,k), pct=Math.max(0,Math.min(100,(v-mn)/((mx-mn)||1)*100)), kfOn=showKf&&fxHasKf(host,fx,k);
   return `<div class="prow fxrow" data-k="${k}" style="gap:6px;">
     ${showKf?`<button class="kf ${kfOn?'on':''}" data-kf title="${T('Animate','Animar')}">${ICO(kfOn?'kfFull':'kfEmpty',12)}</button>`:`<span class="kf" style="cursor:default;visibility:hidden;"></span>`}
@@ -7058,13 +7061,18 @@ function fxFaderRow(host,fx,k,label,mn,mx,unit,showKf){ const v=fxParamVal(fx,k)
 /* audio-engine fader (same look), bound to state.reactive[prop] */
 function arFaderRow(prop,label,mn,mx,val,unit){ const pct=Math.max(0,Math.min(100,(val-mn)/((mx-mn)||1)*100)); return `<div class="prow" style="gap:8px;"><span class="kf" style="cursor:default;visibility:hidden;"></span><span class="lab">${label}</span><div class="field arfld" data-prop="${prop}" data-mn="${mn}" data-mx="${mx}" data-lbl="${label}"><div class="track"><i style="width:${pct}%"></i></div><div class="box"><span class="num">${Math.round(val)}</span><span class="u">${unit}</span></div></div></div>`; }
 function fxAnyKf(c,f){ const def=FXBY[f.type]; if(!def)return false; if(fxHasKf(c,f,'int')||fxHasKf(c,f,'amt'))return true; return (def.params||[]).some(p=>fxHasKf(c,f,p.k)); } // [A5] any of this effect's parameters carries automation
-function fxCardHtml(c,f){ const def=FXBY[f.type]; if(!def)return ''; const nm=T(def.label[0],def.label[1]); const open=!_fxCollapsed.has(c.id+':'+f.id); const on=f.on!==false; const autod=fxAnyKf(c,f);
+/* reactive=true → full card in the Reactive FX panel (routing + response + params). reactive=false → the SAME effect
+   surfaced in the inspector's Motion section as a NON-reactive effect: just Intensity + its parameters, all automatable
+   ([I2·Motion]). Both edit the same c.fx entry — Reactive is only where these effects also run live to the audio. */
+function fxCardHtml(c,f,reactive){ reactive=(reactive!==false); const def=FXBY[f.type]; if(!def)return ''; const nm=T(def.label[0],def.label[1]); const open=!_fxCollapsed.has((reactive?'':'m:')+c.id+':'+f.id); const on=f.on!==false; const autod=fxAnyKf(c,f); // collapse namespaced per view (m: = Motion)
   const bands=[['bass',T('Bass','Bajo')],['mid',T('Mid','Medio')],['treble',T('Treble','Agudo')],['bright',T('Bright','Brillo')],['none',T('None','Ninguna')]];
   const modes=[['follow',T('Follow','Seguir')],['trigger',T('Trigger','Disparo')],['lfo','LFO']];
   const shapes=[['sine','Sine'],['tri','Tri'],['saw','Saw'],['square','Square'],['sh',T('Random','Aleatorio')]];
   const divs=[['4bar','4 '+T('bars','compases')],['2bar','2 '+T('bars','compases')],['1bar','1 '+T('bar','compás')],['1/2','1/2'],['1/4','1/4'],['1/8','1/8'],['1/16','1/16']];
   const isLfo=f.mode==='lfo', isFollow=(f.mode||'follow')==='follow';
-  const body = open ? `<div class="fxbody">
+  const paramsHtml = def.params.length?`<div class="fxsec">${T('Parameters','Parámetros')}</div>
+      ${def.params.map(p=>fxFaderRow(c,f,p.k,T(p.label[0],p.label[1]),p.min,p.max,p.unit,true)).join('')}`:'';
+  const body = !open ? '' : reactive ? `<div class="fxbody">
       <div class="fxsec">${T('Routing','Ruteo')}</div>
       <div class="fxseg">
         <select class="fxband selsel" title="${T('React to band','Reaccionar a la banda')}" style="flex:1;height:18px;${isLfo?'opacity:.45;':''}" ${isLfo?'disabled':''}>${bands.map(b=>`<option value="${b[0]}" ${f.band===b[0]?'selected':''}>${b[1]}</option>`).join('')}</select>
@@ -7081,9 +7089,11 @@ function fxCardHtml(c,f){ const def=FXBY[f.type]; if(!def)return ''; const nm=T(
       ${!isLfo?fxFaderRow(c,f,'atk',T('Attack','Ataque'),0,400,'ms',false)+fxFaderRow(c,f,'rel',T('Release','Caída'),10,1500,'ms',false):''}
       ${fxFaderRow(c,f,'curve',T('Curve','Curva'),0,100,'',false)}
       ${isFollow?fxFaderRow(c,f,'spring',T('Bounce','Rebote'),0,100,'',false):''}
-      ${def.params.length?`<div class="fxsec">${T('Parameters','Parámetros')}</div>
-      ${def.params.map(p=>fxFaderRow(c,f,p.k,T(p.label[0],p.label[1]),p.min,p.max,p.unit,true)).join('')}`:''}
-    </div>` : '';
+      ${paramsHtml}
+    </div>` : `<div class="fxbody">
+      ${fxFaderRow(c,f,'int',T('Intensity','Intensidad'),0,100,'%',true)}
+      ${paramsHtml}
+    </div>`; // Motion view: static intensity + params only (all keyframable)
   const ib='width:16px;height:16px;display:flex;align-items:center;justify-content:center;border-radius:2px;padding:0;cursor:pointer;';
   return `<div class="fxcard${on?'':' fxoff'}" data-fx="${f.id}" style="margin:0 10px 5px;border:.5px solid rgba(255,255,255,0.10);border-radius:2px;background:var(--s0);overflow:hidden;${on?'':'opacity:.5;'}">
     <div class="fxhdr" style="display:flex;align-items:center;gap:2px;padding:3px 5px 3px 3px;background:var(--s1);">
@@ -7091,7 +7101,7 @@ function fxCardHtml(c,f){ const def=FXBY[f.type]; if(!def)return ''; const nm=T(
       <button class="fxtog" title="${on?T('Bypass effect','Omitir efecto'):T('Enable effect','Activar efecto')}" style="${ib}color:${on?'#C9CDD3':'#565C66'};">${ICO('power',11)}</button>
       <span class="fxname" title="${T('Collapse / expand','Contraer / expandir')}" style="flex:1;min-width:0;font-size:11px;color:${on?'#DEE1E5':'#8b929c'};font-weight:600;letter-spacing:.01em;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${nm}</span>
       <span class="fxauto" title="${T('This effect has automation — right-click the header to show it','Este efecto tiene automatización — clic derecho en la cabecera para verla')}" style="flex-shrink:0;font-size:10px;color:var(--auto-live);${autod?'':'display:none;'}">◆</span>
-      <i class="fxsig" data-fxid="${f.id}" title="${T('Live modulation level','Nivel de modulación en vivo')}" style="width:26px;height:4px;border-radius:2px;background:#23262B;overflow:hidden;display:block;position:relative;margin:0 2px;"><b style="position:absolute;left:0;top:0;bottom:0;width:0%;background:var(--ink);display:block;"></b></i>
+      ${reactive?`<i class="fxsig" data-fxid="${f.id}" title="${T('Live modulation level','Nivel de modulación en vivo')}" style="width:26px;height:4px;border-radius:2px;background:#23262B;overflow:hidden;display:block;position:relative;margin:0 2px;"><b style="position:absolute;left:0;top:0;bottom:0;width:0%;background:var(--ink);display:block;"></b></i>`:''}
       <button class="fxcol" title="${open?T('Collapse','Contraer'):T('Expand','Expandir')}" style="${ib}color:var(--ink-3);"><span style="display:inline-flex;transform:rotate(${open?0:-90}deg);">${ICO('chevDown',11)}</span></button>
       <button class="fxdel" title="${T('Remove','Quitar')}" style="${ib}color:var(--ink-3);">${ICO('trash',11)}</button>
     </div>${body}</div>`; }
@@ -7136,46 +7146,59 @@ function renderReactivePanel(){ const host=$('#insReactive'); if(!host)return; c
   const adjb=$('#arAddAdj'); if(adjb)adjb.onclick=()=>addAdjustmentLayer();
   wireReactiveChain(c); arMeterStart();
 }
-function wireReactiveChain(c){ if(!c)return; $$('#arChain .fxcard').forEach(card=>{ const id=+card.dataset.fx; const f=(c.fx||[]).find(x=>x.id===id); if(!f)return;
-  const tog=card.querySelector('.fxtog'); if(tog)tog.onclick=()=>{ pushUndo(); f.on=(f.on===false); if(_raOn)raInvalidate(); render(); markDirty(); renderReactivePanel(); };
+function wireReactiveChain(c){ wireFxCards(c,'#arChain',renderReactivePanel); } // [I2·Motion] the reactive panel is one client of the shared card wiring
+/* [I2·Motion] scoped rebuild of the Motion effects block — its OWN reRender (not renderInspector), so editing an effect
+   here re-renders only #motionFx, matching how renderReactivePanel isolates the reactive chain. */
+function renderMotionFx(c){ const host=$('#motionFx'); if(!host||!c)return;
+  const fxHtml=(c.fx&&c.fx.length)?c.fx.map(f=>fxCardHtml(c,f,false)).join(''):`<div style="padding:1px 2px 3px;color:var(--ink-dim);font-size:11px;line-height:1.4;">${T('No effects yet. Distortion, stylize, color… added here run as static, keyframable effects.','Sin efectos aún. Distorsión, estilizado, color… añadidos aquí corren como efectos estáticos y automatizables.')}</div>`;
+  host.innerHTML=`<div class="fxsec" style="margin:0 10px;">${T('Effects','Efectos')}</div>${fxHtml}<div style="padding:2px 10px 0;"><button class="mbtn" id="motionAddFx" style="width:100%;justify-content:center;gap:6px;height:24px;font-size:11px;border-radius:2px;">${ICO('plus',12)} ${T('Add Effect','Añadir efecto')}</button></div>`;
+  { const mAdd=$('#motionAddFx'); if(mAdd)mAdd.onclick=(ev)=>openFxMenu(ev,true); } // motion → static effect (int seeded visible, no audio routing)
+  wireFxCards(c,'#motionFx',()=>renderMotionFx(c)); }
+/* wire every .fxcard under `sel` (reactive chain OR the Motion section); reRender() refreshes the host panel after edits.
+   Reactive-only controls (band/mode/inv/shape/div) are absent from Motion cards, so their `if(el)` guards simply no-op.
+   Collapse state is namespaced per view (`m:` for Motion) so a card's collapse in one panel doesn't move it in the other. */
+function wireFxCards(c,sel,reRender){ if(!c)return; const cp=(sel==='#motionFx')?'m:':''; $$(sel+' .fxcard').forEach(card=>{ const id=+card.dataset.fx; const f=(c.fx||[]).find(x=>x.id===id); if(!f)return;
+  const tog=card.querySelector('.fxtog'); if(tog)tog.onclick=()=>{ pushUndo(); f.on=(f.on===false); if(_raOn)raInvalidate(); render(); markDirty(); reRender(); };
   { const hdr=card.querySelector('.fxhdr'); if(hdr)hdr.oncontextmenu=ev=>{ ev.preventDefault(); ev.stopPropagation(); openMenu(ev.clientX,ev.clientY,[ // [A3] right-click the effect → Show Automation (reveals its curve on the track)
     {label:T('Show Automation','Mostrar automatización'),ico:'curves',fn:()=>fxShowAutomation(c,f)},
-    {label:(f.on===false)?T('Enable effect','Activar efecto'):T('Bypass effect','Omitir efecto'),fn:()=>{ pushUndo(); f.on=(f.on===false); if(_raOn)raInvalidate(); render(); markDirty(); renderReactivePanel(); }},
+    {label:(f.on===false)?T('Enable effect','Activar efecto'):T('Bypass effect','Omitir efecto'),fn:()=>{ pushUndo(); f.on=(f.on===false); if(_raOn)raInvalidate(); render(); markDirty(); reRender(); }},
     'sep',
     {label:T('Remove','Quitar'),danger:true,fn:()=>{ const del=card.querySelector('.fxdel'); if(del)del.onclick&&del.onclick(); }}
   ]); }; }
-  const _coll=()=>{ const ck=c.id+':'+id; if(_fxCollapsed.has(ck))_fxCollapsed.delete(ck); else _fxCollapsed.add(ck); renderReactivePanel(); };
+  const _coll=()=>{ const ck=cp+c.id+':'+id; if(_fxCollapsed.has(ck))_fxCollapsed.delete(ck); else _fxCollapsed.add(ck); reRender(); };
   const col=card.querySelector('.fxcol'); if(col)col.onclick=_coll;
   const nmEl=card.querySelector('.fxname'); if(nmEl)nmEl.onclick=_coll;
-  const del=card.querySelector('.fxdel'); if(del)del.onclick=()=>{ pushUndo(); freeFxHistOne(c.id,id); _fxCollapsed.delete(c.id+':'+id); c.fx=(c.fx||[]).filter(x=>x.id!==id);
+  const del=card.querySelector('.fxdel'); if(del)del.onclick=()=>{ pushUndo(); freeFxHistOne(c.id,id); _fxCollapsed.delete(cp+c.id+':'+id); c.fx=(c.fx||[]).filter(x=>x.id!==id);
     const pre='fx:'+id+':'; if(c.kf)for(const k of Object.keys(c.kf))if(k.indexOf(pre)===0)delete c.kf[k]; if(state.autoSel&&state.autoSel.cid===c.id&&state.autoSel.p.indexOf(pre)===0)state.autoSel=null;
     for(const l of state.lanes){ if(l._autoP&&isFxtKey(l._autoP)&&!laneFxTypes(state.lanes.indexOf(l)).includes(l._autoP.split(':')[1]))delete l._autoP; } // [R93] si el TIPO de fx dejó la pista, quita su superposición · [R143] el filtro de lane._auto (sub-carriles) se archivó
-    renderReactivePanel(); renderTimeline(); render(); markDirty(); };
-  const drag=card.querySelector('.fxdrag'); if(drag)drag.addEventListener('pointerdown',e=>fxDragHandle(e,c,id));
+    reRender(); renderTimeline(); render(); markDirty(); };
+  const drag=card.querySelector('.fxdrag'); if(drag)drag.addEventListener('pointerdown',e=>fxDragHandle(e,c,id,sel,reRender));
   const bs=card.querySelector('.fxband'); if(bs)bs.onchange=e=>{ pushUndo(); f.band=e.target.value; if(_raOn)raInvalidate(); render(); markDirty(); };
-  const ms=card.querySelector('.fxmode'); if(ms)ms.onchange=e=>{ pushUndo(); f.mode=e.target.value; if(_raOn)raInvalidate(); render(); markDirty(); renderReactivePanel(); }; // re-render: the body swaps LFO/shaping rows per mode
-  const iv=card.querySelector('.fxinv'); if(iv)iv.onclick=()=>{ pushUndo(); f.inv=!f.inv; if(_raOn)raInvalidate(); render(); markDirty(); renderReactivePanel(); };
+  const ms=card.querySelector('.fxmode'); if(ms)ms.onchange=e=>{ pushUndo(); f.mode=e.target.value; if(_raOn)raInvalidate(); render(); markDirty(); reRender(); }; // re-render: the body swaps LFO/shaping rows per mode
+  const iv=card.querySelector('.fxinv'); if(iv)iv.onclick=()=>{ pushUndo(); f.inv=!f.inv; if(_raOn)raInvalidate(); render(); markDirty(); reRender(); };
   const shp=card.querySelector('.fxshape'); if(shp)shp.onchange=e=>{ pushUndo(); f.lfoShape=e.target.value; if(_raOn)raInvalidate(); render(); markDirty(); };
   const dv=card.querySelector('.fxdiv'); if(dv)dv.onchange=e=>{ pushUndo(); f.lfoDiv=e.target.value; if(_raOn)raInvalidate(); render(); markDirty(); };
   card.querySelectorAll('.fxrow').forEach(row=>{ const k=row.dataset.k, field=row.querySelector('.field');
-    if(field){ field.addEventListener('pointerdown',ev=>{ if(ev.button!==0||ev.target.tagName==='INPUT')return; startFxFader(ev,c,f,k,+field.dataset.mn,+field.dataset.mx); }); field.addEventListener('dblclick',()=>fxEditVal(c,f,k,field)); }
-    const kf=row.querySelector('.kf[data-kf]'); if(kf)kf.onclick=()=>{ fxKfToggle(c,f,k); renderReactivePanel(); render(); }; });
+    if(field){ field.addEventListener('pointerdown',ev=>{ if(ev.button!==0||ev.target.tagName==='INPUT')return; startFxFader(ev,c,f,k,+field.dataset.mn,+field.dataset.mx); }); field.addEventListener('dblclick',()=>fxEditVal(c,f,k,field,reRender)); }
+    const kf=row.querySelector('.kf[data-kf]'); if(kf)kf.onclick=()=>{ fxKfToggle(c,f,k); reRender(); render(); }; });
 }); }
-function addFxToClip(c,key){ if(!c)return; pushUndo(); if(!c.fx)c.fx=[]; c.fx.push(newFx(key));
-  if(ensureReactive().srcClipId==null){ const a=reactiveAudioClips()[0]; if(a){ ensureReactive().srcClipId=a.id; const m=mediaById(a.mediaId); if(m&&!m.bands)armMediaBands(m,m.buffer); arRecompute(); } }
-  renderReactivePanel(); render(); markDirty(); }
-function openFxMenu(e){ const c=selClip(); if(!c){ flashStatus(T('Select a clip first','Selecciona un clip primero')); return; }
+function addFxToClip(c,key,motion){ if(!c)return; pushUndo(); if(!c.fx)c.fx=[]; const f=newFx(key);
+  if(motion){ f.int=60; f.band='none'; } // [I2·Motion] added from Motion → a visible STATIC effect, but int<100 leaves headroom so it can still be driven by audio (Reactivity adds on top) if made reactive later
+  c.fx.push(f);
+  if(!motion&&ensureReactive().srcClipId==null){ const a=reactiveAudioClips()[0]; if(a){ ensureReactive().srcClipId=a.id; const m=mediaById(a.mediaId); if(m&&!m.bands)armMediaBands(m,m.buffer); arRecompute(); } }
+  renderInspector(); render(); markDirty(); } // renderInspector refreshes both the Motion section and the Reactive panel
+function openFxMenu(e,motion){ const c=selClip(); if(!c){ flashStatus(T('Select a clip first','Selecciona un clip primero')); return; }
   const items=[]; let first=true;
   for(const cat of ['distort','stylize','color','feedback','dome']){ const defs=FXTYPES.filter(d=>d.cat===cat); if(!defs.length)continue; if(!first)items.push('sep'); first=false;
-    for(const d of defs) items.push({label:T(d.label[0],d.label[1]), fn:()=>addFxToClip(c,d.key)}); }
+    for(const d of defs) items.push({label:T(d.label[0],d.label[1]), fn:()=>addFxToClip(c,d.key,motion)}); }
   const r=e.target.getBoundingClientRect(); openMenu(r.left, Math.max(46, r.top-8-Math.min(items.length,20)*22), items); }
-/* drag-reorder an effect card by its grip */
-function fxDragHandle(e,host,fxId){ e.preventDefault(); const chain=$('#arChain'); if(!chain)return; const card=[...chain.querySelectorAll('.fxcard')].find(cc=>+cc.dataset.fx===fxId); if(!card)return;
+/* drag-reorder an effect card by its grip — in the reactive chain OR the Motion section (sel + reRender) */
+function fxDragHandle(e,host,fxId,sel,reRender){ sel=sel||'#arChain'; reRender=reRender||renderReactivePanel; e.preventDefault(); const chain=$(sel); if(!chain)return; const card=[...chain.querySelectorAll('.fxcard')].find(cc=>+cc.dataset.fx===fxId); if(!card)return;
   card.style.opacity='0.4'; chain.style.position='relative';
   const ind=document.createElement('div'); ind.style.cssText='position:absolute;left:12px;right:12px;height:2px;background:var(--ink-2);border-radius:2px;pointer-events:none;z-index:9;'; chain.appendChild(ind);
   let target=host.fx.findIndex(f=>f.id===fxId);
   const move=ev=>{ const cs=[...chain.querySelectorAll('.fxcard')]; target=cs.length; for(let i=0;i<cs.length;i++){ const r=cs[i].getBoundingClientRect(); if(ev.clientY < r.top + r.height/2){ target=i; break; } } const cr=chain.getBoundingClientRect(); let y; if(target<cs.length){ y=cs[target].getBoundingClientRect().top-cr.top; } else { const last=cs[cs.length-1].getBoundingClientRect(); y=last.bottom-cr.top; } ind.style.top=(y-1)+'px'; };
-  const up=()=>{ window.removeEventListener('pointermove',move); window.removeEventListener('pointerup',up); ind.remove(); const from=host.fx.findIndex(f=>f.id===fxId); let to=target; if(to>from)to--; if(to!==from && to>=0){ pushUndo(); const [it]=host.fx.splice(from,1); host.fx.splice(Math.max(0,Math.min(host.fx.length,to)),0,it); markDirty(); if(_raOn)raInvalidate(); render(); } renderReactivePanel(); };
+  const up=()=>{ window.removeEventListener('pointermove',move); window.removeEventListener('pointerup',up); ind.remove(); const from=host.fx.findIndex(f=>f.id===fxId); let to=target; if(to>from)to--; if(to!==from && to>=0){ pushUndo(); const [it]=host.fx.splice(from,1); host.fx.splice(Math.max(0,Math.min(host.fx.length,to)),0,it); markDirty(); if(_raOn)raInvalidate(); render(); } reRender(); };
   window.addEventListener('pointermove',move); window.addEventListener('pointerup',up); }
 let _arMeterRaf=0;
 function arMeterStart(){ if(_arMeterRaf)return; const tick=()=>{ _arMeterRaf=0; if(state.inspTab!=='react'||!$('#arMeter'))return; arDrawMeter(); arDrawSigs(); _arMeterRaf=requestAnimationFrame(tick); }; _arMeterRaf=requestAnimationFrame(tick); }
