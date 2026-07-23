@@ -2178,14 +2178,15 @@ const ONBOARD_KEY='dspOnboardV1';
 function onboardDone(){ try{ return localStorage.getItem(ONBOARD_KEY)==='1'; }catch(e){ return false; } }
 function setOnboardDone(){ try{ localStorage.setItem(ONBOARD_KEY,'1'); }catch(e){} }
 /* one reference shape → its own media + a clip placed explicitly (lane/time/dome-position) */
+/* shared tail: register a demo media, drop a clip on a given lane/time, then set its dome position */
+function _demoPlace(m,lane,start,dur,az,el,size){ state.media.push(m); addClip(m,lane,start);
+  const c=state.clips[state.clips.length-1]; if(c){ c.dur=dur; if(c.props){ c.props.az=az; c.props.el=el; c.props.size=size; } } return c; }
 function _demoAddShape(shape,fill,lane,start,dur,az,el,size){
   const m={id:uid(),kind:'shape',name:T('Shape','Forma'),shape,fill,stroke:'#0E0F11',strokeW:0,sw:512,sh:512,dur,fps:0,color:clipColorFor('shape')};
-  renderShapeMedia(m); state.media.push(m); addClip(m,lane,start);
-  const c=state.clips[state.clips.length-1]; if(c){ c.dur=dur; if(c.props){ c.props.az=az; c.props.el=el; c.props.size=size; } } return c; }
+  renderShapeMedia(m); return _demoPlace(m,lane,start,dur,az,el,size); }
 function _demoAddText(text,lane,start,dur,az,el,size){
   const m={id:uid(),kind:'text',name:text,text,tfontSize:150,tweight:'700',tfont:'Inter, sans-serif',tcolor:'#F2F4F6',tbg:'transparent',tstroke:false,tstrokeColor:'#000',dur,fps:0,color:clipColorFor('text')};
-  renderTextMedia(m); state.media.push(m); addClip(m,lane,start);
-  const c=state.clips[state.clips.length-1]; if(c){ c.dur=dur; if(c.props){ c.props.az=az; c.props.el=el; c.props.size=size; } } return c; }
+  renderTextMedia(m); return _demoPlace(m,lane,start,dur,az,el,size); }
 async function buildDemoProject(){ hideLanding();
   await newProject('dome',4096,4096,60,180); // fresh dome sequence (4 video + 1 audio lane)
   // a little reference scene across the dome — title up top, three basic shapes on their own tracks
@@ -2198,14 +2199,15 @@ async function buildDemoProject(){ hideLanding();
   renderMedia(); renderTimeline(); renderInspector(); render(); projTitle(); }
 /* ---- the coach-mark tour ---- */
 let _tourStop=null;
-function tourSteps(){ return [
-  {sel:null,      title:T('Welcome to Immersive Studio Pro','Bienvenido a Immersive Studio Pro'), body:T('A quick tour of the essentials. This demo scene is yours to play with — skip any time.','Un recorrido rápido por lo esencial. Esta escena de ejemplo es para experimentar — puedes saltarlo cuando quieras.')},
+/* demo=true → first-run copy that references the demo scene; false (menu relaunch) → generic copy true on any project */
+function tourSteps(demo){ return [
+  {sel:null,      title:T('Welcome to Immersive Studio Pro','Bienvenido a Immersive Studio Pro'), body:demo?T('A quick tour of the essentials. This demo scene is yours to play with — skip any time.','Un recorrido rápido por lo esencial. Esta escena de ejemplo es para experimentar — puedes saltarlo cuando quieras.'):T('A quick tour of the essentials — skip any time.','Un recorrido rápido por lo esencial — puedes saltarlo cuando quieras.')},
   {sel:'#stage',  title:T('The viewport','El visor'), body:T('Your dome, 2D or 360-room composite renders here live. Drag a shape to reposition it, or scrub the timeline.','Tu composición domo, 2D o sala 360 se renderiza aquí en vivo. Arrastra una forma para recolocarla, o desplaza la línea de tiempo.')},
-  {sel:'.timeline',title:T('The timeline','La línea de tiempo'), body:T('Clips stack on tracks over time. This demo already holds a few reference shapes on separate tracks.','Los clips se apilan en pistas a lo largo del tiempo. Esta demo ya trae varias formas de referencia en pistas separadas.')},
+  {sel:'.timeline',title:T('The timeline','La línea de tiempo'), body:demo?T('Clips stack on tracks over time. This demo already holds a few reference shapes on separate tracks.','Los clips se apilan en pistas a lo largo del tiempo. Esta demo ya trae varias formas de referencia en pistas separadas.'):T('Clips stack on tracks over time — arrange your media here.','Los clips se apilan en pistas a lo largo del tiempo — organiza tus medios aquí.')},
   {sel:'#inspPane',title:T('The inspector','El inspector'), body:T('Select a clip to shape its position, look, animation and audio-reactive FX right here.','Selecciona un clip para ajustar su posición, aspecto, animación y FX reactivos al audio aquí mismo.')},
   {sel:'#exportBtn',title:T('Export','Exportar'), body:T('When your piece is ready, render it to a video file or an image sequence.','Cuando tu obra esté lista, renderízala a un vídeo o a una secuencia de imágenes.')} ]; }
-function startTour(){ if(document.getElementById('tourOv'))return; const steps=tourSteps(); let i=0;
-  const ov=document.createElement('div'); ov.id='tourOv'; ov.style.cssText='position:fixed;inset:0;z-index:500;'; // transparent catcher: blocks stray clicks on the app mid-tour; the dim comes from the hole's box-shadow
+function startTour(demo){ if(document.getElementById('tourOv'))return; const steps=tourSteps(demo); let i=0;
+  const ov=document.createElement('div'); ov.id='tourOv'; ov.style.cssText='position:fixed;inset:0;z-index:45;'; // transparent catcher: blocks stray clicks on the app mid-tour; the dim comes from the hole's box-shadow. z-45 = above app chrome but BELOW .overlay dialogs (z-50) so a close-confirm stays clickable
   const hole=document.createElement('div'); hole.style.cssText='position:fixed;border-radius:8px;pointer-events:none;box-shadow:0 0 0 9999px rgba(11,12,14,0.74);outline:1.5px solid rgba(201,205,211,0.55);'+(state.prefs.reducedMotion?'':'transition:all .25s cubic-bezier(.4,0,.2,1);');
   const card=document.createElement('div'); card.style.cssText='position:fixed;width:288px;background:var(--s1);border:.5px solid rgba(255,255,255,0.12);border-radius:9px;padding:15px 16px;box-shadow:0 12px 34px rgba(0,0,0,0.55);pointer-events:auto;';
   ov.appendChild(hole); ov.appendChild(card); document.body.appendChild(ov);
@@ -2232,8 +2234,10 @@ function startTour(){ if(document.getElementById('tourOv'))return; const steps=t
     card.style.left=cx+'px'; card.style.top=cy+'px'; }
   const onk=e=>{ e.stopPropagation(); if(e.key==='Escape'){e.preventDefault();end();} else if(e.key==='ArrowRight'||e.key==='Enter'){e.preventDefault(); if(i===steps.length-1)end(); else go(1);} else if(e.key==='ArrowLeft'){e.preventDefault();go(-1);} };
   document.addEventListener('keydown',onk,true); window.addEventListener('resize',draw); draw(); }
-/* first-run entry (init) and the Help/Window re-launch both route here */
-async function startOnboarding(){ if(_tourStop)_tourStop(); await buildDemoProject(); startTour(); }
+/* first-run entry (init routes here); the Help/Window re-launch calls startTour() directly (non-destructive) */
+async function startOnboarding(){ if(_tourStop)_tourStop();
+  try{ await buildDemoProject(); startTour(true); }
+  catch(e){ try{diag('error','onboard','build failed',{err:String((e&&e.message)||e)});}catch(_){} try{showLanding();}catch(_){} } } // never strand the user on a blank editor: fall back to the start screen
 
 /* edit a label in place (contenteditable) — Enter commits, Esc cancels, blur commits. Used for clip/track/sequence rename so the edit happens where the text is, not in a floating dialog. */
 function inlineEdit(el,value,commit){ if(!el)return false; try{closeMenu();}catch(e){}
@@ -7184,7 +7188,7 @@ let _arPeaks=null, _arSpecBuf=null; // [X1] peak-hold caps (length-tracked to th
    4-band fallback until that FFT is ready. Crisp on any panel width / hi-dpi, perceptual bar heights, energy-lit
    gradient fill, slow-falling peak caps, a frequency ruler, an onset frost and the phase-locked beat blink. */
 function arDrawMeter(){ const cv=$('#arMeter'); if(!cv)return; const x=cv.getContext('2d');
-  const dpr=Math.min(2,window.devicePixelRatio||1); const cw=cv.clientWidth||252, chp=cv.clientHeight||54;
+  const dpr=Math.min(2,window.devicePixelRatio||1); const cw=cv.clientWidth||252, chp=cv.clientHeight||62;
   const nw=Math.round(cw*dpr), nh=Math.round(chp*dpr); if(cv.width!==nw||cv.height!==nh){ cv.width=nw; cv.height=nh; }
   x.setTransform(dpr,0,0,dpr,0,0); const W=cw, H=chp; x.clearRect(0,0,W,H);
   const t=state.playhead;
@@ -7198,11 +7202,10 @@ function arDrawMeter(){ const cv=$('#arMeter'); if(!cv)return; const x=cv.getCon
   x.fillStyle=UI.lineSoft||'#2A2E35'; x.fillRect(pad,baseY+0.5,W-2*pad,1); // baseline
   const slot=(W-2*pad)/N, gap=Math.min(3,Math.max(1,slot*0.22)), bwid=Math.max(1,slot-gap);
   const shape=v=>Math.pow(v<0?0:v>1?1:v,0.55); // perceptual lift: peak-normalised FFT bins are small; loud still tops out
+  const grad=x.createLinearGradient(0,baseY,0,topY); grad.addColorStop(0,'#3A414B'); grad.addColorStop(1,'#E1E7ED'); // ONE energy gradient reused by every bar (taller bar reaches brighter) — no per-bar alloc in the rAF loop
   for(let i=0;i<N;i++){ const lv=shape(levels[i]); const bx=pad+i*slot+gap/2;
     x.fillStyle='#161B24'; _rrect(x,bx,topY,bwid,area,1.5); // trough
-    const bh=lv*area; if(bh>0.6){ const gy=baseY-bh; const gr=x.createLinearGradient(0,baseY,0,gy);
-      const tl=90+Math.round(lv*135); gr.addColorStop(0,'#3A414B'); gr.addColorStop(1,'rgb('+tl+','+(tl+6)+','+Math.min(255,tl+12)+')'); // energy reads as light
-      x.fillStyle=gr; _rrect(x,bx,gy,bwid,bh,1.5); }
+    const bh=lv*area; if(bh>0.6){ x.fillStyle=grad; _rrect(x,bx,baseY-bh,bwid,bh,1.5); } // energy reads as light
     let pk=_arPeaks[i]; pk=(lv>=pk)?lv:Math.max(lv,pk-0.018); _arPeaks[i]=pk; // slow-falling peak cap
     x.fillStyle='rgba(242,244,246,'+(0.32+0.5*pk).toFixed(2)+')'; x.fillRect(bx,baseY-Math.max(1.4,pk*area)-1,bwid,1.4); }
   x.textAlign='center'; x.textBaseline='alphabetic';

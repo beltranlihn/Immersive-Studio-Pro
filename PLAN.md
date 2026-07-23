@@ -1,5 +1,22 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 145b — Ajustes de la revisión de código (R144/R145)
+
+`/code-review` (high effort) sobre `f17f895` → 6 hallazgos, **todos corregidos y re-verificados** por CDP:
+- **#1 (correctness)** — el tour `#tourOv` estaba a `z-index:500`, por encima de los diálogos `.overlay` (z-50): un
+  confirm de cierre (proyecto sucio) durante el tour quedaba tapado e inclicable. → **z-45** (sobre el chrome de la app,
+  **debajo** de los diálogos). Verificado: `getComputedStyle(#tourOv).zIndex===45 < 50`.
+- **#2 (robustez)** — `startOnboarding` era fire-and-forget sin try/catch: si `buildDemoProject` tiraba, no salía ni el
+  tour ni el landing → editor en blanco, flag sin fijar, reintento cada arranque. → try/catch que cae a `showLanding()`.
+  Verificado forzando un throw: `crashed:false, landingShown:true`.
+- **#3 (copy)** — el relanzado desde **Window → Guided tour** mostraba copy del demo ("This demo scene is yours…") sobre
+  el proyecto real del usuario. → `tourSteps(demo)`/`startTour(demo)`: `true` en primera apertura (menciona el demo),
+  `false`/ausente en el relanzado (copy genérico). Verificado: `tlGenHasDemo:false, tlDemoHasDemo:true`.
+- **#4 (eficiencia)** — `arDrawMeter` creaba 32 `createLinearGradient` por frame en el rAF. → **un solo** gradiente
+  vertical compartido por todas las barras (barra más alta llega más claro; mismo look). Re-verificado por captura.
+- **#5 (simplificación)** — `_demoAddShape`/`_demoAddText` duplicaban la cola push+addClip+props → extraída `_demoPlace`.
+- **#6 (cosmético)** — fallback `cv.clientHeight||54` desfasado (el canvas es 62) → `||62`.
+
 ## ROUND 145 — [D7] Onboarding (proyecto-demo de primera apertura + tour guiado)
 
 Al abrir por primera vez (flag `dspOnboardV1` ausente en localStorage) la app ahora **salta el landing**, arma un
