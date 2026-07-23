@@ -66,7 +66,7 @@
 | Razor & split | Cortar clip / Ctrl+E | app.js · `razorCore`/`splitAtSelection` | ✅ | — |
 | Selección temporal & marquee | Selección por span/rect → loop | app.js · `startTimeSelect`/`startMarquee` | ✅ | — |
 | Snap | Snap a borde/playhead/marcador/grilla | app.js · `applySnap`/`snapTargets` | ✅ | [T2] |
-| Zoom | Zoom anclado al cursor | app.js · `tlZoomAt`/`zoomToClip` | ✅ | [T2],[T3] |
+| Zoom | Zoom anclado al cursor (+ scrollbar custom `#tlZoomBar` con caps de zoom) | app.js · `tlZoomAt`/`zoomToClip`/`renderZoomBar` | ✅ | — |
 | Modo simple-clip | Agarre Premiere vs Ableton | app.js · `toggleSimpleClips` | ✅ | — |
 | Regla & playhead | Scrub + arrastre de locator | app.js · #ruler pointerdown / `positionPlayhead` | ✅ | — |
 | Marcadores / locators | Marcadores temporales con nombre | app.js · `addMarker`/`jumpMarker` | ✅ | — |
@@ -606,7 +606,8 @@ separate subsystem — only cross-references appear here.
 - **Key symbols:** `neededSec()` (L2577) grows content width to cover the scroll target during the render.
 - **Invariants / gotchas:** `pxPerSec` clamped `[TL_PPS_MIN, TL_PPS_MAX]` = `[0.1, 2400]` (const at L112; 0.1 floor fits feature-length clips, 2400 ceiling gives ~40–80px/frame for the [T2] per-frame trim snap). All 4 zoom entry points (buttons, wheel-Ctrl, ± keys, `zoomToClip`) use the consts. `_scrollTarget` is published BEFORE render so width grows first, then `scrollLeft` is applied unclamped — keeps the cursor time fixed.
 - **Status:** ✅
-- **Roadmap:** [T3] scrollbar-end zoom circles
+- **Roadmap:** —
+- **[T3] Zoom-scrollbar (`#tlZoomBar`):** custom Premiere-style bar replacing the native h-scrollbar (`.tlscroll` is `overflow-x:hidden`). `renderZoomBar()` aligns the track under `#tlscroll` (live rects) and sizes the thumb = `clientWidth/scrollWidth`; `startZoomBarDrag` (thumb body) scrolls via `scrollLeft`; `startZoomCapDrag(e,side)` (circular end-caps `.tlzcap`) zooms, keeping the OPPOSITE edge's time fixed (recomputes `pxPerSec=clientWidth/winDur`, clamped to `TL_PPS_MIN/MAX`, then the `_scrollTarget` grow-then-scroll trick). Repainted from the `#tlscroll` scroll handler + end of `renderTimeline`. Native h-scroll gone → `hsb`=0 so the header `marginBottom` compensation is now a no-op.
 
 ## Simple-clip mode
 - **Purpose:** Toggle between Premiere-style whole-clip grab (default) and Ableton-style title-band-only grab (body drags a range).

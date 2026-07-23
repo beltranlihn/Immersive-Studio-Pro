@@ -1,6 +1,27 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
-## ROUND 138 — Cola NEXT: [T5] Mute · [R3] Pestañas · grado PFD/PEQ · [T2] Trim · [V1] Viewer 2D/3D · [T4] Faders · [X2] FX cards
+## ROUND 138 — Cola NEXT completa: [T5] · [R3] · grado PFD/PEQ · [T2] · [V1] · [T4] · [X2] · [T3] (+ deploy + validación CDP)
+
+Ronda maratónica: se vació la cola near-term de `docs/NEXT.md` (8 items), se compiló/deployó a las 3 instalaciones y se
+pusheó, y se validó el build real por CDP (smoke test: `glFallback:false`, todas las funciones post-shader existen →
+los shaders PFD/PEQ compilaron; `bindClipLUT` arity 2; faders `.vfader` con `--pct`; `.fxsec` estilado; `render()` ok).
+
+### [T3] Scrollbar de zoom estilo Premiere (`#tlZoomBar`)
+
+La barra de scroll horizontal nativa de `#tlscroll` se reemplazó por una custom con **caps circulares de zoom**:
+
+- **CSS/DOM** (index.html): `.tlscroll` pasa a `overflow-x:hidden;overflow-y:auto` (barra nativa oculta). Nuevo
+  `#tlZoomBar > #tlZoomTrack > #tlZoomThumb > .tlzcap.l/.r` (dos círculos en los extremos del thumb).
+- **JS** (app.js): `renderZoomBar()` alinea la pista bajo `#tlscroll` (rects vivos) y dimensiona el thumb =
+  `clientWidth/scrollWidth`. `startZoomBarDrag` (cuerpo del thumb) hace scroll fijando `scrollLeft`. `startZoomCapDrag(e,side)`
+  (caps) hace **zoom anclando el borde opuesto**: recalcula `pxPerSec=clientWidth/winDur` (clamp `TL_PPS_MIN/MAX`) y usa el
+  truco `_scrollTarget` (crecer el ancho antes de scrollear). Se repinta desde el handler de scroll y al final de
+  `renderTimeline`. Con la barra nativa oculta, `hsb`=0 → la compensación de `marginBottom` del header queda inerte.
+- **Verificado por CDP** (dev electron): thumb 869→532px al hacer zoom-in ×6 (se angosta con el contenido); `thumbLeft`
+  sigue el `scrollLeft` (50% → left 434); cap derecho arrastrado 70px a la izquierda → zoom-in (contenido 3662→4217) con
+  el `scrollLeft` escalado en la MISMA razón (borde izquierdo anclado). `node --check` OK.
+
+### [X2] Layout de las tarjetas de FX reactivos
 
 ### [X2] Layout de las tarjetas de FX reactivos
 

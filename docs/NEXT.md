@@ -13,8 +13,10 @@
       evita que el clic final además cambie de secuencia. El orden persiste (`serProject`). _(R138)_
 
 ## Media mañana (acotado, alto valor) 🟡
-- [ ] **[T3] Círculos de zoom en la barra de scroll** (estilo Premiere) — handles circulares en los extremos de `#tlscroll`
-      que al arrastrarlos acercan/alejan. _Toca:_ Timeline (`tlZoomAt`, `#tlscroll`).
+- [x] **[T3] Círculos de zoom en la barra de scroll** (estilo Premiere) — scrollbar custom `#tlZoomBar`: se ocultó la
+      barra nativa (`overflow-x:hidden`) y se añadió un thumb (arrastrar cuerpo = scroll) con **cap circular en cada
+      extremo** que al arrastrarlo hace zoom anclando el borde opuesto (`renderZoomBar`/`startZoomBarDrag`/`startZoomCapDrag`).
+      Verificado por CDP: thumb dimensiona con el zoom, sigue el scroll, y el cap-drag ancla el borde opuesto. _(R138)_
 - [x] **Grade en fulldome/equirect (gap PFD/PEQ) — CERRADO** — FSFD/FSEQ ahora aplican ruedas/curvas/LUT igual que FSW;
       las tres funciones `bindClipLUT/Grade/Curve` aceptan un struct de ubicaciones `L` (default `LW`) y las rutas PFD/PEQ
       llaman `bindClipLUT(c,LFD/LEQ)` (LUT unit 2, curva unit 3). Identidad por defecto → clips existentes sin cambio.

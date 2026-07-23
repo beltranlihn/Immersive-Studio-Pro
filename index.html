@@ -419,7 +419,15 @@
   .autohdr .abt.on{color:var(--ink);border-color:rgba(201,205,211,0.5);}
   .autohdr .abt.areen{display:none;color:var(--ink-2);border-color:rgba(201,205,211,0.5);} .autohdr .abt.areen.show{display:grid;}
   .lanehdr .autoctl .abt.ovr,.autohdr .abt.ovr{color:#E5B567;border-color:rgba(229,181,103,0.55);} /* [R94-UT2·U-16] amber = automation overridden (Ableton-style), vs white "on" = following the curve */
-  .tlscroll{flex:1;overflow:auto;position:relative;}
+  .tlscroll{flex:1;overflow-x:hidden;overflow-y:auto;position:relative;} /* [T3] native h-scrollbar hidden → the custom zoom-scrollbar (#tlZoomBar) drives horizontal scroll + zoom */
+  /* [T3] Premiere-style zoom-scrollbar: a thumb whose body scrolls and whose circular end-caps zoom (drag out = zoom out, in = zoom in), anchored to the opposite edge */
+  .tlzoom{height:15px;flex-shrink:0;background:var(--s0);position:relative;border-top:.5px solid rgba(0,0,0,0.4);}
+  .tlztrack{position:absolute;top:3px;height:9px;background:var(--s1);border-radius:5px;box-shadow:inset 0 0 0 .5px rgba(255,255,255,0.05);}
+  .tlzthumb{position:absolute;top:0;height:9px;min-width:24px;background:rgba(255,255,255,0.15);border-radius:5px;cursor:grab;transition:background .12s;}
+  .tlzthumb:hover{background:rgba(255,255,255,0.22);} .tlzthumb.drag{cursor:grabbing;background:rgba(255,255,255,0.26);}
+  .tlzcap{position:absolute;top:50%;width:11px;height:11px;transform:translateY(-50%);border-radius:50%;background:var(--ink-2);box-shadow:0 1px 2px rgba(0,0,0,0.5),0 0 0 .5px rgba(0,0,0,0.4);cursor:ew-resize;transition:background .12s,transform .1s;}
+  .tlzcap.l{left:-2px;} .tlzcap.r{right:-2px;}
+  .tlzcap:hover{background:var(--ink);transform:translateY(-50%) scale(1.12);}
   .ruler{height:22px;position:sticky;top:0;background:var(--bg-2);border-bottom:.5px solid rgba(0,0,0,0.4);z-index:4;}
   .ruler canvas{display:block;}
   #clipExtent{position:absolute;bottom:0;height:3px;background:var(--ink-3);opacity:.75;border-radius:1px;pointer-events:none;z-index:5;display:none;} /* [R94d] Premiere-style bar spanning the clip extent of the sequence */
@@ -850,6 +858,7 @@
         <div class="snapline" id="snapline"></div>
       </div>
     </div>
+    <div class="tlzoom" id="tlZoomBar"><div class="tlztrack" id="tlZoomTrack"><div class="tlzthumb" id="tlZoomThumb"><span class="tlzcap l" data-cap="l"></span><span class="tlzcap r" data-cap="r"></span></div></div></div>
   </div>
   </div></div><!-- /stagecol /bodyrow -->
 

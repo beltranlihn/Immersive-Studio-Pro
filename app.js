@@ -2016,6 +2016,7 @@ function renderTimeline(){ reconcileVinst(); // free private decoders of clips t
     if(th && th.style.marginBottom!==hsb+'px'){ th.style.marginBottom=hsb+'px'; th.scrollTop=sc.scrollTop; } }
   positionPlayhead(); const dt=$('#durTc'); if(dt)dt.textContent=TC(duration());
   renderWork(); renderClipExtent(); renderTimeSel(); applyToolCursor(); updEnable(); redrawAudioWaves(); // draw the visible slice of every audio waveform at screen resolution
+  renderZoomBar(); // [T3] keep the custom zoom-scrollbar thumb sized to the current zoom/content
 }
 /* lanes */
 /* [R93] selecting a CLIP deselects the track (mutual exclusion — Ctrl+T/Ctrl+D are contextual). Cheap: also strips the
@@ -2548,6 +2549,33 @@ function tlZoomAt(e,dir){ const sc=$('#tlscroll'); const rect=sc.getBoundingClie
   const nx=Math.max(0,tt*state.tl.pxPerSec-off);
   // publish the target scroll so neededSec()/W grow to cover it DURING this render (setting scrollLeft first would clamp to the old, narrower width); then apply nx — no clamp → the time under the cursor stays fixed
   state.tl._scrollTarget=nx; renderTimeline(); sc.scrollLeft=nx; state.tl._scrollTarget=0; }
+/* [T3] custom Premiere-style zoom-scrollbar: the thumb spans the visible time window over the whole content; its body
+   drags to scroll, its circular end-caps drag to zoom (anchored to the opposite edge). Native h-scrollbar is hidden. */
+function renderZoomBar(){ const sc=$('#tlscroll'), bar=$('#tlZoomBar'), track=$('#tlZoomTrack'), thumb=$('#tlZoomThumb'); if(!sc||!bar||!track||!thumb)return;
+  const barR=bar.getBoundingClientRect(), scR=sc.getBoundingClientRect(); if(!scR.width)return;
+  track.style.left=(scR.left-barR.left)+'px'; track.style.width=scR.width+'px'; // align the track under the #tlscroll viewport (offset past toolrail + header column)
+  const w=scR.width, sw=Math.max(1,sc.scrollWidth), cw=Math.max(1,sc.clientWidth), sl=sc.scrollLeft||0;
+  const thumbW=Math.max(24,Math.min(1,cw/sw)*w), maxSL=Math.max(0,sw-cw), travel=Math.max(0,w-thumbW);
+  thumb.style.width=thumbW+'px'; thumb.style.left=(maxSL>0?(sl/maxSL)*travel:0).toFixed(1)+'px'; }
+function startZoomBarDrag(e){ if(e.button!==0||e.target.classList.contains('tlzcap'))return; e.preventDefault(); // body drag = scroll
+  const sc=$('#tlscroll'), track=$('#tlZoomTrack'), thumb=$('#tlZoomThumb'); const w=track.getBoundingClientRect().width;
+  const sw=Math.max(1,sc.scrollWidth), cw=Math.max(1,sc.clientWidth), maxSL=Math.max(0,sw-cw); const thumbW=Math.max(24,Math.min(1,cw/sw)*w), travel=Math.max(1,w-thumbW);
+  const x0=e.clientX, sl0=sc.scrollLeft; thumb.classList.add('drag');
+  const mv=ev=>{ sc.scrollLeft=Math.max(0,Math.min(maxSL, sl0+((ev.clientX-x0)/travel)*maxSL)); }; // the scroll handler repaints ruler/waves/header + the bar
+  const up=()=>{ thumb.classList.remove('drag'); window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up); }; window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); }
+function startZoomCapDrag(e,side){ e.preventDefault(); e.stopPropagation(); // end-cap drag = zoom, keeping the OPPOSITE edge's time fixed
+  const sc=$('#tlscroll'), track=$('#tlZoomTrack'); const w=Math.max(1,track.getBoundingClientRect().width);
+  const pps0=state.tl.pxPerSec, sl0=sc.scrollLeft, cw=Math.max(1,sc.clientWidth), sw0=Math.max(1,sc.scrollWidth);
+  const totalDur=sw0/pps0, tLeft=sl0/pps0, tRight=(sl0+cw)/pps0, minWin=(cw/TL_PPS_MAX); const x0=e.clientX;
+  const mv=ev=>{ const dDur=((ev.clientX-x0)/w)*totalDur; // bar-px → content-seconds (track width = whole content)
+    let nLeft=tLeft, nRight=tRight;
+    if(side==='r') nRight=Math.max(tLeft+minWin, tRight+dDur); else nLeft=Math.max(0,Math.min(tRight-minWin, tLeft+dDur));
+    const winDur=Math.max(1e-4,nRight-nLeft); let nPps=Math.max(TL_PPS_MIN,Math.min(TL_PPS_MAX,cw/winDur));
+    const nSL=Math.max(0,(side==='r'?tLeft:nLeft)*nPps); // anchor: right-cap keeps left edge, left-cap keeps right edge (via recomputed nLeft)
+    state.tl.pxPerSec=nPps; state.tl._scrollTarget=nSL; renderTimeline(); sc.scrollLeft=nSL; state.tl._scrollTarget=0; };
+  const up=()=>{ window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up); markDirty(); }; window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); }
+(function wireZoomBar(){ const thumb=$('#tlZoomThumb'); if(!thumb)return; thumb.addEventListener('pointerdown',startZoomBarDrag);
+  $$('#tlZoomThumb .tlzcap').forEach(cap=>cap.addEventListener('pointerdown',e=>startZoomCapDrag(e,cap.dataset.cap))); renderZoomBar(); })();
 /* pan tool */
 function startPan(e){ const sl=$('#tlscroll'); const x0=e.clientX,s0=sl.scrollLeft; const mv=ev=>{sl.scrollLeft=s0-(ev.clientX-x0);}; const up=()=>{window.removeEventListener('pointermove',mv);window.removeEventListener('pointerup',up);}; window.addEventListener('pointermove',mv);window.addEventListener('pointerup',up); }
 /* marquee multi-select: drag a rectangle over empty timeline to select the clips it touches */
@@ -2602,7 +2630,7 @@ $('#trackHdr').addEventListener('wheel',e=>{ e.preventDefault(); const inAudio=!
   if(inAudio)audioZoneScrollBy(e.deltaY); else $('#tlscroll').scrollTop+=e.deltaY; },{passive:false});
 $('#trackHdr').addEventListener('contextmenu',e=>{ if(e.target.closest('.lanehdr'))return; e.preventDefault(); openMenu(e.clientX,e.clientY,trackCreateItems()); });
 function neededSec(){ const sc=$('#tlscroll'); const screen=(sc.clientWidth||800)/state.tl.pxPerSec; const scl=Math.max(sc.scrollLeft, state.tl._scrollTarget||0); return Math.max(duration()+screen, (scl/state.tl.pxPerSec)+screen*1.6); }
-$('#tlscroll').addEventListener('scroll',()=>{ const th=$('#trackHdr'); if(th)th.scrollTop=$('#tlscroll').scrollTop; if(neededSec()>(state.tl._w||0)+0.01)renderTimeline(); else { drawRuler(); renderWork(); renderTimeSel(); } positionWorkBrace(); scheduleWaves(); if(state.inlineCurves)scheduleAutoCvs(); }); // [R92-T9] header column now scrolls NATIVELY in sync (was a transform) so its sticky audio module pins exactly like the tracks' one
+$('#tlscroll').addEventListener('scroll',()=>{ const th=$('#trackHdr'); if(th)th.scrollTop=$('#tlscroll').scrollTop; if(neededSec()>(state.tl._w||0)+0.01)renderTimeline(); else { drawRuler(); renderWork(); renderTimeSel(); } positionWorkBrace(); scheduleWaves(); if(state.inlineCurves)scheduleAutoCvs(); renderZoomBar(); }); // [T3] keep the custom zoom-scrollbar thumb in sync with scroll // [R92-T9] header column now scrolls NATIVELY in sync (was a transform) so its sticky audio module pins exactly like the tracks' one
 /* middle-mouse drag pans the timeline on both axes (Hand-like), regardless of active tool */
 $('#tlscroll').addEventListener('pointerdown',e=>{ if(e.button!==1)return; e.preventDefault(); const sl=$('#tlscroll'); const x0=e.clientX,y0=e.clientY,sx=sl.scrollLeft,sy=sl.scrollTop; sl.style.cursor='grabbing';
   const mv=ev=>{ sl.scrollLeft=sx-(ev.clientX-x0); sl.scrollTop=sy-(ev.clientY-y0); }; const up=()=>{ sl.style.cursor=''; window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up); }; window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); });
