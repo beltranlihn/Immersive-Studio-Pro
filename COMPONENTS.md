@@ -125,7 +125,7 @@
 | Ruedas Lift/Gamma/Gain | Grado primario estilo DaVinci | app.js · `wheelRGB`/`bindClipGrade` | ✅ | R130 |
 | Curvas de tono | Curvas luma+RGB → LUT 256×1 | app.js · `buildCurveData`/`clipCurveTex`/`bindClipCurve` | ✅ | R132 |
 | Grado en PFD/PEQ | Fulldome/equirect ya reciben ruedas/curvas/LUT (paridad con FSW) | app.js · `bindClipLUT(c,LFD/LEQ)` en draw PFD/PEQ | ✅ | R138 (gap cerrado) |
-| Grado máster de secuencia | Grado global sobre el composite (numérico + ruedas + LUT; preview/export/NDI/Spout) | app.js · `applyMasterGrade`/`_MG` · `renderMasterGrade`/#insMaster | 🚧 | R139/R140 (falta UI de curvas) |
+| Grado máster de secuencia | Grado global sobre el composite (numérico + ruedas + curvas + LUT; preview/export/NDI/Spout) | app.js · `applyMasterGrade`/`_MG` · `renderMasterGrade`/#insMaster | ✅ | R139/R140/R141 (completo) |
 | `renderInspector` | Reconstruye + sincroniza el inspector | app.js · `renderInspector`/`refreshInspector` | ✅ | [I1]/[I2] |
 | 4 secciones colapsables | Transform/Clip/Color/Motion | app.js · `applySecCollapse` · #colorRows | ✅ | [I1]/[I2] |
 | Filas de parámetro | Fader + diamante + arco de mod | app.js · `buildRows`/`startValDrag` · `.prow` | ✅ | [A1] |
@@ -1112,8 +1112,9 @@ Subsystem map of `app.js` — verified line numbers (app.js = 6992 lines). Two h
 - **State/data:** `state.seqGrade={exposure,contrast,saturation,temperature,tint, cgLift,cgGamma,cgGain, lut,lutMix, curves}` (per-sequence). Persisted: `saveActiveSeq`→`s.grade`, `loadSeqIntoState`→`state.seqGrade` (identity numeric defaults via `Object.assign`, extra keys ride along), `serMedia`→`grade`, restored by loadProject's `{...md}` spread. Master LUT paths reloaded by `preloadLUTs` (extended to scan seq grades).
 - **Key symbols:** `_MGFS` = same chain as FSW (numeric → LGG → curves → LUT; no mask/blur/glow; alpha preserved). `_MGu` uses the SAME field names as the `L` uniform struct, and `_masterClip={props:state.seqGrade}` is a stand-in clip, so `applyMasterGrade` reuses `bindClipLUT/Grade/Curve` (the R138 `L` refactor). `applyMasterGrade` is a no-op when `masterGradeOn()` is false (identity → zero cost). `renderMasterGrade` (built by `renderInspector`, always visible, independent of the `selClip`-bound clip color UI): `MASTER_PARAMS` sliders + `MASTER_WHEELS` (fresh handlers on `state.seqGrade`) + LUT row (reuses `loadLUT`/`_lutReg`).
 - **Invariants / gotchas:** Grade applied POST render-ahead cache → live edits, no `raInvalidate`. Composite always square (`compSize`/`SR`/`_ndiRes`/`_spoutRes`) so `_mgTarget` is square; `_mgRT` is SHARED across preview/export/NDI/Spout so it reallocates when their sizes differ (fine — deliberate output modes). Applies to the TOP-LEVEL active sequence only — nested sequences and the room floor bypass these call-sites. Verified by CDP (both phases): shader compiles (glFallback false), UI (5 sliders + 3 wheels + LUT), wheel drag → `masterGradeOn()` true, `render()`→`applyMasterGrade`→`bindClipLUT(_masterClip,_MGu)` no throw, reset OK.
-- **Status:** 🚧 (phases 1 + 2a complete + verified; 2b = curves UI pending)
-- **Roadmap:** phase 2b — master curves editor UI
+- **Master curves UI (R141):** the curve editor (`.mgcurvecv` canvas + `.mgctab` l/r/g/b tabs + `#mgCurveReset`) in `renderMasterGrade` mirrors the clip curve editor but writes `state.seqGrade.curves` and rebakes via `markCurveDirty(_masterClip)` (the texture cache lives on `_masterClip`, rebuilt by `clipCurveTex` inside `bindClipCurve`). Reuses the `.curvecv`/`.ctab` CSS.
+- **Status:** ✅ (numeric + wheels + curves + LUT, all verified by CDP)
+- **Roadmap:** —
 
 ---
 

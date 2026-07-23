@@ -1,5 +1,19 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 141 — Grado máster de secuencia · Fase 2b (curvas) → feature COMPLETA
+
+Última pieza del grado máster: el **editor de curvas** (luma + R/G/B). El motor ya lo soportaba (rama `hasCurve` del
+shader + `bindClipCurve` vía `_masterClip`); faltaba sólo la UI.
+
+- **UI** (`renderMasterGrade`): canvas `.mgcurvecv` + pestañas de canal `.mgctab` (l/r/g/b) + reset, replicando el editor
+  de curvas de clip pero escribiendo `state.seqGrade.curves` y horneando con `markCurveDirty(_masterClip)` (el cache de
+  textura de curva vive en `_masterClip`, lo reconstruye `clipCurveTex` dentro de `bindClipCurve`). Reusa la CSS
+  `.curvecv`/`.ctab`.
+- **Verificado por CDP:** canvas + 4 pestañas + reset presentes; añadir/arrastrar un punto → `masterGradeOn()` true;
+  `render()`→`applyMasterGrade`→`bindClipCurve`→`clipCurveTex(_masterClip)` construye y muestrea la textura sin throw;
+  reset → identidad. `node --check` OK.
+- **Grado máster: COMPLETO** — numérico + ruedas + curvas + LUT, en preview/export/NDI/Spout, por-secuencia y persistido.
+
 ## ROUND 140 — Grado máster de secuencia · Fase 2a (ruedas + LUT + NDI/Spout)
 
 Extensión del grado máster (R139). El refactor `L` de R138 (que hizo `bindClipLUT/Grade/Curve` parametrizables por struct
