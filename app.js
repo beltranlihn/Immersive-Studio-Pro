@@ -4569,6 +4569,40 @@ async function renderInPlace(clip){
   renderMedia(); renderTimeline(); renderInspector(); render(); updStatus(); markDirty();
   flashStatus(T('Rendered in place → ','Renderizado en el sitio → ')+nm.name);
 }
+/* [R1] Render a TIME SELECTION (in/out) in place: bake the FULL composite over [a,b] (all clips + adjustment layers → a
+   true flatten) to a light MP4 and drop it as one clip on a NEW top video track covering the range. Non-destructive —
+   the source clips stay underneath; undo with ⌘Z. */
+async function renderRangeInPlace(){
+  if(!IS_ELEC){ appAlert(T('Render in place needs the desktop app.','Renderizar en el sitio necesita la app de escritorio.')); return; }
+  const sA=state.tl.selA, sB=state.tl.selB; let a,b;
+  if(sA!=null&&sB!=null&&Math.abs(sB-sA)>1e-3){ a=Math.min(sA,sB); b=Math.max(sA,sB); }
+  else if(state.workIn!=null&&state.workOut!=null&&state.workOut>state.workIn+1e-3){ a=state.workIn; b=state.workOut; }
+  else { flashStatus(T('Make a time selection (or set In/Out) first','Haz una selección de tiempo (o define Entrada/Salida) primero'),'err'); return; }
+  if(!currentPath){ appAlert(T('Save the project first — the rendered clip goes beside it in a “rendered clips” folder.','Guarda el proyecto primero — el clip renderizado va junto a él en una carpeta “rendered clips”.')); return; }
+  const as=activeSeq(); const flat=isFlat(); const layoutStr=flat?((as.w||1920)+'×'+(as.h||1080)):((as.w||4096)+'²'); const dur=b-a;
+  const choice=await ripFormatDialog({name:T('Time selection','Selección de tiempo'),kind:'video'},{dur},layoutStr,flat); if(!choice)return;
+  const fps=as.fps||state.fps||60, res=flat?(as.w||1920):(as.w||4096);
+  const codec=(choice.format==='h264')?'h264':'hevc';
+  const eW=flat?(as.w||1920):res, eH=flat?(as.h||1080):res, br=suggestBitrate(res,fps,flat?eW:0,flat?eH:0)*1e6;
+  const i=Math.max(currentPath.lastIndexOf('\\'),currentPath.lastIndexOf('/')), projDir=currentPath.slice(0,i), dir=projDir+'\\rendered clips';
+  try{ if(DSP.ensureDir)await DSP.ensureDir(dir); }catch(e){ appAlert(T('Could not create the “rendered clips” folder.','No se pudo crear la carpeta “rendered clips”.')); return; }
+  const safe='selection '+fmtTime(a).replace(/[:.]/g,'-');
+  const outPath=dir+'\\'+safe+' ['+layoutStr.replace('×','x')+' '+codec+'] '+uid().slice(0,5)+'.mp4';
+  let cancelled=false; const job={ prog:(n,t)=>{ if(n===1||n>=t||n%8===0)flashStatus(T('Rendering selection… ','Renderizando selección… ')+Math.round(n/t*100)+'%'); }, label:()=>{}, done:cx=>{ cancelled=!!cx; } };
+  flashStatus(T('Rendering selection…','Renderizando selección…'));
+  try{ await runExport({codec,res,fps,bitrate:br,range:'clips',rangeT:[a,b],outPath,silent:true,job}); } // NO isolateClips → full composite over the range (a real flatten)
+  catch(e){ flashStatus(T('Render failed','Falló el render'),'err'); return; }
+  let ok=false; try{ const st=await DSP.stat(outPath); ok=!!(st&&st.size>0); }catch(e){}
+  if(cancelled||!ok){ flashStatus(T('Render cancelled','Render cancelado'),'err'); return; }
+  const nm=await addVideoFromPath(outPath,T('Selection','Selección')); if(!nm){ flashStatus(T('Could not import the rendered file','No se pudo importar el archivo renderizado'),'err'); return; }
+  pushUndo();
+  const n=state.lanes.filter(l=>l.kind==='video').length+1; const nl={id:uid(),name:'Render '+n,tag:'V'+n,kind:'video'}; state.lanes.push(nl); const li=state.lanes.length-1; // new video lane at the top (push keeps existing clip lane-indices valid)
+  const nc=makeClip(nm,li,a); nc.start=a; nc.dur=b-a; nc.inP=0; if(!flat)nc.props.fulldome=true;
+  state.clips.push(nc); state.selId=nc.id; state.selIds=[nc.id]; state.selGroupId=null;
+  state.tl.selA=state.tl.selB=null; state.tl.selLanes=null; // the range is now baked → clear the selection
+  renderMedia(); renderTimeline(); renderInspector(); renderTimeSel(); render(); updStatus(); markDirty();
+  flashStatus(T('Rendered selection → new track · ','Renderizado la selección → pista nueva · ')+fmtTime(dur));
+}
 
 /* ===================== HAP (Vidvox) — DXT en GPU + Snappy + muxer QuickTime =====================
    Hap is the interchange codec of the live/immersive world (Resolume · disguise · Watchout · TouchDesigner
@@ -6038,6 +6072,7 @@ $('#tracks').addEventListener('contextmenu',e=>{ const cd=e.target.closest('.cli
     {label:T('Nest selection','Anidar selección'),ico:'ring',fn:nestSelection},
     ...((()=>{const cc=clipById(id),mm=cc&&mediaById(cc.mediaId);return (mm&&isSeqMedia(mm))?[{label:T('Open sequence','Abrir secuencia'),ico:'panel',fn:()=>openSeq(mm.id)},{label:T('Make unique','Convertir en único'),ico:'ring',fn:()=>{const c2=clipById(id);if(c2)makeClipUnique(c2);}}]:[];})()),
     ...((()=>{const cc=clipById(id),mm=cc&&mediaById(cc.mediaId);return (mm&&mm.kind!=='audio')?[{label:T('Render in place…','Renderizar en el sitio…'),ico:'layers',fn:()=>{const c2=clipById(id);if(c2)renderInPlace(c2);}}]:[];})()),
+    ...((()=>{ const sA=state.tl.selA,sB=state.tl.selB; return (sA!=null&&sB!=null&&Math.abs(sB-sA)>1e-3)?[{label:T('Render selection in place…','Renderizar la selección en el sitio…'),ico:'layers',fn:renderRangeInPlace}]:[]; })()), // [R1] bake the in/out time selection → new top track
     'sep',
     {label:T('Show automation','Mostrar la automatización'),ico:'curves',fn:()=>{const c=clipById(id);if(c)showAutomation(c);}},
     {label:T('Show automation in a new lane','Mostrar la automatización en una línea nueva'),fn:()=>{const c=clipById(id);if(c){showAutomation(c);addAutoLane(c);}}},

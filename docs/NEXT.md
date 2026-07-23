@@ -49,7 +49,10 @@
       Verificado por CDP en cada fase.
 - [ ] **[D7] Onboarding** — proyecto demo con shapes de referencia + overlay de pasos, omitible, no reaparece.
 - [ ] **[V3] Spout In** — Spout como fuente en Media (addon nativo grande, solo Windows).
-- [ ] **[R1] Render in-site flexible** — extender a "selección con in/out" (hoy hace clip y nest).
+- [x] **[R1] Render in-site flexible** — nuevo `renderRangeInPlace()`: hornea el **composite completo** sobre la
+      selección de tiempo `[selA,selB]` (o In/Out) → un clip en una **pista nueva arriba** que la cubre (aplana). No
+      destructivo (las fuentes quedan debajo; ⌘Z). Ítem "Renderizar la selección en el sitio…" en el menú de clip cuando
+      hay selección de rango. Reusa la maquinaria de `renderInPlace` (runExport `rangeT` sin `isolateClips`). _(R142)_
 - [ ] Barrido de deuda técnica #2 — revisar sub-lanes `lane._auto` residuales (COMPONENTS → Deuda técnica).
 
 ## Diferido por Beltrán (para el final)

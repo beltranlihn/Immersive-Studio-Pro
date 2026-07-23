@@ -1,5 +1,23 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 142 — [R1] Render in-site sobre una selección de tiempo
+
+El "render en el sitio" (R115) horneaba un clip/nest. Ahora también hornea una **selección de tiempo (in/out)**.
+
+- **`renderRangeInPlace()`** (app.js, junto a `renderInPlace`): toma el rango `[selA,selB]` (o `workIn/workOut`), hornea el
+  **composite COMPLETO** sobre ese rango (sin `isolateClips` → incluye capas de ajuste = aplanado real) a un MP4 liviano
+  en `rendered clips/`, lo importa y lo coloca como un clip en una **pista de vídeo nueva arriba** que cubre `[a,b]`.
+  **No destructivo:** las fuentes quedan debajo (⌘Z revierte). Reusa `ripFormatDialog`/`addVideoFromPath`/`makeClip`.
+- **Menú de clip:** se añade "Renderizar la selección en el sitio…" cuando existe una selección de rango
+  (`selA/selB` con span > 1e-3), junto al "Renderizar en el sitio…" del clip.
+- **`runExport`**: `range:'clips'` sólo apaga `useIO`; `rangeT` manda los tiempos; sin `isolateClips` → `state.clips`
+  intacto → aplana todo. La pista nueva se agrega con `push` (mantiene válidos los `clip.lane` existentes).
+- **Verificado por CDP** (nivel integración): app carga (glFallback false), `renderRangeInPlace`/`renderInPlace` existen,
+  y el guard "sin selección" no lanza ni agrega pista. El render real reusa la maquinaria probada de `renderInPlace`.
+  `node --check` OK.
+
+
+
 ## ROUND 141 — Grado máster de secuencia · Fase 2b (curvas) → feature COMPLETA
 
 Última pieza del grado máster: el **editor de curvas** (luma + R/G/B). El motor ya lo soportaba (rama `hasCurve` del

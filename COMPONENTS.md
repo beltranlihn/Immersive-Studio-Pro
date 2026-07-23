@@ -106,7 +106,7 @@
 | Diálogo de export | Selector códec/res/fps/rango/chunk + cola | app.js · `openExport` · #exOv | ✅ | [R1],[D2] |
 | Cola de export | Registro de jobs uno-a-la-vez | app.js · `pumpExportQ` · #exQueue | ✅ | [D2] |
 | `runExport` | Driver máster PNG/MP4/HEVC/HAP/still | app.js · `runExport` (~L4302) | ✅ | [R1],[R2],[D2] |
-| Render in place | Hornear clip/nest → MP4 y reemplazar | app.js · `renderInPlace` (~L4452) | ✅ | [R1] |
+| Render in place | Hornear clip/nest o **selección de tiempo** → MP4 | app.js · `renderInPlace`/`renderRangeInPlace` | ✅ | R142 |
 | WebCodecs + muxer | MP4 H.264/HEVC/AAC, sin FFmpeg | app.js · `Mp4Muxer`/`HAS_WC` (~L4385) | ✅ | — |
 | Export HAP | Snappy + DXT GPU + QuickTime .mov | app.js · `hapFrame`/`movBuild`/`dxtEncodeCanvas` | ✅ | R100 |
 | `makeProxy` | Proxy all-intra GOP=1 + m.frames | app.js · `makeProxy` (~L1477) | ✅ | [C3] |
@@ -956,14 +956,14 @@ Source: `app.js` (~6992 lines). Line numbers verified against the working tree o
 - **Status:** ✅
 - **Roadmap:** [R1] (done), [R2] deformed-clips-on-render bug, [D2]
 
-## Render in place (RIP)
-- **Purpose:** Bake a single clip/nest (own fx + automation, at layout size) to a light MP4 in `<project>/rendered clips/` and swap the timeline instance for it. External adjustment layers excluded.
-- **Location:** app.js · `renderInPlace(clip)` (~L4452), `ripFormatDialog` (~L4442), `addVideoFromPath` (~L4432).
-- **State/data:** calls `runExport({codec,res,fps,bitrate,range:'clips',rangeT:[c.start,c.start+c.dur],isolateClips:[c],outPath,silent:true,job})`.
+## Render in place (RIP) — clip + time-selection
+- **Purpose:** Bake to a light MP4 in `<project>/rendered clips/` and drop it on the timeline. Two entry points: `renderInPlace(clip)` bakes a SINGLE clip/nest (own fx + automation, external adjustment layers excluded) and SWAPS the instance; [R1] `renderRangeInPlace()` bakes the FULL composite over the in/out time selection (`state.tl.selA/selB`, or `workIn/workOut`) — a true flatten — onto a NEW top video track covering the range (non-destructive; sources stay underneath).
+- **Location:** app.js · `renderInPlace(clip)` / `renderRangeInPlace()` (adjacent, ~L4520+), `ripFormatDialog` (shared; range passes a `{name:'Time selection'}` stand-in), `addVideoFromPath`. Clip menu (~L6040): "Render in place…" always for non-audio clips; "Render selection in place…" added when a range selection exists.
+- **State/data:** clip → `runExport({...,range:'clips',rangeT:[c.start,c.start+c.dur],isolateClips:[c],...})`. Range → same but **no `isolateClips`** (full composite over `rangeT:[a,b]`) → then a new lane (`state.lanes.push`, index preserved) + `makeClip` at `[a, b-a]`.
 - **Key symbols:** H.264/H.265 only (no PNG/HAP). `nc.props.fulldome=true` on re-import so the dome master fills 1:1 (no re-warp).
-- **Invariants / gotchas:** requires desktop app + saved project. `opt.isolateClips` temporarily replaces `state.clips` (restored in finally). Dev GPU crashes on big renders → verify with minimal render (the `.exe` forces the RTX). `addClip`/`makeClip` don't return neatly — RIP builds `nc` manually.
+- **Invariants / gotchas:** requires desktop app + saved project. `opt.isolateClips` temporarily replaces `state.clips` (restored in finally); the range path deliberately omits it so adjustment layers ARE baked in. New video lane via `push` keeps existing `clip.lane` indices valid. Dev GPU crashes on big renders → verify with minimal render (the `.exe` forces the RTX). RIP builds `nc` manually. Range verified at integration level (load + guard); the render path reuses the proven single-clip machinery.
 - **Status:** ✅
-- **Roadmap:** [R1]
+- **Roadmap:** —
 
 ## WebCodecs encode + mp4-muxer
 - **Purpose:** Video/audio encoding for MP4 export without FFmpeg — Chromium `VideoEncoder`/`AudioEncoder` + local `mp4-muxer.min.js`.
