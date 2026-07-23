@@ -1,5 +1,28 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 143 — Barrido de deuda técnica #2: automatización muerta (archivada, no borrada)
+
+Segundo barrido bajo la política "archivar, no borrar" (ADR-0007). Se mapearon con **arch-explorer** (subagente aislado)
+los tres sistemas de automatización que convivían, para separar lo vivo de lo residual **antes** de tocar nada.
+
+- **Hallazgo clave:** el render de sub-carriles apilados (`appendAutoLanes`) ya estaba **neutralizado por `[A5]`** — la
+  función arrancaba con `return;`. Así que todo su cuerpo (L4003-4025) era **inalcanzable**. `lane._auto` (el array) sólo
+  conservaba mantenimiento residual: creación por menú, filtrado al borrar FX y serialización.
+- **Archivado** (`_backup/deprecated/20260723-automation-sublanes-and-clip-auto.js`, recuperable con encabezado
+  origen/motivo/restaurar) y quitado de `app.js`:
+  - `lane._auto`/`lane._autoH`: `appendAutoLanes` + `laneAutoH` (render muerto), `addAutoLaneAt`/`addAutoLane` (creación),
+    su llamada en `renderTimeline` (L1999), el filtro en el borrado de FX, y el ítem de menú "Show automation in a new lane"
+    (que sólo duplicaba "Show automation").
+  - `c._auto` (lista legacy a nivel de clip, "no longer rendered"): `closeAuto` + sus 2 llamadas (los llamadores
+    re-renderizan igual), la copia en `sepAuto`, y `c._auto=[]` en `returnToDefault`.
+- **INTACTO** (modelo vigente [A5]): `lane._autoP` + `laneAutoP` + `openAuto` + `attachClipAuto` + el chooser de la
+  cabecera de pista — una sola superposición por pista.
+- **Sin migración:** la data vieja (`lanes[]._auto`/`c._auto`) en `.isp` guardados queda ignorada, es inofensiva.
+- **Verificado por CDP:** los 5 símbolos removidos → `undefined`; los 6 vivos → `function`; `renderTimeline()` y
+  `render()` OK (glFallback false). `node --check` OK.
+
+
+
 ## ROUND 142 — [R1] Render in-site sobre una selección de tiempo
 
 El "render en el sitio" (R115) horneaba un clip/nest. Ahora también hornea una **selección de tiempo (in/out)**.

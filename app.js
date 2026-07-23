@@ -1996,7 +1996,7 @@ function renderTimeline(){ reconcileVinst(); // free private decoders of clips t
       ac.appendChild(_foc?autoDuo(li,P,_pick):autoDuoText(li,P,_pick)); // [A5] ONE automation at a time — the chooser swaps which param's curve overlays the clips; no more stacked sub-lanes / '+' add-lane button
       hd.appendChild(ac); }
     hdrT.appendChild(hd);
-    if(!_isAud)appendAutoLanes(li,W,tracks,heads); // [2] inline automation sub-lanes (video only) — unified: inspector params + reactive-fx params
+    // [R143] appendAutoLanes (sub-carriles apilados) archivado — el modelo vigente es la sola superposición por pista (attachClipAuto)
   }
   if(_hasAudio)tracks.appendChild(audioZone); // [R92-T9] pin the audio module at the bottom (sticky) — appended last, after all video rows
   if(_hasAudio){ // [R110] the module is EXACTLY as tall as its tracks (auto height, no drag-resize, no internal scroll); the AUDIO bar collapses it
@@ -3265,10 +3265,10 @@ function buildRows(sel,defs,c){ const host=$(sel); host.innerHTML='';
     // [A1] single point button: the diamond toggles a keyframe at the playhead (add if none / remove if on one); the first one reveals the curve on the track; right-click clears the whole automation
     row.querySelector('[data-k=add]').onclick=()=>{ const cc=selClip(); if(!cc)return; if(state.playhead<cc.start-1e-6||state.playhead>cc.start+cc.dur+1e-6){flashStatus(T('The playhead is outside this clip','El cabezal está fuera de este clip'),'err');return;}
       const wasAuto=hasKf(cc,p), onKf=kfAt(cc,p); pushUndo();
-      if(onKf){ cc.kf[p]=cc.kf[p].filter(k=>k!==onKf); if(!cc.kf[p].length){ const v=evalP(cc,p,state.playhead); delete cc.kf[p]; cc.props[p]=v; closeAuto(cc,p); } } // remove the point under the playhead; last one freezes the value
+      if(onKf){ cc.kf[p]=cc.kf[p].filter(k=>k!==onKf); if(!cc.kf[p].length){ const v=evalP(cc,p,state.playhead); delete cc.kf[p]; cc.props[p]=v; } } // remove the point under the playhead; last one freezes the value
       else { setKf(cc,p,state.playhead,evalP(cc,p,state.playhead),curEase()); if(!wasAuto)openAuto(cc,p); } // first point reveals the single automation overlay on the track
       renderInspector();renderTimeline();render();markDirty(); };
-    row.querySelector('[data-k=add]').oncontextmenu=e=>{ e.preventDefault(); const cc=selClip(); if(!cc||!hasKf(cc,p))return; const v=evalP(cc,p,state.playhead); pushUndo(); clearKf(cc,p); cc.props[p]=v; closeAuto(cc,p); flashStatus(T('Automation cleared — Ctrl+Z restores it','Automatización borrada — Ctrl+Z la restaura')); renderInspector();renderTimeline();render();markDirty(); }; // [A1] right-click the diamond = remove the whole curve (freezes at the current value)
+    row.querySelector('[data-k=add]').oncontextmenu=e=>{ e.preventDefault(); const cc=selClip(); if(!cc||!hasKf(cc,p))return; const v=evalP(cc,p,state.playhead); pushUndo(); clearKf(cc,p); cc.props[p]=v; flashStatus(T('Automation cleared — Ctrl+Z restores it','Automatización borrada — Ctrl+Z la restaura')); renderInspector();renderTimeline();render();markDirty(); }; // [A1] right-click the diamond = remove the whole curve (freezes at the current value)
     row.querySelector('[data-k=prev]').onclick=()=>jumpKf(p,-1); row.querySelector('[data-k=next]').onclick=()=>jumpKf(p,1);
     const field=row.querySelector('.field'); const box=row.querySelector('.box');
     field.addEventListener('pointerdown',e=>{ if(e.target.tagName==='INPUT')return; startValDrag(e,p,mn,mx); });
@@ -3368,12 +3368,12 @@ function fxParamDefOf(def,p,k){ const nm=T(def.label[0],def.label[1]); if(k==='i
 function paramDef(c,p){ if(isFxtKey(p)){ const q=p.split(':'); const def=(typeof FXBY!=='undefined')?FXBY[q[1]]:null; return def?fxParamDefOf(def,p,q[2]):null; } // type-based → no clip needed (lane headers/ranges work with an empty track)
   if(isFxKey(p)){ const parts=p.split(':'); const fx=(c&&c.fx)?c.fx.find(f=>f.id===+parts[1]):null; if(!fx)return null; const def=(typeof FXBY!=='undefined')?FXBY[fx.type]:null; return def?fxParamDefOf(def,p,parts[2]):null; } return CURVE_PARAMS.find(d=>d[0]===p); }
 /* deep-copy the per-clip automation UI-state arrays onto a clone, so split/duplicate/nest don't share (and corrupt) them by reference */
-function sepAuto(n,c){ for(const k of ['_auto']) if(Array.isArray(c[k])) n[k]=c[k].slice(); if(Array.isArray(c.anim)) n.anim=JSON.parse(JSON.stringify(c.anim)); if(c.mod&&typeof c.mod==='object'){ n.mod=JSON.parse(JSON.stringify(c.mod)); for(const p in n.mod)for(const m of n.mod[p])m.id=uid(); }
+function sepAuto(n,c){ if(Array.isArray(c.anim)) n.anim=JSON.parse(JSON.stringify(c.anim)); /* [R143] la copia de c._auto (lista legacy de clip) se archivó — ya no existe */ if(c.mod&&typeof c.mod==='object'){ n.mod=JSON.parse(JSON.stringify(c.mod)); for(const p in n.mod)for(const m of n.mod[p])m.id=uid(); }
   if(c.kfLink&&typeof c.kfLink==='object')n.kfLink=Object.assign({},c.kfLink); // [R95·D2] the copy stays an INSTANCE of the same item (that's the point of pooling: duplicate a clip, edit either, both follow)
   return n; } // [R95·C1] the modulation stack is deep-copied (fresh ids) — split/duplicate/nest must never share layer objects by reference // anim (motion modifiers + wetKf) deep-copied too — split/duplicate/nest copies must never share modifier objects
 function isAudioClip(c){ const l=c&&state.lanes[c.lane]; return !!(l&&l.kind==='audio'); }
 function openAuto(c,p){ if(!c||isAudioClip(c))return; const lane=state.lanes[c.lane]; if(!lane)return; lane._autoP=isFxKey(p)?(function(){ const q=p.split(':'); const fx=(c.fx||[]).find(f=>f.id===+q[1]); return (fx&&FXBY[fx.type])?('fxt:'+fx.type+':'+q[2]):null; })()||p:p; state.inlineCurves=true; syncAutoUI(); const cb=$('#curvesBtn'); if(cb)cb.classList.add('on'); renderTimeline(); } // [R93] armed param becomes the TRACK's primary overlay (Ableton: the chooser lives on the track header)
-function closeAuto(c,p){ if(!c||!c._auto)return; c._auto=c._auto.filter(x=>x!==p); renderTimeline(); } // legacy clip-level list (no longer rendered)
+/* [R143] closeAuto (mantenía la lista legacy a nivel de clip c._auto, nunca renderizada; sus llamadores re-renderizan igual) ARCHIVADO → _backup/deprecated/20260723-automation-sublanes-and-clip-auto.js */
 /* [R93] which fx TYPES exist on a track's clips (device dropdown), + all their lane keys */
 function laneFxTypes(li){ const seen=[]; for(const c of state.clips)if(c.lane===li)for(const f of (c.fx||[]))if(FXBY[f.type]&&!seen.includes(f.type))seen.push(f.type); return seen; }
 function laneFxKeys(li){ const out=[]; for(const ty of laneFxTypes(li)){ out.push('fxt:'+ty+':int','fxt:'+ty+':amt'); for(const p of (FXBY[ty].params||[]))out.push('fxt:'+ty+':'+p.k); } return out; }
@@ -3382,14 +3382,7 @@ function laneHasKf(li,p){ return state.clips.some(c=>{ if(c.lane!==li)return fal
 function laneAutoP(lane,li){ const p=lane._autoP; if(p&&paramDef(null,p)&&(!isFxtKey(p)||laneFxTypes(li).includes(p.split(':')[1])))return p; // saved choice, unless its fx type left the track
   const anim=CURVE_PARAMS.find(d=>laneHasKf(li,d[0])); if(anim)return anim[0];
   return laneFxKeys(li).find(k=>laneHasKf(li,k))||'opacity'; }
-/* [R93] '+' adds the next automation sub-lane directly (Ableton): first an animated-but-hidden param, else the next unshown one */
-function addAutoLaneAt(li){ const lane=state.lanes[li]; if(!lane||lane.kind==='audio')return; lane._auto=Array.isArray(lane._auto)?lane._auto:[];
-  const used=new Set(lane._auto); used.add(laneAutoP(lane,li));
-  const cands=CURVE_PARAMS.map(d=>d[0]).concat(laneFxKeys(li));
-  const free=cands.find(p=>!used.has(p)&&laneHasKf(li,p))||cands.find(p=>!used.has(p));
-  if(!free){ flashStatus(T('All parameters already shown','Todos los parámetros ya están visibles')); return; }
-  lane._auto.push(free); state.inlineCurves=true; syncAutoUI(); const cb=$('#curvesBtn'); if(cb)cb.classList.add('on'); renderTimeline(); markDirty(); }
-function addAutoLane(c){ if(!c||isAudioClip(c))return; addAutoLaneAt(c.lane); } // context-menu path ("Show Automation in New Lane")
+/* [R143] addAutoLaneAt/addAutoLane (creaban sub-carriles apilados en lane._auto, ya sin render) ARCHIVADOS → _backup/deprecated/20260723-automation-sublanes-and-clip-auto.js */
 /* [R93] the Ableton chooser pair: device (Clip | fx type on this track) + parameter. Reused by the track header and every sub-lane header. */
 const XFORM_P=TF.concat(TF_FLAT).filter((d,i,a)=>a.findIndex(x=>x[0]===d[0])===i); // transform group (dome + flat, 'rot' deduped)
 /* [R95·E4] Ableton's model: only the lane with focus shows the two dropdowns; the rest show the same information as
@@ -3672,7 +3665,7 @@ function showAutomation(c){ if(!c||isAudioClip(c))return; state.inlineCurves=tru
     if(armed.length&&!(lane._autoP&&armed.includes(lane._autoP)))lane._autoP=armed[0]; } } // [A5] the clip's animated params open on ITS TRACK as the SINGLE overlay (first one, unless the current choice is already one of them) — one at a time
   renderTimeline(); }
 /* [A5] Return to Default: drop all automation on the clip, freezing each param at its current value (curve removed) */
-function returnToDefault(c){ if(!c)return; pushUndo(); for(const [p] of CURVE_PARAMS){ if(hasKf(c,p)){ c.props[p]=evalP(c,p,state.playhead); clearKf(c,p); } } c._auto=[]; renderTimeline(); renderInspector(); render(); flashStatus(T('Automation returned to default','Automatización restablecida')); }
+function returnToDefault(c){ if(!c)return; pushUndo(); for(const [p] of CURVE_PARAMS){ if(hasKf(c,p)){ c.props[p]=evalP(c,p,state.playhead); clearKf(c,p); } } renderTimeline(); renderInspector(); render(); flashStatus(T('Automation returned to default','Automatización restablecida')); } // [R143] c._auto=[] (lista legacy de clip) archivado
 // [archivado 20260722 · R137] reenableAuto/setAutoOff → _backup/deprecated/20260722-automation-override-and-perform-bake.js · sin efecto bajo el modelo After Effects (ADR-0006)
 /* draw one parameter's curve inside an inline sub-lane canvas. The canvas lives inside #tracks and so scrolls
    horizontally with the clips — X is timeline-absolute, no scroll compensation needed. Reuses evalP (no second engine). */
@@ -3995,34 +3988,9 @@ function attachClipAuto(cd,c,li){ if(!state.inlineCurves)return; const lane=stat
   const cv=document.createElement('canvas'); cv.className='clipautocv'; cv.style.top=RES_TOP+'px'; cv.style.height=bandH+'px'; cv._H=bandH; cv._c=c; cv._p=p; cv._kind='clip'; cd.appendChild(cv); // [R94e] no param label painted on the clip — the track header's choosers already name it
   windowAutoCv(cv); bindAutoCurve(cv); // [R93] the param chip moved to the TRACK HEADER (autoctl) — nothing else lives on the clip
 }
-/* [R92-T4→R93] TRACK-level automation sub-lanes (Ableton): they belong to the LANE (lane._auto), show the parameter
-   across every clip of the track, and stay visible regardless of the selection. Resizable per (lane,param).
-   [R93] Each header carries the Ableton chooser PAIR (device + parameter) — fx lanes use type-keys 'fxt:<type>:<p>'. */
-function laneAutoH(lane,p){ return Math.max(AUTO_MIN_H,Math.min(AUTO_MAX_H,(lane._autoH&&lane._autoH[p])||AUTO_H)); }
-function appendAutoLanes(li,W,tracks,heads){ return; /* [A5] one automation at a time — stacked sub-lanes removed; the single active param overlays the clips via attachClipAuto + the track-header chooser */
-  if(!state.inlineCurves)return; const lane=state.lanes[li]; if(!lane||lane.kind==='audio')return; const list=Array.isArray(lane._auto)?lane._auto:[]; if(!list.length)return;
-  list.forEach((p,idx)=>{ if(!paramDef(null,p))return; const LHa=laneAutoH(lane,p);
-    const sub=document.createElement('div'); sub.className='autolane'; sub.style.height=LHa+'px'; sub.style.width=W+'px';
-    const cv=document.createElement('canvas'); cv.className='autocv'; cv.style.height=LHa+'px'; cv._H=LHa; cv._c=null; cv._li=li; cv._p=p; cv._kind='lane'; sub.appendChild(cv); tracks.appendChild(sub);
-    windowAutoCv(cv); bindAutoCurve(cv); // [R70] canvas windowed to the viewport (full-width overflowed the 32767px canvas limit on long/zoomed timelines)
-    const sh=document.createElement('div'); sh.className='autohdr'; sh.style.height=LHa+'px'; // [R94b] just the chooser pair + '+'/'✕' (swatch and A/↻ removed per request — override lives in the inspector)
-    sh.style.setProperty('--pc',autoColor(p)); // [R95·E1] the 3px side bar is what ties this header to its curve
-    const selC0=selClip(); const focused=!!(selC0&&selC0.lane===li); // [R95·E4] live choosers only on the focused track; the rest read as text
-    const pick=np=>{ lane._auto[idx]=np; renderTimeline(); markDirty(); };
-    sh.appendChild(focused?autoDuo(li,p,pick):autoDuoText(li,p,pick));
-    const btns=document.createElement('div'); btns.style.cssText='display:flex;gap:4px;align-items:center;flex-shrink:0;';
-    btns.innerHTML=`<button class="abt" data-a="add" title="${T('Add automation lane','Añadir carril de automatización')}">+</button>`+
-      `<button class="abt" data-a="close" title="${T('Remove this lane','Quitar este carril')}">${ICO('close',11)}</button>`;
-    sh.appendChild(btns);
-    const res=document.createElement('div'); res.className='autores'; res.title=T('Drag to resize lane','Arrastra para redimensionar el carril'); sh.appendChild(res);
-    sh.querySelector('[data-a=add]').onclick=()=>addAutoLaneAt(li);
-    sh.querySelector('[data-a=close]').onclick=()=>{ lane._auto.splice(idx,1); renderTimeline(); markDirty(); };
-    res.addEventListener('pointerdown',ev=>{ ev.preventDefault(); ev.stopPropagation(); const h0=LHa,y0=ev.clientY; lane._autoH=lane._autoH||{};
-      const mv=e2=>{ lane._autoH[p]=Math.max(AUTO_MIN_H,Math.min(AUTO_MAX_H,h0+(e2.clientY-y0))); scheduleTimeline(); };
-      const up=()=>{ window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up); renderTimeline(); }; window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); });
-    heads.appendChild(sh);
-  });
-}
+/* [R143] TRACK-level stacked automation sub-lanes (lane._auto / lane._autoH) + laneAutoH/appendAutoLanes ARCHIVADOS →
+   _backup/deprecated/20260723-automation-sublanes-and-clip-auto.js · render ya neutralizado por [A5] (`return;`); el
+   modelo vigente es la SOLA superposición por pista (lane._autoP + attachClipAuto + chooser de cabecera). */
 
 /* ===================== PLAYBACK ===================== */
 /* [T1/T2/T3] WebCodecs random-access decode + LRU frame-texture cache + lookahead.
@@ -6075,7 +6043,6 @@ $('#tracks').addEventListener('contextmenu',e=>{ const cd=e.target.closest('.cli
     ...((()=>{ const sA=state.tl.selA,sB=state.tl.selB; return (sA!=null&&sB!=null&&Math.abs(sB-sA)>1e-3)?[{label:T('Render selection in place…','Renderizar la selección en el sitio…'),ico:'layers',fn:renderRangeInPlace}]:[]; })()), // [R1] bake the in/out time selection → new top track
     'sep',
     {label:T('Show automation','Mostrar la automatización'),ico:'curves',fn:()=>{const c=clipById(id);if(c)showAutomation(c);}},
-    {label:T('Show automation in a new lane','Mostrar la automatización en una línea nueva'),fn:()=>{const c=clipById(id);if(c){showAutomation(c);addAutoLane(c);}}},
     {label:T('Reset to default','Restablecer el valor por defecto'),fn:()=>{const c=clipById(id);if(c)returnToDefault(c);}}, // (no key hint — Delete deletes the clip, not the automation)
     'sep',
     {label:T('Delete','Eliminar'),key:'⌫',ico:'trash',danger:true,fn:deleteSel}, {label:T('Ripple delete','Eliminación con arrastre'),key:'⇧⌫',danger:true,fn:rippleDelete} ]); });
@@ -7102,7 +7069,7 @@ function wireReactiveChain(c){ if(!c)return; $$('#arChain .fxcard').forEach(card
   const nmEl=card.querySelector('.fxname'); if(nmEl)nmEl.onclick=_coll;
   const del=card.querySelector('.fxdel'); if(del)del.onclick=()=>{ pushUndo(); freeFxHistOne(c.id,id); _fxCollapsed.delete(c.id+':'+id); c.fx=(c.fx||[]).filter(x=>x.id!==id);
     const pre='fx:'+id+':'; if(c.kf)for(const k of Object.keys(c.kf))if(k.indexOf(pre)===0)delete c.kf[k]; if(state.autoSel&&state.autoSel.cid===c.id&&state.autoSel.p.indexOf(pre)===0)state.autoSel=null;
-    for(const l of state.lanes){ if(Array.isArray(l._auto))l._auto=l._auto.filter(k=>!isFxtKey(k)||laneFxTypes(state.lanes.indexOf(l)).includes(k.split(':')[1])); if(l._autoP&&isFxtKey(l._autoP)&&!laneFxTypes(state.lanes.indexOf(l)).includes(l._autoP.split(':')[1]))delete l._autoP; } // [R93] drop fx-type lanes whose TYPE left the whole track — [R70] purge the removed FX's keyframes/overrides/lanes
+    for(const l of state.lanes){ if(l._autoP&&isFxtKey(l._autoP)&&!laneFxTypes(state.lanes.indexOf(l)).includes(l._autoP.split(':')[1]))delete l._autoP; } // [R93] si el TIPO de fx dejó la pista, quita su superposición · [R143] el filtro de lane._auto (sub-carriles) se archivó
     renderReactivePanel(); renderTimeline(); render(); markDirty(); };
   const drag=card.querySelector('.fxdrag'); if(drag)drag.addEventListener('pointerdown',e=>fxDragHandle(e,c,id));
   const bs=card.querySelector('.fxband'); if(bs)bs.onchange=e=>{ pushUndo(); f.band=e.target.value; if(_raOn)raInvalidate(); render(); markDirty(); };

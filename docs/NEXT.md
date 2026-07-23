@@ -53,7 +53,11 @@
       selección de tiempo `[selA,selB]` (o In/Out) → un clip en una **pista nueva arriba** que la cubre (aplana). No
       destructivo (las fuentes quedan debajo; ⌘Z). Ítem "Renderizar la selección en el sitio…" en el menú de clip cuando
       hay selección de rango. Reusa la maquinaria de `renderInPlace` (runExport `rangeT` sin `isolateClips`). _(R142)_
-- [ ] Barrido de deuda técnica #2 — revisar sub-lanes `lane._auto` residuales (COMPONENTS → Deuda técnica).
+- [x] Barrido de deuda técnica #2 — **HECHO (R143).** Mapeado por arch-explorer: el render de sub-carriles apilados
+      (`appendAutoLanes`) ya estaba neutralizado por `[A5]` (`return;`) → `lane._auto`/`lane._autoH` + `addAutoLane(At)` +
+      `laneAutoH` y la lista legacy de clip `c._auto` (`closeAuto`, copia en `sepAuto`, `returnToDefault`, filtro fx) eran
+      **código muerto**. Archivados en `_backup/deprecated/20260723-…` y quitados. El modelo vigente `lane._autoP`
+      (una superposición por pista) queda intacto. Verificado por CDP.
 
 ## Diferido por Beltrán (para el final)
 - [ ] **[D2]** Cola/encoder de export en segundo plano (snapshot congelado).
