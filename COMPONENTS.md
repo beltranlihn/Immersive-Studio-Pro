@@ -1628,7 +1628,7 @@ Bootstrap constants (app.js): `HAS_WC` (~L1259) = WebCodecs + Mp4Muxer present; 
 - **Location:** app.js · `showLanding()` (L2106-2140), `showSplash(minLoops,onReady)` (L2078), `showLoadingScreen(msg)` (L2095) / `setLoadingMsg`/`hideLoadingScreen`/`loadingWaitMedia` (L2098-2104), `startLogoLoop(imgEl,fps,onLoop)` (L2073), `preloadLogoFrames`/`logoFramePath` (L2070-2072), `hideLanding` (L2091). Init: `showSplash(2, …showLanding)` (L6989).
 - **State/data:** 75 PNG frames `assets/frames logo/frame_NNN.png` (`LOGO_FRAMES=75`); `_logoImgs`, `_loadingOv`, `LOADING_MIN_LOOPS=2`.
 - **Key symbols:** landing buttons `#lgNew`(dome)/`#lgNew2d`/`#lgNewRoom`/`#lgOpen`, recent cards `.lgcard[data-path]` → `openProjectPath`; missing file prunes the recent + re-shows landing.
-- **Invariants / gotchas:** splash has a safety timeout so a throttled rAF never hangs boot. Loading screen holds until loop ran ≥2× AND media/proxies ready (or 20s deadline).
+- **Invariants / gotchas:** splash has a safety timeout so a throttled rAF never hangs boot. Loading screen holds until loop ran ≥2× AND media/proxies ready (or 20s deadline). [R147] **no editor flash on boot:** (a) `finish()` calls `onReady()` (paint start screen/onboarding) BEFORE the opacity fade, so the fade reveals the destination, not the editor; (b) `<body class="preboot">` + `body.preboot #app{visibility:hidden}` hides the editor chrome until `showSplash` removes `preboot` (overlays live outside `#app`), killing the pre-script paint of the editor.
 - **Status:** ✅
 
 ## Onboarding — first-run demo + guided tour [D7]

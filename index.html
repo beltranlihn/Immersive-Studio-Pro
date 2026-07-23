@@ -90,6 +90,8 @@
   @keyframes overIn{from{opacity:0;}to{opacity:1;}}
 
   .app{display:flex;flex-direction:column;height:100vh;width:100vw;background:var(--bg-1);}
+  /* [boot] hide the editor chrome until app.js mounts the splash → no flash of the editor while the HTML paints before the script runs (body stays dark). Overlays live outside #app so they're unaffected. */
+  body.preboot #app{visibility:hidden;}
   /* top bar */
   .top{height:28px;flex-shrink:0;display:flex;align-items:center;gap:var(--sp-8);padding:0 10px;background:var(--surface);border-bottom:.5px solid rgba(255,255,255,0.09);}
   .dot{width:6px;height:6px;border-radius:50%;background:var(--ink-2);flex-shrink:0;}
@@ -659,7 +661,7 @@
   .selsel,.qsel,.frow select,select.sysel,.asel{appearance:none;-webkit-appearance:none;height:18px;background-color:var(--surface-2);background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%239EA5AD' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6 6-6'/></svg>");background-repeat:no-repeat;background-position:right 4px center;border:.5px solid rgba(255,255,255,0.1);border-radius:2px;color:var(--ink-2);padding:0 15px 0 7px;cursor:pointer;}
 </style>
 </head>
-<body>
+<body class="preboot">
 <div class="app" id="app">
   <!-- TOP BAR -->
   <div class="top">

@@ -2106,13 +2106,15 @@ function startLogoLoop(imgEl,fps,onLoop){ if(!imgEl)return ()=>{}; preloadLogoFr
   const step=t=>{ if(!last)last=t; if(t-last>=1000/fps){ i=(i+1)%LOGO_FRAMES; if(i===0&&onLoop)onLoop(); imgEl.src=logoFramePath(i); last=t; } raf=requestAnimationFrame(step); }; // [R134] onLoop fires each time the loop wraps
   raf=requestAnimationFrame(step); return ()=>{ if(raf)cancelAnimationFrame(raf); raf=0; }; }
 /* [R134] branded square splash: the logo loop plays in a small square window for `minLoops` cycles, then reveals. */
-function showSplash(minLoops,onReady){ if(document.getElementById('splashOv')){ if(onReady)onReady(); return; }
+function showSplash(minLoops,onReady){ document.body.classList.remove('preboot'); // [boot] the splash is taking over → reveal the editor under it (kills the pre-splash flash of the empty editor chrome); synchronous, so no paint happens with #app visible-but-uncovered
+  if(document.getElementById('splashOv')){ if(onReady)onReady(); return; }
   const ov=document.createElement('div'); ov.className='overlay'; ov.id='splashOv'; ov.style.background='#0E0F11'; ov.style.zIndex='360';
   ov.innerHTML=`<div class="splashcard"><img class="splashlogo" width="128" height="128" alt="Immersive Studio Pro"><div class="splashttl">Immersive Studio Pro</div></div>`;
   document.body.appendChild(ov); let loops=0, done=false;
   const stop=startLogoLoop(ov.querySelector('.splashlogo'),30,()=>{ if(++loops>=minLoops&&!done){ done=true; finish(); } });
   ov._stopLogo=stop;
-  function finish(){ stop(); ov.style.transition='opacity .28s'; ov.style.opacity='0'; setTimeout(()=>{ ov.remove(); if(onReady)onReady(); },300); }
+  function finish(){ stop(); if(onReady)onReady(); // paint the destination (start screen / onboarding) UNDER the splash FIRST, so the fade reveals it — not a bare editor frame (landing z-300 < splash z-360)
+    ov.style.transition='opacity .28s'; ov.style.opacity='0'; setTimeout(()=>{ ov.remove(); },300); }
   setTimeout(()=>{ if(!done){ done=true; finish(); } }, minLoops*3200+1500); } // safety: never hang if rAF is throttled
 function getRecents(){ try{ const a=JSON.parse(localStorage.getItem('domeProRecents')||'[]'); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
 function saveRecents(a){ try{ localStorage.setItem('domeProRecents', JSON.stringify(a.slice(0,12))); }catch(e){} }

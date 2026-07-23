@@ -1,5 +1,20 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 147 — Arranque limpio: sin flash del editor (splash → destino)
+
+Dos flashes del editor durante el boot, confirmados frame-a-frame extrayendo cuadros del video del usuario con ffmpeg
+(y verificados en dev por captura CDP cuadro-a-cuadro):
+- **Al final del loop del logo:** `showSplash.finish()` hacía fade-out del splash y **luego** llamaba `onReady()` (que
+  pinta el inicio). Durante el fade, detrás del splash que se desvanecía estaba el **editor** (el inicio aún no pintado) →
+  ~0.27s de editor antes del inicio. **Fix:** `finish()` llama `onReady()` **antes** del fade → el inicio (opaco, z-300)
+  se pinta bajo el splash (z-360); el fade revela el inicio, nunca el editor. Determinista.
+- **Antes del splash:** el HTML estático de `#app` se pinta antes de que `app.js` corra y monte el splash → flash del
+  chrome del editor al arrancar. **Fix:** `<body class="preboot">` + CSS `body.preboot #app{visibility:hidden}` (los
+  overlays viven fuera de `#app`, no se afectan; el body queda oscuro `var(--bg-1)`); `showSplash` quita `preboot` al
+  montarse (síncrono → sin paint con `#app` visible-sin-cubrir). Arranque = oscuro → splash → destino, sin editor nunca.
+- **Verificado:** captura CDP del boot en dev — primer paint oscuro (no editor), transición splash→inicio directa sin
+  editor intermedio. (El video original mostraba el bug en el build `8eee21f`, previo a estos fixes.)
+
 ## ROUND 146 — [I2·Motion] efectos reactivos como no-reactivos en la sección Motion del inspector
 
 Última pieza del rediseño del inspector (sección 4 del doc): los mismos efectos de `c.fx` que hoy viven en la pestaña
