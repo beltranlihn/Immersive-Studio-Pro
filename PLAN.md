@@ -1,5 +1,25 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 140 — Grado máster de secuencia · Fase 2a (ruedas + LUT + NDI/Spout)
+
+Extensión del grado máster (R139). El refactor `L` de R138 (que hizo `bindClipLUT/Grade/Curve` parametrizables por struct
+de ubicaciones) permite ahora **reutilizar TODA la cadena de grado de clip** para el máster — casi gratis.
+
+- **Motor:** `_MGFS` pasa del bloque numérico al **bloque completo de FSW** (numérico → lift/gamma/gain → curvas → LUT;
+  sin mask/blur/glow; alpha preservado). `_MGu` usa los MISMOS nombres de campo que el struct `L`, y `_masterClip =
+  {props: state.seqGrade}` actúa de "clip" → `applyMasterGrade` llama `bindClipLUT(_masterClip,_MGu)` y hereda ruedas +
+  curvas + LUT sin reimplementar nada.
+- **UI** (`renderMasterGrade`): se añaden **3 ruedas** lift/gamma/gain (handlers frescos sobre `state.seqGrade`, reusan la
+  CSS `.cwheel`) + fila **LUT** (cargar `.cube` / mezcla / quitar, vía `loadLUT`/`_lutReg` como los clips).
+- **NDI/Spout:** `ndiTick`/spout-tick ahora gradúan la textura del FBO y leen de `_mgRT.fbo` → el broadcast también lleva
+  el grado máster (WYSIWYG con el preview/export).
+- **Persistencia:** `state.seqGrade` gana `cgLift/cgGamma/cgGain/lut/lutMix/curves`; viajan solos en el `Object.assign` de
+  `loadSeqIntoState` y el spread `{...md}`. `preloadLUTs` extendido para recargar las LUT máster de cada secuencia.
+- **`masterGradeOn`** extendido: activo si numérico ≠ 0 **o** alguna rueda ≠ 0 **o** hay LUT **o** curvas no-identidad.
+- **Alcance:** falta la **UI de curvas** máster (fase 2b; el motor ya la soporta vía `hasCurve`).
+- **Verificado por CDP:** shader extendido compila (glFallback false), UI con 5 sliders + 3 ruedas + LUT, arrastrar rueda →
+  `masterGradeOn()` true, `render()`→`applyMasterGrade`→`bindClipLUT(_masterClip,_MGu)` sin throw, reset OK. `node --check` OK.
+
 ## ROUND 139 — Grado máster de secuencia (fase 1: numérico)
 
 Idea propia de Beltrán de la cola diferida: un **grado global sobre el composite final**, además del por-clip. Fase 1

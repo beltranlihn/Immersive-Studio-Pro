@@ -294,7 +294,8 @@ function markCurveDirty(c){ if(c)c._curveDirty=true; }
 function bindClipCurve(c,L){ L=L||LW; const tex=clipCurveTex(c); gl.uniform1f(L.hasCurve, tex?1:0);
   gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, tex||_curveIdentity); gl.uniform1i(L.curve,3); gl.activeTexture(gl.TEXTURE0); }
 function preloadLUTs(){ const paths=new Set(); const scan=cs=>{ for(const c of (cs||[]))if(c&&c.props&&c.props.lut)paths.add(c.props.lut); }; // re-load LUTs referenced by a just-opened project so the look appears without a manual reload
-  scan(state.clips); for(const m of state.media)if(isSeqMedia(m))scan(m.nestClips);
+  scan(state.clips); for(const m of state.media)if(isSeqMedia(m)){ scan(m.nestClips); if(m.grade&&m.grade.lut)paths.add(m.grade.lut); } // [master grade] also reload per-sequence master LUTs
+  if(state.seqGrade&&state.seqGrade.lut)paths.add(state.seqGrade.lut);
   if(!paths.size)return; Promise.all([...paths].map(p=>loadLUT(p))).then(()=>{ try{ if(_raOn)raInvalidate(); render(); }catch(e){} }); }
 const N=120, meshVAO=gl.createVertexArray(); gl.bindVertexArray(meshVAO); let meshCount=0;
 (()=>{const vv=[],ix=[];for(let j=0;j<=N;j++)for(let i=0;i<=N;i++)vv.push((i/N)*2-1,(j/N)*2-1,i/N,j/N);
@@ -1046,6 +1047,7 @@ function ndiTick(){ if(!_ndiOn||!DSP.ndi)return;
     const flatBak=_drawFlat, aspBak=_compAspect; _drawFlat=false; // NDI is ALWAYS the fulldome master (square 1:1, no grid/overlays)
     gl.bindFramebuffer(gl.FRAMEBUFFER,_ndiFBO); gl.disable(gl.DEPTH_TEST);
     composite(state.playhead,_ndiRes,true); // opaque black surround; the dome disc = the master
+    if(masterGradeOn()){ applyMasterGrade(_ndiTex,_ndiRes); gl.bindFramebuffer(gl.FRAMEBUFFER,_mgRT.fbo); } // [master grade phase 2] NDI carries the graded master too
     gl.readPixels(0,0,_ndiRes,_ndiRes,gl.RGBA,gl.UNSIGNED_BYTE,_ndiBuf);
     gl.bindFramebuffer(gl.FRAMEBUFFER,null); gl.viewport(0,0,glc.width,glc.height); _drawFlat=flatBak; _compAspect=aspBak;
     DSP.ndi.send(_ndiBuf,_ndiRes,_ndiRes,true); _ndiFrames++; // flipY: bottom-up WebGL → top-down NDI (negative stride, zero copy)
@@ -1082,6 +1084,7 @@ function spoutTick(){ if(!_spoutOn||!DSP.spout)return;
     const flatBak=_drawFlat, aspBak=_compAspect; _drawFlat=false; // ALWAYS the fulldome master (square 1:1, no grid/overlays)
     gl.bindFramebuffer(gl.FRAMEBUFFER,_spoutFBO); gl.disable(gl.DEPTH_TEST);
     composite(state.playhead,_spoutRes,true);
+    if(masterGradeOn()){ applyMasterGrade(_spoutTex,_spoutRes); gl.bindFramebuffer(gl.FRAMEBUFFER,_mgRT.fbo); } // [master grade phase 2] Spout carries the graded master too
     gl.readPixels(0,0,_spoutRes,_spoutRes,gl.RGBA,gl.UNSIGNED_BYTE,_spoutBuf);
     gl.bindFramebuffer(gl.FRAMEBUFFER,null); gl.viewport(0,0,glc.width,glc.height); _drawFlat=flatBak; _compAspect=aspBak;
     DSP.spout.send(_spoutBuf,_spoutRes,_spoutRes,true); // flipY: bottom-up WebGL → top-down Spout (flip done in the addon)
@@ -2772,12 +2775,35 @@ const propLabel=p=>{const m=PLABELS[p];return m?T(m[0],m[1]):p;};
 let _masterOpen=true;
 const MASTER_PARAMS=[['exposure','Exposure','Exposición'],['contrast','Contrast','Contraste'],['saturation','Saturation','Saturación'],['temperature','Temp','Temperatura'],['tint','Tint','Tinte']];
 function seqGradeObj(){ if(!state.seqGrade)state.seqGrade={exposure:0,contrast:0,saturation:0,temperature:0,tint:0}; return state.seqGrade; }
+const MASTER_WHEELS=[['cgLift','Lift'],['cgGamma','Gamma'],['cgGain','Gain']];
 function renderMasterGrade(){ const host=$('#insMaster'); if(!host)return; const g=seqGradeObj(); const on=masterGradeOn();
   const rows=MASTER_PARAMS.map(([k,en,es])=>`<div class="prow mgrow"><span class="lab">${T(en,es)}</span><input type="range" class="mgr" data-k="${k}" min="-100" max="100" value="${Math.round(g[k]||0)}" style="flex:1;height:18px;accent-color:var(--ink-3);"><span class="num mgv" data-k="${k}">${Math.round(g[k]||0)}</span></div>`).join('');
+  const wheels=`<div class="prow mgrow" style="align-items:flex-start;"><span class="kf" style="cursor:default;visibility:hidden;"></span><div class="cwrap" style="flex:1;min-width:0;">`+
+    MASTER_WHEELS.map(([k,lab])=>`<div class="cwcol" data-k="${k}"><div class="cwheel" data-k="${k}" title="${T('Drag = color balance · double-click = reset','Arrastrar = balance de color · doble clic = reiniciar')}"><span class="cwh"></span></div><input type="range" class="cwm" data-k="${k}" min="-100" max="100" value="0" title="${T('Luminance','Luminancia')}"><span class="cwlab">${lab}</span></div>`).join('')+`</div></div>`;
+  const rec=(g.lut)?_lutReg.get(g.lut):null;
+  const lut=`<div class="prow mgrow"><span class="lab">LUT</span><div style="flex:1;display:flex;align-items:center;gap:6px;min-width:0;"><button class="mbtn" id="mgLutLoad" style="height:18px;padding:0 8px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${g.lut?(rec?rec.name:'LUT').slice(0,16):T('Load…','Cargar…')}</button>${g.lut?`<input type="range" id="mgLutMix" min="0" max="100" value="${g.lutMix==null?100:g.lutMix}" style="flex:1;min-width:36px;"><span class="tnum" id="mgLutMixV" style="width:30px;color:var(--ink-dim);text-align:right;">${g.lutMix==null?100:g.lutMix}%</span><button class="mbtn" id="mgLutClear" title="${T('Remove LUT','Quitar LUT')}" style="height:18px;padding:0 7px;">✕</button>`:''}</div></div>`;
   host.innerHTML=`<button class="sechead" id="secMaster"><span style="color:var(--ink-dim);display:flex;transform:rotate(${_masterOpen?0:-90}deg);">${ICO('chevDown')}</span><span class="t">${T('Master Grade','Grado máster')}</span><span class="ln"></span>${on?'<span class="mgdot" title="'+T('Active','Activo')+'"></span>':''}<button class="mbtn" id="mgReset" title="${T('Reset the whole-sequence grade','Reiniciar el grado de toda la secuencia')}" style="height:15px;padding:0 6px;margin-left:6px;${on?'':'opacity:.45;'}">${T('Reset','Reiniciar')}</button></button>
-    <div id="masterRows" style="padding-bottom:4px;${_masterOpen?'':'display:none;'}">${rows}</div>`;
+    <div id="masterRows" style="padding-bottom:5px;${_masterOpen?'':'display:none;'}">${rows}${wheels}${lut}</div>`;
   const head=host.querySelector('#secMaster'); if(head)head.onclick=e=>{ if(e.target.closest('#mgReset'))return; _masterOpen=!_masterOpen; renderMasterGrade(); };
-  const rst=host.querySelector('#mgReset'); if(rst)rst.onclick=e=>{ e.stopPropagation(); if(!masterGradeOn())return; pushUndo(); state.seqGrade={exposure:0,contrast:0,saturation:0,temperature:0,tint:0}; render(); markDirty(); renderMasterGrade(); flashStatus(T('Master grade reset','Grado máster reiniciado')); };
+  const rst=host.querySelector('#mgReset'); if(rst)rst.onclick=e=>{ e.stopPropagation(); if(!masterGradeOn())return; pushUndo(); state.seqGrade={exposure:0,contrast:0,saturation:0,temperature:0,tint:0}; markCurveDirty(_masterClip); render(); markDirty(); renderMasterGrade(); flashStatus(T('Master grade reset','Grado máster reiniciado')); };
+  // wheels (lift/gamma/gain) — fresh handlers on state.seqGrade (the clip wheel UI is selClip-bound)
+  host.querySelectorAll('.cwcol').forEach(col=>{ const k=col.dataset.k, wheel=col.querySelector('.cwheel'), hnd=col.querySelector('.cwh'), master=col.querySelector('.cwm');
+    const cur=()=>{ const a=g[k]; return a?[a[0]||0,a[1]||0,a[2]||0]:[0,0,0]; };
+    const place=()=>{ const [x,y,mm]=cur(); hnd.style.left=(50+x*46)+'%'; hnd.style.top=(50-y*46)+'%'; master.value=Math.round(mm*100); }; place();
+    let drag=false; const setXY=(px,py)=>{ const r=wheel.getBoundingClientRect(); let x=(px-r.left)/r.width*2-1, y=-((py-r.top)/r.height*2-1); const d=Math.hypot(x,y); if(d>1){x/=d;y/=d;} const a=cur(); g[k]=[x,y,a[2]]; place(); render(); };
+    wheel.onpointerdown=e=>{ e.preventDefault(); pushUndo(); drag=true; try{wheel.setPointerCapture(e.pointerId);}catch(_){} setXY(e.clientX,e.clientY); };
+    wheel.onpointermove=e=>{ if(drag)setXY(e.clientX,e.clientY); };
+    wheel.onpointerup=()=>{ if(drag){ drag=false; markDirty(); renderMasterGrade(); } };
+    wheel.ondblclick=()=>{ pushUndo(); g[k]=[0,0,0]; place(); render(); markDirty(); renderMasterGrade(); };
+    master.onpointerdown=()=>pushUndo();
+    master.oninput=e=>{ const a=cur(); g[k]=[a[0],a[1],(+e.target.value)/100]; render(); };
+    master.onchange=()=>{ markDirty(); renderMasterGrade(); }; });
+  // master LUT (.cube) — reuses loadLUT/_lutReg like clips
+  const ll=host.querySelector('#mgLutLoad'); if(ll)ll.onclick=async()=>{ if(!(IS_ELEC&&DSP.pickFile)){ flashStatus(T('LUT loading needs the desktop app','Cargar LUT necesita la app de escritorio'),'err'); return; }
+    const p=await DSP.pickFile({name:'Cube LUT',extensions:['cube'],title:T('Load master LUT (.cube)','Cargar LUT máster (.cube)')}); if(!p)return; const r2=await loadLUT(p); if(!r2){ flashStatus(T('Not a valid 3D .cube LUT','No es una LUT .cube 3D válida'),'err'); return; }
+    pushUndo(); g.lut=p; if(g.lutMix==null)g.lutMix=100; render(); markDirty(); renderMasterGrade(); flashStatus('LUT: '+r2.name); };
+  const lm=host.querySelector('#mgLutMix'); if(lm){ lm.onpointerdown=()=>pushUndo(); lm.oninput=e=>{ g.lutMix=+e.target.value; const v=host.querySelector('#mgLutMixV'); if(v)v.textContent=g.lutMix+'%'; render(); }; lm.onchange=()=>markDirty(); }
+  const lc=host.querySelector('#mgLutClear'); if(lc)lc.onclick=()=>{ pushUndo(); g.lut=null; render(); markDirty(); renderMasterGrade(); };
   host.querySelectorAll('.mgr').forEach(r=>{ const k=r.dataset.k;
     r.onpointerdown=()=>pushUndo();
     r.oninput=e=>{ g[k]=+e.target.value; const v=host.querySelector('.mgv[data-k="'+k+'"]'); if(v)v.textContent=Math.round(+e.target.value); render(); }; // grade is applied post-cache → a plain render() re-grades live, no raInvalidate
@@ -6644,18 +6670,30 @@ function applyBlackKey(inTex,size,c){ const thr=Math.max(0,Math.min(100,c.props.
    matches per-clip grading. Runs as one full-screen pass; skipped entirely when the grade is identity (zero cost). */
 const _MGFS=`#version 300 es
 precision highp float; in vec2 v_uv; out vec4 o; uniform sampler2D u_tex; uniform float u_exp,u_con,u_sat,u_tmp,u_tnt;
+uniform vec3 u_lift,u_gamma,u_gain; uniform sampler2D u_curve; uniform float u_hasCurve; uniform highp sampler3D u_lut; uniform float u_hasLut,u_lutMix; // [master grade phase 2] wheels + curves + LUT (same chain as FSW)
 void main(){ vec4 c=texture(u_tex,v_uv); vec3 col=c.rgb;
-  col*=exp2(u_exp); col=(col-0.5)*(1.0+u_con)+0.5; float L=dot(col,vec3(0.2126,0.7152,0.0722)); col=mix(vec3(L),col,1.0+u_sat); col*=vec3(1.0+u_tmp,1.0,1.0-u_tmp); col*=vec3(1.0-u_tnt*0.5,1.0+u_tnt,1.0-u_tnt*0.5); col=clamp(col,0.0,1.0);
+  col*=exp2(u_exp); col=(col-0.5)*(1.0+u_con)+0.5; float L=dot(col,vec3(0.2126,0.7152,0.0722)); col=mix(vec3(L),col,1.0+u_sat); col*=vec3(1.0+u_tmp,1.0,1.0-u_tmp); col*=vec3(1.0-u_tnt*0.5,1.0+u_tnt,1.0-u_tnt*0.5);
+  col=pow(max(u_gain*col+u_lift,0.0), u_gamma); col=clamp(col,0.0,1.0);                 // R130 lift/gamma/gain
+  if(u_hasCurve>0.5){ col.r=texture(u_curve,vec2(col.r,0.5)).r; col.g=texture(u_curve,vec2(col.g,0.5)).g; col.b=texture(u_curve,vec2(col.b,0.5)).b; col=vec3(texture(u_curve,vec2(col.r,0.5)).a, texture(u_curve,vec2(col.g,0.5)).a, texture(u_curve,vec2(col.b,0.5)).a); } // R132 curves
+  if(u_hasLut>0.5){ col=mix(col, texture(u_lut, col).rgb, u_lutMix); }                    // R116 LUT
   o=vec4(col, c.a); }`; // alpha preserved (dome surround stays transparent); grade only touches rgb
-const _MG=ppCompile(_MGFS); const _MGu={tex:gl.getUniformLocation(_MG,'u_tex'),exp:gl.getUniformLocation(_MG,'u_exp'),con:gl.getUniformLocation(_MG,'u_con'),sat:gl.getUniformLocation(_MG,'u_sat'),tmp:gl.getUniformLocation(_MG,'u_tmp'),tnt:gl.getUniformLocation(_MG,'u_tnt')};
+const _MG=ppCompile(_MGFS); const _MGu={tex:gl.getUniformLocation(_MG,'u_tex'),exp:gl.getUniformLocation(_MG,'u_exp'),con:gl.getUniformLocation(_MG,'u_con'),sat:gl.getUniformLocation(_MG,'u_sat'),tmp:gl.getUniformLocation(_MG,'u_tmp'),tnt:gl.getUniformLocation(_MG,'u_tnt'),
+  lift:gl.getUniformLocation(_MG,'u_lift'),gamma:gl.getUniformLocation(_MG,'u_gamma'),gain:gl.getUniformLocation(_MG,'u_gain'),curve:gl.getUniformLocation(_MG,'u_curve'),hasCurve:gl.getUniformLocation(_MG,'u_hasCurve'),lut:gl.getUniformLocation(_MG,'u_lut'),hasLut:gl.getUniformLocation(_MG,'u_hasLut'),lutMix:gl.getUniformLocation(_MG,'u_lutMix')}; // field names match the L-struct that bindClipLUT/Grade/Curve expect → reuse the clip grade pipeline
+const _masterClip={props:null}; // a stand-in "clip" so bindClipLUT/Grade/Curve can drive the master grade (holds _curveTex/_curveDirty for the curve-texture cache)
 let _mgRT=null;
 function _mgTarget(size){ if(!_mgRT){ _mgRT={tex:gl.createTexture(),fbo:gl.createFramebuffer(),size:0}; } if(_mgRT.size!==size){ _ppTex(_mgRT.tex,size); gl.bindFramebuffer(gl.FRAMEBUFFER,_mgRT.fbo); gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,_mgRT.tex,0); gl.bindFramebuffer(gl.FRAMEBUFFER,null); _mgRT.size=size; } return _mgRT; }
-function masterGradeOn(){ const g=state.seqGrade; return !!(g&&((g.exposure||0)||(g.contrast||0)||(g.saturation||0)||(g.temperature||0)||(g.tint||0))); }
+function masterGradeOn(){ const g=state.seqGrade; if(!g)return false;
+  if((g.exposure||0)||(g.contrast||0)||(g.saturation||0)||(g.temperature||0)||(g.tint||0))return true;
+  const w=a=>a&&((a[0]||0)||(a[1]||0)||(a[2]||0)); if(w(g.cgLift)||w(g.cgGamma)||w(g.cgGain))return true; // wheels
+  if(g.lut)return true; // master LUT
+  if(g.curves&&!curveIsIdentity(g.curves))return true; // curves
+  return false; }
 function applyMasterGrade(inTex,size){ if(!masterGradeOn())return inTex; const g=state.seqGrade;
   const prevFBO=gl.getParameter(gl.FRAMEBUFFER_BINDING), pv=gl.getParameter(gl.VIEWPORT); const rt=_mgTarget(size);
   gl.disable(gl.BLEND); gl.bindVertexArray(_ppVAO); gl.useProgram(_MG);
-  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,inTex); gl.uniform1i(_MGu.tex,0);
   gl.uniform1f(_MGu.exp,(g.exposure||0)/100); gl.uniform1f(_MGu.con,(g.contrast||0)/100); gl.uniform1f(_MGu.sat,(g.saturation||0)/100); gl.uniform1f(_MGu.tmp,(g.temperature||0)/100*0.15); gl.uniform1f(_MGu.tnt,(g.tint||0)/100*0.15);
+  _masterClip.props=g; bindClipLUT(_masterClip,_MGu); // [phase 2] reuse the clip grade pipeline: sets wheels+curve+LUT on units 2/3, restores TEXTURE0
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,inTex); gl.uniform1i(_MGu.tex,0);
   gl.bindFramebuffer(gl.FRAMEBUFFER,rt.fbo); gl.viewport(0,0,size,size); gl.drawArrays(gl.TRIANGLES,0,6);
   gl.bindVertexArray(null); gl.bindFramebuffer(gl.FRAMEBUFFER,prevFBO); gl.viewport(pv[0],pv[1],pv[2],pv[3]); gl.enable(gl.BLEND); NORMAL_BLEND();
   return rt.tex; }

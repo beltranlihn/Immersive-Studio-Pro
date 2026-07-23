@@ -125,7 +125,7 @@
 | Ruedas Lift/Gamma/Gain | Grado primario estilo DaVinci | app.js · `wheelRGB`/`bindClipGrade` | ✅ | R130 |
 | Curvas de tono | Curvas luma+RGB → LUT 256×1 | app.js · `buildCurveData`/`clipCurveTex`/`bindClipCurve` | ✅ | R132 |
 | Grado en PFD/PEQ | Fulldome/equirect ya reciben ruedas/curvas/LUT (paridad con FSW) | app.js · `bindClipLUT(c,LFD/LEQ)` en draw PFD/PEQ | ✅ | R138 (gap cerrado) |
-| Grado máster de secuencia | Grado global numérico sobre el composite final (post-pass) | app.js · `applyMasterGrade`/`_MG` · `renderMasterGrade`/#insMaster | 🚧 | R139 (fase 1: numérico) |
+| Grado máster de secuencia | Grado global sobre el composite (numérico + ruedas + LUT; preview/export/NDI/Spout) | app.js · `applyMasterGrade`/`_MG` · `renderMasterGrade`/#insMaster | 🚧 | R139/R140 (falta UI de curvas) |
 | `renderInspector` | Reconstruye + sincroniza el inspector | app.js · `renderInspector`/`refreshInspector` | ✅ | [I1]/[I2] |
 | 4 secciones colapsables | Transform/Clip/Color/Motion | app.js · `applySecCollapse` · #colorRows | ✅ | [I1]/[I2] |
 | Filas de parámetro | Fader + diamante + arco de mod | app.js · `buildRows`/`startValDrag` · `.prow` | ✅ | [A1] |
@@ -1106,14 +1106,14 @@ Subsystem map of `app.js` — verified line numbers (app.js = 6992 lines). Two h
 - **Status:** ✅ (gap closed R138)
 - **Roadmap:** —
 
-## Sequence master grade (R139 · phase 1)
-- **Purpose:** A per-sequence GLOBAL grade over the FINAL composite (on top of per-clip grading). Phase 1 = numeric grade (exposure/contrast/saturation/temperature/tint). Phase 2 (pending): lift/gamma/gain wheels, curves, master LUT, and NDI/Spout coverage.
-- **Location:** app.js · shader `_MGFS`/prog `_MG` + `applyMasterGrade(inTex,size)`/`masterGradeOn()`/`_mgTarget` (near `applyBlackKey`) · preview injection in `render()` (`_srcTex=applyMasterGrade(...)` after the composite/render-ahead block) · export injection in `renderExportFrame` (grades `_exTex` before the PB blit) · UI `renderMasterGrade()` + `#insMaster` (index.html, top of `#insBody`).
-- **State/data:** `state.seqGrade={exposure,contrast,saturation,temperature,tint}` (per-sequence). Persisted: `saveActiveSeq`→`s.grade`, `loadSeqIntoState`→`state.seqGrade` (identity default via `Object.assign`), `serMedia`→`grade`, restored by loadProject's `{...md}` spread.
-- **Key symbols:** `_MGFS` = same numeric block as FSW (exp→con→sat→temp/tint, alpha preserved); `applyMasterGrade` is a no-op when `masterGradeOn()` is false (identity → zero cost, existing projects unchanged). `renderMasterGrade` is built by `renderInspector` (always visible, independent of the `selClip`-bound clip color UI); `_masterOpen` collapse flag; `MASTER_PARAMS`; `seqGradeObj()`.
-- **Invariants / gotchas:** Grade is applied POST render-ahead cache → editing it is live (not baked into the cache), no `raInvalidate` needed. Composite is always square (`compSize` preview / `SR` export) so `_mgTarget` is square. Applies to the TOP-LEVEL active sequence only — nested sequences and the room floor do NOT get a master grade in phase 1 (their composites bypass these call-sites). Verified by CDP: shader compiles (glFallback false), section renders (5 sliders + Reset), UI→`state.seqGrade`→`masterGradeOn()` path live, render + reset OK.
-- **Status:** 🚧 (phase 1 complete + verified; phase 2 pending)
-- **Roadmap:** phase 2 — wheels/curves/LUT + NDI/Spout
+## Sequence master grade (R139 phase 1 + R140 phase 2a)
+- **Purpose:** A per-sequence GLOBAL grade over the FINAL composite (on top of per-clip grading). Done: numeric (exp/con/sat/temp/tint) + lift/gamma/gain wheels + master LUT, in preview + export + NDI + Spout. **Phase 2b pending:** master curves UI (engine already supports it).
+- **Location:** app.js · shader `_MGFS`/prog `_MG` + `applyMasterGrade(inTex,size)`/`masterGradeOn()`/`_mgTarget`/`_masterClip` (near `applyBlackKey`) · preview injection in `render()` · export injection in `renderExportFrame` (grades `_exTex` before the PB blit) · NDI `ndiTick`/Spout tick (grade the FBO tex, read from `_mgRT.fbo`) · UI `renderMasterGrade()` + `#insMaster`.
+- **State/data:** `state.seqGrade={exposure,contrast,saturation,temperature,tint, cgLift,cgGamma,cgGain, lut,lutMix, curves}` (per-sequence). Persisted: `saveActiveSeq`→`s.grade`, `loadSeqIntoState`→`state.seqGrade` (identity numeric defaults via `Object.assign`, extra keys ride along), `serMedia`→`grade`, restored by loadProject's `{...md}` spread. Master LUT paths reloaded by `preloadLUTs` (extended to scan seq grades).
+- **Key symbols:** `_MGFS` = same chain as FSW (numeric → LGG → curves → LUT; no mask/blur/glow; alpha preserved). `_MGu` uses the SAME field names as the `L` uniform struct, and `_masterClip={props:state.seqGrade}` is a stand-in clip, so `applyMasterGrade` reuses `bindClipLUT/Grade/Curve` (the R138 `L` refactor). `applyMasterGrade` is a no-op when `masterGradeOn()` is false (identity → zero cost). `renderMasterGrade` (built by `renderInspector`, always visible, independent of the `selClip`-bound clip color UI): `MASTER_PARAMS` sliders + `MASTER_WHEELS` (fresh handlers on `state.seqGrade`) + LUT row (reuses `loadLUT`/`_lutReg`).
+- **Invariants / gotchas:** Grade applied POST render-ahead cache → live edits, no `raInvalidate`. Composite always square (`compSize`/`SR`/`_ndiRes`/`_spoutRes`) so `_mgTarget` is square; `_mgRT` is SHARED across preview/export/NDI/Spout so it reallocates when their sizes differ (fine — deliberate output modes). Applies to the TOP-LEVEL active sequence only — nested sequences and the room floor bypass these call-sites. Verified by CDP (both phases): shader compiles (glFallback false), UI (5 sliders + 3 wheels + LUT), wheel drag → `masterGradeOn()` true, `render()`→`applyMasterGrade`→`bindClipLUT(_masterClip,_MGu)` no throw, reset OK.
+- **Status:** 🚧 (phases 1 + 2a complete + verified; 2b = curves UI pending)
+- **Roadmap:** phase 2b — master curves editor UI
 
 ---
 

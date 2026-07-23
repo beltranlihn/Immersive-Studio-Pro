@@ -42,11 +42,11 @@
 
 ## Para días siguientes (complejo / diferido)
 - [ ] **[X1] Rediseño del ecualizador** (Reactive FX) — audio-reactivo, mejor diseño.
-- [~] **Grade máster de secuencia** (idea propia) — **Fase 1 HECHA (R139):** grado numérico global (exposure/contrast/
-      saturation/temp/tint) sobre el composite final vía post-pass `applyMasterGrade` (shader `_MG`, mismo bloque que FSW),
-      en preview + export, por-secuencia (persistido en `state.seqGrade`/nest media), UI viva en la sección **Master Grade**
-      del inspector (`renderMasterGrade`, `#insMaster`). Verificado por CDP. **Fase 2 pendiente:** ruedas lift/gamma/gain,
-      curvas, LUT máster, y NDI/Spout (hoy sólo preview+export).
+- [~] **Grade máster de secuencia** (idea propia) — **Fase 1 (R139) + Fase 2a (R140) HECHAS:** grado global sobre el
+      composite final por post-pass `applyMasterGrade` (shader `_MG`). Fase 1 = numérico + preview/export. **Fase 2a =**
+      ruedas lift/gamma/gain + **LUT máster** (reusa toda la cadena de clip vía `bindClipLUT(_masterClip,_MGu)`, gracias al
+      refactor `L` de R138) + cobertura **NDI/Spout**. UI en la sección **Master Grade** del inspector. Verificado por CDP.
+      **Fase 2b pendiente:** editor de **curvas** máster (el motor ya lo soporta vía `hasCurve`, falta la UI).
 - [ ] **[D7] Onboarding** — proyecto demo con shapes de referencia + overlay de pasos, omitible, no reaparece.
 - [ ] **[V3] Spout In** — Spout como fuente en Media (addon nativo grande, solo Windows).
 - [ ] **[R1] Render in-site flexible** — extender a "selección con in/out" (hoy hace clip y nest).
