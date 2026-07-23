@@ -1,5 +1,44 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 145 — [D7] Onboarding (proyecto-demo de primera apertura + tour guiado)
+
+Al abrir por primera vez (flag `dspOnboardV1` ausente en localStorage) la app ahora **salta el landing**, arma un
+**proyecto-demo domo** desechable y lanza un **tour de coach-marks**. Omitible, no reaparece, relanzable desde el menú.
+
+- **Proyecto-demo (`buildDemoProject`):** `await newProject('dome',4096,4096,60,180)` + una escena de referencia — título
+  de texto "IMMERSIVE" arriba y tres formas básicas (elipse / rectángulo / línea) repartidas por el domo en las pistas
+  V1–V4 con arranques escalonados (helpers `_demoAddShape`/`_demoAddText`, que fijan `props.az/el/size` del clip domo).
+  `clearAllUndo()` + `dirty=false` → un demo no molesta con "sin guardar" al cerrar. Playhead a 2s (todas las formas activas).
+- **Tour (`startTour`):** overlay `#tourOv` transparente (traga clics sobre la app durante el tour) + un **foco recortado**
+  (`box-shadow:0 0 0 9999px` sobre un `div` posicionado en el `getBoundingClientRect` del objetivo, `pointer-events:none`)
+  + tarjeta con título/cuerpo/contador y botones Saltar/Atrás/Siguiente. 5 pasos: bienvenida (centrada, sin objetivo) →
+  visor `#stage` → timeline `.timeline` → inspector `#inspPane` → export `#exportBtn`. Teclado Esc/←/→/Enter. Reposiciona
+  en `resize`. Respeta movimiento reducido (sin transición del foco). El flag se fija sólo al **saltar o terminar** (`end()`).
+- **Enganche:** callback de `showSplash(2,…)` → `!onboardDone() ? startOnboarding() : showLanding()`. Relanzable desde
+  **Window → Guided tour** (`startTour`, **no destructivo** — no reconstruye el demo). Ícono de menú `flag` (no existe `help`).
+- **Verificado por CDP** (`scratchpad/verify-onboard.mjs`): el demo arma 4 clips (texto+3 formas) en domo; el foco encaja
+  exacto sobre `#inspPane` (1278,22,312×469 vs panel 1284,28,300×457, +6px pad); finish quita el overlay y persiste el flag;
+  el relanzado desde menú abre el tour sin tocar los clips. Capturas en `scratchpad/onboard-*.png`.
+
+## ROUND 144 — [X1] Rediseño del ecualizador (Reactive FX → analizador de espectro)
+
+El medidor de audio `#arMeter` del panel Reactive FX (sección "Audio Engine") era 4 barras planas en gris
+(BASS/MID/TREB/BRT). Se rediseñó como un **analizador de espectro real de 32 bandas logarítmicas**.
+
+- **Fuente de datos:** reutiliza el FFT que ya construía el selector de frecuencias (`m.spec`, 32 bins log 40 Hz–12 kHz).
+  Nuevo helper `specColAt(t,into)` samplea esa columna en el playhead con la misma ganancia/puerta que el resto del motor
+  (interpola entre frames; buffer reutilizado `_arSpecBuf` → sin alloc por frame). Devuelve `null` hasta que el FFT está
+  listo (se calcula tras las bandas).
+- **Painter `arDrawMeter`:** barras con relleno-gradiente iluminado por energía (más fuerte = tope más claro), **picos
+  con caída lenta** (`_arPeaks` peak-hold), regla de frecuencias 100/1k/10k, línea base, escarcha de onset y el punto de
+  latido fase-bloqueado al BPM (conservados). **Nítido a cualquier ancho / hi-dpi:** respalda el canvas con píxeles de
+  dispositivo (DPR) y dibuja en px CSS. Esquinas redondeadas vía `_rrect` (native `roundRect` con fallback a `rect`).
+- **Fallback elegante:** mientras el FFT se calcula, pinta las 4 bandas (con etiquetas, vía `bandLevelAt`) con la misma
+  estética. Sin fuente de audio → medidor vacío inofensivo.
+- **Canvas** subido de 54→62px de alto para el analizador.
+- **Verificado por CDP** (`scratchpad/verify-eq.mjs`): inyecté un espectro sintético + `_arCache` y volqué el PNG del
+  canvas — ambos caminos (espectro de 32 bandas y fallback de 4) pintan sin excepción.
+
 ## ROUND 143 — Barrido de deuda técnica #2: automatización muerta (archivada, no borrada)
 
 Segundo barrido bajo la política "archivar, no borrar" (ADR-0007). Se mapearon con **arch-explorer** (subagente aislado)

@@ -2170,6 +2170,71 @@ function showLanding(){ if(document.getElementById('landingOv'))return;
   ov.querySelectorAll('.lgcard').forEach(b=>{ b.onmouseenter=()=>b.style.borderColor='rgba(201,205,211,0.5)'; b.onmouseleave=()=>b.style.borderColor='rgba(255,255,255,0.09)';
     b.onclick=()=>{ const p=b.dataset.path; if(!p)return; if(IS_ELEC&&DSP.exists){ DSP.exists(p).then(ok=>{ if(ok)openProjectPath(p); else { appAlert(T('That project file was moved or deleted.','Ese archivo de proyecto se movió o eliminó.')); const a=getRecents().filter(r=>r.path!==p); saveRecents(a); hideLanding(); showLanding(); } }); } else openProjectPath(p); }; }); }
 
+/* ===================== [D7] ONBOARDING — first-run demo project + step overlay =====================
+   On first launch (flag absent) we skip the landing, build a small dome demo with reference shapes, and walk a
+   coach-mark tour (viewport → timeline → inspector → export). Skippable; never reappears unless launched from the
+   Window menu ("Guided tour"). The flag lives in localStorage next to the other dsp / domePro prefs. */
+const ONBOARD_KEY='dspOnboardV1';
+function onboardDone(){ try{ return localStorage.getItem(ONBOARD_KEY)==='1'; }catch(e){ return false; } }
+function setOnboardDone(){ try{ localStorage.setItem(ONBOARD_KEY,'1'); }catch(e){} }
+/* one reference shape → its own media + a clip placed explicitly (lane/time/dome-position) */
+function _demoAddShape(shape,fill,lane,start,dur,az,el,size){
+  const m={id:uid(),kind:'shape',name:T('Shape','Forma'),shape,fill,stroke:'#0E0F11',strokeW:0,sw:512,sh:512,dur,fps:0,color:clipColorFor('shape')};
+  renderShapeMedia(m); state.media.push(m); addClip(m,lane,start);
+  const c=state.clips[state.clips.length-1]; if(c){ c.dur=dur; if(c.props){ c.props.az=az; c.props.el=el; c.props.size=size; } } return c; }
+function _demoAddText(text,lane,start,dur,az,el,size){
+  const m={id:uid(),kind:'text',name:text,text,tfontSize:150,tweight:'700',tfont:'Inter, sans-serif',tcolor:'#F2F4F6',tbg:'transparent',tstroke:false,tstrokeColor:'#000',dur,fps:0,color:clipColorFor('text')};
+  renderTextMedia(m); state.media.push(m); addClip(m,lane,start);
+  const c=state.clips[state.clips.length-1]; if(c){ c.dur=dur; if(c.props){ c.props.az=az; c.props.el=el; c.props.size=size; } } return c; }
+async function buildDemoProject(){ hideLanding();
+  await newProject('dome',4096,4096,60,180); // fresh dome sequence (4 video + 1 audio lane)
+  // a little reference scene across the dome — title up top, three basic shapes on their own tracks
+  _demoAddText('IMMERSIVE',0,0,8,0,72,42);
+  _demoAddShape('ellipse','#C9CDD3',1,0,8,-58,42,46);
+  const focus=_demoAddShape('rect','#8A9199',2,0.5,7,4,26,50);
+  _demoAddShape('line','#E8EAED',3,1,6,58,44,44);
+  if(focus){ state.selId=focus.id; state.selIds=[focus.id]; } // inspector has something to show during the tour
+  state.playhead=2; clearAllUndo(); state.dirty=false; // a throwaway demo shouldn't nag "unsaved" on close
+  renderMedia(); renderTimeline(); renderInspector(); render(); projTitle(); }
+/* ---- the coach-mark tour ---- */
+let _tourStop=null;
+function tourSteps(){ return [
+  {sel:null,      title:T('Welcome to Immersive Studio Pro','Bienvenido a Immersive Studio Pro'), body:T('A quick tour of the essentials. This demo scene is yours to play with — skip any time.','Un recorrido rápido por lo esencial. Esta escena de ejemplo es para experimentar — puedes saltarlo cuando quieras.')},
+  {sel:'#stage',  title:T('The viewport','El visor'), body:T('Your dome, 2D or 360-room composite renders here live. Drag a shape to reposition it, or scrub the timeline.','Tu composición domo, 2D o sala 360 se renderiza aquí en vivo. Arrastra una forma para recolocarla, o desplaza la línea de tiempo.')},
+  {sel:'.timeline',title:T('The timeline','La línea de tiempo'), body:T('Clips stack on tracks over time. This demo already holds a few reference shapes on separate tracks.','Los clips se apilan en pistas a lo largo del tiempo. Esta demo ya trae varias formas de referencia en pistas separadas.')},
+  {sel:'#inspPane',title:T('The inspector','El inspector'), body:T('Select a clip to shape its position, look, animation and audio-reactive FX right here.','Selecciona un clip para ajustar su posición, aspecto, animación y FX reactivos al audio aquí mismo.')},
+  {sel:'#exportBtn',title:T('Export','Exportar'), body:T('When your piece is ready, render it to a video file or an image sequence.','Cuando tu obra esté lista, renderízala a un vídeo o a una secuencia de imágenes.')} ]; }
+function startTour(){ if(document.getElementById('tourOv'))return; const steps=tourSteps(); let i=0;
+  const ov=document.createElement('div'); ov.id='tourOv'; ov.style.cssText='position:fixed;inset:0;z-index:500;'; // transparent catcher: blocks stray clicks on the app mid-tour; the dim comes from the hole's box-shadow
+  const hole=document.createElement('div'); hole.style.cssText='position:fixed;border-radius:8px;pointer-events:none;box-shadow:0 0 0 9999px rgba(11,12,14,0.74);outline:1.5px solid rgba(201,205,211,0.55);'+(state.prefs.reducedMotion?'':'transition:all .25s cubic-bezier(.4,0,.2,1);');
+  const card=document.createElement('div'); card.style.cssText='position:fixed;width:288px;background:var(--s1);border:.5px solid rgba(255,255,255,0.12);border-radius:9px;padding:15px 16px;box-shadow:0 12px 34px rgba(0,0,0,0.55);pointer-events:auto;';
+  ov.appendChild(hole); ov.appendChild(card); document.body.appendChild(ov);
+  const end=()=>{ setOnboardDone(); window.removeEventListener('resize',draw); document.removeEventListener('keydown',onk,true); if(_tourStop===end)_tourStop=null; ov.remove(); };
+  _tourStop=end;
+  const go=d=>{ i=Math.max(0,Math.min(steps.length-1,i+d)); draw(); };
+  function draw(){ const s=steps[i], last=i===steps.length-1;
+    const el=s.sel?document.querySelector(s.sel):null; const r=el?el.getBoundingClientRect():null;
+    if(r&&r.width>0&&r.height>0){ const pad=6; hole.style.opacity='1'; hole.style.left=(r.left-pad)+'px'; hole.style.top=(r.top-pad)+'px'; hole.style.width=(r.width+pad*2)+'px'; hole.style.height=(r.height+pad*2)+'px'; }
+    else { hole.style.left='50%'; hole.style.top='50%'; hole.style.width='0px'; hole.style.height='0px'; } // welcome / missing target → full dim, centered card
+    card.innerHTML='<div style="font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-dim);margin-bottom:7px;">'+(i+1)+' / '+steps.length+'</div>'
+      +'<div style="font-size:14px;font-weight:600;color:var(--ink);margin-bottom:6px;">'+s.title+'</div>'
+      +'<div style="font-size:12px;line-height:1.55;color:var(--ink-2);margin-bottom:14px;">'+s.body+'</div>'
+      +'<div style="display:flex;align-items:center;gap:8px;">'
+      +'<button id="tourSkip" class="togbtn2" style="margin-right:auto;">'+(last?T('Close','Cerrar'):T('Skip tour','Saltar'))+'</button>'
+      +(i>0?'<button id="tourBack" class="togbtn2">'+T('Back','Atrás')+'</button>':'')
+      +'<button id="tourNext" class="togbtn2 on">'+(last?T('Done','Listo'):T('Next','Siguiente'))+'</button></div>';
+    card.querySelector('#tourSkip').onclick=end; card.querySelector('#tourNext').onclick=()=>{ if(last)end(); else go(1); };
+    const bk=card.querySelector('#tourBack'); if(bk)bk.onclick=()=>go(-1);
+    // place the card next to the highlight (below if room, else above), clamped; centered when no target
+    const vw=window.innerWidth, vh=window.innerHeight, cw=288, ch=card.offsetHeight||150, m=14;
+    let cx,cy; if(r&&r.width>0){ cx=Math.min(vw-cw-m,Math.max(m,r.left+r.width/2-cw/2)); cy=(r.bottom+m+ch<vh)?(r.bottom+m):Math.max(m,r.top-ch-m); }
+    else { cx=(vw-cw)/2; cy=(vh-ch)/2; }
+    card.style.left=cx+'px'; card.style.top=cy+'px'; }
+  const onk=e=>{ e.stopPropagation(); if(e.key==='Escape'){e.preventDefault();end();} else if(e.key==='ArrowRight'||e.key==='Enter'){e.preventDefault(); if(i===steps.length-1)end(); else go(1);} else if(e.key==='ArrowLeft'){e.preventDefault();go(-1);} };
+  document.addEventListener('keydown',onk,true); window.addEventListener('resize',draw); draw(); }
+/* first-run entry (init) and the Help/Window re-launch both route here */
+async function startOnboarding(){ if(_tourStop)_tourStop(); await buildDemoProject(); startTour(); }
+
 /* edit a label in place (contenteditable) — Enter commits, Esc cancels, blur commits. Used for clip/track/sequence rename so the edit happens where the text is, not in a floating dialog. */
 function inlineEdit(el,value,commit){ if(!el)return false; try{closeMenu();}catch(e){}
   el.setAttribute('contenteditable','true'); el.spellcheck=false; el.textContent=value; el.style.cursor='text';
@@ -5956,6 +6021,7 @@ function openAppMenu(which,btn){ const r=btn.getBoundingClientRect(); const x=r.
     {label:T('Viewer-only window','Ventana solo-visor'),ico:'popout',fn:openViewerWindow},
     {label:T('Full performance','Rendimiento total'),fn:()=>setPerfMode(true)},
     'sep',
+    {label:T('Guided tour','Recorrido guiado'),ico:'flag',fn:()=>startTour()}, // [D7] re-launch the onboarding overlay on demand
     {label:T('All commands & shortcuts','Todos los comandos y atajos'),key:'F1',fn:()=>{ const h=$('#helpBtn'); if(h)h.click(); }} ];
   document.querySelectorAll('.menubtn').forEach(b=>b.classList.toggle('on',b===btn)); openMenu(x,y,items); }
 document.querySelectorAll('#menubar .menubtn').forEach(btn=>{ const which=btn.dataset.menu;
@@ -6601,6 +6667,16 @@ function arRecompute(){ const cfg=ensureReactive(), clip=reactiveSourceClip(), m
   _arCache={clip,raw:{bass:rb,mid:rm,treble:rt2,bright:rr},bass:smooth(rb),mid:smooth(rm),treble:smooth(rt2),bright:smooth(rr),onsets:bd.onsets||null,beats:bd.beats||[],bpm:bd.bpm||0,beat0:bd.beat0||0,fps:bd.fps||AR_FPS}; }
 function _arSamp(arr,fps,local){ if(!arr||!arr.length)return 0; const x=local*fps; let i=Math.floor(x); if(i<0)return arr[0]; if(i>=arr.length-1)return arr[arr.length-1]; const f=x-i; return arr[i]*(1-f)+arr[i+1]*f; }
 function bandLevelAt(band,t){ if(!_arCache)return 0; const c=_arCache.clip; if(!c||t<c.start||t>c.start+c.dur)return 0; const local=srcT(c,t); const arr=_arCache[band==='bass'?'bass':band==='mid'?'mid':band==='treble'?'treble':band==='bright'?'bright':'']; return arr?_arSamp(arr,_arCache.fps,local):0; }
+/* [X1] the live 32-bin log spectrum at timeline time t, gated/gained like the meter — powers the analyzer display.
+   Reuses m.spec (the FFT the frequency picker already builds); returns null until it's ready → the meter falls back
+   to the 4-band view. Bin values are peak-normalised to the whole track (small); the painter lifts them perceptually. */
+function specColAt(t,into){ const m=_arCache&&_arCache.clip&&mediaById(_arCache.clip.mediaId); const sp=m&&m.spec; if(!sp)return null;
+  const c=_arCache.clip; if(!c||t<c.start||t>c.start+c.dur)return null; const local=srcT(c,t);
+  const x=local*sp.fps; let i=Math.floor(x); if(i<0)i=0; const last=sp.frames-1; if(i>last)i=last; const f=(i<last)?(x-i):0;
+  const cfg=ensureReactive(), g=Math.max(0,cfg.gain/100), gate=Math.max(0,Math.min(0.95,cfg.gate/100)), gs=1/Math.max(0.05,1-gate);
+  const out=into&&into.length===sp.bins?into:new Float32Array(sp.bins);
+  for(let b=0;b<sp.bins;b++){ const a=sp.data[i*sp.bins+b], b2=(i<last)?sp.data[(i+1)*sp.bins+b]:a; let v=a*(1-f)+b2*f; v=(v-gate)*gs; if(v<0)v=0; v*=g; out[b]=v>1?1:v; }
+  return out; }
 let _arTime=0; // top-timeline time used for the audio-reactive term — so FX on clips INSIDE a nest still follow the TOP-timeline audio source (not nest-local time). Keyframes keep using nest-local host time.
 /* per-effect envelope: engine raw band → this effect's attack/release smoothing → optional under-damped
    spring (Lag-CHOP-style organic overshoot/bounce). Baked to an array (stateful ODE) → export-deterministic. */
@@ -7028,7 +7104,7 @@ function renderReactivePanel(){ const host=$('#insReactive'); if(!host)return; c
     <button class="sechead"><span style="color:var(--ink-dim);display:flex;">${ICO('chevDown')}</span><span class="t">${T('Audio Engine','Motor de audio')}</span><span class="ln"></span></button>
     <div style="padding:1px 12px 6px;display:flex;flex-direction:column;gap:2px;">
       <div class="prow" style="gap:6px;"><span class="kf" style="cursor:default;visibility:hidden;"></span><span class="lab">${T('Source','Fuente')}</span><select class="selsel" id="arSrc" style="flex:1;height:18px;">${srcOpts}</select></div>
-      <div style="padding:2px 0 5px;"><canvas id="arMeter" width="252" height="54" style="width:100%;height:54px;border-radius:2px;background:var(--s0);display:block;"></canvas></div>
+      <div style="padding:2px 0 5px;"><canvas id="arMeter" width="252" height="62" style="width:100%;height:62px;border-radius:3px;background:var(--s0);display:block;"></canvas></div>
       <div class="prow" style="gap:8px;"><span class="kf" style="cursor:default;visibility:hidden;"></span><span class="lab">BPM</span>
         <div id="arBpmBox" title="${T('Click to set manually (0 = auto)','Clic para fijar manualmente (0 = auto)')}" style="flex:1;display:flex;align-items:center;gap:6px;cursor:pointer;height:18px;">
           <span id="arBpmV" style="font-size:11px;color:var(--ink);font-weight:600;">${(cfg.bpm>0)?Math.round(cfg.bpm):((_arCache&&_arCache.bpm)?Math.round(_arCache.bpm):'—')}</span>
@@ -7101,16 +7177,43 @@ let _arMeterRaf=0;
 function arMeterStart(){ if(_arMeterRaf)return; const tick=()=>{ _arMeterRaf=0; if(state.inspTab!=='react'||!$('#arMeter'))return; arDrawMeter(); arDrawSigs(); _arMeterRaf=requestAnimationFrame(tick); }; _arMeterRaf=requestAnimationFrame(tick); }
 function _arLastOnsetAge(band,t){ if(!_arCache||!_arCache.onsets)return 99; const c=_arCache.clip; if(!c||t<c.start||t>c.start+c.dur)return 99; const local=srcT(c,t), os=_arCache.onsets[band]; if(!os||!os.length)return 99;
   let lo=0,hi=os.length-1,last=-1; while(lo<=hi){ const md=(lo+hi)>>1; if(os[md]<=local){last=os[md];lo=md+1;}else hi=md-1; } return last<0?99:(local-last); }
-function arDrawMeter(){ const cv=$('#arMeter'); if(!cv)return; const x=cv.getContext('2d'), W=cv.width,H=cv.height; x.clearRect(0,0,W,H);
-  const t=state.playhead, vals=[['BASS','bass','#8A9199'],['MID','mid','#B4BAC1'],['TREB','treble','#E8EAED'],['BRT','bright','#F2F4F6']];
-  const bw=(W-16)/4; vals.forEach((bar,i)=>{ const lv=bandLevelAt(bar[1],t); const bx=8+i*bw, iw=bw-12, bh=Math.max(1,lv*(H-14));
-    x.fillStyle='#151922'; x.fillRect(bx+5,4,iw,H-14); x.fillStyle=bar[2]; x.fillRect(bx+5,4+(H-14-bh),iw,bh);
-    if(bar[1]!=='bright'&&_arLastOnsetAge(bar[1],t)<0.11){ x.fillStyle='#FFFFFF'; x.fillRect(bx+5,4,iw,2); } // onset flash on the band top
-    x.fillStyle=UI.ink3; x.font='11px Geist'; x.textAlign='center'; x.fillText(bar[0],bx+5+iw/2,H-3); });
-  // beat-grid blink (top-right dot, phase-locked to the detected/manual BPM)
-  const cfg=ensureReactive(), bpm=(cfg.bpm>0?cfg.bpm:(_arCache&&_arCache.bpm)||0);
+/* [X1] rounded-rect fill (native roundRect where present; a plain rect never looks wrong if it isn't) */
+function _rrect(x,bx,by,w,h,r){ if(w<=0||h<=0)return; r=Math.min(r,w/2,h/2); x.beginPath(); if(x.roundRect){ x.roundRect(bx,by,w,h,r); } else { x.rect(bx,by,w,h); } x.fill(); }
+let _arPeaks=null, _arSpecBuf=null; // [X1] peak-hold caps (length-tracked to the bar count) + reused spectrum column buffer
+/* [X1] Reactive-FX equalizer — a real spectrum analyzer driven by the 32-bin log FFT (specColAt), with a graceful
+   4-band fallback until that FFT is ready. Crisp on any panel width / hi-dpi, perceptual bar heights, energy-lit
+   gradient fill, slow-falling peak caps, a frequency ruler, an onset frost and the phase-locked beat blink. */
+function arDrawMeter(){ const cv=$('#arMeter'); if(!cv)return; const x=cv.getContext('2d');
+  const dpr=Math.min(2,window.devicePixelRatio||1); const cw=cv.clientWidth||252, chp=cv.clientHeight||54;
+  const nw=Math.round(cw*dpr), nh=Math.round(chp*dpr); if(cv.width!==nw||cv.height!==nh){ cv.width=nw; cv.height=nh; }
+  x.setTransform(dpr,0,0,dpr,0,0); const W=cw, H=chp; x.clearRect(0,0,W,H);
+  const t=state.playhead;
+  const spec=specColAt(t,_arSpecBuf); if(spec)_arSpecBuf=spec;
+  let levels, labels=null, pad=6;
+  if(spec){ levels=spec; }
+  else { const bands=[['BASS','bass'],['MID','mid'],['TREB','treble'],['BRT','bright']]; // fallback until the FFT lands
+    levels=bands.map(b=>bandLevelAt(b[1],t)); labels=bands.map(b=>b[0]); pad=8; }
+  const N=levels.length; if(!_arPeaks||_arPeaks.length!==N)_arPeaks=new Float32Array(N);
+  const topY=4, baseY=H-(labels?13:11), area=Math.max(1,baseY-topY);
+  x.fillStyle=UI.lineSoft||'#2A2E35'; x.fillRect(pad,baseY+0.5,W-2*pad,1); // baseline
+  const slot=(W-2*pad)/N, gap=Math.min(3,Math.max(1,slot*0.22)), bwid=Math.max(1,slot-gap);
+  const shape=v=>Math.pow(v<0?0:v>1?1:v,0.55); // perceptual lift: peak-normalised FFT bins are small; loud still tops out
+  for(let i=0;i<N;i++){ const lv=shape(levels[i]); const bx=pad+i*slot+gap/2;
+    x.fillStyle='#161B24'; _rrect(x,bx,topY,bwid,area,1.5); // trough
+    const bh=lv*area; if(bh>0.6){ const gy=baseY-bh; const gr=x.createLinearGradient(0,baseY,0,gy);
+      const tl=90+Math.round(lv*135); gr.addColorStop(0,'#3A414B'); gr.addColorStop(1,'rgb('+tl+','+(tl+6)+','+Math.min(255,tl+12)+')'); // energy reads as light
+      x.fillStyle=gr; _rrect(x,bx,gy,bwid,bh,1.5); }
+    let pk=_arPeaks[i]; pk=(lv>=pk)?lv:Math.max(lv,pk-0.018); _arPeaks[i]=pk; // slow-falling peak cap
+    x.fillStyle='rgba(242,244,246,'+(0.32+0.5*pk).toFixed(2)+')'; x.fillRect(bx,baseY-Math.max(1.4,pk*area)-1,bwid,1.4); }
+  x.textAlign='center'; x.textBaseline='alphabetic';
+  if(labels){ x.font='9px Geist'; x.fillStyle=UI.ink3; for(let i=0;i<N;i++)x.fillText(labels[i],pad+i*slot+slot/2,H-2); }
+  else { x.font='8px Geist'; x.fillStyle=UI.inkDim; const f0=40,f1=12000,lg=v=>(Math.log(v)-Math.log(f0))/(Math.log(f1)-Math.log(f0)); // frequency ruler
+    [[100,'100'],[1000,'1k'],[10000,'10k']].forEach(m=>{ const fx=pad+lg(m[0])*(W-2*pad); if(fx>pad+4&&fx<W-pad-4)x.fillText(m[1],fx,H-2); }); }
+  const onset=Math.min(_arLastOnsetAge('bass',t),_arLastOnsetAge('mid',t),_arLastOnsetAge('treble',t)); // onset frost across the field
+  if(onset<0.09){ x.fillStyle='rgba(255,255,255,'+(0.09*(1-onset/0.09)).toFixed(3)+')'; x.fillRect(pad,topY,W-2*pad,area); }
+  const cfg=ensureReactive(), bpm=(cfg.bpm>0?cfg.bpm:(_arCache&&_arCache.bpm)||0); // beat blink (phase-locked)
   if(bpm>0&&_arCache&&_arCache.clip){ const c=_arCache.clip; if(t>=c.start&&t<=c.start+c.dur){ const beats=((srcT(c,t))-(_arCache.beat0||0))*bpm/60; const ph=beats-Math.floor(beats);
-    x.fillStyle=ph<0.18?'#FFFFFF':'#2A2E35'; x.beginPath(); x.arc(W-9,9,3.4,0,6.2832); x.fill(); } } }
+    x.beginPath(); x.arc(W-7,7,3,0,6.2832); x.fillStyle=ph<0.18?'#F2F4F6':'#2A2E35'; x.fill(); } } }
 /* live modulator lamps on the effect cards — shows exactly what each effect is "feeling" */
 function arDrawSigs(){ const c=selClip(); const els=$$('#arChain .fxsig>b'); if(!els.length)return;
   const ot=_arTime; _arTime=state.playhead;
@@ -7139,7 +7242,8 @@ function init(){
   setInterval(()=>{ glCheck('tick'); let mem=null; try{ if(performance.memory)mem=Math.round(performance.memory.usedJSHeapSize/1048576); }catch(_){} diag('debug','heartbeat','',{seq:activeSeq()&&activeSeq().name, clips:state.clips.length, media:state.media.length, playing:state.playing, ph:+state.playhead.toFixed(2), heapMB:mem}); diagFlush(); }, 5000);
   window.addEventListener('beforeunload',()=>{ try{stopNDI();}catch(_){ } try{closeAllNdi();}catch(_){ } diag('info','session','session end'); diagFlush(); });
   document.addEventListener('visibilitychange',()=>{ if(document.hidden){ diag('info','session','hidden'); diagFlush(); } });
-  showSplash(2, ()=>{ if(!document.getElementById('loadingOv') && !currentPath) showLanding(); }); // [R134] branded logo-loop splash (~2 cycles) → start screen, unless a double-clicked project is already opening
+  showSplash(2, ()=>{ if(document.getElementById('loadingOv') || currentPath) return; // [R134] branded logo-loop splash (~2 cycles) → then… (unless a double-clicked project is already opening)
+    if(!onboardDone()) startOnboarding(); else showLanding(); }); // [D7] first launch → demo scene + guided tour; afterwards → start screen
   if(IS_ELEC&&DSP.onConfirmClose){ DSP.onConfirmClose(()=>{ appConfirm(T('You have unsaved changes. Close without saving?','Hay cambios sin guardar. ¿Cerrar sin guardar?'),ok=>{ if(ok&&DSP.forceClose)DSP.forceClose(); },{ok:T('Close without saving','Cerrar sin guardar'),cancel:T('Cancel','Cancelar'),danger:true}); }); } // styled close confirm (replaces the native OS dialog)
 }
 init();

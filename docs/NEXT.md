@@ -41,13 +41,21 @@
 ---
 
 ## Para días siguientes (complejo / diferido)
-- [ ] **[X1] Rediseño del ecualizador** (Reactive FX) — audio-reactivo, mejor diseño.
+- [x] **[X1] Rediseño del ecualizador** (Reactive FX) — **HECHO (R144).** El medidor `#arMeter` pasó de 4 barras planas
+      (BASS/MID/TREB/BRT) a un **analizador de espectro real de 32 bandas log** alimentado por el FFT que ya construía el
+      selector de frecuencias (`m.spec` vía nuevo `specColAt(t)`); barras con relleno-gradiente iluminado por energía, picos
+      con caída lenta (peak-hold), regla de frecuencias 100/1k/10k, nítido a cualquier ancho/hi-dpi (backing DPR). Fallback
+      elegante a las 4 bandas con etiquetas mientras el FFT se calcula. Verificado por CDP (ambos caminos). _(R144, skill impeccable)_
 - [x] **Grade máster de secuencia** (idea propia) — **COMPLETO (R139/R140/R141).** Grado global sobre el composite final
       por post-pass `applyMasterGrade` (shader `_MG`): **numérico + ruedas lift/gamma/gain + LUT + curvas**, en
       preview/export/NDI/Spout, por-secuencia (persistido). Reusa toda la cadena de clip vía `bindClipLUT(_masterClip,_MGu)`
       (refactor `L` de R138). UI viva en la sección **Master Grade** del inspector (`renderMasterGrade`/`#insMaster`).
       Verificado por CDP en cada fase.
-- [ ] **[D7] Onboarding** — proyecto demo con shapes de referencia + overlay de pasos, omitible, no reaparece.
+- [x] **[D7] Onboarding** — **HECHO (R145).** Primera apertura (flag `dspOnboardV1` ausente) → salta el landing, arma un
+      **proyecto-demo domo** con formas de referencia (título + elipse/rect/línea en pistas V1–V4, `buildDemoProject`) y
+      lanza un **tour de coach-marks** (`startTour`): overlay con foco recortado (box-shadow) sobre visor→timeline→inspector→export,
+      tarjeta con Atrás/Siguiente/Saltar, teclado (Esc/←/→/Enter). Omitible; al saltar/terminar fija el flag y no reaparece.
+      Relanzable desde **Window → Guided tour** (no destructivo). Verificado por CDP (build, foco por objetivo, finish, relaunch). _(R145)_
 - [ ] **[V3] Spout In** — Spout como fuente en Media (addon nativo grande, solo Windows).
 - [x] **[R1] Render in-site flexible** — nuevo `renderRangeInPlace()`: hornea el **composite completo** sobre la
       selección de tiempo `[selA,selB]` (o In/Out) → un clip en una **pista nueva arriba** que la cubre (aplana). No
