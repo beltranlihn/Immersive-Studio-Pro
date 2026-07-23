@@ -82,7 +82,7 @@ const state = {
   prefs:{ reducedMotion:false, snapping:true, grid:true, safe:false, mediaCollapsed:false, inspCollapsed:false, tallInsp:false },
   mediaFilter:'all', mediaQuery:'', mediaGroupBy:'none', collapsedGroups:{}, folders:[], folderColors:{}, mediaView:'list', mediaFolder:null, selFolder:null,
   useProxies:true, previewQuality:1, markers:[], selMarkerId:null, clipboard:null,
-  groups:[], selGroupId:null, dirty:false, selLane:null, selIds:[], openSeqs:[], activeSeqId:null, seqW:4096, seqH:4096, seqMode:'dome', seqCov:180,
+  groups:[], selGroupId:null, dirty:false, selLane:null, selIds:[], openSeqs:[], activeSeqId:null, seqW:4096, seqH:4096, seqMode:'dome', seqCov:180, seqGrade:{exposure:0,contrast:0,saturation:0,temperature:0,tint:0}, // [master grade] per-sequence global grade over the final composite (phase 1: numeric)
   shapeBox:null, easeClip:null, shuttle:0, /* [R97] J/K/L speed: 0 = off (normal transport) · ±0.25…±8 */ // [R95] Shape Box holds live refs to keyframe objects → it must be dropped whenever those objects are replaced (undo, project/sequence load). easeClip = copied normalised easing. // [archivado 20260722·R137] autoRec (perform-and-bake) removido
   lang:'en',
   lastSaved:null,
@@ -941,6 +941,7 @@ function render(){ if(glLost)return;
   else { prepNests(state.clips,state.playhead,0);
     gl.bindFramebuffer(gl.FRAMEBUFFER,compFBO); composite(state.playhead,compSize,false); gl.bindFramebuffer(gl.FRAMEBUFFER,null);
     raStore(state.playhead); }
+  if(masterGradeOn())_srcTex=applyMasterGrade(_srcTex,compSize); // [master grade] grade the FINAL composite — post render-ahead cache so grade edits stay live (not baked) and every view mode (2D/dome/room/viewer) shows it
   const W=glc.width,H=glc.height;
   if(state.view.mode==='3d' && isRoom()){ renderRoom3D(_srcTex); }
   else if(state.view.mode==='3d' && !_flat){
@@ -2766,7 +2767,22 @@ const FX=[['opacity','Opacity','%',0,100],['blur','Blur','px',0,20],['feather','
 const FX_COLOR_KEYS=new Set(['exposure','contrast','saturation','temperature','tint','glow','chroma']); // [I2] these FX rows go to the Color section; the rest (opacity/blur/feather/crop) stay in Clip
 const PLABELS={az:['Azimuth','Azimut'],el:['Elevation','Elevación'],size:['Size','Tamaño'],rot:['Rotation','Rotación'],x:['Pos X','Pos X'],y:['Pos Y','Pos Y'],scale:['Scale','Escala'],opacity:['Opacity','Opacidad'],blur:['Blur','Desenfoque'],feather:['Feather','Desvanecer'],crop:['Crop','Recortar'],exposure:['Exposure','Exposición'],contrast:['Contrast','Contraste'],saturation:['Saturation','Saturación'],temperature:['Temp','Temp'],tint:['Tint','Tinte'],glow:['Glow','Brillo'],chroma:['Chroma','Cromática']};
 const propLabel=p=>{const m=PLABELS[p];return m?T(m[0],m[1]):p;};
-function renderInspector(){ try{ _renderInspectorMain(); }catch(e){ console.error('inspector',e); } try{ renderReactivePanel(); }catch(e){} applyInspTab(); }
+/* [master grade] the sequence-level global grade UI — a compact, always-visible section at the top of the inspector.
+   Independent of the selClip-bound clip color UI: reads/writes state.seqGrade and re-renders live. Phase 1: numeric. */
+let _masterOpen=true;
+const MASTER_PARAMS=[['exposure','Exposure','Exposición'],['contrast','Contrast','Contraste'],['saturation','Saturation','Saturación'],['temperature','Temp','Temperatura'],['tint','Tint','Tinte']];
+function seqGradeObj(){ if(!state.seqGrade)state.seqGrade={exposure:0,contrast:0,saturation:0,temperature:0,tint:0}; return state.seqGrade; }
+function renderMasterGrade(){ const host=$('#insMaster'); if(!host)return; const g=seqGradeObj(); const on=masterGradeOn();
+  const rows=MASTER_PARAMS.map(([k,en,es])=>`<div class="prow mgrow"><span class="lab">${T(en,es)}</span><input type="range" class="mgr" data-k="${k}" min="-100" max="100" value="${Math.round(g[k]||0)}" style="flex:1;height:18px;accent-color:var(--ink-3);"><span class="num mgv" data-k="${k}">${Math.round(g[k]||0)}</span></div>`).join('');
+  host.innerHTML=`<button class="sechead" id="secMaster"><span style="color:var(--ink-dim);display:flex;transform:rotate(${_masterOpen?0:-90}deg);">${ICO('chevDown')}</span><span class="t">${T('Master Grade','Grado máster')}</span><span class="ln"></span>${on?'<span class="mgdot" title="'+T('Active','Activo')+'"></span>':''}<button class="mbtn" id="mgReset" title="${T('Reset the whole-sequence grade','Reiniciar el grado de toda la secuencia')}" style="height:15px;padding:0 6px;margin-left:6px;${on?'':'opacity:.45;'}">${T('Reset','Reiniciar')}</button></button>
+    <div id="masterRows" style="padding-bottom:4px;${_masterOpen?'':'display:none;'}">${rows}</div>`;
+  const head=host.querySelector('#secMaster'); if(head)head.onclick=e=>{ if(e.target.closest('#mgReset'))return; _masterOpen=!_masterOpen; renderMasterGrade(); };
+  const rst=host.querySelector('#mgReset'); if(rst)rst.onclick=e=>{ e.stopPropagation(); if(!masterGradeOn())return; pushUndo(); state.seqGrade={exposure:0,contrast:0,saturation:0,temperature:0,tint:0}; render(); markDirty(); renderMasterGrade(); flashStatus(T('Master grade reset','Grado máster reiniciado')); };
+  host.querySelectorAll('.mgr').forEach(r=>{ const k=r.dataset.k;
+    r.onpointerdown=()=>pushUndo();
+    r.oninput=e=>{ g[k]=+e.target.value; const v=host.querySelector('.mgv[data-k="'+k+'"]'); if(v)v.textContent=Math.round(+e.target.value); render(); }; // grade is applied post-cache → a plain render() re-grades live, no raInvalidate
+    r.onchange=()=>{ markDirty(); renderMasterGrade(); }; }); } // re-render on release to refresh the active dot / Reset state
+function renderInspector(){ try{ renderMasterGrade(); }catch(e){} try{ _renderInspectorMain(); }catch(e){ console.error('inspector',e); } try{ renderReactivePanel(); }catch(e){} applyInspTab(); }
 function _renderInspectorMain(){
   const g=state.selGroupId!=null?groupById(state.selGroupId):null;
   if(g){ $('#insEmpty').style.display='none'; $('#insCtl').style.display='none'; $('#insGroup').style.display='block'; renderGroupInspector(g); return; }
@@ -4273,7 +4289,8 @@ function renderExportFrame(t,res,ss,wall){ const flat=isFlat(); _drawFlat=flat; 
     gl.uniform1f(LB.flat,1); gl.uniform2f(LB.uvsc,uSc,vSc); gl.uniform2f(LB.uvof,uOf,vOf); gl.uniform1f(LB.hfade,0); }
   else if(flat){ const A=_compAspect, s=Math.min(2/A,2), Fx=s*A/2, Fy=s/2; gl.uniform1f(LB.flat,1); gl.uniform2f(LB.uvsc,Fx,Fy); gl.uniform2f(LB.uvof,(1-Fx)/2,(1-Fy)/2); gl.uniform1f(LB.hfade,0); }
   else { gl.uniform1f(LB.flat,0); gl.uniform2f(LB.uvsc,1,1); gl.uniform2f(LB.uvof,0,0); gl.uniform1f(LB.hfade, state.view.hfade?HFADE:0); }
-  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,_exTex); gl.uniform1i(LB.tex,0); gl.drawArrays(gl.TRIANGLES,0,6); gl.bindVertexArray(null);
+  const _exOut=masterGradeOn()?applyMasterGrade(_exTex,SR):_exTex; // [master grade] bake the sequence master grade into the exported frame → export matches preview (WYSIWYG)
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,_exOut); gl.uniform1i(LB.tex,0); gl.drawArrays(gl.TRIANGLES,0,6); gl.bindVertexArray(null);
   gl.finish();
 }
 let cancelExport=false;
@@ -4929,7 +4946,7 @@ function serMedia(m){ return {id:m.id,name:m.name,kind:m.kind,w:m.w,h:m.h,mode:m
   text:m.text,tfontSize:m.tfontSize,tweight:m.tweight,tfont:m.tfont,talign:m.talign,tlineH:m.tlineH,titalic:m.titalic,tcolor:m.tcolor,tbg:m.tbg,tstroke:m.tstroke,tstrokeColor:m.tstrokeColor,
   shape:m.shape,fill:m.fill,stroke:m.stroke,strokeW:m.strokeW,sw:m.sw,sh:m.sh,
   nestClips:(m.kind==='nest'?(m.nestClips||[]).map(serClip):null), nestLanes:(m.kind==='nest'?m.nestLanes:null),
-  nestMarkers:(m.kind==='nest'?(m.nestMarkers||[]):null), nestGroups:(m.kind==='nest'?(m.nestGroups||[]):null), nestPlayhead:(m.kind==='nest'?(m.nestPlayhead||0):null), nestWorkIn:(m.kind==='nest'?(m.nestWorkIn??null):null), nestWorkOut:(m.kind==='nest'?(m.nestWorkOut??null):null), comp:(m.comp||null),
+  nestMarkers:(m.kind==='nest'?(m.nestMarkers||[]):null), nestGroups:(m.kind==='nest'?(m.nestGroups||[]):null), nestPlayhead:(m.kind==='nest'?(m.nestPlayhead||0):null), nestWorkIn:(m.kind==='nest'?(m.nestWorkIn??null):null), nestWorkOut:(m.kind==='nest'?(m.nestWorkOut??null):null), comp:(m.comp||null), grade:(m.kind==='nest'?(m.grade||null):null),
   thumb:(m.kind==='audio'?m.thumb:null)}; }
 let _serLight=false; // when true (autosave), drop heavy fields (maskData PNGs) to stay under the localStorage quota
 function serClip(c){ const o=JSON.parse(JSON.stringify(c)); delete o.maskTex; delete o._penCv; delete o._elB; delete o._szB; delete o._curveTex; delete o._curveDirty; if(_serLight)delete o.maskData; return o; } // R132: _curveTex is a live GL texture (rebuilt from props.curves), _curveDirty a transient flag // maskTex is a live GL texture; _penCv is the pen-mask raster canvas (rebuilt from penMasks); _elB/_szB are transient drag baselines; maskData (dataURL) kept except in the light autosave copy
@@ -4947,10 +4964,10 @@ function ensureSequences(){ let seqs=state.media.filter(isSeqMedia);
   if(!state.openSeqs||!state.openSeqs.length || !state.openSeqs.some(id=>isSeqMedia(mediaById(id)))) state.openSeqs=[seqs[0].id];
   if(!activeSeq()) state.activeSeqId=state.openSeqs[0]||seqs[0].id;
   loadSeqIntoState(activeSeq()); }
-function saveActiveSeq(){ const s=activeSeq(); if(!s)return; s.nestClips=state.clips; s.nestLanes=state.lanes; s.nestMarkers=state.markers; s.nestGroups=state.groups; s.nestPlayhead=state.playhead; s.nestWorkIn=state.workIn; s.nestWorkOut=state.workOut; s.dur=seqDur(s); } // nests render via the per-frame _nestPool (no per-media FBO); serMedia omits transient GL fields
+function saveActiveSeq(){ const s=activeSeq(); if(!s)return; s.nestClips=state.clips; s.nestLanes=state.lanes; s.nestMarkers=state.markers; s.nestGroups=state.groups; s.nestPlayhead=state.playhead; s.nestWorkIn=state.workIn; s.nestWorkOut=state.workOut; s.grade=state.seqGrade; s.dur=seqDur(s); } // [master grade] per-sequence grade travels with the nest media // nests render via the per-frame _nestPool (no per-media FBO); serMedia omits transient GL fields
 function loadSeqIntoState(s){ if(!s)return; state.clips=s.nestClips||[]; state.lanes=(s.nestLanes&&s.nestLanes.length?s.nestLanes:defLanes());
   if(!s.comp && !state.lanes.some(l=>l.kind==='audio')){ const n=state.lanes.filter(l=>l.kind==='audio').length+1; state.lanes.push({id:uid(),name:'Audio '+n,tag:'A'+n,kind:'audio'}); s.nestLanes=state.lanes; } /* [R92-T9] audio module always present on real timelines (old projects get one); compositions (m.comp) stay video-only; no markDirty (idempotent) */
-  state.markers=s.nestMarkers||[]; state.groups=s.nestGroups||[]; state.playhead=s.nestPlayhead||0; state.workIn=s.nestWorkIn??null; state.workOut=s.nestWorkOut??null; state.fps=s.fps||state.fps||60; state.seqW=s.w||state.seqW||4096; state.seqH=s.h||state.seqH||4096; state.seqMode=s.mode||'dome'; state.seqCov=s.cov||180; state.selId=null; state.selIds=[]; state.selGroupId=null; state.selMarkerId=null; state.autoSel=null; state.hoverAuto=null; state.shapeBox=null; /* [R95·B1] the box holds live keyframe refs — undo/sequence switch replaces those objects, so it must go with them */ _arCache=null; try{raInvalidate();}catch(e){} try{updModeUI();}catch(e){} } // invalidate render-ahead + reactive cache: a cached flat frame / band cache belongs to the previous sequence
+  state.markers=s.nestMarkers||[]; state.groups=s.nestGroups||[]; state.playhead=s.nestPlayhead||0; state.workIn=s.nestWorkIn??null; state.workOut=s.nestWorkOut??null; state.fps=s.fps||state.fps||60; state.seqW=s.w||state.seqW||4096; state.seqH=s.h||state.seqH||4096; state.seqMode=s.mode||'dome'; state.seqCov=s.cov||180; state.seqGrade=Object.assign({exposure:0,contrast:0,saturation:0,temperature:0,tint:0}, s.grade||{}); /* [master grade] restore this sequence's grade (identity default) */ state.selId=null; state.selIds=[]; state.selGroupId=null; state.selMarkerId=null; state.autoSel=null; state.hoverAuto=null; state.shapeBox=null; /* [R95·B1] the box holds live keyframe refs — undo/sequence switch replaces those objects, so it must go with them */ _arCache=null; try{raInvalidate();}catch(e){} try{updModeUI();}catch(e){} } // invalidate render-ahead + reactive cache: a cached flat frame / band cache belongs to the previous sequence
 function updModeUI(){ const fl=isFlat(), room=isRoom(); // a 360 room has a real 3D view (assembled walls); plain 2D flat does not
   const b3=document.querySelector('#viewModeSeg button[data-v="3d"]'); if(b3){ b3.style.display=(fl&&!room)?'none':''; b3.textContent=room?T('3D Room','Sala 3D'):T('3D Preview','Vista 3D'); }
   const b2=document.querySelector('#viewModeSeg button[data-v="2d"]'); if(b2){ const lb=fl?T('2D Master','Máster 2D'):T('Dome Master','Máster de domo'); const last=b2.lastChild; if(last&&last.nodeType===3)last.textContent=' '+lb; else b2.textContent=lb; } // [U-42] dome shows "Dome Master"; flat/room keep "2D Master" (last text node → the icon survives)
@@ -6619,6 +6636,26 @@ function applyBlackKey(inTex,size,c){ const thr=Math.max(0,Math.min(100,c.props.
   const prevFBO=gl.getParameter(gl.FRAMEBUFFER_BINDING), pv=gl.getParameter(gl.VIEWPORT); const rt=_keyTarget(size);
   gl.disable(gl.BLEND); gl.bindVertexArray(_ppVAO); gl.useProgram(_KEY);
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,inTex); gl.uniform1i(_KEYu.tex,0); gl.uniform1f(_KEYu.thr,thr); gl.uniform1f(_KEYu.soft,soft);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,rt.fbo); gl.viewport(0,0,size,size); gl.drawArrays(gl.TRIANGLES,0,6);
+  gl.bindVertexArray(null); gl.bindFramebuffer(gl.FRAMEBUFFER,prevFBO); gl.viewport(pv[0],pv[1],pv[2],pv[3]); gl.enable(gl.BLEND); NORMAL_BLEND();
+  return rt.tex; }
+/* [master grade] sequence-level global grade applied to the FINAL composite (after all clips), before the view
+   projection/export blit. Phase 1: numeric grade (exposure/contrast/saturation/temp/tint) — same math as FSW so it
+   matches per-clip grading. Runs as one full-screen pass; skipped entirely when the grade is identity (zero cost). */
+const _MGFS=`#version 300 es
+precision highp float; in vec2 v_uv; out vec4 o; uniform sampler2D u_tex; uniform float u_exp,u_con,u_sat,u_tmp,u_tnt;
+void main(){ vec4 c=texture(u_tex,v_uv); vec3 col=c.rgb;
+  col*=exp2(u_exp); col=(col-0.5)*(1.0+u_con)+0.5; float L=dot(col,vec3(0.2126,0.7152,0.0722)); col=mix(vec3(L),col,1.0+u_sat); col*=vec3(1.0+u_tmp,1.0,1.0-u_tmp); col*=vec3(1.0-u_tnt*0.5,1.0+u_tnt,1.0-u_tnt*0.5); col=clamp(col,0.0,1.0);
+  o=vec4(col, c.a); }`; // alpha preserved (dome surround stays transparent); grade only touches rgb
+const _MG=ppCompile(_MGFS); const _MGu={tex:gl.getUniformLocation(_MG,'u_tex'),exp:gl.getUniformLocation(_MG,'u_exp'),con:gl.getUniformLocation(_MG,'u_con'),sat:gl.getUniformLocation(_MG,'u_sat'),tmp:gl.getUniformLocation(_MG,'u_tmp'),tnt:gl.getUniformLocation(_MG,'u_tnt')};
+let _mgRT=null;
+function _mgTarget(size){ if(!_mgRT){ _mgRT={tex:gl.createTexture(),fbo:gl.createFramebuffer(),size:0}; } if(_mgRT.size!==size){ _ppTex(_mgRT.tex,size); gl.bindFramebuffer(gl.FRAMEBUFFER,_mgRT.fbo); gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,_mgRT.tex,0); gl.bindFramebuffer(gl.FRAMEBUFFER,null); _mgRT.size=size; } return _mgRT; }
+function masterGradeOn(){ const g=state.seqGrade; return !!(g&&((g.exposure||0)||(g.contrast||0)||(g.saturation||0)||(g.temperature||0)||(g.tint||0))); }
+function applyMasterGrade(inTex,size){ if(!masterGradeOn())return inTex; const g=state.seqGrade;
+  const prevFBO=gl.getParameter(gl.FRAMEBUFFER_BINDING), pv=gl.getParameter(gl.VIEWPORT); const rt=_mgTarget(size);
+  gl.disable(gl.BLEND); gl.bindVertexArray(_ppVAO); gl.useProgram(_MG);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,inTex); gl.uniform1i(_MGu.tex,0);
+  gl.uniform1f(_MGu.exp,(g.exposure||0)/100); gl.uniform1f(_MGu.con,(g.contrast||0)/100); gl.uniform1f(_MGu.sat,(g.saturation||0)/100); gl.uniform1f(_MGu.tmp,(g.temperature||0)/100*0.15); gl.uniform1f(_MGu.tnt,(g.tint||0)/100*0.15);
   gl.bindFramebuffer(gl.FRAMEBUFFER,rt.fbo); gl.viewport(0,0,size,size); gl.drawArrays(gl.TRIANGLES,0,6);
   gl.bindVertexArray(null); gl.bindFramebuffer(gl.FRAMEBUFFER,prevFBO); gl.viewport(pv[0],pv[1],pv[2],pv[3]); gl.enable(gl.BLEND); NORMAL_BLEND();
   return rt.tex; }

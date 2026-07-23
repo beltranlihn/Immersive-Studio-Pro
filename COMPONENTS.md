@@ -125,6 +125,7 @@
 | Ruedas Lift/Gamma/Gain | Grado primario estilo DaVinci | app.js · `wheelRGB`/`bindClipGrade` | ✅ | R130 |
 | Curvas de tono | Curvas luma+RGB → LUT 256×1 | app.js · `buildCurveData`/`clipCurveTex`/`bindClipCurve` | ✅ | R132 |
 | Grado en PFD/PEQ | Fulldome/equirect ya reciben ruedas/curvas/LUT (paridad con FSW) | app.js · `bindClipLUT(c,LFD/LEQ)` en draw PFD/PEQ | ✅ | R138 (gap cerrado) |
+| Grado máster de secuencia | Grado global numérico sobre el composite final (post-pass) | app.js · `applyMasterGrade`/`_MG` · `renderMasterGrade`/#insMaster | 🚧 | R139 (fase 1: numérico) |
 | `renderInspector` | Reconstruye + sincroniza el inspector | app.js · `renderInspector`/`refreshInspector` | ✅ | [I1]/[I2] |
 | 4 secciones colapsables | Transform/Clip/Color/Motion | app.js · `applySecCollapse` · #colorRows | ✅ | [I1]/[I2] |
 | Filas de parámetro | Fader + diamante + arco de mod | app.js · `buildRows`/`startValDrag` · `.prow` | ✅ | [A1] |
@@ -1102,8 +1103,17 @@ Subsystem map of `app.js` — verified line numbers (app.js = 6992 lines). Two h
 - **State/data:** `props.fulldome`, `props.equirect` (mutually exclusive toggles); `props.cgLift/cgGamma/cgGain`, `props.curves`, `props.lut/lutMix`.
 - **Key symbols:** `bindClipLUT(c,L)` → `bindClipGrade(c,L)` → `bindClipCurve(c,L)`; `L∈{LW,LFD,LEQ}`. LUT sampler on `gl.TEXTURE2`, curve on `gl.TEXTURE3` (both free in PFD/PEQ, which use only units 0/1). FSFD/FSEQ apply `pow(max(u_gain*col+u_lift,0),u_gamma)` → curves → LUT, same order as FSW (glow/chroma remain PW-only, out of scope).
 - **Invariants / gotchas:** Identity defaults (lift 0 / gain 1 / gamma 1, `u_hasCurve=0`, `u_hasLut=0`) → existing fulldome/equirect clips render pixel-identical. `L` is defaulted (`L=L||LW`) so every legacy caller of `bindClipLUT(c)` is unchanged. Verified: FSFD+FSEQ compile+link in real WebGL2. Fulldome inspector still restricts the numeric FX rows to opacity+basic grade (L2773) — that's a separate UI choice, not a shader gap.
-- **Status:** ⚠️ (known gap)
-- **Roadmap:** — (unticketed)
+- **Status:** ✅ (gap closed R138)
+- **Roadmap:** —
+
+## Sequence master grade (R139 · phase 1)
+- **Purpose:** A per-sequence GLOBAL grade over the FINAL composite (on top of per-clip grading). Phase 1 = numeric grade (exposure/contrast/saturation/temperature/tint). Phase 2 (pending): lift/gamma/gain wheels, curves, master LUT, and NDI/Spout coverage.
+- **Location:** app.js · shader `_MGFS`/prog `_MG` + `applyMasterGrade(inTex,size)`/`masterGradeOn()`/`_mgTarget` (near `applyBlackKey`) · preview injection in `render()` (`_srcTex=applyMasterGrade(...)` after the composite/render-ahead block) · export injection in `renderExportFrame` (grades `_exTex` before the PB blit) · UI `renderMasterGrade()` + `#insMaster` (index.html, top of `#insBody`).
+- **State/data:** `state.seqGrade={exposure,contrast,saturation,temperature,tint}` (per-sequence). Persisted: `saveActiveSeq`→`s.grade`, `loadSeqIntoState`→`state.seqGrade` (identity default via `Object.assign`), `serMedia`→`grade`, restored by loadProject's `{...md}` spread.
+- **Key symbols:** `_MGFS` = same numeric block as FSW (exp→con→sat→temp/tint, alpha preserved); `applyMasterGrade` is a no-op when `masterGradeOn()` is false (identity → zero cost, existing projects unchanged). `renderMasterGrade` is built by `renderInspector` (always visible, independent of the `selClip`-bound clip color UI); `_masterOpen` collapse flag; `MASTER_PARAMS`; `seqGradeObj()`.
+- **Invariants / gotchas:** Grade is applied POST render-ahead cache → editing it is live (not baked into the cache), no `raInvalidate` needed. Composite is always square (`compSize` preview / `SR` export) so `_mgTarget` is square. Applies to the TOP-LEVEL active sequence only — nested sequences and the room floor do NOT get a master grade in phase 1 (their composites bypass these call-sites). Verified by CDP: shader compiles (glFallback false), section renders (5 sliders + Reset), UI→`state.seqGrade`→`masterGradeOn()` path live, render + reset OK.
+- **Status:** 🚧 (phase 1 complete + verified; phase 2 pending)
+- **Roadmap:** phase 2 — wheels/curves/LUT + NDI/Spout
 
 ---
 

@@ -42,7 +42,11 @@
 
 ## Para días siguientes (complejo / diferido)
 - [ ] **[X1] Rediseño del ecualizador** (Reactive FX) — audio-reactivo, mejor diseño.
-- [ ] **Grade máster de secuencia** (idea propia) — un grado global sobre el composite final, además del por-clip.
+- [~] **Grade máster de secuencia** (idea propia) — **Fase 1 HECHA (R139):** grado numérico global (exposure/contrast/
+      saturation/temp/tint) sobre el composite final vía post-pass `applyMasterGrade` (shader `_MG`, mismo bloque que FSW),
+      en preview + export, por-secuencia (persistido en `state.seqGrade`/nest media), UI viva en la sección **Master Grade**
+      del inspector (`renderMasterGrade`, `#insMaster`). Verificado por CDP. **Fase 2 pendiente:** ruedas lift/gamma/gain,
+      curvas, LUT máster, y NDI/Spout (hoy sólo preview+export).
 - [ ] **[D7] Onboarding** — proyecto demo con shapes de referencia + overlay de pasos, omitible, no reaparece.
 - [ ] **[V3] Spout In** — Spout como fuente en Media (addon nativo grande, solo Windows).
 - [ ] **[R1] Render in-site flexible** — extender a "selección con in/out" (hoy hace clip y nest).

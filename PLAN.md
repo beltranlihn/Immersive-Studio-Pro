@@ -1,5 +1,29 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 139 — Grado máster de secuencia (fase 1: numérico)
+
+Idea propia de Beltrán de la cola diferida: un **grado global sobre el composite final**, además del por-clip. Fase 1
+entrega el grado numérico (exposure/contrast/saturation/temperature/tint) completo y verificado.
+
+- **Motor:** shader `_MGFS`/programa `_MG` + `applyMasterGrade(inTex,size)` — un post-pass full-screen con el MISMO
+  bloque numérico que FSW (así el máster iguala al grado por-clip que el usuario ya conoce). `masterGradeOn()` → si el
+  grado es identidad, `applyMasterGrade` devuelve la textura sin tocar (coste cero; proyectos existentes sin cambio).
+  Alpha preservado (el surround del domo sigue transparente).
+- **Inyección:** preview en `render()` (`_srcTex=applyMasterGrade(...)` **después** del bloque composite/render-ahead →
+  editar el grado es en vivo, no se hornea en el caché; lo ven 2D/domo/sala/visor) + export en `renderExportFrame`
+  (gradúa `_exTex` antes del blit PB → **el export iguala al preview**). Composite siempre cuadrado (`compSize`/`SR`).
+- **Datos + persistencia:** `state.seqGrade` por-secuencia; viaja con el nest media (`saveActiveSeq`→`s.grade`,
+  `loadSeqIntoState` con default identidad, `serMedia`→`grade`, restaurado por el spread `{...md}` de `loadProject`).
+- **UI:** sección **Master Grade** siempre visible arriba del inspector (`renderMasterGrade`/`#insMaster`) — 5 sliders +
+  Reset + punto "activo" + colapsable. Independiente de la UI de color por-clip (que está cableada a `selClip`).
+- **Alcance fase 1:** sólo la secuencia top-level (nests y piso de sala no reciben máster). **Fase 2:** ruedas
+  lift/gamma/gain, curvas, LUT máster, NDI/Spout.
+- **Verificado por CDP** en el .exe dev: shader compila (`glFallback:false`), sección con 5 sliders + Reset, camino
+  UI→`state.seqGrade`→`masterGradeOn()` en vivo, `render()` OK, Reset OK. `node --check` OK (tras cazar un `//` inline
+  que se comía el resto de la línea → se usó `/* */`).
+
+
+
 ## ROUND 138 — Cola NEXT completa: [T5] · [R3] · grado PFD/PEQ · [T2] · [V1] · [T4] · [X2] · [T3] (+ deploy + validación CDP)
 
 Ronda maratónica: se vació la cola near-term de `docs/NEXT.md` (8 items), se compiló/deployó a las 3 instalaciones y se

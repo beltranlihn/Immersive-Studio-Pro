@@ -225,6 +225,12 @@
   .aselect{appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%239EA5AD' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6 6-6'/></svg>");background-repeat:no-repeat;background-position:right 4px center;padding-right:15px;}
   .sechead .t{font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink-2);}
   .sechead .ln{flex:1;height:.5px;background:rgba(255,255,255,0.09);}
+  /* [master grade] sequence-level grade section at the top of the inspector */
+  #insMaster{border-bottom:.5px solid rgba(255,255,255,0.07);}
+  #insMaster .mgdot{width:6px;height:6px;border-radius:50%;background:var(--ink);flex-shrink:0;margin-left:6px;box-shadow:0 0 5px rgba(224,224,224,0.5);}
+  #insMaster .mgrow{padding:2px 12px;}
+  #insMaster .mgrow .lab{font-size:11px;color:var(--ink-2);}
+  #insMaster .mgrow .num{font-variant-numeric:tabular-nums;font-size:11px;color:var(--ink);}
   /* [R102·D-T3] 24px de alto de fila: los controles de 20px en filas de 22px quedaban a 23px de centro a centro VERTICALMENTE (no entre ellos: entre filas). SC 2.5.8 AA pide 24. Nota: Blender envia 20px + buttonspacey 2 = paso 22, o sea que incumpliria la norma AA de 2023 — la norma es posterior a su diseno. Preferimos la norma. */
   .prow{display:flex;align-items:center;gap:var(--sp-8);padding:1px 12px;min-height:24px;border-bottom:.5px solid rgba(255,255,255,0.04);}
   .prow .kf{width:20px;height:20px;flex-shrink:0;display:grid;place-items:center;border:none;background:transparent;cursor:pointer;color:var(--ink-faint);}
@@ -785,6 +791,7 @@
         <button class="ibtn flat" id="hideInsp" title="Collapse panel"><i class="ic" data-ico="panelL"></i></button>
       </div>
       <div class="insbody" id="insBody">
+        <div id="insMaster"></div><!-- [master grade] sequence-level global grade, always visible (built by renderMasterGrade) -->
         <div class="insEmpty" id="insEmpty"><span style="opacity:.5;"><i class="ic" data-ico="panel" data-s="26"></i></span>Select a clip<br>in the timeline or viewport</div>
         <div id="insGroup" style="display:none;"></div>
         <div id="insCtl" style="display:none;">
