@@ -1,5 +1,105 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 138 — Cola NEXT: [T5] Mute · [R3] Pestañas · grado PFD/PEQ · [T2] Trim · [V1] Viewer 2D/3D · [T4] Faders · [X2] FX cards
+
+### [X2] Layout de las tarjetas de FX reactivos
+
+El cuerpo de cada tarjeta de efecto (`fxCardHtml`) era una pila plana: fila de selects (band/mode/INV) → 6 faders de
+modulación → un divisor fino → params del efecto. Ahora se lee como **bloques ordenados**:
+
+- Tres secciones etiquetadas `.fxsec` (uppercase muted, idiom del proyecto): **Routing** (band/mode/INV + fila LFO),
+  **Response** (int/amt/atk/rel/curve/bounce), **Parameters** (params del efecto — sólo si `def.params.length`).
+- Estilos inline del cuerpo movidos a CSS (`.fxbody`, `.fxseg` para las filas de selects). El divisor fino se reemplazó
+  por el rótulo de sección.
+- **Cableado intacto:** `wireReactiveChain` consulta `.fxband/.fxmode/.fxinv/.fxshape/.fxdiv/.fxrow/.fxname/.fxdel/.fxdrag`
+  — todas preservadas (verificado). Cambio puramente aditivo. `node --check` OK.
+
+### [T4] Rediseño de los faders del 3D-preview (skill impeccable)
+
+### [T4] Rediseño de los faders del 3D-preview (skill impeccable)
+
+Los tres faders de cámara (FOV/DOLLY/DIST, en la barra de vista) eran `<input type=range>` nativos con sólo
+`accent-color:var(--ink-3)` → cramped (~54px), bajo contraste, feos. Rediseñados como sliders pro monocromos que
+respetan el contrato de color Resolve/Blender del proyecto (3 superficies, estado por VALOR/lightness):
+
+- **CSS** (clase `.vfader`, index.html): surco recesado `--s0` con hairlines; **relleno** `--ink-2` (el valor se lee por
+  claridad, no por color) pintado con un `linear-gradient` cortado en la var `--pct`; **thumb** circular `--ink` con
+  sombra, `hover` scale 1.15 (ease-out-quart) y halo `:active`; `:focus-visible` con anillo. Pseudo `-webkit-` (Electron)
+  + `-moz-` (dev) + `prefers-reduced-motion`. Ancho 74px (antes 54–56) → más precisión.
+- **JS:** helper `faderFill(el)` calcula `--pct` desde min/max/value; cableado en los 3 `oninput` y en `updModeUI` (al
+  entrar en 3D). La etiqueta de FOV ahora muestra `°`.
+- **Verificación:** introspección DOM en el navegador (in-project, corre scripts) → `appearance:none`, 74×14,
+  `cursor:ew-resize`, `--pct` correcto (FOV 60→16.7%, DOLLY 0.8→51.5%, DIST 3→16.7%), etiqueta `60°`. `node --check` OK.
+
+### [V1] Ventana solo-visor sigue al editor (2D ↔ 3D)
+
+### [V1] Ventana solo-visor sigue al editor (2D ↔ 3D)
+
+La pop-out (`openViewerWindow`/`renderViewer`) mostraba **siempre** el domo 3D. Ahora **espeja el modo del editor**:
+
+- `renderViewer` bifurca con `_vDome3D=(state.view.mode==='3d' && !_drawFlat && !_roomWrap)`:
+  - **3D dome:** igual que antes — `P3` + malla del domo + su **cámara orbit independiente** (`_viewerCam`, arrastrar/rueda).
+  - **2D:** blit limpio con `PB` (`pan=0,zoom=1`, sin el pan/zoom del editor) → **flat** = rect aspect-fit (misma
+    matemática `uvsc/uvof` que el viewport principal), **dome-2D** = disco fisheye centrado.
+- **Room-3D** cae a la tira flat (su representación 2D) — replicar la sala 3D con cámara propia queda fuera de alcance.
+- Título/lengüetas/`flashStatus` actualizados de "3D Viewer" a "Viewer" (agnóstico de modo). `node --check` OK.
+
+### [T2] Trim con micro-snap por frame + zoom más profundo
+
+### Grade en fulldome/equirect — gap PFD/PEQ CERRADO
+
+Las ruedas lift/gamma/gain, las curvas de tono y el LUT `.cube` sólo se aplicaban en las rutas PW-warp y flat (vía
+`bindClipLUT`→`bindClipGrade`→`bindClipCurve`, cableadas al struct `LW`). Las fuentes **fulldome (`PFD`)** y **equirect
+(`PEQ`)** sólo recibían el grado numérico (exp/con/sat/temp/tint) → los controles quedaban **inertes en silencio**.
+
+- **Bind parametrizado:** las tres funciones ahora toman un struct de ubicaciones `L` (`bindClipLUT(c,L)` etc., default
+  `L=L||LW`) → todos los llamadores legacy siguen igual.
+- **Shaders FSFD/FSEQ:** se les añadió el bloque de color de FSW verbatim — `pow(max(u_gain*col+u_lift,0),u_gamma)` →
+  curvas (sampler2D 256×1) → LUT (sampler3D), en el mismo orden. Uniformes nuevos + handles en `LFD`/`LEQ`.
+- **Unidades de textura:** LUT en unit 2, curva en unit 3 (libres en PFD/PEQ, que sólo usaban 0/1). `bindClipLUT`
+  restaura `TEXTURE0` antes del bind de `u_tex`.
+- **Identidad:** lift 0 / gain 1 / gamma 1, `u_hasCurve=0`, `u_hasLut=0` → clips fulldome/equirect existentes **sin
+  cambio de píxel**. `glow`/`chroma` siguen siendo sólo-PW (fuera de alcance).
+- **Verificación:** harness WebGL2 temporal (`_gradecheck.html`, ya borrado) → ambos programas **compilan + linkan OK**.
+  `node --check` OK. Docs sincronizadas.
+
+### [T2] Trim con micro-snap por frame + zoom más profundo
+
+- **Frame-snap del trim:** el drag de trim contextual (ripple/roll/slip/slide) era **continuo**; ahora cuantiza el delta
+  a frame por defecto (`dt=Math.round(dt·fps)/fps`) → el borde salta frame a frame, visible al acercar. **Shift** = fino
+  sub-frame (`dt·=0.25`, sin snap). La lectura de estado muestra segundos **y** frames.
+- **Zoom más profundo:** tope de `pxPerSec` subido 600→**2400** vía const nueva `TL_PPS_MIN/TL_PPS_MAX`, aplicada en los
+  4 puntos de zoom (botones ±, rueda-Ctrl, teclas ±, `zoomToClip`). A 2400 px/s un frame mide ~40–80px y la grilla
+  adaptativa (que ya elige `1/fps` cuando el paso ≥15px) dibuja líneas de frame → refuerza el snap visible.
+- El path de trim por **handle** (`.hd.l/.hd.r`) sigue continuo (no tocado). `node --check` OK.
+
+### [R3] Pestañas de secuencia reordenables
+
+Segundo win rápido de la cola. Las pestañas `#seqTabs` ya se podían cambiar/renombrar/cerrar pero no reordenar.
+
+- **`startSeqTabDrag(e,id)`** (app.js, antes de `renderSeqBar`): análogo **horizontal** de `startLaneDrag`. `pointerdown`
+  con umbral de 5px (no rompe clic/doble-clic/✕/rename). Al arrastrar dibuja una **línea-guía vertical** en el borde de
+  inserción + un **chip flotante** con el nombre. En `pointerup` reordena `state.openSeqs` (misma fórmula de índice
+  `dropIdx>from?dropIdx-1:dropIdx`).
+- **Flag `_seqDragged`**: un arrastre real lo pone en true (y lo limpia en `setTimeout(0)`), y el `onclick` de la pestaña
+  lo consulta → un drag no dispara además `switchSeq`. Mismo patrón que `_laneJustDragged`.
+- El orden **persiste** (ya se serializa `openSeqs` en `serProject`). `node --check` OK. Docs sincronizadas.
+
+### [T5] Mute visual: pista silenciada = opacidad alta + chapa
+
+Primer ticket de la cola `docs/NEXT.md` (win rápido). Silenciar una pista (botón **M**) ya no dejaba ninguna señal
+sobre sus clips salvo el botón encendido; ahora sus clips se marcan **claramente visibles** (no ocultos) con un estado
+propio, distinto y más suave que `disabled`.
+
+- **Clip DOM** (`renderTimeline`, app.js): `lane.mute && !c.disabled` → clase `.muted`. `disabled` (`.off`) es el estado
+  fuerte y gana con `else if` (un clip deshabilitado en pista muteada se ve como disabled). Se inyecta `.mutebadge`
+  (chapa de altavoz-mute) en el `innerHTML` del clip.
+- **CSS** (`index.html`): `.clip.muted{opacity:.82;filter:saturate(.7)}` — **opacidad alta**, sin trama diagonal (a
+  diferencia de `.off`), así sigue muy legible. La chapa es un círculo con el glyph nuevo `ICO('mute')` (altavoz + X):
+  **signo de forma, no de color** → daltonismo-safe, coherente con el criterio de `.off`.
+- **Icono** nuevo `mute` en el diccionario `ICO()`. `node --check` OK. Docs (`COMPONENTS.md` fila Clip DOM, `NEXT.md`)
+  actualizadas en el mismo commit.
+
 ## ROUND 137 — Limpieza de deuda técnica #1: automatización legacy (archivada, no borrada)
 
 Estreno de la política "archivar, no borrar" (ADR-0007). Se sacó del software la maquinaria de automatización que el

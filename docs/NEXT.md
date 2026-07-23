@@ -5,29 +5,36 @@
 > Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: 2026-07-23.
 
 ## Arranque (wins rápidos) 🟢
-- [ ] **[T5] Mute visual** — silenciar clip/secuencia lo deja **muy transparente** (no lo oculta). Aislado; existe el estado
-      `disabled`/`.off` (hatch + opacity) como referencia → agregar el caso "mute" con opacidad alta.
-      _Toca:_ Timeline (clip DOM) + draw en `composite`/`drawClip`.
-- [ ] **[R3] Secuencias reordenables** — drag para reordenar las pestañas `#seqTabs`. Reusa el patrón de `startLaneDrag`
-      (reorden de lanes). _Toca:_ `renderSeqBar` (#seqTabs) + `state.openSeqs`.
+- [x] **[T5] Mute visual** — pista silenciada → sus clips a opacidad **alta** (`.muted`, `.82`, sin trama → claramente
+      visibles, no ocultos) + chapa de altavoz-mute (`.mutebadge`, signo de forma → daltonismo). `.off` (disabled) sigue
+      siendo el estado fuerte y gana si el clip está deshabilitado. _(R138)_
+- [x] **[R3] Secuencias reordenables** — `startSeqTabDrag` (pointerdown, umbral 5px, análogo horizontal de `startLaneDrag`):
+      arrastrar una pestaña `#seqTabs` la reordena en `state.openSeqs` con línea-guía + chip flotante; el flag `_seqDragged`
+      evita que el clic final además cambie de secuencia. El orden persiste (`serProject`). _(R138)_
 
 ## Media mañana (acotado, alto valor) 🟡
 - [ ] **[T3] Círculos de zoom en la barra de scroll** (estilo Premiere) — handles circulares en los extremos de `#tlscroll`
       que al arrastrarlos acercan/alejan. _Toca:_ Timeline (`tlZoomAt`, `#tlscroll`).
-- [ ] **Grade en fulldome/equirect (tapar el gap PFD/PEQ)** — las ruedas/curvas/LUT NO se aplican a fuentes fulldome
-      (`PFD`) ni equirect (`PEQ`) porque esas rutas no llaman `bindClipLUT`/`bindClipGrade`/`bindClipCurve`. Portar la
-      cadena de color a esos shaders (uniformes en `LFD`/`LEQ` + el bloque de color en sus fragment shaders + el bind).
-      _Cierra un hueco real de algo recién construido._ _Toca:_ Motor GL (`PFD`/`PEQ`) + Color (`bindClipLUT` y cía).
+- [x] **Grade en fulldome/equirect (gap PFD/PEQ) — CERRADO** — FSFD/FSEQ ahora aplican ruedas/curvas/LUT igual que FSW;
+      las tres funciones `bindClipLUT/Grade/Curve` aceptan un struct de ubicaciones `L` (default `LW`) y las rutas PFD/PEQ
+      llaman `bindClipLUT(c,LFD/LEQ)` (LUT unit 2, curva unit 3). Identidad por defecto → clips existentes sin cambio.
+      Verificado: ambos shaders compilan+linkan en WebGL2. _(R138)_
 
 ## Tarde (medio) 🟡
-- [ ] **[T2] Trim micro-snap + más zoom** — el trim ya es por frame; hacer visible el snap al acercar mucho y permitir
-      **zoom más profundo**. _Toca:_ Timeline (`trimZone`/`applyTrim`, `tlZoomAt`).
-- [ ] **[V1] Viewer-only sigue 2D/3D** — la ventana `openViewerWindow` hoy es solo domo 3D; que **cambie con el editor**
-      (2D ↔ 3D). _Toca:_ Shell/UI (`openViewerWindow`/`renderViewer`).
+- [x] **[T2] Trim micro-snap + más zoom** — el drag de trim ahora **cuantiza a frame** por defecto (`dt=round(dt·fps)/fps`)
+      → el borde salta frame a frame (visible al acercar); **Shift** = sub-frame fino. Lectura muestra `s` y `f`. Zoom máximo
+      subido 600→**2400 px/s** (`TL_PPS_MAX`) → ~40–80px por frame; la grilla adaptativa ya muestra líneas de frame ahí. _(R138)_
+- [x] **[V1] Viewer-only sigue 2D/3D** — `renderViewer` ahora bifurca según el editor: domo 3D (con su cámara orbit
+      propia) ↔ blit 2D limpio (rect flat aspect-fit / disco fisheye), vía `_vDome3D=(view.mode==='3d' && !_drawFlat && !_roomWrap)`.
+      Room-3D cae a la tira flat (su forma 2D). _(R138)_
 
 ## Si queda energía (UI, rinde menos con cansancio) 🟠
-- [ ] **[T4] Rediseño de faders del 3D preview** — "están muy malos", rediseñar (FOV/dolly/dist). Usar skill `impeccable`.
-- [ ] **[X2] Layout de las tarjetas de FX reactivos** — recuadro de cada efecto mejor ordenado.
+- [x] **[T4] Rediseño de faders del 3D preview** — FOV/DOLLY/DIST (`.vfader`): sliders custom monocromos (surco `--s0`,
+      relleno `--ink-2` por lightness vía `--pct`/`faderFill()`, thumb `--ink` con hover-scale + halo activo) que reemplazan
+      el `accent-color` nativo. FOV muestra `°`. Verificado por introspección DOM (appearance:none, `--pct` correcto). _(R138, skill impeccable)_
+- [x] **[X2] Layout de las tarjetas de FX reactivos** — el cuerpo de cada `fxCardHtml` se agrupa en secciones etiquetadas
+      `.fxsec` (**Routing / Response / Parameters**) dentro de `.fxbody`, filas de selects en `.fxseg`; estilos movidos de
+      inline a CSS. Se preservó todo el cableado (`.fxband/.fxmode/.fxinv/.fxshape/.fxdiv/.fxrow/…`). _(R138)_
 
 ---
 

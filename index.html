@@ -176,6 +176,19 @@
   .vslab{display:inline-flex;align-items:center;gap:6px;height:18px;padding:0 7px;border-radius:2px;background:var(--surface-2);border-top:.5px solid rgba(255,255,255,0.05);border-bottom:.5px solid rgba(0,0,0,0.3);}
   .vslab .k{font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:11px;letter-spacing:0.08em;color:var(--ink-faint);}
   .vslab .v{font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:11px;color:var(--ink);}
+  /* [T4] camera faders (FOV/DOLLY/DIST) — crisp monochrome track+fill+thumb replacing the raw native accent-color slider.
+     Value reads by LIGHTNESS (light-gray fill on the recessed --s0 groove), per the app's Resolve/Blender colour contract. */
+  .vslab input[type=range].vfader{-webkit-appearance:none;appearance:none;width:74px;height:14px;background:transparent;cursor:ew-resize;margin:0;vertical-align:middle;}
+  .vslab input[type=range].vfader:focus{outline:none;}
+  .vslab input[type=range].vfader::-webkit-slider-runnable-track{height:4px;border-radius:2px;background:linear-gradient(90deg,var(--ink-2) 0 var(--pct,50%),var(--s0) var(--pct,50%) 100%);box-shadow:inset 0 0 0 .5px rgba(255,255,255,0.06),inset 0 1px 1px rgba(0,0,0,0.5);}
+  .vslab input[type=range].vfader::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:11px;height:11px;margin-top:-3.5px;border-radius:50%;background:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,0.55),0 0 0 .5px rgba(0,0,0,0.45);transition:transform .12s cubic-bezier(0.22,1,0.36,1),box-shadow .12s;}
+  .vslab input[type=range].vfader:hover::-webkit-slider-thumb{transform:scale(1.15);}
+  .vslab input[type=range].vfader:active::-webkit-slider-thumb{transform:scale(1.06);box-shadow:0 0 0 3px rgba(201,205,211,0.22),0 1px 2px rgba(0,0,0,0.55);}
+  .vslab input[type=range].vfader:focus-visible::-webkit-slider-thumb{box-shadow:0 0 0 3px rgba(201,205,211,0.30);}
+  .vslab input[type=range].vfader::-moz-range-track{height:4px;border-radius:2px;background:var(--s0);box-shadow:inset 0 0 0 .5px rgba(255,255,255,0.06);}
+  .vslab input[type=range].vfader::-moz-range-progress{height:4px;border-radius:2px;background:var(--ink-2);}
+  .vslab input[type=range].vfader::-moz-range-thumb{width:11px;height:11px;border:none;border-radius:50%;background:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,0.55);}
+  @media (prefers-reduced-motion: reduce){ .vslab input[type=range].vfader::-webkit-slider-thumb{transition:none;} }
   .stage{flex:1;min-height:0;position:relative;overflow:hidden;background:#000;}
   /* [V2] Full Performance: the viewer takes over the whole window; everything else stays in the DOM, just covered */
   body.perfmode #stage{position:fixed !important;inset:0 !important;z-index:1000 !important;}
@@ -204,6 +217,11 @@
   .selmeta{font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:11px;letter-spacing:0.02em;color:var(--ink-2);margin-top:2px;text-transform:uppercase;} /* [R92-T5] informational text lifted to ~4.5:1 (long dark-room sessions) */
   .sechead{width:100%;display:flex;align-items:center;gap:6px;height:20px;padding:0 12px;border:none;background:transparent;cursor:pointer;}
   .fxhdr .fxtog,.fxhdr .fxcol,.fxhdr .fxdel{background:none;border:none;} .fxhdr .fxtog:hover,.fxhdr .fxcol:hover,.fxhdr .fxdel:hover{background:var(--surface-3);} .fxhdr .fxdel:hover{color:var(--ink-2) !important;}
+  /* [X2] reactive-FX card body: grouped into labelled sections (Routing / Response / Parameters) so each effect box reads as ordered blocks, not a flat stack */
+  .fxbody{padding:5px 8px 7px;display:flex;flex-direction:column;gap:4px;}
+  .fxseg{display:flex;gap:4px;margin-bottom:1px;}
+  .fxsec{font-family:'Geist',system-ui,sans-serif;font-size:8.5px;font-weight:600;letter-spacing:0.11em;text-transform:uppercase;color:var(--ink-3);padding:5px 1px 1px;user-select:none;}
+  .fxsec:first-child{padding-top:1px;}
   .aselect{appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%239EA5AD' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6 6-6'/></svg>");background-repeat:no-repeat;background-position:right 4px center;padding-right:15px;}
   .sechead .t{font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink-2);}
   .sechead .ln{flex:1;height:.5px;background:rgba(255,255,255,0.09);}
@@ -440,6 +458,11 @@
   .clip.off{opacity:.42;filter:saturate(0.25);}
   .clip.off::after{content:'';position:absolute;inset:0;pointer-events:none;z-index:3;border-radius:2px;
     background:repeating-linear-gradient(45deg,transparent 0 4px,rgba(0,0,0,0.5) 4px 8px);}
+  /* [T5] pista silenciada: sigue CLARAMENTE visible (opacidad alta, sin trama) — a diferencia de disabled — y se marca con una chapa de altavoz-mute (signo de forma, daltonismo-safe). */
+  .clip.muted{opacity:.82;filter:saturate(0.7);}
+  .clip.muted .mutebadge{position:absolute;top:3px;left:4px;width:16px;height:16px;border-radius:50%;
+    background:rgba(11,13,16,0.68);color:var(--ink-2);display:flex;align-items:center;justify-content:center;
+    z-index:4;pointer-events:none;box-shadow:0 0 0 .5px rgba(255,255,255,0.2);}
   /* [R94-UT2·U-09] automation mode: the clip body is the envelope canvas — highlight the title band as the ONLY grab zone */
   body.automode .clip .tt{cursor:grab;box-shadow:inset 0 -1px 0 rgba(255,255,255,0.28);}
   /* [R95·E3] with automation on, the material steps back so the envelope is the subject (Ableton dims the waveform) */
@@ -718,9 +741,9 @@
         <div class="vseg" id="proxyToggle" title="Viewport uses proxies (faster). Turn off to preview the original clips."><button data-p="proxy" class="on"><i class="ic" data-ico="bolt"></i> Proxy</button></div>
         <div style="flex:1;"></div>
         <div class="vslab" id="azelReadout"><span class="k">AZ <span class="v" id="azR">0°</span></span><span class="k">EL <span class="v" id="elR">35°</span></span></div>
-        <div class="vslab" id="fovCtl" style="display:none;"><span class="k">FOV</span><input type="range" min="40" max="160" value="60" id="fovRange" style="width:56px;accent-color:var(--ink-3);"><span class="v" id="fovLbl" style="width:24px;text-align:right;">60</span></div>
-        <div class="vslab" id="dollyCtl" style="display:none;"><span class="k">DOLLY</span><input type="range" min="-0.9" max="2.4" step="0.01" value="0.8" id="dollyRange" style="width:54px;accent-color:var(--ink-3);"><span class="v" id="dollyLbl" style="width:24px;text-align:right;">0.8</span></div>
-        <div class="vslab" id="distCtl" style="display:none;"><span class="k">DIST</span><input type="range" min="1.2" max="12" step="0.1" value="3" id="distRange" style="width:54px;accent-color:var(--ink-3);"><span class="v" id="distLbl" style="width:24px;text-align:right;">3.0</span></div>
+        <div class="vslab" id="fovCtl" style="display:none;"><span class="k">FOV</span><input type="range" min="40" max="160" value="60" id="fovRange" class="vfader"><span class="v" id="fovLbl" style="width:26px;text-align:right;">60°</span></div>
+        <div class="vslab" id="dollyCtl" style="display:none;"><span class="k">DOLLY</span><input type="range" min="-0.9" max="2.4" step="0.01" value="0.8" id="dollyRange" class="vfader"><span class="v" id="dollyLbl" style="width:26px;text-align:right;">0.8</span></div>
+        <div class="vslab" id="distCtl" style="display:none;"><span class="k">DIST</span><input type="range" min="1.2" max="12" step="0.1" value="3" id="distRange" class="vfader"><span class="v" id="distLbl" style="width:26px;text-align:right;">3.0</span></div>
         <div class="vdiv"></div>
         <div class="vseg">
           <button id="vzOut" style="width:25px;padding:0;justify-content:center;"><i class="ic" data-ico="zoomOut"></i></button>
@@ -862,6 +885,7 @@ function ICO(n,s){ s=s||13; const a=`width="${s}" height="${s}" viewBox="0 0 24 
     video:`<rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3z"/>`,
     image:`<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M3 17l5-4 4 3 3-2 6 5"/>`,
     audio:`<path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16 8a5 5 0 0 1 0 8"/>`,
+    mute:`<path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/>`,
     view2d:`<circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18"/>`,
     view3d:`<path d="M3 16a9 9 0 0 1 18 0"/><path d="M2 16h20"/>`,
     viewer:`<circle cx="12" cy="12" r="3"/><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/>`,

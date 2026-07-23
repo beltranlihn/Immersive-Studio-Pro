@@ -70,7 +70,7 @@
 | Modo simple-clip | Agarre Premiere vs Ableton | app.js · `toggleSimpleClips` | ✅ | — |
 | Regla & playhead | Scrub + arrastre de locator | app.js · #ruler pointerdown / `positionPlayhead` | ✅ | — |
 | Marcadores / locators | Marcadores temporales con nombre | app.js · `addMarker`/`jumpMarker` | ✅ | — |
-| Pestañas de secuencia | Barra de secuencias abiertas | app.js · `renderSeqBar` · #seqTabs | ✅ | [R3] |
+| Pestañas de secuencia | Barra de secuencias abiertas (drag para reordenar) | app.js · `renderSeqBar`/`startSeqTabDrag` · #seqTabs | ✅ | — |
 | Menú contextual de clip | Acciones clic-derecho sobre clip | app.js · #tracks contextmenu | ✅ | [T1] |
 
 ### 4 · Automatización, keyframes & modulación → [detalle](#4--automatización-keyframes--modulación-detalle)
@@ -124,7 +124,7 @@
 | Import de LUT 3D | LUT `.cube` por clip como look final | app.js · `parseCubeLUT`/`loadLUT`/`bindClipLUT` | ✅ | R116 |
 | Ruedas Lift/Gamma/Gain | Grado primario estilo DaVinci | app.js · `wheelRGB`/`bindClipGrade` | ✅ | R130 |
 | Curvas de tono | Curvas luma+RGB → LUT 256×1 | app.js · `buildCurveData`/`clipCurveTex`/`bindClipCurve` | ✅ | R132 |
-| **Gap grado PFD/PEQ** | Fulldome/equirect NO reciben ruedas/curvas/LUT | app.js · ~L678-691 vs L710 | ⚠️ | **sin ticket (gap real)** |
+| Grado en PFD/PEQ | Fulldome/equirect ya reciben ruedas/curvas/LUT (paridad con FSW) | app.js · `bindClipLUT(c,LFD/LEQ)` en draw PFD/PEQ | ✅ | R138 (gap cerrado) |
 | `renderInspector` | Reconstruye + sincroniza el inspector | app.js · `renderInspector`/`refreshInspector` | ✅ | [I1]/[I2] |
 | 4 secciones colapsables | Transform/Clip/Color/Motion | app.js · `applySecCollapse` · #colorRows | ✅ | [I1]/[I2] |
 | Filas de parámetro | Fader + diamante + arco de mod | app.js · `buildRows`/`startValDrag` · `.prow` | ✅ | [A1] |
@@ -189,7 +189,7 @@
 | Paneles collapse/resize | Rails + gutters + workspace | app.js · `setPaneCollapsed` (~L5533) | ✅ | — |
 | i18n | T/applyLang/setLang | app.js · `applyLang` (~L6256) | ✅ | — |
 | Perf mode | Visor a ventana completa | app.js · `setPerfMode` (~L5613) · #perfBtn | ✅ | [V2] |
-| Ventana solo-visor | Pop-out del domo 3D independiente | app.js · `openViewerWindow` (~L961) | ✅ | [V1] |
+| Ventana solo-visor | Pop-out que sigue al editor (2D/3D); domo con cámara orbit propia | app.js · `openViewerWindow`/`renderViewer` | ✅ | — |
 
 ---
 
@@ -197,7 +197,7 @@
 
 - **🗄️ Automatización legacy — ARCHIVADO (R137).** Las funciones muertas (`_autoOff` override/re-enable + perform-and-bake `recWrite`/`bakeRecorded` + `#autoRecBtn`) se sacaron del software y viven en `_backup/deprecated/20260722-automation-override-and-perform-bake.js` (recuperables). Verificado por CDP: motor de automatización intacto. **Barrido menor HECHO (R137):** removidos los reads no-op de `_autoOff` en sepAuto, returnToDefault, `drawAutoCurve` (var `off`), fxKfToggle y borrado de fx — solo queda `_autoOff` en un comentario (app.js L463). Curva renderiza OK (verificado por píxel).
 - **⚠️ Sub-lanes apiladas coexisten** — `lane._auto` (sub-lanes múltiples) convive con el overlay uno-a-la-vez de [A5]. Revisar si queda residual.
-- **⚠️ Gap de grado en fulldome/equirect** — el inspector muestra ruedas/curvas/LUT para cualquier clip no-audio, pero las rutas PFD/PEQ no llaman `bindClipLUT`/`bindClipGrade`/`bindClipCurve` → esos controles son **inertes en silencio** para fuentes fulldome/equirect. Gap real sin ticket (ver observación #1 del informe).
+- **✅ Gap de grado en fulldome/equirect — CERRADO (R138).** Las rutas PFD/PEQ ahora llaman `bindClipLUT(c,LFD/LEQ)` (que encadena grade+curve) y los shaders FSFD/FSEQ aplican ruedas/curvas/LUT igual que FSW. Las tres funciones bind aceptan un struct de ubicaciones `L` (default `LW`). LUT en unit 2, curva en unit 3 (libres en PFD/PEQ). Identidad por defecto → clips existentes sin cambio. Verificado: ambos shaders compilan+linkan en WebGL2 real.
 - **🚧 [D2] cola de export = snapshot congelado** — la cola actual muta el `state` vivo; falta el "snapshot congelado al enviar" que pide [D2].
 - **🚧 ClipDecoder streaming** — apagado por defecto (`state.view.wcDecode`), pendiente de mover a worker.
 - **Colisión de nombres de tickets** — códigos viejos del PLAN (T2/T3/T4/T5 del motor de reproducción, R18) NO son los mismos que los de CORRECCIONES-V2 (T2 trim micro-snap, T4 faders 3D, etc.). Ojo al enlazar.
@@ -422,7 +422,7 @@ Constants (L3): `PI`, `HALF_PI=PI/2`, `D2R`, `R2D`, `COMP=2048` (dome composite 
 - **Key symbols:** `RA_SIZE=1024`, `RA_MAX=120` (LRU cap). `raInvalidate()` just bumps `_raGen` (cheap invalidate, no tex delete). `raGet` returns tex only if `gen===_raGen`. `drawCacheMap` paints the Premiere-style cached-frame strip on `#rulerCv`.
 - **Invariants / gotchas:** `raStore` never caches when `anyFeedbackFx()` (Trails/feedback is path-dependent → scrubbing would bake temporally-wrong echoes, L807). Every edit path guards `if(_raOn)raInvalidate()` — the manual-binding invariant extends here. `markDirty()` calls `raInvalidate()`.
 - **Status:** ✅ (feature-flagged; off by default)
-- **Roadmap:** [T4] faders redesign (T4 ticket is the 3D-preview faders, distinct from this cache's internal "[T4]" code tag).
+- **Roadmap:** — (nota: la "[T4]" del ticket = faders del 3D-preview, ya rediseñada en R138; distinta del tag interno "[T4]" de este caché).
 
 ## `markDirty()` (binding hub)
 - **Purpose:** The canonical "state changed" call: sets `state.dirty`, updates title, invalidates render-ahead.
@@ -504,10 +504,10 @@ separate subsystem — only cross-references appear here.
 - **Purpose:** Per-clip rendered node built inside each lane row: fill/tint, scrim, head thumbnail, fade envelope SVG, loop marks, title band, proxy badge, live-anim badge, resize handles, fade handles, keyframe strip.
 - **Location:** app.js · built in `renderTimeline` clip loop (L1906–1934). Innerhtml assembled L1926.
 - **State owned:** reads `c.start/dur/lane/disabled/loop/fadeIn/fadeOut/kf/color/name/adjust`, `state.selIds/selId/selGroupId`
-- **Key symbols:** classes `.clip .sel .gsel .offline .off .audioclip`; children `.fill`, `.scrim`, `.cthumb`, `.fadeenv` (SVG), `.tt` (title, tinted `clipTint`), `.cpx`/`.cpxbar` (proxy), `.animbadge`, `.hd.l`/`.hd.r` (resize handles), `.fadeh.fadeL`/`.fadeh.fadeR` (fade handles), `.kfstrip`>`.kfd` (keyframe diamonds), `.xfade` (crossfade X). Helpers: `clipTint()`, `textOn()`, `hasLiveAnim()`, `loopCycleSec()`.
-- **Invariants / gotchas:** `cd.style.width=Math.max(14,c.dur*pps)` — min 14px. Missing/deleted media → `.offline` (red, [M4]). `c.disabled` → `.off` diagonal hatch (not colour-only, colourblind-safe). Clip carries its OWN colour; lane colour only tints the header. `.kfstrip` shown live for selected clip (with `data-t` handlers), dimmed passive strip otherwise. Motion-chip drop targets set here (dragover/drop → `addAnimPreset`).
+- **Key symbols:** classes `.clip .sel .gsel .offline .off .muted .audioclip`; children `.fill`, `.scrim`, `.cthumb`, `.fadeenv` (SVG), `.tt` (title, tinted `clipTint`), `.cpx`/`.cpxbar` (proxy), `.animbadge`, `.mutebadge` (speaker-mute glyph), `.hd.l`/`.hd.r` (resize handles), `.fadeh.fadeL`/`.fadeh.fadeR` (fade handles), `.kfstrip`>`.kfd` (keyframe diamonds), `.xfade` (crossfade X). Helpers: `clipTint()`, `textOn()`, `hasLiveAnim()`, `loopCycleSec()`.
+- **Invariants / gotchas:** `cd.style.width=Math.max(14,c.dur*pps)` — min 14px. Missing/deleted media → `.offline` (red, [M4]). `c.disabled` → `.off` diagonal hatch (not colour-only, colourblind-safe). `lane.mute && !c.disabled` → `.muted` [T5]: opacidad ALTA (`.82`, sin trama → sigue muy visible) + `.mutebadge`; `.off` es el estado fuerte y gana si el clip está deshabilitado. Clip carries its OWN colour; lane colour only tints the header. `.kfstrip` shown live for selected clip (with `data-t` handlers), dimmed passive strip otherwise. Motion-chip drop targets set here (dragover/drop → `addAnimPreset`).
 - **Status:** ✅
-- **Roadmap:** [T5] (mute clip = high transparency), [T2] frame-snap trim
+- **Roadmap:** [T2] frame-snap trim
 
 ## Track header (.lanehdr) & lane operations
 - **Purpose:** The 152px-wide row header for each lane (colour bar, tag/name, collapse chevron, mute/solo, resize grip); hosts drag-to-reorder, rename, context menu, and (in automation mode) the device/param choosers.
@@ -550,9 +550,9 @@ separate subsystem — only cross-references appear here.
 - **Location:** app.js · `trimZone()` (L2369–2373), `applyTrim()` (L2376–2403), `laneNeighbours()` (L2366), `clipSrc()` (L2364), `TRIM_LABEL` (L2374), `trimNudge()` keyboard (L2405–2413). Invoked from `#tracks` pointerdown trim branch (L2271–2284).
 - **State owned:** mutates `c.start/dur/inP` + neighbour clips; `base` snapshot frozen at pointerdown.
 - **Key symbols:** zones `roll|rippleL|rippleR|slip|slide`; `EDGE=12`px. Keyboard: Trim tool + ←/→ nudges the edge nearest playhead (Shift=10f, L5756).
-- **Invariants / gotchas:** Handles/resize the `.hd.l`/`.hd.r` handles feed the SEPARATE plain trim path (`drag.mode='trimL'/'trimR'` via `trimItem`, L2458) — distinct from the contextual trim tool. `inP` is SOURCE seconds (× speed) — trim shifts consume source proportionally. Keyframes rebased on trim-in with a boundary keyframe so ramps aren't discarded ([R92-T4 F7]).
+- **Invariants / gotchas:** [T2] the contextual-trim drag frame-snaps `dt` by default (`dt=round(dt·fps)/fps`) → the edge steps whole frames (visible once zoomed in; deep zoom now reaches `TL_PPS_MAX`=2400 and the adaptive grid draws frame lines there). **Shift** = sub-frame fine (`dt·=0.25`, no snap). Readout shows seconds + frames. Snap is on the DELTA, so a frame-aligned base stays aligned; source-limit clamps may still land off-grid at the extreme. Handles/resize the `.hd.l`/`.hd.r` handles feed the SEPARATE plain trim path (`drag.mode='trimL'/'trimR'` via `trimItem`, L2458) — distinct from the contextual trim tool (that path is NOT frame-snapped). `inP` is SOURCE seconds (× speed) — trim shifts consume source proportionally. Keyframes rebased on trim-in with a boundary keyframe so ramps aren't discarded ([R92-T4 F7]).
 - **Status:** ✅
-- **Roadmap:** [T2] per-frame trim with micro-snap at high zoom
+- **Roadmap:** —
 
 ## Plain-handle trim — trimItem / drag.mode trimL/trimR
 - **Purpose:** The `.hd.l`/`.hd.r` corner handles resize a clip (all selected clips get the same delta), clamped to each clip's own source limits. This is the default resize, independent of the Trim tool.
@@ -604,9 +604,9 @@ separate subsystem — only cross-references appear here.
 - **Location:** app.js · `tlZoomAt()` (L2519–2523), `zoomToClip()` (L2217), button handlers (L5647–5648), wheel handler (L2567–2571).
 - **State owned:** `state.tl.pxPerSec` (default 80, L80), `state.tl._scrollTarget`
 - **Key symbols:** `neededSec()` (L2577) grows content width to cover the scroll target during the render.
-- **Invariants / gotchas:** `pxPerSec` clamped [0.1, 600] (0.1 floor fits feature-length clips). `_scrollTarget` is published BEFORE render so width grows first, then `scrollLeft` is applied unclamped — keeps the cursor time fixed.
+- **Invariants / gotchas:** `pxPerSec` clamped `[TL_PPS_MIN, TL_PPS_MAX]` = `[0.1, 2400]` (const at L112; 0.1 floor fits feature-length clips, 2400 ceiling gives ~40–80px/frame for the [T2] per-frame trim snap). All 4 zoom entry points (buttons, wheel-Ctrl, ± keys, `zoomToClip`) use the consts. `_scrollTarget` is published BEFORE render so width grows first, then `scrollLeft` is applied unclamped — keeps the cursor time fixed.
 - **Status:** ✅
-- **Roadmap:** [T2] allow zooming in further, [T3] scrollbar-end zoom circles
+- **Roadmap:** [T3] scrollbar-end zoom circles
 
 ## Simple-clip mode
 - **Purpose:** Toggle between Premiere-style whole-clip grab (default) and Ableton-style title-band-only grab (body drags a range).
@@ -636,13 +636,13 @@ separate subsystem — only cross-references appear here.
 - **Roadmap:** —
 
 ## Sequence tabs (#seqTabs) — renderSeqBar
-- **Purpose:** Premiere-style tabs for open sequences/nests; click to switch, dblclick rename, right-click options, ✕ to close, ＋ to create.
-- **Location:** app.js · `renderSeqBar()` (L5221–5229), `switchSeq()` (L4936), `renameSequence()` (L4943). DOM `#seqTabs` (index.html L815).
+- **Purpose:** Premiere-style tabs for open sequences/nests; click to switch, dblclick rename, right-click options, ✕ to close, ＋ to create, **drag to reorder** ([R3]).
+- **Location:** app.js · `renderSeqBar()` (L5221–5229), `startSeqTabDrag()` (before `renderSeqBar`), `switchSeq()` (L4936), `renameSequence()` (L4943). DOM `#seqTabs` (index.html L815).
 - **State owned:** `state.openSeqs[]`, `state.activeSeqId`
-- **Key symbols:** `.seqtab .on`, `.seqlab`, `.seqx`, `.seqadd`; `newSequenceDialog`, `closeSeqTab`, `openSeqSettings`.
-- **Invariants / gotchas:** Sequences = media `kind:'nest'`; switching saves the active seq (`saveActiveSeq`) then loads the target into `state.clips/lanes`.
+- **Key symbols:** `.seqtab .on`, `.seqlab`, `.seqx`, `.seqadd`; `newSequenceDialog`, `closeSeqTab`, `openSeqSettings`, `startSeqTabDrag`, flag `_seqDragged`.
+- **Invariants / gotchas:** Sequences = media `kind:'nest'`; switching saves the active seq (`saveActiveSeq`) then loads the target into `state.clips/lanes`. [R3] `startSeqTabDrag` (pointerdown, 5px threshold, horizontal analog of `startLaneDrag`) reorders `openSeqs`; a real drag sets `_seqDragged` so the trailing click doesn't ALSO `switchSeq`. Order persists (serialized in `serProject`).
 - **Status:** ✅
-- **Roadmap:** [R3] make sequence tabs reorderable
+- **Roadmap:** —
 
 ## Clip context menu ([T1])
 - **Purpose:** Right-click a clip → rename, split, zoom-to-clip, duplicate/copy, colour, speed, loop toggles, disable, copy/paste attributes, compose/nest, render-in-place, show automation, delete/ripple-delete.
@@ -1082,7 +1082,7 @@ Subsystem map of `app.js` — verified line numbers (app.js = 6992 lines). Two h
 - **Location:** app.js · `_Z3`/`wheelRGB` L255-257 · `bindClipGrade` L258-265 · inspector wheel UI L2882-2903.
 - **State/data:** `props.cgLift`, `props.cgGamma`, `props.cgGain` — each `[handleX, handleY, master]` in -1..1 (handle = color balance, master = luminance).
 - **Key symbols:** `wheelRGB(a,k)` converts a wheel handle to a per-channel RGB offset on a DaVinci layout (R top, G lower-left, B lower-right) plus master: returns `[y*k+m, (-0.5y-0.866x)*k+m, (-0.5y+0.866x)*k+m]`. `bindClipGrade` uploads `u_lift=lf` (k=0.4 additive), `u_gain=1+gn` (k=0.5 multiplicative), `u_gamma=max(0.1,1-gm)` (k=0.5, power), then chains `bindClipCurve(c)`.
-- **Invariants / gotchas:** Wheels default `_Z3=[0,0,0]` (identity). Wheel UI (`.cwheel/.cwh/.cwm/.cwcol`) clamps handle to unit circle; double-click resets to `[0,0,0]`; drag → `raInvalidate()`+`render()`. Master slider writes index [2]. `bindClipGrade` is called only via `bindClipLUT` → only on PW-warp + flat paths (see gap below).
+- **Invariants / gotchas:** Wheels default `_Z3=[0,0,0]` (identity). Wheel UI (`.cwheel/.cwh/.cwm/.cwcol`) clamps handle to unit circle; double-click resets to `[0,0,0]`; drag → `raInvalidate()`+`render()`. Master slider writes index [2]. `bindClipGrade(c,L)` is called only via `bindClipLUT(c,L)` → now on ALL clip paths (PW-warp, flat, PFD fulldome, PEQ equirect) since R138 closed the grade gap.
 - **Status:** ✅
 - **Roadmap:** R130
 
@@ -1095,12 +1095,12 @@ Subsystem map of `app.js` — verified line numbers (app.js = 6992 lines). Two h
 - **Status:** ✅
 - **Roadmap:** R132
 
-## PFD/PEQ grade gap (known limitation)
-- **Purpose:** Document that fulldome-source (`PFD`) and equirect-source (`PEQ`) clips do NOT receive the wheels/curves/LUT — only the numeric grade FX.
-- **Location:** app.js · PEQ draw L678-684 · PFD draw L685-691 · PW (full pipeline) draw L697-714 · flat path `drawClipFlat` calls `bindClipLUT` L653.
-- **State/data:** `props.fulldome`, `props.equirect` (mutually exclusive toggles).
-- **Key symbols:** `bindClipLUT(c)` (→ grade → curve chain) is invoked ONLY on the flat path (L653) and the PW dome-warp path (L710). PFD/PEQ set only `exp/con/sat/tmp/tnt` uniforms (L680, L687); they never bind LGG, curve, or LUT.
-- **Invariants / gotchas:** The inspector still SHOWS wheels/curves/LUT for any non-audio clip (including fulldome/equirect), but the shaders for those source modes ignore them → silent gap. Fulldome inspector also restricts the numeric FX rows to opacity+basic grade (L2773).
+## PFD/PEQ grade parity (gap CLOSED · R138)
+- **Purpose:** Fulldome-source (`PFD`) and equirect-source (`PEQ`) clips now receive the FULL color chain (wheels/curves/LUT), matching the PW-warp and flat paths.
+- **Location:** app.js · PEQ draw (`bindClipLUT(c,LEQ)` before the tex bind) · PFD draw (`bindClipLUT(c,LFD)`) · shaders FSFD/FSEQ carry the LGG+curve+LUT block · bind fns `bindClipLUT/Grade/Curve` take a location struct `L` (default `LW`).
+- **State/data:** `props.fulldome`, `props.equirect` (mutually exclusive toggles); `props.cgLift/cgGamma/cgGain`, `props.curves`, `props.lut/lutMix`.
+- **Key symbols:** `bindClipLUT(c,L)` → `bindClipGrade(c,L)` → `bindClipCurve(c,L)`; `L∈{LW,LFD,LEQ}`. LUT sampler on `gl.TEXTURE2`, curve on `gl.TEXTURE3` (both free in PFD/PEQ, which use only units 0/1). FSFD/FSEQ apply `pow(max(u_gain*col+u_lift,0),u_gamma)` → curves → LUT, same order as FSW (glow/chroma remain PW-only, out of scope).
+- **Invariants / gotchas:** Identity defaults (lift 0 / gain 1 / gamma 1, `u_hasCurve=0`, `u_hasLut=0`) → existing fulldome/equirect clips render pixel-identical. `L` is defaulted (`L=L||LW`) so every legacy caller of `bindClipLUT(c)` is unchanged. Verified: FSFD+FSEQ compile+link in real WebGL2. Fulldome inspector still restricts the numeric FX rows to opacity+basic grade (L2773) — that's a separate UI choice, not a shader gap.
 - **Status:** ⚠️ (known gap)
 - **Roadmap:** — (unticketed)
 
@@ -1112,7 +1112,7 @@ Subsystem map of `app.js` — verified line numbers (app.js = 6992 lines). Two h
 - **Purpose:** Rebuild the whole right-hand inspector for the current selection (group / adjustment / audio / visual clip), then keep live values synced to the playhead on scrub without a full rebuild.
 - **Location:** app.js · `renderInspector` L2743 (wraps `_renderInspectorMain`+`renderReactivePanel`+`applyInspTab`) · `_renderInspectorMain` L2744-3043 · `refreshInspector` L3217-3228.
 - **State/data:** `state.selId/selIds`, `state.selGroupId`, `state.insCol` (section collapse), `state.motionPreview`. Reads `selClip()`, `mediaById(c.mediaId)`.
-- **Key symbols:** branches: group → `renderGroupInspector`; `c.adjust` → opacity-only + Reactive-FX hint; audio → `buildAudioInspector` (L3053); else visual clip. `refreshInspector` walks `#tfRows/#fxRows/#colorRows .prow`, updates `.num`/track width via `evalP`/`evalR`, toggles `.modon`/`.auto`, refreshes diamond fill via `kfAt`; also `refreshMotionWet`+`refreshModFormula`. Called on every scrub (`scrubRender` L3963, `ploop` L4226).
+- **Key symbols:** branches: group → `renderGroupInspector`; `c.adjust` → opacity-only + Reactive-FX hint; audio → `buildAudioInspector` (L3053); else visual clip. `refreshInspector` walks `#tfRows/#fxRows/#colorRows .prow`, updates `.num`/track width via `evalP`/`evalR`, toggles `.modon`/`.auto`, refreshes diamond fill via `kfAt`; also `refreshMotionWet`+`refreshModFormula`. Called on every scrub (`scrubRender` L3963, `ploop` L4226). The Reactive-FX tab is `renderReactivePanel`; each effect box `fxCardHtml` — [X2] its body is grouped into labelled sections `.fxsec` (Routing / Response / Parameters) inside `.fxbody`, select rows in `.fxseg`; wiring in `wireReactiveChain` keys off `.fxband/.fxmode/.fxinv/.fxshape/.fxdiv/.fxrow/.fxname/.fxdel/.fxdrag` (all preserved).
 - **Invariants / gotchas:** Manual binding — every mutation must call `render()`+`renderInspector()`/`refreshInspector()`. `_renderInspectorMain` wrapped in try/catch (L2743). Fragile: full rebuild re-wires all handlers each call.
 - **Status:** ✅
 - **Roadmap:** [I1]/[I2]
@@ -1252,9 +1252,9 @@ Reference map of `app.js` (single-file WebGL2 renderer). Line numbers verified a
 - **Location:** app.js · `roomCameraMVP(spec,aspect)` (~L901)
 - **State/data:** `state.view.three` ('spec' → stand), `state.view.cam` {pitch,yaw,back,dist,fov}, `_roomGeo.norm` {midZ,standZ,radius}
 - **Key symbols:** `persp`, `lookAt`, `mul4`; up vector `[0,0,1]`; near 0.005 far 60. Fallback norm `{midZ:0.25,standZ:0.35,radius:1}`.
-- **Invariants / gotchas:** Spec fov from `cam.fov`; orbit fixed 52°. Returns `{mvp,eye}` (eye also feeds `LR.cam` for outside-translucency).
+- **Invariants / gotchas:** Spec fov from `cam.fov`; orbit fixed 52°. Returns `{mvp,eye}` (eye also feeds `LR.cam` for outside-translucency). [T4] the on-screen faders that drive `cam.fov/back/dist` (`#fovRange/#dollyRange/#distRange`, class `.vfader`) were redesigned in R138: custom monochrome track+fill (`--pct` var via `faderFill()`) + thumb with hover/active, replacing the raw `accent-color` native slider. FOV label shows `°`.
 - **Status:** ✅
-- **Roadmap:** [T4] 3D-preview faders redesign (touches view.cam UI)
+- **Roadmap:** —
 
 ## Room setup dialog — roomSetupDialog / roomPlan / drawRoomIso / drawRoomStrip
 - **Purpose:** Landing/menu dialog to define a 360 room: N walls (2/3/4), roles Front/Right/Back/Left, per-wall width/height (cm) + pixel res, optional floor (px + cm). Live iso+plan schematic and the summed 2D strip preview. Presets in localStorage.
@@ -1684,14 +1684,14 @@ Bootstrap constants (app.js): `HAS_WC` (~L1259) = WebCodecs + Mp4Muxer present; 
 - **Status:** ✅
 - **Roadmap:** —
 
-## Viewer-only window (pop-out 3D)
-- **Purpose:** A movable/resizable second-screen window showing ONLY the 3D dome with its own independent orbit camera.
+## Viewer-only window (pop-out, follows editor 2D/3D)
+- **Purpose:** A movable/resizable second-screen output window that **mirrors the editor's mode** ([V1]): 3D dome (own independent orbit camera), 2D flat, or the 2D fisheye disc.
 - **Location:** app.js · `openViewerWindow()` (L961-982), `renderViewer(srcTex)` (L984), `closeViewerGL` (L983). Driven from the main render loop (L955). `#popoutBtn`→`openViewerWindow` (L5611). Main-process window handler `frameName==='domeViewer'` (main.js L65).
 - **State/data:** `_viewerWin`, `_viewerCtx`, `_viewerCam{yaw,pitch,dist,fov}`, `_viewerGrid`, offscreen FBO `_vFBO/_vTex/_vDepth`.
-- **Key symbols:** `window.open('about:blank','domeViewer',...)`; renders `_viewerCam` into an FBO (capped 1280), reads back, draws flipped (WebGL bottom-up). Own grid toggle button.
-- **Invariants / gotchas:** independent of the main viewport camera; backgroundThrottling:false keeps it smooth while unfocused.
+- **Key symbols:** `window.open('about:blank','domeViewer',...)`; renders into an FBO (capped 1280), reads back, draws flipped (WebGL bottom-up). Own grid toggle button (only meaningful in 3D).
+- **Invariants / gotchas:** [V1] `renderViewer` branches on `_vDome3D=(view.mode==='3d' && !_drawFlat && !_roomWrap)` → dome via `P3`+`_viewerCam`, else a CLEAN 2D blit via `PB` (`pan=0,zoom=1` — no editor pan/zoom; flat = aspect-fit rect, dome-2D = centred fisheye disc). Room-3D falls to the flat strip (its 2D form) — replicating room-3D with an independent cam is out of scope. The 3D orbit camera stays independent of the main viewport; backgroundThrottling:false keeps it smooth while unfocused.
 - **Status:** ✅
-- **Roadmap:** [V1].
+- **Roadmap:** —
 
 ## Close-confirm + dirty guard
 - **Purpose:** On window close with unsaved changes, show the app-styled confirm instead of a native OS dialog.
