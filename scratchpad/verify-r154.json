@@ -1,0 +1,52 @@
+[
+  {
+    "win": 1920,
+    "bar": 1328,
+    "usado": 1224,
+    "desborda": false,
+    "overlays": true,
+    "calidad": true,
+    "output": true,
+    "more": false
+  },
+  {
+    "win": 1600,
+    "bar": 1008,
+    "usado": 904,
+    "desborda": false,
+    "overlays": true,
+    "calidad": true,
+    "output": true,
+    "more": false
+  },
+  {
+    "win": 1440,
+    "bar": 848,
+    "usado": 768,
+    "desborda": false,
+    "overlays": true,
+    "calidad": false,
+    "output": true,
+    "more": true
+  },
+  {
+    "win": 1280,
+    "bar": 688,
+    "usado": 624,
+    "desborda": false,
+    "overlays": false,
+    "calidad": false,
+    "output": true,
+    "more": true
+  },
+  {
+    "win": 1150,
+    "bar": 558,
+    "usado": 494,
+    "desborda": false,
+    "overlays": false,
+    "calidad": false,
+    "output": true,
+    "more": true
+  }
+]

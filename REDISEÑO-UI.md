@@ -75,7 +75,13 @@ Los `.dc.html` de **360** y **2D** son variantes del mismo shell (sólo cambian 
 - Estado: `mediaSort`, `mediaFilter`.
 
 ## 3 · BARRA DEL VISOR — `RevDomo:133`
-- Overlays (Grid/Safe/Outline/Horizon/Alpha) **icon-only** en well; Proxy + calidad Full/½/¼ a la derecha.
+> ⚠️ **CORREGIDO EN LA AUDITORÍA R154.** Esta sección decía que los overlays van **icon-only**: es falso. El
+> prototipo (`RevDomo:143-146`) los lleva **con etiqueta** (`Grid · Outline · Horizon · Alpha`, 10px/600, padding
+> 0 8px). R148 los dejó sólo con icono siguiendo este texto. Y el selector de modo se rotula **"2D"/"3D"** a secas
+> (`RevDomo:137-138`), con el nombre largo en el tooltip — no "Dome Master"/"3D Preview".
+
+- Overlays (Grid/Safe/Outline/Horizon/Alpha) **con etiqueta** en well; Proxy + calidad Full/½/¼ a la derecha.
+  *(El diseño lleva cuatro; conservamos **Safe** como quinto porque es una función real de emisión.)*
 - **Output dropdown** consolida Full performance · Viewer window · NDI · Spout (los 4 botones sueltos → deprecated;
   indicador pulsante en `#outputBtn` si NDI/Spout on). *(ya hecho)*.
 - **Regla 2D↔3D:** en 3D aparecen controles de cámara (Orbit/Viewer, faders); en 2D aparece Az/El. En el prototipo el

@@ -108,7 +108,7 @@
   .top{height:28px;flex-shrink:0;display:flex;align-items:center;gap:var(--sp-8);padding:0 10px;background:var(--surface);border-bottom:.5px solid rgba(255,255,255,0.09);} /* [AUDITORÍA Rev1] el prototipo pone la TOP bar en #1B1B1B (sólo el transport va en --bar) */
   .dot{width:6px;height:6px;border-radius:50%;background:var(--ink-2);flex-shrink:0;}
   /* [U-18] segmented controls — ONE canonical look (surface-2 · border rgba .1 · radius 2). Variant rules below keep ONLY real size/padding differences. */
-  .seg,.vseg,.filtseg,.editseg,.groupseg,.seg2{background:var(--surface-2);border:.5px solid rgba(255,255,255,0.1);border-radius:2px;}
+  .seg,.vseg,.filtseg,.editseg,.groupseg,.seg2{background:var(--surface-2);border:.5px solid rgba(255,255,255,0.1);border-radius:3px;}
   .seg,.vseg,.filtseg,.editseg,.groupseg{display:inline-flex;align-items:stretch;height:18px;overflow:hidden;}
   .seg button,.vseg button,.filtseg button,.editseg button,.groupseg button{display:inline-flex;align-items:center;gap:var(--sp-6);padding:0 9px;font-size:11px;font-weight:500;border:none;background:transparent;color:var(--ink-2);cursor:pointer;transition:background .12s,color .12s;}
   .seg button+button,.vseg button+button,.filtseg button+button,.editseg button+button,.groupseg button+button{border-left:.5px solid rgba(255,255,255,0.1);}
@@ -257,11 +257,11 @@
 
   /* inspector */
   .insbody{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;}
-  .selhead{display:flex;align-items:center;gap:var(--sp-12);padding:11px 12px 10px;}
+  .selhead{display:flex;align-items:center;gap:12px;padding:10px 12px;}
   .selthumb{width:44px;height:29px;border-radius:2px;background-size:cover;background-position:center;border:.5px solid rgba(255,255,255,0.14);background-color:var(--surface-2);}
   .selname{font-size:13px;font-weight:600;letter-spacing:-0.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink);}
   .selmeta{font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;letter-spacing:0.04em;color:var(--ink-2);margin-top:2px;text-transform:uppercase;} /* [AUDITORÍA Rev1] 11→10px (RevDomo:275 — el uppercase se tolera SÓLO a este tamaño) */ /* [R92-T5] informational text lifted to ~4.5:1 (long dark-room sessions) */
-  .sechead{width:100%;display:flex;align-items:center;gap:6px;height:20px;padding:0 12px;border:none;background:transparent;cursor:pointer;}
+  .sechead{width:100%;display:flex;align-items:center;gap:6px;height:24px;padding:0 12px;border:none;background:transparent;cursor:pointer;} /* [AUDITORÍA R154] 20→24px (RevDomo:278) */
   .fxhdr .fxtog,.fxhdr .fxcol,.fxhdr .fxdel{background:none;border:none;} .fxhdr .fxtog:hover,.fxhdr .fxcol:hover,.fxhdr .fxdel:hover{background:var(--surface-3);} .fxhdr .fxdel:hover{color:var(--ink-2) !important;}
   /* [X2] reactive-FX card body: grouped into labelled sections (Routing / Response / Parameters) so each effect box reads as ordered blocks, not a flat stack */
   .fxbody{padding:5px 8px 7px;display:flex;flex-direction:column;gap:4px;}
@@ -279,10 +279,10 @@
   .prow .kf:not([data-kf]){display:none;} /* [A1] the per-row stopwatch is gone — collapse the leftover empty .kf spacer spans so labels left-align; the functional Reactive-FX keyframe toggle (.kf[data-kf]) stays visible */
   .prow .reEn{width:18px;height:18px;flex-shrink:0;display:none;place-items:center;border:.5px solid rgba(255,255,255,0.25);border-radius:2px;background:transparent;cursor:pointer;color:var(--ink-2);font-size:13px;line-height:1;padding:0;}
   .prow .reEn:hover{background:rgba(255,255,255,0.1);}
-  .prow .lab{width:52px;flex-shrink:0;font-size:11px;color:var(--ink-2);}
+  .prow .lab{width:60px;flex-shrink:0;font-size:11px;color:var(--ink-2);}
   .prow.auto .lab{color:var(--ink);font-weight:500;} /* param carries automation (Ableton-style highlight) */
   .prow .field{flex:1;display:flex;align-items:center;justify-content:flex-end;gap:8px;height:20px;cursor:ew-resize;}
-  .prow .track{flex:1;height:3px;border-radius:1px;background:var(--bg-0);box-shadow:inset 0 1px 2px rgba(0,0,0,0.55);position:relative;overflow:hidden;}
+  .prow .track{flex:1;height:3px;border-radius:2px;background:var(--bg-0);box-shadow:inset 0 1px 2px rgba(0,0,0,0.55);position:relative;overflow:hidden;}
   .prow .track>i{position:absolute;left:0;top:0;bottom:0;background:var(--pc,#FFFFFF);} /* [REDISEÑO Rev1] relleno del fader en el hue del parámetro (--pc = autoColor(p)) */
   .prow.auto .nav button[data-k=add]{color:var(--pc);} /* diamante de keyframe en el hue del parámetro cuando está automatizado */
   /* [R102·D-T3] Un valor arrastrable ES un campo editable → superficie s0 (más OSCURA que el panel), no s2.
@@ -302,7 +302,7 @@
   .prow .nav button{width:20px;height:20px;display:grid;place-items:center;border:none;background:transparent;cursor:pointer;color:var(--ink-faint);}
   .prow .nav button:hover{color:var(--ink-2);}
   .prow .nav button.on{color:var(--ink);} /* filled = the playhead sits on a keyframe of this param */
-  .togbtn,.togbtn2{display:inline-flex;align-items:center;gap:var(--sp-6);height:18px;padding:0 9px;font-size:11px;font-weight:500;border-radius:2px;cursor:pointer;border:.5px solid rgba(255,255,255,0.09);background:var(--surface-2);color:var(--ink-2);} /* [U-18] .togbtn2 was a value-by-value clone */
+  .togbtn,.togbtn2{display:inline-flex;align-items:center;gap:var(--sp-6);height:20px;padding:0 9px;font-size:11px;font-weight:500;border-radius:3px;cursor:pointer;border:.5px solid rgba(255,255,255,0.09);background:var(--surface-2);color:var(--ink-2);} /* [U-18] .togbtn2 was a value-by-value clone */
   .togbtn.on,.togbtn2.on{background:var(--state-on);color:var(--ink);border-color:rgba(255,255,255,0.16);}
   .selsel{width:100%;height:18px;padding:0 7px;border-radius:2px;border:.5px solid rgba(255,255,255,0.15);background:var(--surface-2);color:var(--ink);font-family:inherit;font-size:11px;}
   .insEmpty{display:flex;flex-direction:column;align-items:center;gap:var(--sp-12);color:var(--ink-faint);text-align:center;padding:50px 20px;font-size:13px;line-height:1.6;}
@@ -310,13 +310,13 @@
   /* transport */
   .transport{height:28px;flex-shrink:0;display:flex;align-items:center;gap:var(--sp-8);padding:0 10px;background:var(--bar);border-top:.5px solid rgba(0,0,0,0.4);border-bottom:.5px solid rgba(0,0,0,0.4);position:relative;} /* [AUDITORÍA Rev1] 30→28 + superficie de barra */
   .tccenter{position:absolute;left:50%;top:0;height:100%;transform:translateX(-50%);display:flex;align-items:center;gap:var(--sp-8);}
-  .tbtn{width:22px;height:22px;display:grid;place-items:center;border:none;border-radius:2px;background:transparent;color:var(--ink-2);cursor:pointer;transition:background .12s,transform .1s;}
+  .tbtn{width:22px;height:22px;display:grid;place-items:center;border:none;border-radius:3px;background:transparent;color:var(--ink-2);cursor:pointer;transition:background .12s,transform .1s;}
   .tbtn:hover{background:var(--surface-2);color:var(--ink);} .tbtn:active{transform:scale(.88);}
   .tbtn.on{color:var(--ink);background:var(--state-on);}
-  .playb{width:30px;height:22px;display:grid;place-items:center;border:.5px solid rgba(255,255,255,0.12);border-radius:2px;background:var(--s2);color:var(--ink);cursor:pointer;margin:0 2px;}
+  .playb{width:30px;height:22px;display:grid;place-items:center;border:.5px solid rgba(255,255,255,0.12);border-radius:3px;background:var(--s2);color:var(--ink);cursor:pointer;margin:0 2px;}
   .playb:hover{filter:brightness(1.14);} .playb:active{transform:scale(.93);}
-  .tcbox{display:flex;align-items:center;justify-content:center;gap:var(--sp-8);font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;height:22px;padding:0 11px;border-radius:2px;background:var(--bg-0);border:.5px solid rgba(255,255,255,0.06);box-shadow:inset 0 1px 3px rgba(0,0,0,0.5);}
-  .tcbox .tc{font-size:13px;font-weight:500;color:var(--ink);letter-spacing:0.02em;display:inline-block;min-width:72px;text-align:center;font-variant-numeric:tabular-nums;}
+  .tcbox{display:flex;align-items:center;justify-content:center;gap:var(--sp-8);font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;height:22px;padding:0 11px;border-radius:3px;background:var(--bg-0);border:.5px solid rgba(255,255,255,0.06);box-shadow:inset 0 1px 3px rgba(0,0,0,0.5);}
+  .tcbox .tc{font-size:12.5px;font-weight:500;color:var(--ink);letter-spacing:0.02em;display:inline-block;min-width:72px;text-align:center;font-variant-numeric:tabular-nums;}
   .tcbox .du{font-size:11px;color:var(--ink-faint);display:inline-block;min-width:50px;text-align:right;font-variant-numeric:tabular-nums;}
   /* [AUDITORÍA Rev1 · §5] el well de edición (Simple·Auto·Grid·Fit) era el único segmentado a 18px: pasa a la
      medida de well del diseño (22px de contenedor, 16px de botón, sin divisores internos), igual que .vseg.
@@ -369,7 +369,7 @@
   .hres{height:5px;flex-shrink:0;cursor:row-resize;background:transparent;z-index:9;}
   .hres:hover{background:rgba(255,255,255,0.2);}
   .tlmain{flex:1;min-height:0;display:flex;overflow:hidden;}
-  .toolrail{width:32px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 0;background:var(--s1);border-right:.5px solid rgba(0,0,0,0.4);}
+  .toolrail{width:34px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 0;background:var(--s1);border-right:.5px solid rgba(0,0,0,0.4);}
   .toolrail button{width:24px;height:24px;display:grid;place-items:center;border:none;border-radius:2px;background:transparent;color:var(--ink-3);cursor:pointer;transition:background .12s,color .12s;}
   .toolrail button:hover{background:var(--surface-3);} .toolrail button.on{background:var(--state-on);color:var(--ink);}
   .trackhdr{width:168px;flex-shrink:0;display:flex;flex-direction:column;background:var(--surface);border-right:.5px solid rgba(0,0,0,0.4);z-index:3;overflow-x:hidden;overflow-y:auto;position:relative;scrollbar-width:none;} /* [REDISEÑO Rev1] 168px (antes 152): los chips de automatización truncaban (nota de revisión del diseño) */ /* [R92-T9] scrolls NATIVELY in sync with #tlscroll so its sticky audio module pins identically · [L2] flex-column so #audioHeadZone (margin-top:auto) pins to the bottom in step with the clip column */
@@ -482,22 +482,22 @@
      thumb, mismos casquetes circulares. Antes convivían dos barras verticales —esta y la nativa de #tlscroll—
      con aspecto y comportamiento distintos; ahora hay una sola y hace lo mismo que la de abajo:
      arrastrar el CUERPO = scroll · arrastrar un CASQUETE = zoom (alto de pistas) anclando el borde opuesto. */
-  .tlvzoom{width:15px;flex-shrink:0;background:var(--s0);position:relative;border-left:.5px solid rgba(0,0,0,0.4);}
-  .tlvztrack{position:absolute;left:3px;width:9px;background:var(--s1);border-radius:5px;box-shadow:inset 0 0 0 .5px rgba(255,255,255,0.05);}
-  .tlvzthumb{position:absolute;left:0;width:9px;min-height:24px;background:rgba(255,255,255,0.15);border-radius:5px;cursor:grab;transition:background .12s;}
+  .tlvzoom{width:12px;flex-shrink:0;background:var(--s0);position:relative;border-left:.5px solid rgba(0,0,0,0.4);}
+  .tlvztrack{position:absolute;left:3.5px;width:5px;background:#161616;border-radius:2px;}
+  .tlvzthumb{position:absolute;left:0;width:5px;min-height:24px;background:rgba(255,255,255,0.10);border-radius:2px;cursor:grab;transition:background .12s;}
   .tlvzthumb:hover{background:rgba(255,255,255,0.22);} .tlvzthumb.drag{cursor:grabbing;background:rgba(255,255,255,0.26);}
-  .tlvzcap{position:absolute;left:50%;width:11px;height:11px;transform:translateX(-50%);border-radius:50%;background:var(--ink-2);box-shadow:0 1px 2px rgba(0,0,0,0.5),0 0 0 .5px rgba(0,0,0,0.4);cursor:ns-resize;transition:background .12s,transform .1s;}
+  .tlvzcap{position:absolute;left:50%;width:7px;height:7px;transform:translateX(-50%);border-radius:50%;background:rgba(184,184,184,0.7);box-shadow:0 1px 2px rgba(0,0,0,0.5),0 0 0 .5px rgba(0,0,0,0.4);cursor:ns-resize;transition:background .12s,transform .1s;}
   .tlvzcap.t{top:-2px;} .tlvzcap.b{bottom:-2px;}
   .tlvzcap:hover{background:var(--ink);transform:translateX(-50%) scale(1.12);}
   /* [R152] la nativa se oculta: la vertical la conduce #tlVZoom, igual que la horizontal la conduce #tlZoomBar */
   .tlscroll{flex:1;overflow-x:hidden;overflow-y:auto;position:relative;scrollbar-width:none;}
   .tlscroll::-webkit-scrollbar{width:0;height:0;}
   /* [T3] Premiere-style zoom-scrollbar: a thumb whose body scrolls and whose circular end-caps zoom (drag out = zoom out, in = zoom in), anchored to the opposite edge */
-  .tlzoom{height:15px;flex-shrink:0;background:var(--s0);position:relative;border-top:.5px solid rgba(0,0,0,0.4);}
-  .tlztrack{position:absolute;top:3px;height:9px;background:var(--s1);border-radius:5px;box-shadow:inset 0 0 0 .5px rgba(255,255,255,0.05);}
-  .tlzthumb{position:absolute;top:0;height:9px;min-width:24px;background:rgba(255,255,255,0.15);border-radius:5px;cursor:grab;transition:background .12s;}
+  .tlzoom{height:12px;flex-shrink:0;background:var(--s0);position:relative;border-top:.5px solid rgba(0,0,0,0.4);}
+  .tlztrack{position:absolute;top:3.5px;height:5px;background:#161616;border-radius:2px;}
+  .tlzthumb{position:absolute;top:0;height:5px;min-width:24px;background:rgba(255,255,255,0.10);border-radius:2px;cursor:grab;transition:background .12s;}
   .tlzthumb:hover{background:rgba(255,255,255,0.22);} .tlzthumb.drag{cursor:grabbing;background:rgba(255,255,255,0.26);}
-  .tlzcap{position:absolute;top:50%;width:11px;height:11px;transform:translateY(-50%);border-radius:50%;background:var(--ink-2);box-shadow:0 1px 2px rgba(0,0,0,0.5),0 0 0 .5px rgba(0,0,0,0.4);cursor:ew-resize;transition:background .12s,transform .1s;}
+  .tlzcap{position:absolute;top:50%;width:7px;height:7px;transform:translateY(-50%);border-radius:50%;background:rgba(184,184,184,0.7);box-shadow:0 1px 2px rgba(0,0,0,0.5),0 0 0 .5px rgba(0,0,0,0.4);cursor:ew-resize;transition:background .12s,transform .1s;}
   .tlzcap.l{left:-2px;} .tlzcap.r{right:-2px;}
   .tlzcap:hover{background:var(--ink);transform:translateY(-50%) scale(1.12);}
   .ruler{height:24px;position:sticky;top:0;background:var(--bg-2);border-bottom:.5px solid rgba(0,0,0,0.4);z-index:4;}
@@ -528,7 +528,7 @@
   .clip .cthumb{position:absolute;left:0;top:15px;bottom:0;background-size:cover;background-position:center;border-right:1px solid rgba(0,0,0,0.45);pointer-events:none;z-index:1;} /* [R94b] Premiere-style head thumbnail, fixed at the clip's left edge */
   body.automode .clip .cthumb{display:none;} /* automation mode: the clip body is the envelope canvas — no thumbnail */
   .lane.collapsed .clip .cthumb{display:none;}
-  .clip .tt{position:absolute;left:0;right:0;top:0;height:15px;line-height:15px;padding:0 7px;font-size:11px;font-weight:600;color:var(--ink);text-shadow:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:var(--s2);border-bottom:.5px solid rgba(0,0,0,0.25);cursor:grab;pointer-events:auto;z-index:2;}
+  .clip .tt{position:absolute;left:0;right:0;top:0;height:16px;line-height:15px;padding:0 7px;font-size:11px;font-weight:600;color:var(--ink);text-shadow:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:var(--s2);border-bottom:.5px solid rgba(0,0,0,0.25);cursor:grab;pointer-events:auto;z-index:2;}
   /* [R102·D-T2] Base = standby (foco en otro panel). body.fp-timeline la sube a selección plena. */
   .clip .tt:active{cursor:grabbing;} .clip.sel .tt{box-shadow:inset 0 0 0 1.5px rgba(255,255,255,0.30);}
   body.fp-timeline .clip.sel .tt{box-shadow:inset 0 0 0 1.5px rgba(255,255,255,0.85);}
@@ -568,7 +568,7 @@
   body.automode .clip .hd{bottom:auto;height:15px;}
   body.automode .clip .hd:hover{background:rgba(201,205,211,0.38);}
   .clip .fadeh{position:absolute;top:0;width:11px;height:11px;z-index:4;cursor:ew-resize;}
-  .clip .fadeh::after{content:'';position:absolute;top:3px;width:7px;height:7px;border-radius:2px;background:var(--ink);border:1px solid var(--bg-1);box-shadow:0 1px 2px rgba(0,0,0,0.6);} /* [Rev1] cuadradito en la esquina superior (diseño §6) en vez de círculo */
+  .clip .fadeh::after{content:'';position:absolute;top:3px;width:6px;height:6px;border-radius:1px;background:rgba(255,255,255,0.35);} /* [Rev1] cuadradito en la esquina superior (diseño §6) en vez de círculo */
   .clip .fadeh.fadeL{transform:translateX(-50%);} .clip .fadeh.fadeL::after{left:1px;}
   .clip .fadeh.fadeR{transform:translateX(50%);} .clip .fadeh.fadeR::after{right:1px;}
   .clip .fadeh:hover::after{background:var(--ink-2);}
@@ -932,17 +932,17 @@
     <main>
       <div class="vptool">
         <div class="vseg" id="viewModeSeg">
-          <button data-v="2d" class="on"><i class="ic" data-ico="view2d"></i> Dome Master</button><!-- [U-42] industry term; updModeUI relabels it "2D Master" on flat/room sequences -->
-          <button data-v="3d"><i class="ic" data-ico="view3d"></i> 3D Preview</button>
+          <button data-v="2d" class="on" title="Dome master (2D)"><i class="ic" data-ico="view2d"></i> 2D</button><!-- [U-42] industry term; updModeUI relabels it "2D Master" on flat/room sequences -->
+          <button data-v="3d" title="3D preview"><i class="ic" data-ico="view3d"></i> 3D</button>
         </div>
         <div class="vdiv" id="dispSep"></div>
         <!-- [REDISEÑO Rev1] overlays icon-only (tooltip) -->
         <div class="vseg" id="dispSeg">
-          <button data-d="grid" class="on" title="Reference grid"><i class="ic" data-ico="grid"></i></button>
-          <button data-d="safe" title="Safe-zone overlay"><i class="ic" data-ico="safe"></i></button>
-          <button data-d="outline" title="Clip outlines"><i class="ic" data-ico="outline"></i></button>
-          <button data-d="hfade" title="Fade content near the dome horizon (spring line)"><i class="ic" data-ico="cull"></i></button>
-          <button data-d="checker" title="Alpha checkerboard — see how the alpha behaves"><i class="ic" data-ico="safe"></i> α</button>
+          <button data-d="grid" class="on" title="Grid overlay"><i class="ic" data-ico="grid"></i> Grid</button>
+          <button data-d="safe" title="Safe-zone overlay"><i class="ic" data-ico="safe"></i> Safe</button>
+          <button data-d="outline" title="Clip outlines"><i class="ic" data-ico="outline"></i> Outline</button>
+          <button data-d="hfade" title="Fade content near the dome horizon (spring line)"><i class="ic" data-ico="cull"></i> Horizon</button>
+          <button data-d="checker" title="Checkerboard background (alpha)"><i class="ic" data-ico="grid"></i> Alpha</button>
         </div>
         <div class="vdiv" id="qpSep"></div>
         <div class="vseg" id="qualitySeg" title="Preview quality (does not affect export)">
@@ -965,9 +965,9 @@
         <div class="vslab" id="distCtl" style="display:none;"><span class="k">DIST</span><input type="range" min="1.2" max="12" step="0.1" value="3" id="distRange" class="vfader"><span class="v" id="distLbl" style="width:26px;text-align:right;">3.0</span></div>
         <div class="vdiv"></div>
         <div class="vseg">
-          <button id="vzOut" style="width:25px;padding:0;justify-content:center;"><i class="ic" data-ico="zoomOut"></i></button>
+          <button id="vzOut" style="width:24px;padding:0;justify-content:center;"><i class="ic" data-ico="zoomOut"></i></button>
           <button id="vzReset" class="tnum" style="width:42px;padding:0;justify-content:center;font-size:11px;">100%</button>
-          <button id="vzIn" style="width:25px;padding:0;justify-content:center;"><i class="ic" data-ico="zoomIn"></i></button>
+          <button id="vzIn" style="width:24px;padding:0;justify-content:center;"><i class="ic" data-ico="zoomIn"></i></button>
         </div>
         <div class="vdiv" id="outSep"></div>
         <!-- [REDISEÑO Rev1] Output dropdown: consolida Full performance · Viewer window · NDI · Spout en un solo menú -->

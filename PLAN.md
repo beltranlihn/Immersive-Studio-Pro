@@ -1,5 +1,52 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 154 — Auditoría completa región por región, y sus arreglos
+
+Barrido exhaustivo del editor contra el prototipo, midiendo en vez de mirando: se extrajeron del `.dc.html` las
+declaraciones de estilo de cada región (`scratchpad/design-extract.mjs`) y se midieron los mismos elementos en la
+app por CDP (`scratchpad/audit-full.mjs`). 30 diferencias, todas aplicadas.
+
+**Dos errores más de la traducción — y de los que cambian cómo se ve.** Igual que en R149, el `.md` decía cosas que
+el prototipo no dice:
+- **Los overlays NO son icon-only.** El prototipo los lleva **con etiqueta** (`Grid · Outline · Horizon · Alpha`,
+  10px/600, padding 0 8px). R148 los había dejado sólo con icono siguiendo la traducción. Restaurados con etiqueta.
+  *(El diseño tiene cuatro; conservamos **Safe** como quinto, con etiqueta: es una función real de emisión y
+  borrarla por no estar en el prototipo era perder algo, no podar.)*
+- **El selector de modo se rotula "2D" y "3D" a secas** (RevDomo:137-138), con el nombre largo en el tooltip. Estaba
+  como "Dome Master" / "3D Preview": 99px por botón, 177px de well. Con la etiqueta corta baja a 105 y el término de
+  industria del U-42 sigue estando, al pasar el cursor.
+
+**Medidas corregidas (todas del prototipo):**
+
+| región | qué | antes → ahora |
+|---|---|---|
+| Inspector | cabecera de sección | 20 → **24px** |
+| Inspector | etiqueta de fila de parámetro | 52 → **60px** |
+| Inspector | surco del fader (radio) | 1 → **2px** |
+| Inspector | botón Mirror | 18px/r2 → **20px/r3** |
+| Inspector | padding de la cabecera de item | 11/10 → **10px 12px** |
+| Transport | radio de `tbtn` / `playb` / `tcbox` | 2 → **3px** |
+| Transport | timecode | 13 → **12.5px** |
+| Global | radio de los wells segmentados | 2 → **3px** |
+| Timeline | tool rail | 32 → **34px** |
+| Timeline | barra de título del clip | 15 → **16px** |
+| Timeline | cuadraditos de fade | 7×7/r2 sólido → **6×6/r1 translúcido** |
+| Timeline | barras de zoom H y V | 15/9/11 → **12/5/7** (ambas) |
+| Visor | botones de zoom | 25 → **24px** |
+
+Ojo con las barras de zoom: R152 las había igualado **entre sí** (15/9/11) pero no al diseño, que las quiere en
+12/5/7. Ahora coinciden con el prototipo y entre ellas.
+
+**El colapso de la barra del visor pasa a ser por MEDICIÓN.** Al devolverle la etiqueta a los overlays, el grupo pasó
+de 171 a 330px y los umbrales fijos del prototipo (620/800/980) dejaron de alcanzar: a 1440 y 1280 la barra
+desbordaba. Los umbrales quedan como punto de partida, pero después se mide y, mientras `scrollWidth > clientWidth`,
+se repliega el siguiente grupo en el orden de sacrificio del diseño (lecturas → calidad → overlays → Output).
+Verificado a 1920 / 1600 / 1440 / 1280 / 1150: **ninguno desborda**. Esto además cierra el residual que R152 había
+dejado anotado, y es robusto ante un botón nuevo o un idioma más largo.
+
+**Sin hallazgos en Media ni Status:** las dos regiones ya coincidían con el prototipo salvo un padding de lista de
+1px. Cero errores de consola en todo el barrido.
+
 ## ROUND 153 — Launcher: la pantalla de inicio del handoff, con los visores REALES del editor
 
 Segunda mitad del handoff launcher+splash. El landing viejo eran cuatro botones que abrían los diálogos de

@@ -60,7 +60,7 @@
 | Reorden de lanes | Arrastrar header para reordenar | app.js · `startLaneDrag` | ✅ | — |
 | ~~Módulo de audio anclado~~ | **RETIRADO R148** — audio unificado en la columna principal (#tracks/#laneHeaders), al final | app.js · renderTimeline · #audioZone/#audioHeadZone (vaciados) | 🗑️ | Rev1 §6 |
 | Barra vertical del timeline | Espejo de la horizontal: cuerpo = scroll · casquetes = alto de pistas. Una sola (la nativa se oculta) | app.js · `renderVZoom`/`startVBarDrag`/`startVCapDrag` · #tlVZoom | ✅ | R152 |
-| Menú "More" del visor | Repliega overlays/calidad/Output/lecturas por ancho (440·620·800·980) sin duplicar lógica | app.js · `VP_BP`/`vpFits`/`openVpMore` · #vpMoreBtn | ✅ | R152 |
+| Menú "More" del visor | Repliega overlays/calidad/Output/lecturas **por medición** (umbrales del diseño + escalada mientras desborde) | app.js · `VP_BP`/`_vpHide`/`vpFits`/`updViewCtl`/`_updViewCtl`/`openVpMore` · #vpMoreBtn | ✅ | R152/R154 |
 | Gesto de mover | Move/copy de clip con ghost | app.js · `onTLMove`/`onTLUp` | ✅ | — |
 | Trim contextual | ripple/roll/slip/slide (T) | app.js · `trimZone`/`applyTrim` | ✅ | [T2] |
 | Trim por handle | `.hd.l`/`.hd.r` resize | app.js · `trimItem` / drag.trimL/R | ✅ | [T2] |
@@ -1445,7 +1445,7 @@ Reference map of `app.js` (single-file WebGL2 renderer). Line numbers verified a
 - **Location:** app.js · `updFmtChip()` (~L5196); `updModeUI()` (~L4929, called from loadSeqIntoState & relabel L6279)
 - **State/data:** `activeSeq().mode/w/h/cov/fps`, `fc._codec`, `#viewModeSeg`, `#dispSeg`, `#azelReadout`
 - **Key symbols:** `flatLikeMode`; flat (non-room) forces `view.mode='2d'` (no 3D) at L4934
-- **Invariants / gotchas:** Chip covers dome coverage only when ≠180. Room has a real 3D view (assembled walls); plain flat does not. **[R149 · auditoría §3] ORDEN DE LA BARRA DEL VISOR — no reordenar:** el clúster izquierdo es `#viewModeSeg` · `#dispSeg` · `#qualitySeg` · `#proxyToggle` · **`#d3sep`+`#threeModeSeg`(+`#roomOutBtn`, insertado por JS tras el seg)** y recién ahí el `flex:1`. El grupo de cámara 3D va ÚLTIMO a propósito (prototipo RevDomo:154-158): puesto antes, al entrar en 3D empujaba overlays y calidad +151px. Todo lo que aparezca/desaparezca por modo tiene que colgar del final del clúster o del lado derecho.
+- **Invariants / gotchas:** Chip covers dome coverage only when ≠180. Room has a real 3D view (assembled walls); plain flat does not. **[R154] Los botones de modo se rotulan "2D"/"3D" a secas** (RevDomo:137-138) y el nombre largo (Dome master / 2D master / 3D preview / 3D room) va al **tooltip**, que pone `updModeUI`. `applyLang` ya no reescribe esas etiquetas: llama a `updModeUI()`. **[R149 · auditoría §3] ORDEN DE LA BARRA DEL VISOR — no reordenar:** el clúster izquierdo es `#viewModeSeg` · `#dispSeg` · `#qualitySeg` · `#proxyToggle` · **`#d3sep`+`#threeModeSeg`(+`#roomOutBtn`, insertado por JS tras el seg)** y recién ahí el `flex:1`. El grupo de cámara 3D va ÚLTIMO a propósito (prototipo RevDomo:154-158): puesto antes, al entrar en 3D empujaba overlays y calidad +151px. Todo lo que aparezca/desaparezca por modo tiene que colgar del final del clúster o del lado derecho.
 - **Status:** ✅
 - **Roadmap:** [F2] layout consistency across modes (pending, Ticket #52)
 

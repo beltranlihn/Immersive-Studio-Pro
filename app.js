@@ -5337,8 +5337,14 @@ function loadSeqIntoState(s){ if(!s)return; state.clips=s.nestClips||[]; state.l
   if(!s.comp && !state.lanes.some(l=>l.kind==='audio')){ const n=state.lanes.filter(l=>l.kind==='audio').length+1; state.lanes.push({id:uid(),name:'Audio '+n,tag:'A'+n,kind:'audio'}); s.nestLanes=state.lanes; } /* [R92-T9] audio module always present on real timelines (old projects get one); compositions (m.comp) stay video-only; no markDirty (idempotent) */
   state.markers=s.nestMarkers||[]; state.groups=s.nestGroups||[]; state.playhead=s.nestPlayhead||0; state.workIn=s.nestWorkIn??null; state.workOut=s.nestWorkOut??null; state.fps=s.fps||state.fps||60; state.seqW=s.w||state.seqW||4096; state.seqH=s.h||state.seqH||4096; state.seqMode=s.mode||'dome'; state.seqCov=s.cov||180; /* [archivado 20260725] state.seqGrade — un s.grade de un .isp viejo se ignora sin romper nada */ state.selId=null; state.selIds=[]; state.selGroupId=null; state.selMarkerId=null; state.autoSel=null; state.hoverAuto=null; state.shapeBox=null; /* [R95·B1] the box holds live keyframe refs — undo/sequence switch replaces those objects, so it must go with them */ _arCache=null; try{raInvalidate();}catch(e){} try{updModeUI();}catch(e){} } // invalidate render-ahead + reactive cache: a cached flat frame / band cache belongs to the previous sequence
 function updModeUI(){ const fl=isFlat(), room=isRoom(); // a 360 room has a real 3D view (assembled walls); plain 2D flat does not
-  const b3=document.querySelector('#viewModeSeg button[data-v="3d"]'); if(b3){ b3.style.display=(fl&&!room)?'none':''; b3.textContent=room?T('3D Room','Sala 3D'):T('3D Preview','Vista 3D'); }
-  const b2=document.querySelector('#viewModeSeg button[data-v="2d"]'); if(b2){ const lb=fl?T('2D Master','Máster 2D'):T('Dome Master','Máster de domo'); const last=b2.lastChild; if(last&&last.nodeType===3)last.textContent=' '+lb; else b2.textContent=lb; } // [U-42] dome shows "Dome Master"; flat/room keep "2D Master" (last text node → the icon survives)
+  /* [AUDITORÍA R154] El prototipo rotula estos botones "2D" y "3D" a secas (RevDomo:137-138) y deja el nombre
+     largo en el tooltip. El U-42 pedía el término de industria a la vista, pero a 99px por botón el well se comía
+     177px de barra; con la etiqueta corta baja a ~90 y el término sigue estando, al pasar el cursor. */
+  const b3=document.querySelector('#viewModeSeg button[data-v="3d"]'); if(b3){ b3.style.display=(fl&&!room)?'none':'';
+    const l3=b3.lastChild; if(l3&&l3.nodeType===3)l3.textContent=' 3D'; b3.title=room?T('3D room','Sala 3D'):T('3D preview','Vista 3D'); }
+  const b2=document.querySelector('#viewModeSeg button[data-v="2d"]'); if(b2){
+    const last=b2.lastChild; if(last&&last.nodeType===3)last.textContent=' 2D';
+    b2.title=fl?T('2D master','Máster 2D'):T('Dome master (2D)','Máster de domo (2D)'); }
   const bh=document.querySelector('#dispSeg button[data-d="hfade"]'); if(bh)bh.style.display=fl?'none':''; // horizon fade is dome-only
   const azr=document.getElementById('azelReadout'); if(azr)azr.style.display=(fl||state.view.mode==='3d')?'none':'inline-flex';
   if(fl && !room && state.view.mode==='3d'){ state.view.mode='2d'; document.querySelectorAll('#viewModeSeg button').forEach(x=>x.classList.toggle('on',x.dataset&&x.dataset.v==='2d')); } }
@@ -6041,14 +6047,27 @@ $('#threeModeSeg').querySelectorAll('button').forEach(b=>b.onclick=()=>{ state.v
    Sin el segundo eje la barra se defiende sola sólo a 1920; en una ventana angosta los grupos se pisan. */
 const VP_BP={out:440,disp:620,qp:800,readout:980};
 function vpWidth(){ const vp=document.querySelector('.vptool'); return (vp&&vp.clientWidth)||9999; }
-function vpFits(){ const w=vpWidth(); return {w, out:w>=VP_BP.out, disp:w>=VP_BP.disp, qp:w>=VP_BP.qp, readout:w>=VP_BP.readout}; }
-function updViewCtl(){ const is3=state.view.mode==='3d',spec=state.view.three==='spec'; const F=vpFits();
+/* Umbrales del prototipo como PUNTO DE PARTIDA, no como palabra final: nuestro grupo de overlays tiene cinco
+   botones (el diseño lleva cuatro — no tiene "Safe") y encima traducidos, así que a los anchos intermedios se
+   pasaba igual. Tras aplicar los umbrales se MIDE, y mientras la barra desborde se repliega el siguiente grupo
+   en el orden de sacrificio que marca el diseño: lecturas → calidad → overlays → Output. */
+let _vpHide={};
+function vpFits(){ const w=vpWidth();
+  return {w, out:w>=VP_BP.out&&!_vpHide.out, disp:w>=VP_BP.disp&&!_vpHide.disp,
+          qp:w>=VP_BP.qp&&!_vpHide.qp, readout:w>=VP_BP.readout&&!_vpHide.readout}; }
+function updViewCtl(){ _vpHide={}; _updViewCtl();
+  const vp=document.querySelector('.vptool'); if(!vp)return;
+  for(const g of ['readout','qp','disp','out']){
+    if(vp.scrollWidth<=vp.clientWidth+1)break;
+    if(_vpHide[g])continue; _vpHide[g]=true; _updViewCtl(); }
+}
+function _updViewCtl(){ const is3=state.view.mode==='3d',spec=state.view.three==='spec'; const F=vpFits();
   const show=(sel,on)=>{ const el=$(sel); if(el)el.style.display=on?'':'none'; };
   // ancho: grupos que se repliegan al menú "More"
   show('#dispSep',F.disp); show('#dispSeg',F.disp);
   show('#qpSep',F.qp); show('#qualitySeg',F.qp); show('#proxyToggle',F.qp);
   show('#outSep',F.out); show('#outWell',F.out);
-  { const mb=$('#vpMoreBtn'); if(mb)mb.style.display=F.readout?'none':'grid'; }
+  { const mb=$('#vpMoreBtn'); if(mb)mb.style.display=(F.disp&&F.qp&&F.out&&F.readout)?'none':'grid'; }
   // modo (× ancho para las lecturas): Az/El sólo en 2D, DIST sólo en 3D Orbit, FOV+DOLLY sólo en 3D Viewer
   { const az=$('#azelReadout'); if(az)az.style.display=(!is3&&F.readout)?'inline-flex':'none'; }
   $('#fovCtl').style.display=(is3&&spec)?'inline-flex':'none'; $('#dollyCtl').style.display=(is3&&spec)?'inline-flex':'none';
@@ -6840,8 +6859,9 @@ function applyLang(){ const L=state.lang; document.documentElement.lang=L;
   txt('#groupSeg button[data-g="none"]','None','Ninguno'); txt('#groupSeg button[data-g="folder"]','Folder','Carpeta'); txt('#groupSeg button[data-g="type"]','Type','Tipo');
   txt('#ringBtn .crlbl','Compose','Componer'); ttl('#ringBtn','Create composition (ring / grid / random)','Crear composición (anillo / cuadrícula / aleatorio)');
   txt('#adjLayerBtn .crlbl','Adjust','Ajuste'); ttl('#adjLayerBtn','Create an adjustment layer — its Reactive FX affect everything below it','Crear una capa de ajuste — sus FX reactivos afectan todo lo de debajo');
-  if(isFlat()){ tn('#viewModeSeg button[data-v="2d"]','2D Master','Máster 2D'); }else{ tn('#viewModeSeg button[data-v="2d"]','Dome Master','Máster de domo'); } // [U-42]
-  if(isRoom()){ tn('#viewModeSeg button[data-v="3d"]','3D Room','Sala 3D'); }else{ tn('#viewModeSeg button[data-v="3d"]','3D Preview','Vista 3D'); } // [U-42] respect the per-mode relabel from updModeUI
+  // [AUDITORÍA R154] etiquetas cortas "2D"/"3D" (no se traducen: son las mismas en los dos idiomas); el nombre
+  // largo, que sí se traduce, va al tooltip y lo pone updModeUI según el modo.
+  try{ updModeUI(); }catch(e){}
   tn('#threeModeSeg button[data-m="spec"]','Viewer','Espectador'); tn('#threeModeSeg button[data-m="orbit"]','Orbit','Órbita');
   ttl('#dispSeg button[data-d="grid"]','Reference grid','Cuadrícula de referencia'); ttl('#dispSeg button[data-d="safe"]','Safe-zone overlay','Zona segura'); ttl('#dispSeg button[data-d="outline"]','Clip outlines','Contornos de clip'); ttl('#dispSeg button[data-d="hfade"]','Fade near the dome horizon','Atenuar cerca del horizonte'); ttl('#dispSeg button[data-d="checker"]','Alpha checkerboard','Tablero de fondo alfa'); // [REDISEÑO Rev1] overlays icon-only → tooltips
   ttl('#qualitySeg','Preview quality (does not affect export)','Calidad de previsualización (no afecta la exportación)');
