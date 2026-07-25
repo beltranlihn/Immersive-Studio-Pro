@@ -114,16 +114,23 @@ function T(en,es){ return state.lang==='es'?es:en; }
 let DEFAULT_EASE='both';
 function curEase(){ return DEFAULT_EASE; } // per-keyframe easing is edited in the curve right-click menu (the old #easeSel dropdown is gone)
 const view=state.view;   // alias (cw/ch/cam/zoom/pan etc.)
-/* [R92-T8] Premiere-style layout: video tracks grouped ON TOP, audio tracks grouped at the BOTTOM, split by a
-   divider. Display-ONLY grouping — state.lanes (and every clip's lane INDEX) is untouched, so compositing/save/undo
-   are unaffected. Within each group the previous top-first order is preserved. reverse(grouped) still reconstructs
-   a valid array (all-audio-then-all-video), so the track-reorder drag keeps working with a same-group clamp. */
-const lanesTopDown = ()=>{ const rev=state.lanes.map((l,i)=>i).reverse();
-  return [...rev.filter(i=>state.lanes[i]&&state.lanes[i].kind!=='audio'), ...rev.filter(i=>state.lanes[i]&&state.lanes[i].kind==='audio')]; };
-/* per-lane height + collapse (Ableton-style resizable/collapsible tracks) */
-const LANE_DEF_H=82, LANE_MIN_H=34, LANE_MAX_H=260, LANE_COLLAPSED_H=20; // 82 → 4 video tracks fill the default 368px timeline exactly (track area 328 = 354 tlscroll − 26 ruler)
-const AUDIO_LANE_H=Math.round(LANE_DEF_H/2); // [R110] audio tracks are a FIXED half-height (not resizable, not per-lane collapsible) — the module is exactly as tall as its tracks
-function laneH(li){ const l=state.lanes[li]; if(!l)return LANE_DEF_H; if(l.collapsed)return LANE_COLLAPSED_H; if(l.kind==='audio')return Math.max(LANE_MIN_H,Math.min(LANE_MAX_H,l.h||AUDIO_LANE_H)); return Math.max(LANE_MIN_H,Math.min(LANE_MAX_H,l.h||LANE_DEF_H)); } // [REDISEÑO Rev1] audio redimensionable (default AUDIO_LANE_H) para comportarse como las pistas de vídeo
+/* [R152 · rediseño] ORDEN DE PISTAS SIN PARTICIÓN POR TIPO.
+   Hasta R151 el orden de pantalla era "vídeo arriba, audio abajo" a la fuerza (agrupación R92-T8, de cuando el
+   audio era un módulo sticky aparte). El diseño de Claude Design usa UNA sola lista ordenada que incluye el audio
+   (`trackOrder:['v4','v3','v2','v1','a1']` en el prototipo), y Beltrán lo pidió explícito: audio y vídeo se
+   comportan igual — reordenar, agrandar, achicar. Así que el orden de pantalla es, simplemente, el array al revés
+   (índice 0 = pista de más abajo, convención del editor). Quien quiera el audio abajo lo arrastra abajo.
+   Sigue sin afectar a compositing/guardado/undo: los clips referencian el ÍNDICE de pista, que no se toca acá. */
+const lanesTopDown = ()=>state.lanes.map((l,i)=>i).reverse();
+/* Alturas de pista — valores del prototipo (RevDomo: trackH 57 por defecto, audio 44, clamp 26..120, colapsada 24).
+   Antes eran 82/41 con clamp 34..260, de cuando la timeline tenía otra caja. */
+const LANE_DEF_H=57, LANE_MIN_H=26, LANE_MAX_H=120, LANE_COLLAPSED_H=24;
+const AUDIO_LANE_H=44; // altura POR DEFECTO del audio (no fija): se redimensiona igual que el vídeo
+/* [R152] Alto de la regla del timeline. Estaba cableado como 22 en el CSS y en TRES sitios de JS (playhead,
+   límite de arrastre, brace de work-area); el diseño la pone en 24 y desincronizarlos desalinea todo. Una fuente. */
+const RULER_H=24;
+function laneH(li){ const l=state.lanes[li]; if(!l)return LANE_DEF_H; if(l.collapsed)return LANE_COLLAPSED_H;
+  return Math.max(LANE_MIN_H,Math.min(LANE_MAX_H,l.h||(l.kind==='audio'?AUDIO_LANE_H:LANE_DEF_H))); }
 function duration(){ let d=2; for(const c of state.clips) d=Math.max(d,c.start+c.dur); return d; }
 function frameSnap(t){ const f=state.fps||30; return Math.max(0,Math.round(t*f)/f); } /* [T7] quantize a time to the project frame grid */
 const TL_PPS_MIN=0.1, TL_PPS_MAX=2400; // [T2] timeline zoom range. Max raised 600→2400 so a frame is 40–80px wide at 24–30fps → the per-frame trim snap is clearly visible
@@ -1942,8 +1949,9 @@ function renderTimeline(){ reconcileVinst(); // free private decoders of clips t
   // of #tracks → still matched by "#tracks .lane" so hit-testing/waves are unchanged) and its headers in the
   // sticky #audioHeadZone. Video scrolls behind. The AUDIO bar on top of the module is the collapse toggle (R110).
   const audioHeads=$('#audioHeadZone'); if(audioHeads){ audioHeads.innerHTML=''; audioHeads.style.display='none'; } // [REDISEÑO Rev1] audio unificado en la columna principal → zona sticky de audio en desuso
-  // [REDISEÑO Rev1] vídeo y audio UNIFICADOS en la misma columna (#tracks/#laneHeaders); audio al final (abajo)
-  const _o0=lanesTopDown(); const _order=[..._o0.filter(li=>state.lanes[li].kind!=='audio'),..._o0.filter(li=>state.lanes[li].kind==='audio')]; let _hasAudio=false, _hasVideo=false;
+  // [R152] vídeo y audio en la MISMA columna y en el MISMO orden: el que tenga `state.lanes`. Acá ya no se
+  // reordena nada por tipo — si el audio está abajo es porque el usuario (o el proyecto nuevo) lo puso abajo.
+  const _order=lanesTopDown(); let _hasAudio=false, _hasVideo=false;
   for(const li of _order){
     const lane=state.lanes[li]; const LH=laneH(li); const collapsed=!!lane.collapsed;
     const _isAud=lane.kind==='audio'; const rowT=tracks; const hdrT=heads;
@@ -2023,7 +2031,7 @@ function renderTimeline(){ reconcileVinst(); // free private decoders of clips t
   // (no "+ track" buttons — create a track via Ctrl+T or right-click → Create track)
   // marker dashed lines across tracks
   for(const mk of state.markers){ const ln=document.createElement('div'); ln.style.cssText=`position:absolute;top:0;bottom:0;left:${mk.time*pps}px;width:0;border-left:1px dashed ${mk.color||'#B4BAC1'};opacity:.5;pointer-events:none;z-index:5;`; tracks.appendChild(ln); }
-  { const _trH=(tracks.offsetHeight||0); const ph=$('#playhead'); if(ph)ph.style.height=_trH+'px'; const sl=$('#snapline'); if(sl)sl.style.height=(22+_trH)+'px'; } // [R94f] the playhead line spans EVERY track but stops at the ruler (its head caps it there); the snap line still spans ruler + tracks
+  { const _trH=(tracks.offsetHeight||0); const ph=$('#playhead'); if(ph)ph.style.height=_trH+'px'; const sl=$('#snapline'); if(sl)sl.style.height=(RULER_H+_trH)+'px'; } // [R94f] the playhead line spans EVERY track but stops at the ruler (its head caps it there); the snap line still spans ruler + tracks
   // [R101] #tlscroll gives up `hsb` px to its horizontal scrollbar; the header column has no scrollbar, so its
   // client height was `hsb` TALLER — which means it could not scroll as far (max scrollTop = content − client).
   // Over the last hsb px of scroll the header column ran out of travel while the tracks kept going, so every
@@ -2061,7 +2069,7 @@ function ensureClipVisible(c){ if(!c)return; const sc=$('#tlscroll'); if(!sc)ret
   if(row.closest('.audiozone'))return; // audio rows scroll inside the pinned module — it manages its own reveal
   const az=document.querySelector('#tracks .audiozone');
   const scR=sc.getBoundingClientRect(), rr=row.getBoundingClientRect();
-  const topLim=scR.top+22; // 22 = sticky ruler height
+  const topLim=scR.top+RULER_H; // alto de la regla sticky
   const botLim=az?Math.min(az.getBoundingClientRect().top,scR.top+sc.clientHeight):(scR.top+sc.clientHeight); // the pinned audio module eats the bottom of the viewport
   let dy=0;
   if(rr.top<topLim) dy=rr.top-topLim;
@@ -2286,7 +2294,8 @@ function startLaneDrag(e,li){ e.preventDefault(); const disp=lanesTopDown(); con
       ind=document.createElement('div'); ind.style.cssText='position:fixed;height:3px;background:var(--ink-2);border-radius:1px;box-shadow:0 0 7px rgba(201,205,211,0.8);z-index:9999;pointer-events:none;'; document.body.appendChild(ind);
       chip=document.createElement('div'); chip.textContent=(state.lanes[li]||{}).name||''; chip.style.cssText='position:fixed;z-index:10000;pointer-events:none;font:600 10.5px Geist,sans-serif;color:var(--ink);background:var(--s1);border:.5px solid rgba(201,205,211,0.6);border-radius:2px;padding:2px 7px;box-shadow:0 2px 8px rgba(0,0,0,0.55);white-space:nowrap;'; document.body.appendChild(chip); }
     const hs=heads(); let pos=hs.length; for(let i=0;i<hs.length;i++){ const r=hs[i].getBoundingClientRect(); if(ev.clientY<r.top+r.height/2){ pos=i; break; } }
-    { const isAud=(state.lanes[li]||{}).kind==='audio'; const inG=disp.map(idx=>((state.lanes[idx]||{}).kind==='audio')===isAud); const gLo=inG.indexOf(true),gHi=inG.lastIndexOf(true)+1; pos=Math.max(gLo,Math.min(gHi,pos)); } // [R92-T8] reorder only within the same group (can't drag video into the audio section or vice-versa)
+    // [R152] se quitó el clamp por grupo de [R92-T8]: el audio ya no vive en una sección propia, así que una
+    // pista de audio se puede soltar entre las de vídeo y al revés (diseño + pedido explícito de Beltrán).
     dropDisp=pos;
     const l0=hs[0].getBoundingClientRect().left, rEdge=tlsc?tlsc.getBoundingClientRect().right:hs[0].getBoundingClientRect().right;
     let ry; if(pos<hs.length){ ry=hs[pos].getBoundingClientRect().top; } else { ry=hs[hs.length-1].getBoundingClientRect().bottom; }
@@ -2336,7 +2345,7 @@ function renderClipExtent(){ const el=$('#clipExtent'); if(!el)return; if(!state
 function clipExtent(){ let a=Infinity,b=0; for(const c of state.clips){ if(c.start<a)a=c.start; if(c.start+c.dur>b)b=c.start+c.dur; } return (b>a)?[Math.max(0,a),b]:[0,duration()]; }
 function renderWork(){ const w=$('#workArea'); updIOBtns(); // [R94e] the bracket buttons follow every path that touches the marks (loop, brace drag, project load)
   if(state.workIn==null||state.workOut==null||state.workOut<=state.workIn){w.style.display='none';return;} w.style.display='block'; w.style.left=(state.workIn*state.tl.pxPerSec)+'px'; w.style.width=((state.workOut-state.workIn)*state.tl.pxPerSec)+'px';
-  const tr=$('#tracks'); w.style.top='0'; w.style.bottom='auto'; w.style.height=(22+((tr&&tr.offsetHeight)||0))+'px'; // span the ruler + EVERY track (not just the visible slice), like the playhead
+  const tr=$('#tracks'); w.style.top='0'; w.style.bottom='auto'; w.style.height=(RULER_H+((tr&&tr.offsetHeight)||0))+'px'; // span the ruler + EVERY track (not just the visible slice), like the playhead
   positionWorkBrace(); }
 /* keep the loop's horizontal handle bar (.wkbrace) + resize grips pinned to the top of the VISIBLE area (the ruler), so they never scroll away — the work region itself scrolls with the content */
 function positionWorkBrace(){ const w=$('#workArea'); if(!w||w.style.display==='none')return; const sc=$('#tlscroll'); const st=(sc&&sc.scrollTop)||0; const b=w.querySelector('.wkbrace'); if(b)b.style.top=st+'px'; w.querySelectorAll('.wkh').forEach(h=>h.style.top=st+'px'); }
@@ -2698,20 +2707,29 @@ $('#ruler').addEventListener('dblclick',e=>{ const t=Math.max(0,(e.clientX-$('#r
 /* [R93b] video and audio are INDEPENDENT places: the wheel acts only on the section under the pointer.
    plain = scroll that section (video = #tlscroll, audio = inside its pinned module) · Alt = vertical zoom of
    that section's tracks only · Ctrl = timeline zoom · Shift = horizontal. */
-function wheelResizeLanes(e,inAudio){ const f=e.deltaY<0?1.1:1/1.1; for(const l of state.lanes){ if((l.kind==='audio')!==inAudio)continue; if(l.collapsed)l.collapsed=false; l.h=Math.max(LANE_MIN_H,Math.min(LANE_MAX_H,Math.round((l.h||LANE_DEF_H)*f))); } scheduleTimeline(); }
+// [R152] Alt+rueda escala TODAS las pistas, no "las de esta sección": ya no hay secciones (el prototipo hace lo
+// mismo en onWheelH — un único delta sobre todo trackH). Se conserva el default por tipo para las que aún no
+// tienen alto propio, así una pista de audio recién creada no salta a la altura del vídeo.
+function wheelResizeLanes(e){ const f=e.deltaY<0?1.1:1/1.1;
+  for(const l of state.lanes){ if(l.collapsed)l.collapsed=false;
+    const base=l.h||(l.kind==='audio'?AUDIO_LANE_H:LANE_DEF_H);
+    l.h=Math.max(LANE_MIN_H,Math.min(LANE_MAX_H,Math.round(base*f))); }
+  scheduleTimeline(); }
 function audioZoneScrollBy(dy){ const az=document.querySelector('#tracks .audiozone'); if(!az)return; az.scrollTop+=dy; state.tl._audioScroll=az.scrollTop; const ah=$('#audioHeadZone'); if(ah)ah.scrollTop=az.scrollTop; } // sync + persist immediately (the 'scroll' event fires async — waiting on it lagged the header column a frame)
-$('#tlscroll').addEventListener('wheel',e=>{ const inAudio=!!e.target.closest('.audiozone');
+/* [R152] Una sola área de scroll: se fueron las ramas `.audiozone` (ese módulo no existe desde R148, así que
+   `inAudio` era siempre false y el código sólo despistaba). Ctrl = zoom horizontal · Alt = alto de pistas ·
+   Shift = scroll horizontal · rueda sola = scroll vertical nativo, que la barra vertical refleja. */
+$('#tlscroll').addEventListener('wheel',e=>{
   if(e.ctrlKey||e.metaKey){e.preventDefault();tlZoomAt(e,e.deltaY<0?1:-1);}
-  else if(e.altKey){ e.preventDefault(); wheelResizeLanes(e,inAudio); } // Alt = resize only THIS section's tracks
-  else if(e.shiftKey){e.preventDefault();$('#tlscroll').scrollLeft+=e.deltaY;}
-  else if(inAudio){ e.preventDefault(); audioZoneScrollBy(e.deltaY); } },{passive:false}); // wheel over audio NEVER moves the video area (plain wheel over video keeps native vertical scroll — audio stays pinned)
-/* scroll over the track-name sidebar: same per-section independence */
-$('#trackHdr').addEventListener('wheel',e=>{ e.preventDefault(); const inAudio=!!e.target.closest('.audiozone');
-  if(e.altKey){ wheelResizeLanes(e,inAudio); return; }
-  if(inAudio)audioZoneScrollBy(e.deltaY); else $('#tlscroll').scrollTop+=e.deltaY; },{passive:false});
+  else if(e.altKey){ e.preventDefault(); wheelResizeLanes(e); }
+  else if(e.shiftKey){e.preventDefault();$('#tlscroll').scrollLeft+=e.deltaY;} },{passive:false});
+/* la columna de nombres scrollea con el área de clips (el handler de scroll la sincroniza) */
+$('#trackHdr').addEventListener('wheel',e=>{ e.preventDefault();
+  if(e.altKey){ wheelResizeLanes(e); return; }
+  $('#tlscroll').scrollTop+=e.deltaY; },{passive:false});
 $('#trackHdr').addEventListener('contextmenu',e=>{ if(e.target.closest('.lanehdr'))return; e.preventDefault(); openMenu(e.clientX,e.clientY,trackCreateItems()); });
 function neededSec(){ const sc=$('#tlscroll'); const screen=(sc.clientWidth||800)/state.tl.pxPerSec; const scl=Math.max(sc.scrollLeft, state.tl._scrollTarget||0); return Math.max(duration()+screen, (scl/state.tl.pxPerSec)+screen*1.6); }
-$('#tlscroll').addEventListener('scroll',()=>{ const th=$('#trackHdr'); if(th)th.scrollTop=$('#tlscroll').scrollTop; if(neededSec()>(state.tl._w||0)+0.01)renderTimeline(); else { drawRuler(); renderWork(); renderTimeSel(); } positionWorkBrace(); scheduleWaves(); if(state.inlineCurves)scheduleAutoCvs(); renderZoomBar(); }); // [T3] keep the custom zoom-scrollbar thumb in sync with scroll // [R92-T9] header column now scrolls NATIVELY in sync (was a transform) so its sticky audio module pins exactly like the tracks' one
+$('#tlscroll').addEventListener('scroll',()=>{ const th=$('#trackHdr'); if(th)th.scrollTop=$('#tlscroll').scrollTop; if(neededSec()>(state.tl._w||0)+0.01)renderTimeline(); else { drawRuler(); renderWork(); renderTimeSel(); } positionWorkBrace(); scheduleWaves(); if(state.inlineCurves)scheduleAutoCvs(); renderZoomBar(); try{renderVZoom();}catch(_){} }); // [R152] la barra vertical sigue al scroll igual que la horizontal // [T3] keep the custom zoom-scrollbar thumb in sync with scroll // [R92-T9] header column now scrolls NATIVELY in sync (was a transform) so its sticky audio module pins exactly like the tracks' one
 /* middle-mouse drag pans the timeline on both axes (Hand-like), regardless of active tool */
 $('#tlscroll').addEventListener('pointerdown',e=>{ if(e.button!==1)return; e.preventDefault(); const sl=$('#tlscroll'); const x0=e.clientX,y0=e.clientY,sx=sl.scrollLeft,sy=sl.scrollTop; sl.style.cursor='grabbing';
   const mv=ev=>{ sl.scrollLeft=sx-(ev.clientX-x0); sl.scrollTop=sy-(ev.clientY-y0); }; const up=()=>{ sl.style.cursor=''; window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up); }; window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); });
@@ -5765,14 +5783,66 @@ function roomStandDefaults(){ const c=state.view.cam; c.yaw=-Math.PI/2; c.pitch=
 $('#viewModeSeg').querySelectorAll('button').forEach(b=>b.onclick=()=>{ state.view.mode=b.dataset.v; $('#viewModeSeg').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));
   const is3=state.view.mode==='3d'; if(is3&&isRoom()){ const c=state.view.cam; if(!(c.dist>=1.4&&c.dist<=6))c.dist=2.7; if(c.pitch<0.12&&state.view.three!=='spec')c.pitch=0.5; if(state.view.three==='spec')roomStandDefaults(); } // frame the room on first entry (orbit) / face front (Viewer)
   $('#d3sep').style.display=is3?'block':'none'; $('#threeModeSeg').style.display=is3?'inline-flex':'none';
-  $('#azelReadout').style.display=is3?'none':'inline-flex'; updViewCtl(); setVpCursor(); resize(); });
+  updViewCtl(); setVpCursor(); resize(); }); // [R152] updViewCtl decide Az/El (modo × ancho); acá ya no se fuerza
 $('#threeModeSeg').querySelectorAll('button').forEach(b=>b.onclick=()=>{ state.view.three=b.dataset.m; $('#threeModeSeg').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); if(b.dataset.m==='spec'&&isRoom())roomStandDefaults(); updViewCtl(); render(); }); // entering Viewer in a room → face the front wall (FOV 60, dolly −0.5)
 // 3D-room walls are see-through from OUTSIDE (translucent flat); this button also paints the clip texture translucent on the outside
 { const seg=$('#threeModeSeg'); if(seg&&seg.parentElement){ const b=document.createElement('button'); b.id='roomOutBtn'; b.className='togbtn'; b.style.cssText='display:none;height:22px;padding:0 10px;font-size:10px;font-weight:600;'; /* [AUDITORÍA Rev1] medida de control del diseño (22px), no 24 */ b.textContent=T('Outside tex','Textura ext.'); b.title=T('Show the clip texture (translucent) on the outside of the walls too','Mostrar la textura del clip (translúcida) también por fuera de los muros'); b.onclick=()=>{ state.view.roomOutTex=!state.view.roomOutTex; b.classList.toggle('on',state.view.roomOutTex); render(); }; seg.parentElement.insertBefore(b, seg.nextSibling); } }
-function updViewCtl(){ const is3=state.view.mode==='3d',spec=state.view.three==='spec'; $('#fovCtl').style.display=(is3&&spec)?'inline-flex':'none'; $('#dollyCtl').style.display=(is3&&spec)?'inline-flex':'none';
+/* [R152 · §3] Barra del visor: el diseño resuelve los controles que aparecen/desaparecen en DOS ejes, no en uno.
+   · MODO — qué lecturas de cámara tienen sentido:  2D → Az/El · 3D Orbit → DIST · 3D Viewer → FOV + DOLLY.
+   · ANCHO — qué entra sin apretar. El prototipo mide `centerW` (la columna del visor) y repliega grupos enteros
+     a un menú "More" por umbrales: Output 440 · overlays 620 · calidad 800 · Az/El y DIST 980.
+   Sin el segundo eje la barra se defiende sola sólo a 1920; en una ventana angosta los grupos se pisan. */
+const VP_BP={out:440,disp:620,qp:800,readout:980};
+function vpWidth(){ const vp=document.querySelector('.vptool'); return (vp&&vp.clientWidth)||9999; }
+function vpFits(){ const w=vpWidth(); return {w, out:w>=VP_BP.out, disp:w>=VP_BP.disp, qp:w>=VP_BP.qp, readout:w>=VP_BP.readout}; }
+function updViewCtl(){ const is3=state.view.mode==='3d',spec=state.view.three==='spec'; const F=vpFits();
+  const show=(sel,on)=>{ const el=$(sel); if(el)el.style.display=on?'':'none'; };
+  // ancho: grupos que se repliegan al menú "More"
+  show('#dispSep',F.disp); show('#dispSeg',F.disp);
+  show('#qpSep',F.qp); show('#qualitySeg',F.qp); show('#proxyToggle',F.qp);
+  show('#outSep',F.out); show('#outWell',F.out);
+  { const mb=$('#vpMoreBtn'); if(mb)mb.style.display=F.readout?'none':'grid'; }
+  // modo (× ancho para las lecturas): Az/El sólo en 2D, DIST sólo en 3D Orbit, FOV+DOLLY sólo en 3D Viewer
+  { const az=$('#azelReadout'); if(az)az.style.display=(!is3&&F.readout)?'inline-flex':'none'; }
+  $('#fovCtl').style.display=(is3&&spec)?'inline-flex':'none'; $('#dollyCtl').style.display=(is3&&spec)?'inline-flex':'none';
   { const ro=$('#roomOutBtn'); if(ro){ ro.style.display=(is3&&isRoom())?'inline-flex':'none'; ro.classList.toggle('on',!!state.view.roomOutTex); } }
   if(is3&&spec){ const fr=$('#fovRange'); if(fr){ fr.value=state.view.cam.fov; faderFill(fr); const fl=$('#fovLbl'); if(fl)fl.textContent=Math.round(state.view.cam.fov)+'°'; } const dr2=$('#dollyRange'); if(dr2){ dr2.value=state.view.cam.back; faderFill(dr2); const dl2=$('#dollyLbl'); if(dl2)dl2.textContent=(+state.view.cam.back).toFixed(1); } } // reflect the live FOV/dolly on the sliders when entering Viewer mode
-  const dc=$('#distCtl'); if(dc){ dc.style.display=(is3&&!spec)?'inline-flex':'none'; const dr=$('#distRange'); if(dr){ dr.value=state.view.cam.dist; faderFill(dr); const dl=$('#distLbl'); if(dl)dl.textContent=(+state.view.cam.dist).toFixed(1); } } } // orbit: on-screen DIST (zoom) slider
+  const dc=$('#distCtl'); if(dc){ dc.style.display=(is3&&!spec&&F.readout)?'inline-flex':'none'; const dr=$('#distRange'); if(dr){ dr.value=state.view.cam.dist; faderFill(dr); const dl=$('#distLbl'); if(dl)dl.textContent=(+state.view.cam.dist).toFixed(1); } } } // orbit: on-screen DIST (zoom) slider
+/* Menú "More": NO duplica controles — reenvía el clic al botón real que quedó oculto, así el estado (clase .on,
+   handlers, i18n) sigue viviendo en un solo lugar. Sólo muestra las secciones que efectivamente se replegaron. */
+function openVpMore(){ const F=vpFits(); closeMenu();
+  const pan=document.createElement('div'); pan.id='vpMorePan';
+  pan.style.cssText='position:fixed;z-index:9000;width:236px;display:flex;flex-direction:column;gap:10px;padding:10px;background:var(--surface);border:.5px solid rgba(255,255,255,0.14);border-radius:2px;box-shadow:0 12px 34px rgba(0,0,0,0.55);';
+  const sec=(title)=>{ const s=document.createElement('div'); s.style.cssText='display:flex;flex-direction:column;gap:5px;';
+    const h=document.createElement('span'); h.textContent=title; h.style.cssText='font-size:10px;font-weight:600;letter-spacing:0.02em;color:var(--ink-3);'; s.appendChild(h);
+    const row=document.createElement('div'); row.style.cssText='display:flex;flex-wrap:wrap;gap:4px;'; s.appendChild(row); pan.appendChild(s); return row; };
+  const mirror=(row,srcBtn,label)=>{ if(!srcBtn)return; const b=document.createElement('button');
+    b.textContent=label; b.style.cssText='height:22px;padding:0 9px;border:.5px solid rgba(255,255,255,0.1);border-radius:3px;cursor:pointer;font-family:inherit;font-size:10px;font-weight:600;background:'+(srcBtn.classList.contains('on')?'var(--state-on)':'transparent')+';color:'+(srcBtn.classList.contains('on')?'var(--ink)':'var(--ink-2)')+';';
+    b.onclick=()=>{ srcBtn.click(); close(); }; row.appendChild(b); };
+  if(!F.disp){ const r=sec(T('Overlays','Superposiciones'));
+    [['grid',T('Grid','Cuadrícula')],['safe',T('Safe','Zona segura')],['outline',T('Outline','Contornos')],['hfade',T('Horizon','Horizonte')],['checker',T('Alpha','Alfa')]]
+      .forEach(([d,lab])=>mirror(r,document.querySelector('#dispSeg button[data-d="'+d+'"]'),lab)); }
+  if(!F.qp){ const r=sec(T('Quality','Calidad'));
+    [['1','Full'],['0.5','½'],['0.25','¼']].forEach(([q,lab])=>mirror(r,document.querySelector('#qualitySeg button[data-q="'+q+'"]'),lab));
+    mirror(r,document.querySelector('#proxyToggle button'),'Proxy'); }
+  if(!F.out){ const r=sec('Output'); mirror(r,$('#outputBtn'),'Output…'); }
+  if(!F.readout){ const r=sec(T('Readout','Lectura')); const s=document.createElement('span');
+    s.style.cssText='font-size:10px;color:var(--ink-2);font-variant-numeric:tabular-nums;';
+    const is3=state.view.mode==='3d', spec=state.view.three==='spec', c=state.view.cam;
+    s.textContent=is3?(spec?('FOV '+Math.round(c.fov)+'° · DOLLY '+(+c.back).toFixed(1)):('DIST '+(+c.dist).toFixed(1)))
+                     :('AZ '+Math.round(state.view.az||0)+'° · EL '+Math.round(state.view.el!=null?state.view.el:35)+'°');
+    r.appendChild(s); }
+  if(!pan.children.length)return;
+  document.body.appendChild(pan);
+  const mb=$('#vpMoreBtn'); const r0=mb?mb.getBoundingClientRect():{left:innerWidth-250,bottom:30};
+  const w=pan.offsetWidth||236; pan.style.left=Math.max(6,Math.min(innerWidth-w-6,r0.left-w+28))+'px'; pan.style.top=(r0.bottom+4)+'px';
+  if(mb)mb.classList.add('on');
+  function close(){ pan.remove(); if(mb)mb.classList.remove('on'); document.removeEventListener('pointerdown',out,true); document.removeEventListener('keydown',esc,true); }
+  const out=e=>{ if(!pan.contains(e.target)&&e.target!==mb)close(); }; const esc=e=>{ if(e.key==='Escape')close(); };
+  setTimeout(()=>{ document.addEventListener('pointerdown',out,true); document.addEventListener('keydown',esc,true); },0); }
+if($('#vpMoreBtn'))$('#vpMoreBtn').onclick=()=>{ if(document.getElementById('vpMorePan')){ document.getElementById('vpMorePan').remove(); $('#vpMoreBtn').classList.remove('on'); return; } openVpMore(); };
+// la barra se re-evalúa cuando cambia el ancho de la columna (ventana, paneles plegados, gutters)
+addEventListener('resize',()=>{ try{ updViewCtl(); }catch(e){} });
 $('#dispSeg').querySelectorAll('button').forEach(b=>b.onclick=()=>{ const d=b.dataset.d; if(d==='grid')state.view.showGrid=!state.view.showGrid; if(d==='safe')state.view.showSafe=!state.view.showSafe; if(d==='outline')state.view.showOutline=!state.view.showOutline; if(d==='hfade'){ state.view.hfade=!state.view.hfade; flashStatus(state.view.hfade?T('Horizon fade on','Desvanecido de horizonte activado'):T('Horizon fade off','Desvanecido de horizonte desactivado')); }
   if(d==='checker'){ state.view.checkerBg=!state.view.checkerBg; const cb=$('#checkerBg'); if(cb)cb.classList.toggle('on',state.view.checkerBg); flashStatus(state.view.checkerBg?T('Alpha checkerboard on','Cuadrícula de alpha activada'):T('Alpha checkerboard off','Cuadrícula de alpha desactivada')); } // [F8]
   b.classList.toggle('on', d==='grid'?state.view.showGrid:d==='safe'?state.view.showSafe:d==='outline'?state.view.showOutline:d==='checker'?state.view.checkerBg:state.view.hfade); render(); });
@@ -5841,17 +5911,40 @@ $('#prevMk').onclick=()=>jumpMarker(-1); $('#addMk').onclick=addMarker; $('#next
 /* [REDISEÑO Rev1] V-zoom lateral (diseño §6): el thumb refleja la altura media de pista y arrastrarlo la escala
    (abajo = más altas, igual que el handle de resize por-pista). Reutiliza lane.h + los topes LANE_MIN_H/MAX_H. */
 function _laneDefH(l){ return l.h || (l.kind==='audio'?AUDIO_LANE_H:LANE_DEF_H); }
-function renderVZoom(){ const th=$('#tlVZoomThumb'), tr=$('#tlVZoomTrack'); if(!th||!tr)return;
-  const ls=state.lanes.filter(l=>!l.collapsed); if(!ls.length){ th.style.display='none'; return; } th.style.display='';
-  const avg=ls.reduce((s,l)=>s+_laneDefH(l),0)/ls.length; const H=tr.clientHeight||100;
-  const f=Math.max(0,Math.min(1,(avg-LANE_MIN_H)/Math.max(1,LANE_MAX_H-LANE_MIN_H)));
-  const thH=Math.max(26,Math.round(H*0.3)); th.style.height=thH+'px'; th.style.top=Math.round((H-thH)*f)+'px'; }
-if($('#tlVZoomThumb'))$('#tlVZoomThumb').addEventListener('pointerdown',ev=>{ ev.preventDefault(); pushUndo();
-  const y0=ev.clientY, base=state.lanes.map(_laneDefH);
-  const mv=e2=>{ const f=Math.max(0.25,Math.min(4,1+(e2.clientY-y0)/160));
-    state.lanes.forEach((l,i)=>{ if(l.collapsed)return; l.h=Math.max(LANE_MIN_H,Math.min(LANE_MAX_H,Math.round(base[i]*f))); }); scheduleTimeline(); };
+/* [R152] BARRA VERTICAL — espejo exacto de la horizontal (#tlZoomBar).
+   Antes había DOS barras verticales con aspecto y comportamiento distintos: ésta (que sólo escalaba alturas) y la
+   scrollbar nativa de #tlscroll (que sólo scrolleaba). Ahora es una sola y hace las dos cosas, igual que abajo:
+   · arrastrar el CUERPO del thumb  = scroll vertical (el thumb refleja clientHeight/scrollHeight)
+   · arrastrar un CASQUETE          = zoom vertical (alto de TODAS las pistas) anclando el borde opuesto */
+function renderVZoom(){ const sc=$('#tlscroll'), bar=$('#tlVZoom'), tr=$('#tlVZoomTrack'), th=$('#tlVZoomThumb'); if(!sc||!bar||!tr||!th)return;
+  const barR=bar.getBoundingClientRect(), scR=sc.getBoundingClientRect(); if(!scR.height)return;
+  tr.style.top=(scR.top-barR.top)+'px'; tr.style.height=scR.height+'px'; // la pista se alinea con el visor, como la horizontal
+  const h=scR.height, sh=Math.max(1,sc.scrollHeight), ch=Math.max(1,sc.clientHeight), st=sc.scrollTop||0;
+  const thH=Math.max(24,Math.min(1,ch/sh)*h), maxST=Math.max(0,sh-ch), travel=Math.max(0,h-thH);
+  th.style.height=thH+'px'; th.style.top=(maxST>0?(st/maxST)*travel:0).toFixed(1)+'px'; }
+function startVBarDrag(e){ if(e.button!==0||e.target.classList.contains('tlvzcap'))return; e.preventDefault(); // cuerpo = scroll
+  const sc=$('#tlscroll'), tr=$('#tlVZoomTrack'), th=$('#tlVZoomThumb'); const h=tr.getBoundingClientRect().height;
+  const sh=Math.max(1,sc.scrollHeight), ch=Math.max(1,sc.clientHeight), maxST=Math.max(0,sh-ch);
+  const thH=Math.max(24,Math.min(1,ch/sh)*h), travel=Math.max(1,h-thH);
+  const y0=e.clientY, st0=sc.scrollTop; th.classList.add('drag');
+  const mv=ev=>{ sc.scrollTop=Math.max(0,Math.min(maxST, st0+((ev.clientY-y0)/travel)*maxST)); }; // el handler de scroll repinta cabeceras + la barra
+  const up=()=>{ th.classList.remove('drag'); window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up); };
+  window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); }
+function startVCapDrag(e,side){ e.preventDefault(); e.stopPropagation(); // casquete = zoom vertical, anclando el borde opuesto
+  const sc=$('#tlscroll'); const h=Math.max(1,sc.getBoundingClientRect().height); pushUndo();
+  const base=state.lanes.map(l=>l.h||(l.kind==='audio'?AUDIO_LANE_H:LANE_DEF_H)); const st0=sc.scrollTop; const y0=e.clientY;
+  const mv=ev=>{ const d=ev.clientY-y0;
+    // arrastrar el casquete INFERIOR hacia abajo agranda; el SUPERIOR hacia arriba también (gesto simétrico)
+    const f=Math.max(0.25,Math.min(4, 1+((side==='b')? d : -d)/Math.max(80,h*0.5)));
+    state.lanes.forEach((l,i)=>{ if(l.collapsed)return; l.h=Math.max(LANE_MIN_H,Math.min(LANE_MAX_H,Math.round(base[i]*f))); });
+    scheduleTimeline();
+    // anclar: el casquete de arriba mantiene fijo el borde INFERIOR del visor y viceversa
+    if(side==='t'){ const sh=sc.scrollHeight, ch=sc.clientHeight; sc.scrollTop=Math.max(0,Math.min(Math.max(0,sh-ch), st0*f+(f-1)*ch)); }
+    renderVZoom(); };
   const up=()=>{ window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up); renderTimeline(); markDirty(); };
-  window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); });
+  window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); }
+if($('#tlVZoomThumb'))$('#tlVZoomThumb').addEventListener('pointerdown',startVBarDrag);
+document.querySelectorAll('#tlVZoom .tlvzcap').forEach(c=>c.addEventListener('pointerdown',e=>startVCapDrag(e,c.dataset.vcap)));
 function fitAll(){ const sc=$('#tlscroll'); const vw=(sc&&sc.clientWidth)||800; const d=Math.max(0.5,duration()); state.tl.pxPerSec=Math.max(TL_PPS_MIN,Math.min(TL_PPS_MAX,(vw*0.96)/d)); state.tl._scrollTarget=0; if(sc)sc.scrollLeft=0; renderTimeline(); flashStatus(T('Fit all','Encajar todo')); } // [REDISEÑO Rev1] zoom to fit all content in the timeline view (H·W)
 if($('#fitAllBtn'))$('#fitAllBtn').onclick=fitAll;
 if($('#tlGridBtn')){ const gb=$('#tlGridBtn'); const syncGrid=()=>gb.classList.toggle('on',state.tl.gridOn!==false); syncGrid(); gb.onclick=()=>{ state.tl.gridOn=(state.tl.gridOn===false); syncGrid(); renderTimeline(); }; } // [REDISEÑO Rev1] Grid = show/hide timeline grid lines

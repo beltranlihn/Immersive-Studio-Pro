@@ -59,7 +59,8 @@
 | Header de pista (`.lanehdr`) | Header + operaciones de lane | app.js · renderTimeline · `.lanehdr` | ✅ | [L1],[U1] |
 | Reorden de lanes | Arrastrar header para reordenar | app.js · `startLaneDrag` | ✅ | — |
 | ~~Módulo de audio anclado~~ | **RETIRADO R148** — audio unificado en la columna principal (#tracks/#laneHeaders), al final | app.js · renderTimeline · #audioZone/#audioHeadZone (vaciados) | 🗑️ | Rev1 §6 |
-| V-zoom vertical | Barra lateral 12px: arrastrar escala la altura de TODAS las pistas | app.js · `renderVZoom` · #tlVZoom | ✅ | Rev1 §6 |
+| Barra vertical del timeline | Espejo de la horizontal: cuerpo = scroll · casquetes = alto de pistas. Una sola (la nativa se oculta) | app.js · `renderVZoom`/`startVBarDrag`/`startVCapDrag` · #tlVZoom | ✅ | R152 |
+| Menú "More" del visor | Repliega overlays/calidad/Output/lecturas por ancho (440·620·800·980) sin duplicar lógica | app.js · `VP_BP`/`vpFits`/`openVpMore` · #vpMoreBtn | ✅ | R152 |
 | Gesto de mover | Move/copy de clip con ghost | app.js · `onTLMove`/`onTLUp` | ✅ | — |
 | Trim contextual | ripple/roll/slip/slide (T) | app.js · `trimZone`/`applyTrim` | ✅ | [T2] |
 | Trim por handle | `.hd.l`/`.hd.r` resize | app.js · `trimItem` / drag.trimL/R | ✅ | [T2] |
@@ -526,8 +527,8 @@ separate subsystem — only cross-references appear here.
 - **Purpose:** The 168px-wide row header for each lane (colour bar, tag/name, collapse chevron, mute/solo, resize grip); hosts drag-to-reorder, rename, context menu, and (in automation mode) the device/param choosers.
 - **Location:** app.js · header build in `renderTimeline` (L1941–1969). Ops: `addLane()` (L2024), `removeLane()` (L2036), `duplicateLane()` (L2163), `renameLane()` (L2152), `startLaneDrag()` (L2173), `trackCreateItems()` (L2032), `defLanes()` (L4916).
 - **State owned:** `state.lanes[]` (each: `{id,name,tag,kind,color?,mute?,solo?,collapsed?,h?,_autoP?}`), `state.selLane`
-- **Key symbols:** classes `.lanehdr .sel .collapsed .aud`; buttons `[data-m=collapse|mute|solo]`, `.laneres [data-m=resize]`. `laneH(li)` (L109). Constants `LANE_DEF_H=82, LANE_MIN_H=34, LANE_MAX_H=260, LANE_COLLAPSED_H=20` (L107), `AUDIO_LANE_H=41` (L108, now the audio DEFAULT height, not a fixed one), `TRACK_COLORS` (L30). `lanesTopDown()` display order.
-- **Invariants / gotchas:** Selecting a track deselects the clip (mutual exclusion, [R93]). Video lanes grow upward; audio grows DOWNWARD. **[R148 · Rev1] audio lanes are resizable too** — `laneH` clamps `l.h||AUDIO_LANE_H` to [MIN,MAX] exactly like video, and the resize grip is wired for every lane (was video-only). `collapsed` is checked BEFORE `kind==='audio'`, so an audio lane can also collapse. Resize handler mutates `lane.h` and calls `scheduleTimeline()` (must not move the view — [L1]). `removeLane` keeps ≥1 video and ≥1 audio lane. Header width is 168px (R148).
+- **Key symbols:** classes `.lanehdr .sel .collapsed .aud`; buttons `[data-m=collapse|mute|solo]`, `.laneres [data-m=resize]`. `laneH(li)`. Constantes **del diseño (R152)**: `LANE_DEF_H=57, LANE_MIN_H=26, LANE_MAX_H=120, LANE_COLLAPSED_H=24`, `AUDIO_LANE_H=44` (default del audio, NO una altura fija), `RULER_H=24`, `TRACK_COLORS`. `lanesTopDown()` display order.
+- **Invariants / gotchas:** Selecting a track deselects the clip (mutual exclusion, [R93]). **[R152] AUDIO Y VÍDEO SE COMPORTAN IGUAL** — misma lista ordenable (el prototipo trae `trackOrder:['v4','v3','v2','v1','a1']`), mismo grip de resize, mismo colapso. `lanesTopDown()` ya **no** particiona por tipo y `startLaneDrag` ya **no** clampea el drop al grupo: una pista de audio se puede soltar entre las de vídeo. Si hace falta volver a separarlas, hay que restaurar TAMBIÉN el módulo sticky (ver `_backup/deprecated/20260725-audio-section-model.js`) — sin él la partición sólo impide reordenar. `laneH` chequea `collapsed` ANTES que el tipo. Resize mutará `lane.h` y llama a `scheduleTimeline()` (no debe mover la vista — [L1]). `removeLane` mantiene ≥1 de vídeo y ≥1 de audio. Cabecera 168px.
 - **Status:** ✅
 - **Roadmap:** [L1] resize-view glitch, [U1] VIDEO/AUDIO same grey-bar style
 

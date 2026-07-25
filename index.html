@@ -212,6 +212,10 @@
   .vseg button+button{border-left:none;}
   .vseg button.on{background:var(--state-on);color:var(--ink);}
   #outputBtn.on{color:var(--auto-live);} /* [REDISEÑO Rev1] Output activo (NDI/Spout emitiendo) */
+  /* [R152 · §3] botón "More" de la barra del visor (28×22, prototipo RevDomo:180) */
+  .vmore{width:28px;height:22px;display:grid;place-items:center;border:.5px solid rgba(255,255,255,0.1);border-radius:3px;flex-shrink:0;cursor:pointer;font-family:inherit;font-size:12px;font-weight:600;letter-spacing:1px;background:transparent;color:var(--ink-2);padding:0;}
+  .vmore:hover{background:var(--state-hover);color:var(--ink);}
+  .vmore.on{background:var(--state-on);color:var(--ink);}
   #outputBtn.on::after{content:'';position:absolute;top:2px;right:2px;width:5px;height:5px;border-radius:50%;background:var(--auto-live);box-shadow:0 0 5px var(--auto-live);animation:recpulse 1.4s ease-in-out infinite;}
   body.rm-on #outputBtn.on::after{animation:none;}
   .vdiv{width:.5px;height:16px;background:rgba(255,255,255,0.08);flex-shrink:0;}
@@ -370,7 +374,7 @@
   .toolrail button:hover{background:var(--surface-3);} .toolrail button.on{background:var(--state-on);color:var(--ink);}
   .trackhdr{width:168px;flex-shrink:0;display:flex;flex-direction:column;background:var(--surface);border-right:.5px solid rgba(0,0,0,0.4);z-index:3;overflow-x:hidden;overflow-y:auto;position:relative;scrollbar-width:none;} /* [REDISEÑO Rev1] 168px (antes 152): los chips de automatización truncaban (nota de revisión del diseño) */ /* [R92-T9] scrolls NATIVELY in sync with #tlscroll so its sticky audio module pins identically · [L2] flex-column so #audioHeadZone (margin-top:auto) pins to the bottom in step with the clip column */
   .trackhdr::-webkit-scrollbar{display:none;}
-  .trackhdr .rulerpad{height:22px;flex-shrink:0;box-sizing:border-box;border-bottom:.5px solid rgba(0,0,0,0.4);background:var(--surface);position:sticky;top:0;z-index:6;display:flex;align-items:center;padding:0 10px;} /* [Rev1] flex-shrink:0 → mantiene 22px (=alto del ruler) al quedar vacío, si no colapsa y desalinea headers/lanes 9px */ /* pinned time-bar corner — also holds the VIDEO group label */
+  .trackhdr .rulerpad{height:24px;flex-shrink:0;box-sizing:border-box;border-bottom:.5px solid rgba(0,0,0,0.4);background:var(--surface);position:sticky;top:0;z-index:6;display:flex;align-items:center;padding:0 10px;} /* [Rev1] flex-shrink:0 → mantiene 22px (=alto del ruler) al quedar vacío, si no colapsa y desalinea headers/lanes 9px */ /* pinned time-bar corner — also holds the VIDEO group label */
   .lanehdr{position:relative;display:flex;align-items:center;gap:var(--sp-8);padding:0 7px 0 10px;border-bottom:.5px solid rgba(255,255,255,0.05);cursor:pointer;}
   .lanehdr:hover{background:rgba(255,255,255,0.03);}
   /* [R102·D-T2] Base = standby; con foco en la línea de tiempo, selección plena. El contorno inset completo
@@ -474,15 +478,20 @@
   .autohdr .abt.areen{display:none;color:var(--ink-2);border-color:rgba(201,205,211,0.5);} .autohdr .abt.areen.show{display:grid;}
   .lanehdr .autoctl .abt.ovr,.autohdr .abt.ovr{color:#E5B567;border-color:rgba(229,181,103,0.55);} /* [R94-UT2·U-16] amber = automation overridden (Ableton-style), vs white "on" = following the curve */
   /* [REDISEÑO Rev1] V-zoom: columna de 12px a la derecha del área de clips; arrastrar el thumb escala la ALTURA de las pistas (diseño §6) */
-  .tlvzoom{width:12px;flex-shrink:0;background:var(--bg-0);position:relative;border-left:.5px solid rgba(0,0,0,0.4);}
-  .tlvztrack{position:absolute;left:3.5px;top:27px;bottom:6px;width:5px;background:#161616;border-radius:2px;}
-  .tlvzthumb{position:absolute;left:0;width:5px;background:rgba(255,255,255,0.10);border-radius:2px;cursor:grab;}
-  .tlvzthumb:hover{background:rgba(255,255,255,0.18);}
-  .tlvzthumb:active{cursor:grabbing;}
-  .tlvzthumb::before,.tlvzthumb::after{content:'';position:absolute;left:50%;width:7px;height:7px;transform:translateX(-50%);border-radius:50%;background:rgba(184,184,184,0.7);}
-  .tlvzthumb::before{top:-1px;} .tlvzthumb::after{bottom:-1px;}
-  .tlvzthumb:hover::before,.tlvzthumb:hover::after{background:var(--ink);}
-  .tlscroll{flex:1;overflow-x:hidden;overflow-y:auto;position:relative;} /* [T3] native h-scrollbar hidden → the custom zoom-scrollbar (#tlZoomBar) drives horizontal scroll + zoom */
+  /* [R152] La barra vertical es el ESPEJO EXACTO de la horizontal (#tlZoomBar): mismo grosor de pista, mismo
+     thumb, mismos casquetes circulares. Antes convivían dos barras verticales —esta y la nativa de #tlscroll—
+     con aspecto y comportamiento distintos; ahora hay una sola y hace lo mismo que la de abajo:
+     arrastrar el CUERPO = scroll · arrastrar un CASQUETE = zoom (alto de pistas) anclando el borde opuesto. */
+  .tlvzoom{width:15px;flex-shrink:0;background:var(--s0);position:relative;border-left:.5px solid rgba(0,0,0,0.4);}
+  .tlvztrack{position:absolute;left:3px;width:9px;background:var(--s1);border-radius:5px;box-shadow:inset 0 0 0 .5px rgba(255,255,255,0.05);}
+  .tlvzthumb{position:absolute;left:0;width:9px;min-height:24px;background:rgba(255,255,255,0.15);border-radius:5px;cursor:grab;transition:background .12s;}
+  .tlvzthumb:hover{background:rgba(255,255,255,0.22);} .tlvzthumb.drag{cursor:grabbing;background:rgba(255,255,255,0.26);}
+  .tlvzcap{position:absolute;left:50%;width:11px;height:11px;transform:translateX(-50%);border-radius:50%;background:var(--ink-2);box-shadow:0 1px 2px rgba(0,0,0,0.5),0 0 0 .5px rgba(0,0,0,0.4);cursor:ns-resize;transition:background .12s,transform .1s;}
+  .tlvzcap.t{top:-2px;} .tlvzcap.b{bottom:-2px;}
+  .tlvzcap:hover{background:var(--ink);transform:translateX(-50%) scale(1.12);}
+  /* [R152] la nativa se oculta: la vertical la conduce #tlVZoom, igual que la horizontal la conduce #tlZoomBar */
+  .tlscroll{flex:1;overflow-x:hidden;overflow-y:auto;position:relative;scrollbar-width:none;}
+  .tlscroll::-webkit-scrollbar{width:0;height:0;}
   /* [T3] Premiere-style zoom-scrollbar: a thumb whose body scrolls and whose circular end-caps zoom (drag out = zoom out, in = zoom in), anchored to the opposite edge */
   .tlzoom{height:15px;flex-shrink:0;background:var(--s0);position:relative;border-top:.5px solid rgba(0,0,0,0.4);}
   .tlztrack{position:absolute;top:3px;height:9px;background:var(--s1);border-radius:5px;box-shadow:inset 0 0 0 .5px rgba(255,255,255,0.05);}
@@ -491,7 +500,7 @@
   .tlzcap{position:absolute;top:50%;width:11px;height:11px;transform:translateY(-50%);border-radius:50%;background:var(--ink-2);box-shadow:0 1px 2px rgba(0,0,0,0.5),0 0 0 .5px rgba(0,0,0,0.4);cursor:ew-resize;transition:background .12s,transform .1s;}
   .tlzcap.l{left:-2px;} .tlzcap.r{right:-2px;}
   .tlzcap:hover{background:var(--ink);transform:translateY(-50%) scale(1.12);}
-  .ruler{height:22px;position:sticky;top:0;background:var(--bg-2);border-bottom:.5px solid rgba(0,0,0,0.4);z-index:4;}
+  .ruler{height:24px;position:sticky;top:0;background:var(--bg-2);border-bottom:.5px solid rgba(0,0,0,0.4);z-index:4;}
   .ruler canvas{display:block;}
   #clipExtent{position:absolute;bottom:0;height:3px;background:var(--ink-3);opacity:.75;border-radius:1px;pointer-events:none;z-index:5;display:none;} /* [R94d] Premiere-style bar spanning the clip extent of the sequence */
   .tracks{position:relative;display:flex;flex-direction:column;min-height:calc(100% - 22px);} /* [L2] fill the viewport (minus the 22px ruler) so the audio module (margin-top:auto) pins to the BOTTOM even with few video tracks; the explicit width (set in JS) keeps horizontal scroll intact */
@@ -617,6 +626,133 @@
   /* [R134] branded square splash — the 1080×1080 logo loop shown a couple of seconds on startup + project open (responsive, capped at the native 1080²) */
   /* [archivado 20260725] CSS del splash dentro del documento → _backup/deprecated/20260725-in-page-splash.js
      (el splash ahora es splash.html, en su propia ventana de 1080²) */
+
+  /* ============================================================================================================
+     LAUNCHER (pantalla de inicio) — recreado del handoff "Launcher - Rev 4.dc.html".
+     El prototipo lleva todo en estilos inline; acá va en clases `lch-*` porque el markup lo arma `renderLauncher()`
+     y con inline sería ilegible. Los valores (alturas, radios, colores, tipografías) son los del handoff.
+     NOTA: el launcher NO usa los tokens del editor. El diseño trae su propia paleta (canvas #0A0B0C, panel #101113,
+     pozo #0C0D0F, barra #121316) que no coincide con s0/s1/s2, y mezclarlas daría un gris a medio camino.
+     ============================================================================================================ */
+  #landingOv.lch{display:block;padding:0;background:radial-gradient(90% 55% at 50% -8%, #16181C 0%, #0A0B0C 60%);align-items:stretch;justify-content:flex-start;}
+  .lch *{box-sizing:border-box;}
+  .lch-wrap{height:100%;min-height:0;display:flex;flex-direction:column;overflow:hidden;font-family:'Geist',system-ui,sans-serif;color:#D8D8D8;}
+  .lch-top{height:38px;flex-shrink:0;display:flex;align-items:center;gap:9px;padding:0 24px;border-bottom:.5px solid rgba(255,255,255,0.05);background:rgba(10,11,12,0.6);}
+  .lch-top .nm{font-size:11px;font-weight:600;letter-spacing:-0.008em;color:#C8C8C8;}
+  .lch-top .ver{font-size:10px;color:#5A5A5A;font-variant-numeric:tabular-nums;letter-spacing:0.04em;margin-left:2px;}
+  .lch-tbtn{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 10px;border-radius:3px;border:.5px solid rgba(255,255,255,0.09);background:transparent;color:#9A9A9A;font-family:inherit;font-size:10.5px;font-weight:500;cursor:pointer;}
+  .lch-tbtn:hover{border-color:rgba(255,255,255,0.2);color:#E8E8E8;}
+  .lch-tico{display:grid;place-items:center;width:22px;height:22px;padding:0;border-radius:3px;border:.5px solid rgba(255,255,255,0.09);background:transparent;color:#9A9A9A;cursor:pointer;}
+  .lch-tico:hover{border-color:rgba(255,255,255,0.2);color:#E8E8E8;}
+  .lch-mid{flex:1;display:flex;justify-content:center;min-height:0;padding:0 28px 22px;}
+  .lch-col{width:100%;max-width:1760px;display:flex;flex-direction:column;min-height:0;}
+  .lch-hero{display:flex;align-items:center;gap:20px;padding:22px 2px 18px;flex-shrink:0;}
+  .lch-hero h1{margin:0;font-size:27px;font-weight:600;letter-spacing:-0.026em;line-height:1;color:#F4F4F4;}
+  .lch-alma{display:flex;align-items:center;gap:10px;padding:7px 12px 7px 9px;border:.5px solid rgba(255,255,255,0.07);border-radius:4px;background:rgba(255,255,255,0.015);flex-shrink:0;}
+  .lch-alma .k{font-size:9.5px;font-weight:500;letter-spacing:0.05em;color:#5A5A5A;}
+  .lch-alma .v{font-size:11.5px;font-weight:600;letter-spacing:-0.006em;color:#C8C8C8;}
+  /* Requisito duro del handoff: alto idéntico para los tres tipos, la página no scrollea nunca */
+  .lch-work{flex:1;min-height:612px;max-height:720px;display:grid;grid-template-columns:426px minmax(0,1fr);gap:16px;}
+  .lch-panel{display:flex;flex-direction:column;gap:9px;padding:14px;border:.5px solid rgba(255,255,255,0.08);border-radius:5px;background:#101113;overflow:hidden;}
+  .lch-seclab{display:flex;align-items:center;gap:8px;}
+  .lch-seclab>span:first-child{font-size:10px;font-weight:600;letter-spacing:0.06em;color:#6A6A6A;}
+  .lch-rule{flex:1;height:.5px;background:rgba(255,255,255,0.07);}
+  .lch-tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;}
+  .lch-tile{display:flex;flex-direction:column;align-items:flex-start;justify-content:space-between;height:68px;padding:8px 9px;border-radius:4px;cursor:pointer;font-family:inherit;text-align:left;transition:background .12s,border-color .12s;background:#0C0D0F;border:.5px solid rgba(255,255,255,0.07);color:#8A8A8A;}
+  .lch-tile:hover{border-color:rgba(255,255,255,0.16);}
+  .lch-tile.on{background:#1C1E22;border:.5px solid rgba(255,255,255,0.24);color:#F0F0F0;box-shadow:inset 0 1px 0 rgba(255,255,255,0.05);}
+  .lch-tile .tn{font-size:11px;font-weight:600;letter-spacing:-0.006em;}
+  .lch-tile .ts{font-size:9.5px;font-weight:400;color:#6A6A6A;}
+  .lch-row{display:flex;align-items:center;gap:9px;height:22px;}
+  .lch-row .lab{width:70px;flex-shrink:0;font-size:11px;color:#9A9A9A;}
+  .lch-row .note{flex:1;font-size:11px;color:#6A6A6A;}
+  .lch-name{display:flex;align-items:center;gap:10px;height:24px;}
+  .lch-name input{flex:1;min-width:0;height:24px;padding:0 8px;border-radius:3px;border:.5px solid rgba(255,255,255,0.09);background:#0A0B0C;color:#E0E0E0;font-family:inherit;font-size:11px;font-weight:500;outline:none;}
+  .lch-name input:focus{border-color:rgba(255,255,255,0.24);}
+  .lch-name input::placeholder{color:#4E4E4E;}
+  .lch-seg{display:inline-flex;align-items:stretch;gap:2px;padding:2px;background:#0A0B0C;border:.5px solid rgba(255,255,255,0.09);border-radius:3px;}
+  .lch-seg button{display:grid;place-items:center;height:16px;padding:0 7px;border:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:10px;font-weight:600;font-variant-numeric:tabular-nums;background:transparent;color:#8A8A8A;}
+  .lch-seg button:hover:not(.on){color:#D0D0D0;}
+  .lch-seg button.on{background:#EDEDED;color:#141414;}
+  .lch-numw{position:relative;display:flex;align-items:center;flex-shrink:0;}
+  .lch-numw .unit{position:absolute;right:6px;font-size:9px;color:#5A5A5A;pointer-events:none;}
+  .lch-num{width:64px;height:22px;padding:0 22px 0 7px;border-radius:3px;border:.5px solid rgba(255,255,255,0.09);background:#0A0B0C;color:#E0E0E0;font-family:inherit;font-size:10.5px;font-weight:600;font-variant-numeric:tabular-nums;outline:none;}
+  .lch-num:focus{border-color:rgba(255,255,255,0.28);}
+  .lch-num.dual{width:72px;padding:0 8px;}
+  .lch-swap{display:grid;place-items:center;width:22px;height:22px;border-radius:3px;border:.5px solid rgba(255,255,255,0.09);background:transparent;color:#8A8A8A;cursor:pointer;flex-shrink:0;}
+  .lch-swap:hover{border-color:rgba(255,255,255,0.22);color:#E8E8E8;}
+  .lch-ar{font-size:10px;font-weight:600;color:#7A7A7A;font-variant-numeric:tabular-nums;flex-shrink:0;}
+  .lch-sw{width:26px;height:15px;border-radius:8px;border:none;cursor:pointer;position:relative;flex-shrink:0;transition:background .12s;background:#3A3A3A;padding:0;}
+  .lch-sw>i{position:absolute;top:2px;left:2px;width:11px;height:11px;border-radius:50%;background:#F0F0F0;transition:left .12s;}
+  .lch-sw.on{background:#4A5A66;} .lch-sw.on>i{left:13px;}
+  .lch-walls{display:flex;flex-direction:column;gap:5px;padding:9px;border:.5px solid rgba(255,255,255,0.06);border-radius:4px;background:#0C0D0F;}
+  .lch-whead{display:flex;align-items:center;gap:5px;height:12px;}
+  .lch-whead span{flex-shrink:0;font-size:9px;font-weight:600;letter-spacing:0.05em;color:#5A5A5A;}
+  .lch-wrow{display:flex;align-items:center;gap:5px;height:21px;}
+  .lch-wrow .ix{width:16px;flex-shrink:0;display:grid;place-items:center;font-size:9.5px;font-weight:600;color:#7A7A7A;font-variant-numeric:tabular-nums;}
+  .lch-facing{width:84px;flex-shrink:0;display:flex;align-items:center;gap:5px;height:20px;padding:0 6px;border-radius:2px;border:.5px solid rgba(255,255,255,0.09);background:#141517;font-family:inherit;font-size:10px;font-weight:600;cursor:pointer;}
+  .lch-facing:hover{border-color:rgba(255,255,255,0.24);}
+  .lch-facing .sw{width:6px;height:6px;border-radius:1px;flex-shrink:0;}
+  .lch-wnum{flex-shrink:0;height:20px;padding:0 6px;border-radius:2px;border:.5px solid rgba(255,255,255,0.09);background:#0A0B0C;color:#D8D8D8;font-family:inherit;font-size:10px;font-weight:500;font-variant-numeric:tabular-nums;outline:none;}
+  .lch-wnum:focus{border-color:rgba(255,255,255,0.28);}
+  .lch-wnum.cm{color:#9A9A9A;}
+  .lch-grow{flex:1;min-height:8px;}
+  .lch-out{display:flex;flex-direction:column;gap:7px;padding:10px;border:.5px solid rgba(255,255,255,0.06);border-radius:4px;background:#0C0D0F;}
+  .lch-out .t{font-size:9.5px;font-weight:500;letter-spacing:0.05em;color:#5A5A5A;}
+  .lch-outrow{display:flex;align-items:baseline;gap:10px;}
+  .lch-outrow .k{width:70px;flex-shrink:0;font-size:10px;color:#6A6A6A;}
+  .lch-outrow .v{flex:1;min-width:0;font-size:11px;font-weight:600;color:#D8D8D8;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .lch-create{display:flex;align-items:center;justify-content:center;gap:8px;height:32px;border-radius:4px;border:.5px solid rgba(240,240,240,0.2);background:#EDEDED;color:#101012;font-family:inherit;font-size:12px;font-weight:600;letter-spacing:-0.006em;cursor:pointer;flex-shrink:0;}
+  .lch-create:hover{background:#FFFFFF;}
+  .lch-viewer{display:flex;flex-direction:column;border:.5px solid rgba(255,255,255,0.08);border-radius:5px;background:#0D0E10;overflow:hidden;min-width:0;}
+  .lch-vtop{height:28px;flex-shrink:0;display:flex;align-items:center;gap:8px;padding:0 10px;border-bottom:.5px solid rgba(255,255,255,0.06);background:#121316;}
+  .lch-vname{display:grid;place-items:center;height:16px;padding:0 7px;border-radius:2px;background:#242629;font-size:10px;font-weight:600;color:#D0D0D0;white-space:nowrap;flex-shrink:0;}
+  .lch-vsum{flex:1;min-width:0;font-size:10px;color:#6A6A6A;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .lch-vhint{font-size:10px;color:#4E4E4E;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}
+  .lch-panes{flex:1;min-height:0;display:grid;gap:8px;padding:8px;}
+  .lch-panes.two{grid-template-columns:minmax(0,1fr) minmax(0,1fr);}
+  .lch-panes.one{grid-template-columns:minmax(0,1fr);}
+  .lch-panes.room{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:minmax(0,1fr) 158px;}
+  .lch-pane{position:relative;border:.5px solid rgba(255,255,255,0.07);border-radius:4px;background:radial-gradient(78% 78% at 50% 45%, #131519 0%, #0A0B0C 100%);overflow:hidden;touch-action:none;}
+  .lch-pane.grab{cursor:grab;} .lch-pane.grabbing{cursor:grabbing;}
+  .lch-pane>svg{position:absolute;inset:0;width:100%;height:100%;}
+  .lch-cap{position:absolute;left:10px;top:9px;font-size:9.5px;font-weight:600;letter-spacing:0.05em;color:#5A5A5A;pointer-events:none;}
+  .lch-capr{position:absolute;right:10px;bottom:9px;font-size:10px;color:#6A6A6A;font-variant-numeric:tabular-nums;pointer-events:none;}
+  .lch-data{position:absolute;left:0;right:0;bottom:0;height:24px;display:flex;align-items:center;gap:9px;padding:0 10px;background:rgba(10,11,12,0.72);border-top:.5px solid rgba(255,255,255,0.06);pointer-events:none;}
+  .lch-data .d1{font-size:10px;font-weight:600;color:#C8C8C8;font-variant-numeric:tabular-nums;}
+  .lch-data .sep{width:.5px;height:11px;background:rgba(255,255,255,0.12);}
+  .lch-data .d2{font-size:10px;color:#8A8A8A;font-variant-numeric:tabular-nums;}
+  .lch-data .d3{font-size:10px;color:#6A6A6A;font-variant-numeric:tabular-nums;}
+  .lch-stitch{grid-column:1 / 3;display:flex;flex-direction:column;gap:8px;padding:10px;border:.5px solid rgba(255,255,255,0.07);border-radius:4px;background:#0B0C0E;}
+  .lch-sthead{display:flex;align-items:center;gap:9px;flex-shrink:0;}
+  .lch-sthead .t{font-size:9.5px;font-weight:600;letter-spacing:0.05em;color:#5A5A5A;}
+  /* Los divisores son los huecos de 1px del contenedor, NO bordes por tarjeta (nota explícita del handoff) */
+  .lch-strip{flex:1;min-height:0;display:flex;align-items:stretch;gap:1px;background:rgba(255,255,255,0.07);border:.5px solid rgba(255,255,255,0.09);border-radius:2px;overflow:hidden;}
+  .lch-screen{min-width:0;display:flex;flex-direction:column;justify-content:space-between;padding:8px;background:#0A0B0C;}
+  .lch-screen .hd{display:flex;align-items:center;gap:6px;}
+  .lch-screen .sw{width:6px;height:6px;border-radius:1px;flex-shrink:0;}
+  .lch-screen .ix{font-size:10px;font-weight:600;color:#C8C8C8;font-variant-numeric:tabular-nums;}
+  .lch-screen .fc{font-size:10px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .lch-screen .bd{display:flex;flex-direction:column;gap:2px;min-width:0;}
+  .lch-screen .b1{font-size:10.5px;font-weight:600;color:#C8C8C8;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .lch-screen .b2{font-size:9.5px;color:#6A6A6A;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .lch-screen .b3{font-size:9.5px;color:#5A5A5A;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .lch-spacer{flex:1;min-height:18px;}
+  .lch-recents{flex-shrink:0;}
+  .lch-rgrid{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:9px;}
+  .lch-rcard{display:flex;flex-direction:column;border:.5px solid rgba(255,255,255,0.07);border-radius:4px;background:#101113;overflow:hidden;cursor:pointer;padding:0;text-align:left;font-family:inherit;}
+  .lch-rcard:hover{border-color:rgba(255,255,255,0.18);background:#15161A;}
+  .lch-thumb{position:relative;display:block;aspect-ratio:16/9;}
+  .lch-thumb>svg{position:absolute;inset:0;width:100%;height:100%;}
+  .lch-badge{position:absolute;left:5px;top:5px;display:grid;place-items:center;height:15px;padding:0 5px;border-radius:2px;background:rgba(10,11,12,0.72);font-size:9px;font-weight:600;letter-spacing:0.05em;}
+  .lch-dur{position:absolute;right:5px;bottom:5px;font-size:9px;font-weight:500;color:#9A9A9A;font-variant-numeric:tabular-nums;background:rgba(10,11,12,0.65);padding:1px 4px;border-radius:2px;}
+  .lch-rbody{display:flex;flex-direction:column;gap:2px;padding:7px 8px 8px;min-width:0;}
+  .lch-rbody .n{font-size:10.5px;font-weight:500;color:#D8D8D8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .lch-rbody .m{font-size:9.5px;color:#6A6A6A;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .lch-empty{grid-column:1 / -1;font-size:10.5px;color:#5A5A5A;padding:10px 2px;}
+  .lch-foot{height:40px;flex-shrink:0;display:flex;align-items:center;gap:9px;border-top:.5px solid rgba(255,255,255,0.06);margin-top:16px;}
+  .lch-foot .l{font-size:10.5px;color:#7A7A7A;} .lch-foot .l b{color:#A8A8A8;font-weight:500;}
+  .lch-foot .r{font-size:10.5px;color:#4E4E4E;}
   /* [R135] app menu bar (File / Edit / Window) */
   .menubar{display:flex;gap:1px;margin-left:2px;}
   .menubtn{height:20px;padding:0 9px;font-size:12px;font-weight:500;background:transparent;border:none;border-radius:3px;color:var(--ink-2);cursor:pointer;white-space:nowrap;}
@@ -797,7 +933,7 @@
           <button data-v="2d" class="on"><i class="ic" data-ico="view2d"></i> Dome Master</button><!-- [U-42] industry term; updModeUI relabels it "2D Master" on flat/room sequences -->
           <button data-v="3d"><i class="ic" data-ico="view3d"></i> 3D Preview</button>
         </div>
-        <div class="vdiv"></div>
+        <div class="vdiv" id="dispSep"></div>
         <!-- [REDISEÑO Rev1] overlays icon-only (tooltip) -->
         <div class="vseg" id="dispSeg">
           <button data-d="grid" class="on" title="Reference grid"><i class="ic" data-ico="grid"></i></button>
@@ -806,7 +942,7 @@
           <button data-d="hfade" title="Fade content near the dome horizon (spring line)"><i class="ic" data-ico="cull"></i></button>
           <button data-d="checker" title="Alpha checkerboard — see how the alpha behaves"><i class="ic" data-ico="safe"></i> α</button>
         </div>
-        <div class="vdiv"></div>
+        <div class="vdiv" id="qpSep"></div>
         <div class="vseg" id="qualitySeg" title="Preview quality (does not affect export)">
           <button data-q="1" class="on">Full</button>
           <button data-q="0.5">½</button>
@@ -831,9 +967,13 @@
           <button id="vzReset" class="tnum" style="width:42px;padding:0;justify-content:center;font-size:11px;">100%</button>
           <button id="vzIn" style="width:25px;padding:0;justify-content:center;"><i class="ic" data-ico="zoomIn"></i></button>
         </div>
-        <div class="vdiv"></div>
+        <div class="vdiv" id="outSep"></div>
         <!-- [REDISEÑO Rev1] Output dropdown: consolida Full performance · Viewer window · NDI · Spout en un solo menú -->
-        <div class="vseg"><button id="outputBtn" title="Output — Full performance · Viewer window · NDI · Spout" style="position:relative;gap:5px;"><i class="ic" data-ico="ndi"></i>Output<span style="display:flex;opacity:.6;"><i class="ic" data-ico="chevDown" data-s="9"></i></span></button></div>
+        <div class="vseg" id="outWell"><button id="outputBtn" title="Output — Full performance · Viewer window · NDI · Spout" style="position:relative;gap:5px;"><i class="ic" data-ico="ndi"></i>Output<span style="display:flex;opacity:.6;"><i class="ic" data-ico="chevDown" data-s="9"></i></span></button></div>
+        <!-- [R152 · §3] "More": cuando la columna del visor se angosta, los grupos se repliegan acá en vez de
+             pelear por el espacio (breakpoints del prototipo sobre centerW: Output 440 · overlays 620 · calidad 800
+             · Az/El y DIST 980). El menú no duplica lógica: reenvía el clic al control real que quedó oculto. -->
+        <button class="vmore" id="vpMoreBtn" title="More viewer controls" style="display:none;">···</button>
       </div>
       <div class="stage" id="stage">
         <div class="checkerbg" id="checkerBg"></div>
@@ -942,8 +1082,8 @@
         <div class="playhead" id="playhead" style="left:0;"></div>
         <div class="snapline" id="snapline"></div>
       </div>
-      <!-- [REDISEÑO Rev1] barra de V-zoom (altura de pistas) a la derecha del área de clips (diseño §6) -->
-      <div class="tlvzoom" id="tlVZoom"><div class="tlvztrack" id="tlVZoomTrack"><div class="tlvzthumb" id="tlVZoomThumb" title="Drag to zoom track height"></div></div></div>
+      <!-- [R152] barra vertical única, espejo de la horizontal: cuerpo = scroll · casquetes = alto de pistas -->
+      <div class="tlvzoom" id="tlVZoom"><div class="tlvztrack" id="tlVZoomTrack"><div class="tlvzthumb" id="tlVZoomThumb" title="Drag to scroll · drag the round ends to resize tracks"><span class="tlvzcap t" data-vcap="t"></span><span class="tlvzcap b" data-vcap="b"></span></div></div></div>
     </div>
     <div class="tlzoom" id="tlZoomBar"><div class="tlztrack" id="tlZoomTrack"><div class="tlzthumb" id="tlZoomThumb"><span class="tlzcap l" data-cap="l"></span><span class="tlzcap r" data-cap="r"></span></div></div></div>
   </div>

@@ -1,5 +1,46 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 152 — Pistas iguales, una sola barra vertical y barra del visor responsiva
+
+Segunda pasada del rediseño sobre el editor, dirigida por Beltrán mientras revisaba: *"pista de audio y vídeo se
+deben comportar similar, permitiendo reordenar, agrandar, achicar"*, *"en la vertical hay dos [barras], debiera
+haber una como la nueva horizontal"*, *"fijate cómo Claude Design aborda las herramientas que aparecen al cambiar
+entre visor 2D, 3D y viewer"*, y el splash al 70%.
+
+**Audio y vídeo, la misma cosa.** R148 unificó la columna pero el ORDEN seguía particionado por tipo
+(`lanesTopDown` reordenaba vídeo-arriba/audio-abajo) y el arrastre tenía un clamp `[R92-T8]` que impedía soltar una
+pista de audio entre las de vídeo. Ambas cosas eran de cuando el audio era un módulo sticky. El prototipo lo zanja:
+`trackOrder:['v4','v3','v2','v1','a1']` — **el audio está en la misma lista ordenable**. Fuera la partición, fuera
+el clamp. Verificado moviendo la pista de audio al tope: queda arriba de todo (`AVVVV`), con grip y colapso como
+las de vídeo. También se fueron las ramas `.audiozone` de los handlers de rueda (código muerto desde R148) y
+Alt+rueda pasó a escalar TODAS las pistas, como el `onWheelH` del prototipo.
+
+**Tamaños que estaban mal.** Alturas de pista 82→**57**, audio 41→**44**, clamp 34-260→**26-120**, colapsada
+20→**24**, regla 22→**24**. El 22 de la regla estaba cableado en el CSS y en TRES sitios de JS (playhead, límite de
+arrastre, brace del work-area); ahora es la constante `RULER_H`, porque desincronizarlos desalinea todo.
+
+**Una sola barra vertical.** Había dos y no se parecían: la mía (que sólo escalaba alturas) y la scrollbar nativa de
+`#tlscroll` (que sólo scrolleaba). Ahora es una sola y es el **espejo exacto de la horizontal** — 15px de barra,
+thumb de 9px, dos casquetes circulares — con el mismo funcionamiento: cuerpo = scroll, casquetes = zoom anclando el
+borde opuesto. La nativa se oculta.
+
+**Barra del visor: el diseño resuelve en DOS ejes, no en uno.** El modo decide qué lectura tiene sentido (2D→Az/El ·
+3D Orbit→DIST · 3D Viewer→FOV+DOLLY) — eso ya estaba bien. Lo que faltaba es que **repliega grupos enteros a un menú
+"More" según el ancho de la columna**: Output 440 · overlays 620 · calidad 800 · Az/El y DIST 980. Implementado con
+esos umbrales; el menú no duplica lógica, reenvía el clic al control real que quedó oculto. Medido: a 1920 todo
+inline sin "More"; a 1500 cae Az/El; a 1200 caen overlays y calidad; a 900 cae Output.
+
+**Splash al 70%** (`SPLASH_SCALE`): el lienzo sigue maquetado a 1080² y sólo cambia la escala, así que la
+proporción no se toca.
+
+**Residual anotado:** por debajo de ~380px de columna del visor la barra desborda igual (a 900px de ventana con los
+dos paneles abiertos quedan 308px). El diseño no contempla ese caso porque sus paneles se pliegan a rieles de 26px,
+y nuestra ventana tiene `minWidth:1100`, así que en uso real no se alcanza. Se deja anotado en vez de inventar un
+umbral que el diseño no tiene.
+
+**Archivado (ADR-0007):** `_backup/deprecated/20260725-audio-section-model.js`. Verificado por CDP con cero errores
+de consola.
+
 ## ROUND 151 — Arranque en dos ventanas: splash 1080² propio → editor en 16:9
 
 Beltrán trajo un handoff nuevo de Claude Design (`Immersive Studio Pro—UXUI.zip` → extraído en

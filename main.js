@@ -56,12 +56,15 @@ function buildLabel() {
 function createSplash() {
   // El diseño es de 1080×1080 fijos. En una pantalla de 1080p esa altura no entra, así que se toma el lado
   // mayor que quepa en el área de trabajo y el HTML escala su lienzo de 1080 a ese tamaño (proporción intacta).
+  // SPLASH_SCALE: pedido de Beltrán — la ventana al 70% de lo que daba antes; ocupaba demasiada pantalla.
+  const SPLASH_SCALE = 0.70;
   let side = 1080;
   try {
     const { screen } = require('electron');
     const wa = screen.getPrimaryDisplay().workAreaSize;
-    side = Math.max(420, Math.min(1080, Math.floor(Math.min(wa.width, wa.height) * 0.92)));
+    side = Math.min(1080, Math.floor(Math.min(wa.width, wa.height) * 0.92));
   } catch (_) {}
+  side = Math.max(360, Math.round(side * SPLASH_SCALE));
   splashWin = new BrowserWindow({
     width: side, height: side,
     frame: false, transparent: true, resizable: false, movable: true,

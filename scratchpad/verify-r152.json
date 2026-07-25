@@ -1,0 +1,125 @@
+{
+  "constantes": {
+    "LANE_DEF_H": 57,
+    "LANE_MIN_H": 26,
+    "LANE_MAX_H": 120,
+    "LANE_COLLAPSED_H": 24,
+    "AUDIO_LANE_H": 44,
+    "RULER_H": 24
+  },
+  "lanes": [
+    {
+      "tag": "A1",
+      "aud": true,
+      "h": 44,
+      "grip": true,
+      "collapse": true
+    },
+    {
+      "tag": "V4",
+      "aud": false,
+      "h": 57,
+      "grip": true,
+      "collapse": true
+    },
+    {
+      "tag": "V3",
+      "aud": false,
+      "h": 57,
+      "grip": true,
+      "collapse": true
+    },
+    {
+      "tag": "V2",
+      "aud": false,
+      "h": 57,
+      "grip": true,
+      "collapse": true
+    },
+    {
+      "tag": "V1",
+      "aud": false,
+      "h": 57,
+      "grip": true,
+      "collapse": true
+    }
+  ],
+  "reglaAlto": {
+    "w": 2728,
+    "h": 24
+  },
+  "audioIdxAntes": 4,
+  "ordenTrasMover": "AVVVV",
+  "vbar": {
+    "existe": true,
+    "thumb": {
+      "w": 9,
+      "h": 380
+    },
+    "casquetes": 2,
+    "anchoBarra": 15,
+    "nativaOculta": true
+  },
+  "hbar": {
+    "existe": true,
+    "thumb": {
+      "w": 1066,
+      "h": 9
+    },
+    "casquetes": 2,
+    "anchoBarra": 15
+  },
+  "barraVisor": [
+    {
+      "win": 1920,
+      "vptool": 1328,
+      "overflow": false,
+      "overlays": true,
+      "calidad": true,
+      "output": true,
+      "azel": true,
+      "more": false
+    },
+    {
+      "win": 1500,
+      "vptool": 908,
+      "overflow": false,
+      "overlays": true,
+      "calidad": true,
+      "output": true,
+      "azel": false,
+      "more": true
+    },
+    {
+      "win": 1200,
+      "vptool": 608,
+      "overflow": false,
+      "overlays": false,
+      "calidad": false,
+      "output": true,
+      "azel": false,
+      "more": true
+    },
+    {
+      "win": 900,
+      "vptool": 308,
+      "overflow": true,
+      "overlays": false,
+      "calidad": false,
+      "output": false,
+      "azel": false,
+      "more": true
+    },
+    {
+      "win": 700,
+      "vptool": 108,
+      "overflow": true,
+      "overlays": false,
+      "calidad": false,
+      "output": false,
+      "azel": false,
+      "more": true
+    }
+  ],
+  "consoleErrors": []
+}
