@@ -47,6 +47,8 @@
       "mp4-muxer.min.js",
       "main.js",
       "preload.js",
+      "splash.html",
+      "splash-preload.js",
       "assets/**/*",
       "node_modules/dsp-ndi-send/index.js",
       "node_modules/dsp-ndi-send/package.json",

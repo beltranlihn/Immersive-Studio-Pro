@@ -31,6 +31,64 @@ app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
 
 let win;
 let forceClose = false; // set true by the renderer's styled "close without saving" confirm
+
+/* ============================================================================================================
+   ARRANQUE EN DOS VENTANAS (rediseño de Claude Design, handoff launcher+splash)
+   El splash dejó de ser una capa dentro del editor y pasó a ser una VENTANA PROPIA cuadrada que se muestra
+   sola mientras el editor arranca; recién cuando el editor avisa que terminó se abre la ventana principal
+   en 16:9 y el splash se desvanece. Así nunca se ve el cromo del editor a medio armar.
+   ============================================================================================================ */
+let splashWin = null;
+let bootDone = false;
+let bootTimer = null;
+const BOOT_TIMEOUT_MS = 25000; // salvavidas: si el editor nunca avisa (cuelgue), igual mostramos la ventana
+
+function buildLabel() {
+  // "1.0.0  ·  Build AAAA-MM-DD" — la versión sale de package.json; la fecha, del mtime del asar/app.js,
+  // que es lo más cercano a "cuándo se compiló esto" sin agregar un paso de build (ADR-0001).
+  let v = '1.0.0';
+  try { v = require('./package.json').version || v; } catch (_) {}
+  let d = '';
+  try { d = new Date(fs.statSync(path.join(__dirname, 'app.js')).mtimeMs).toISOString().slice(0, 10); } catch (_) {}
+  return d ? (v + '  ·  Build ' + d) : v;
+}
+
+function createSplash() {
+  // El diseño es de 1080×1080 fijos. En una pantalla de 1080p esa altura no entra, así que se toma el lado
+  // mayor que quepa en el área de trabajo y el HTML escala su lienzo de 1080 a ese tamaño (proporción intacta).
+  let side = 1080;
+  try {
+    const { screen } = require('electron');
+    const wa = screen.getPrimaryDisplay().workAreaSize;
+    side = Math.max(420, Math.min(1080, Math.floor(Math.min(wa.width, wa.height) * 0.92)));
+  } catch (_) {}
+  splashWin = new BrowserWindow({
+    width: side, height: side,
+    frame: false, transparent: true, resizable: false, movable: true,
+    center: true, show: false, skipTaskbar: false,
+    title: 'Immersive Studio Pro',
+    webPreferences: { preload: path.join(__dirname, 'splash-preload.js'), contextIsolation: true, nodeIntegration: false }
+  });
+  splashWin.removeMenu();
+  splashWin.loadFile('splash.html');
+  splashWin.once('ready-to-show', () => { if (splashWin && !splashWin.isDestroyed()) splashWin.show(); });
+  splashWin.webContents.on('did-finish-load', () => { splashSend('splash:init', { build: buildLabel() }); });
+  splashWin.on('closed', () => { splashWin = null; });
+}
+
+function splashSend(channel, ...args) {
+  try { if (splashWin && !splashWin.isDestroyed()) splashWin.webContents.send(channel, ...args); } catch (_) {}
+}
+
+// El editor terminó de arrancar (o se acabó el tiempo): mostrar la ventana principal y despedir al splash.
+function finishBoot() {
+  if (bootDone) return; bootDone = true;
+  if (bootTimer) { clearTimeout(bootTimer); bootTimer = null; }
+  splashSend('splash:bye');
+  // La principal se muestra PRIMERO y el splash se va encima: si fuese al revés se ve el escritorio en el medio.
+  try { if (win && !win.isDestroyed()) { win.show(); win.focus(); } } catch (_) {}
+  setTimeout(() => { try { if (splashWin && !splashWin.isDestroyed()) splashWin.close(); } catch (_) {} }, 420);
+}
 // --- double-click .rdome → open it. The path arrives as a CLI arg (Windows) or via 'open-file' (macOS). ---
 let pendingOpenPath = null;
 function rdomeFromArgv(argv){ try{ for(const a of (argv||[]).slice(1)){ if(a && /\.(isp|ise|rdome)$/i.test(a) && fs.existsSync(a)) return a; } }catch(e){} return null; } // .isp (Immersive Studio Pro) + legacy .ise/.rdome
@@ -40,10 +98,27 @@ pendingOpenPath = rdomeFromArgv(process.argv);
 let uiDirty = false, uiLang = 'en';
 const tt = (en, es) => (uiLang === 'es' ? es : en);
 
+// Tamaño inicial 16:9 que entre en el área de trabajo (pedido de Beltrán: "abre la app en 16/9").
+// Es sólo el tamaño de ARRANQUE — la ventana sigue siendo redimensionable a lo que el usuario quiera.
+function initialSize169() {
+  let W = 1600, H = 900;
+  try {
+    const { screen } = require('electron');
+    const wa = screen.getPrimaryDisplay().workAreaSize;
+    W = Math.min(1600, wa.width - 80);
+    H = Math.round(W * 9 / 16);
+    if (H > wa.height - 80) { H = wa.height - 80; W = Math.round(H * 16 / 9); }
+    W = Math.max(1100, W); H = Math.max(619, H);
+  } catch (_) {}
+  return { width: W, height: H };
+}
+
 function createWindow() {
+  const sz = initialSize169();
   win = new BrowserWindow({
-    width: 1600,
-    height: 980,
+    width: sz.width,
+    height: sz.height,
+    useContentSize: true, // el 16:9 se mide sobre el ÁREA ÚTIL, no sobre el marco: es lo que se ve, no lo que decora
     minWidth: 1100,
     minHeight: 700,
     backgroundColor: '#0E0F11',
@@ -94,7 +169,10 @@ function createWindow() {
   });
 
   win.loadFile('index.html');
-  win.once('ready-to-show', () => win.show());
+  // NO se muestra al estar lista: la ventana espera a que el editor avise que terminó de arrancar
+  // (ipc 'dsp:bootReady'), y mientras tanto el usuario ve el splash. El temporizador es el salvavidas.
+  bootTimer = setTimeout(finishBoot, BOOT_TIMEOUT_MS);
+  win.webContents.on('render-process-gone', () => finishBoot()); // si el renderer muere durante el arranque, no dejar al usuario sin ventana
   // hand a double-clicked .rdome to the renderer once the UI is ready
   win.webContents.on('did-finish-load', () => { if (pendingOpenPath) { win.webContents.send('dsp:openPath', pendingOpenPath); pendingOpenPath = null; } });
 }
@@ -105,13 +183,16 @@ if (!gotLock) { app.quit(); }
 else {
   app.on('second-instance', (e, argv) => { const p = rdomeFromArgv(argv); if (win) { if (win.isMinimized()) win.restore(); win.focus(); if (p) win.webContents.send('dsp:openPath', p); } });
   app.on('open-file', (e, p) => { e.preventDefault(); if (win && win.webContents) win.webContents.send('dsp:openPath', p); else pendingOpenPath = p; }); // macOS
-  app.whenReady().then(createWindow);
+  app.whenReady().then(() => { createSplash(); createWindow(); }); // splash cuadrado primero; la ventana 16:9 se revela al terminar el arranque
   app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 }
 
 // --- IPC: UI state report (dirty flag + language) ---
 ipcMain.handle('dsp:setUiState', (e, s) => { if (s) { uiDirty = !!s.dirty; if (s.lang === 'en' || s.lang === 'es') uiLang = s.lang; } return true; });
+// --- arranque: el editor reporta hitos REALES al splash y avisa cuando terminó ---
+ipcMain.handle('dsp:bootProgress', (e, pct, text) => { if (!bootDone) splashSend('splash:progress', pct, text); return true; });
+ipcMain.handle('dsp:bootReady', () => { finishBoot(); return true; });
 
 // --- IPC: file dialogs + filesystem for project save/open with no data loss ---
 ipcMain.handle('dsp:saveDialog', async (e, defaultPath) => {

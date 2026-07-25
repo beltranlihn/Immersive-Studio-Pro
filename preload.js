@@ -84,6 +84,9 @@ contextBridge.exposeInMainWorld('dsp', {
   setProgress: (v) => ipcRenderer.invoke('dsp:setProgress', v), // [R92-T5] Windows taskbar progress during exports (-1 clears)
   // UI state report (dirty flag + language) for the unsaved-changes close guard
   setUiState: (s) => ipcRenderer.invoke('dsp:setUiState', s),
+  // Arranque: hitos reales hacia el splash (ventana aparte) y aviso de "listo" que revela la ventana 16:9
+  bootProgress: (pct, text) => ipcRenderer.invoke('dsp:bootProgress', pct, text),
+  bootReady: () => ipcRenderer.invoke('dsp:bootReady'),
   ndi: ndiApi,
   spout: spoutApi,
   // Helpers

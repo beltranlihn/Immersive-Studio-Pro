@@ -1,0 +1,65 @@
+{
+  "cambios": [
+    {
+      "ms": 0,
+      "pages": []
+    },
+    {
+      "ms": 808,
+      "pages": [
+        {
+          "url": "index.html",
+          "title": "index.html"
+        },
+        {
+          "url": "splash.html",
+          "title": "Immersive Studio Pro"
+        }
+      ]
+    },
+    {
+      "ms": 1211,
+      "pages": [
+        {
+          "url": "splash.html",
+          "title": "Immersive Studio Pro"
+        },
+        {
+          "url": "index.html",
+          "title": "Immersive Studio Pro"
+        }
+      ]
+    },
+    {
+      "ms": 3619,
+      "pages": [
+        {
+          "url": "index.html",
+          "title": "Immersive Studio Pro"
+        },
+        {
+          "url": "splash.html",
+          "title": "Immersive Studio Pro"
+        }
+      ]
+    },
+    {
+      "ms": 4019,
+      "pages": [
+        {
+          "url": "index.html",
+          "title": "Immersive Studio Pro"
+        }
+      ]
+    }
+  ],
+  "editor": {
+    "w": 1600,
+    "h": 900,
+    "ratio": 1.7778,
+    "preboot": false,
+    "landing": true,
+    "tour": false
+  },
+  "splash": "ausente"
+}

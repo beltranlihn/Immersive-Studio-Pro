@@ -1,5 +1,50 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 151 — Arranque en dos ventanas: splash 1080² propio → editor en 16:9
+
+Beltrán trajo un handoff nuevo de Claude Design (`Immersive Studio Pro—UXUI.zip` → extraído en
+`scratchpad/redesign/design_handoff_launcher_splash/`) con **dos pantallas**: el splash de carga y el launcher
+(landing). Y una instrucción concreta sobre el arranque: *"abre en 1080x1080, termina de cargar y recién ahí abre
+la app en 16/9"*. **Esta ronda cierra la pantalla 1 (splash); el launcher queda para la siguiente.**
+
+**Cambio de arquitectura.** El splash dejó de ser una capa dentro del documento del editor y pasó a ser una
+**ventana propia**. `main.js` crea `splash.html` (cuadrado, sin marco, transparente, centrado) y la ventana del
+editor nace **oculta**; cuando el renderer avisa `dsp:bootReady`, se muestra el editor y recién ahí se cierra el
+splash. Esto vuelve estructuralmente imposible el flash que R147 tuvo que perseguir con `body.preboot`: no se puede
+ver el cromo a medio armar si la ventana ni siquiera está en pantalla.
+
+- **1080×1080 que entra en cualquier pantalla.** El diseño es de 1080² fijos, pero en un monitor 1080p esa altura
+  no cabe. El lienzo se maqueta **siempre a 1080×1080** y se escala con un `transform`, así la proporción es
+  idéntica caiga donde caiga (medido: ventana 949², lienzo 1080² con `scale(0.8787)`, logo 387 = 440×0.8787).
+- **Bug encontrado y corregido en el camino:** con `place-items:center` y un lienzo más ancho que la ventana, la
+  pista del grid arranca en 0 y desborda a la derecha → el splash quedaba corrido ~65px y se le cortaba el borde.
+  Lo delató una captura, no la medición. Ahora va `left/top:50%` + `translate(-50%,-50%)`; verificado x=0 / right=innerWidth.
+- **Hitos reales, no un temporizador.** El prototipo traía un timer sintético de 7s; el README del handoff pide
+  reemplazarlo por hitos de arranque de verdad. `bootMark(pct)` se dispara donde cada cosa terminó **de verdad**
+  (contexto GL, warp del domo compilado, todos los programas enlazados, workspace, panel de medios, timeline +
+  inspector, visores) y **sólo manda el porcentaje**: el texto lo elige `splash.html` con la tabla de umbrales del
+  diseño, así no hay dos fuentes para el mismo string. El porcentaje es monótono y se topa en 91 hasta que el
+  arranque termina: el 100% significa "listo", no "casi".
+- **Mínimo en pantalla (2.4s).** El arranque real tarda ~1.4s y el splash no puede ser un parpadeo — el splash
+  viejo hacía lo mismo con sus 2 vueltas de logo.
+- **16:9 sobre el área ÚTIL.** `useContentSize:true`: medido sin él daba 1584×861 (1.84) porque Electron dimensiona
+  con marco. Con él, el contenido es exactamente **1600×900**. Es el tamaño de ARRANQUE; la ventana sigue siendo
+  redimensionable.
+- **Salvavidas.** Si el renderer nunca avisa (cuelgue) o se muere durante el arranque, `BOOT_TIMEOUT_MS` (25s) y
+  `render-process-gone` muestran la ventana igual. Sin eso, un fallo de arranque = app invisible.
+- **Trampa de empaquetado.** `package.json › build.files` es una **lista explícita**: hubo que agregar `splash.html`
+  y `splash-preload.js`. Sin eso el `.exe` arrancaría sin splash y esperando un `bootReady` que nunca llega.
+
+**Archivado (ADR-0007):** `showSplash` + su CSS → `_backup/deprecated/20260725-in-page-splash.js`. `startLogoLoop`
+y `preloadLogoFrames` NO se archivan: los siguen usando la pantalla de carga de proyecto y la de inicio.
+**Decisión registrada:** [ADR-0009](docs/adr/adr-0009-arranque-en-dos-ventanas.md) — es cara de revertir (toca
+main.js, el empaquetado y deshace el enfoque de R147), así que queda escrita con sus reglas y sus trampas.
+
+**Verificado por CDP:** splash presente a los ~0.8s, las dos ventanas conviven hasta los ~3.6s, splash cerrado a los
+~4.0s; editor 1600×900 (16:9 exacto), `preboot` quitado, landing pintado, contexto GL vivo, `showSplash` ya no
+existe, cero errores de consola. Progreso muestreado: 26% "Initializing dome projection" → 38% "Building timeline
+engine" → 80% "Restoring workspace" → 100% "Ready" + fundido.
+
 ## ROUND 150 — Master Grade fuera del código (cierra la deuda abierta por R148)
 
 Decisión de Beltrán, sin rodeos: *"Eso nunca lo voy a aplicar, no me interesa. Que salga del code y se vaya a

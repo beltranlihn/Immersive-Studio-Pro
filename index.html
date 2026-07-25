@@ -615,9 +615,8 @@
   /* modals */
   .overlay{position:fixed;inset:0;background:rgba(6,7,9,0.66);display:flex;align-items:center;justify-content:center;z-index:50;animation:overIn .12s;}
   /* [R134] branded square splash — the 1080×1080 logo loop shown a couple of seconds on startup + project open (responsive, capped at the native 1080²) */
-  .splashcard{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;background:transparent;}
-  .splashcard .splashlogo{width:min(1080px,82vmin);height:min(1080px,82vmin);object-fit:contain;border-radius:min(64px,6vmin);}
-  .splashcard .splashttl{font-size:13px;color:var(--ink-3);letter-spacing:0.02em;text-align:center;padding:0 14px;}
+  /* [archivado 20260725] CSS del splash dentro del documento → _backup/deprecated/20260725-in-page-splash.js
+     (el splash ahora es splash.html, en su propia ventana de 1080²) */
   /* [R135] app menu bar (File / Edit / Window) */
   .menubar{display:flex;gap:1px;margin-left:2px;}
   .menubtn{height:20px;padding:0 9px;font-size:12px;font-weight:500;background:transparent;border:none;border-radius:3px;color:var(--ink-2);cursor:pointer;white-space:nowrap;}

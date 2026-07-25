@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<style>
+@font-face{font-family:'Geist';font-style:normal;font-weight:400;font-display:swap;src:url('assets/fonts/geist-400.woff2') format('woff2');}
+@font-face{font-family:'Geist';font-style:normal;font-weight:500;font-display:swap;src:url('assets/fonts/geist-500.woff2') format('woff2');}
+@font-face{font-family:'Geist';font-style:normal;font-weight:600;font-display:swap;src:url('assets/fonts/geist-600.woff2') format('woff2');}
+html,body{margin:0;min-height:100%;}
+body{background:#0A0B0C;font-family:'Geist',system-ui,sans-serif;-webkit-font-smoothing:antialiased;color:#D8D8D8;}
+a{color:#9A9A9A;text-decoration:none;} a:hover{color:#E8E8E8;}
+input{font-family:'Geist',system-ui,sans-serif;} input::placeholder{color:#4E4E4E;}
+::-webkit-scrollbar{width:9px;height:9px;} ::-webkit-scrollbar-thumb{background:#242629;border-radius:5px;border:2px solid #0A0B0C;} ::-webkit-scrollbar-track{background:transparent;}
+</style>
+</helmet>
+<div style="height:100vh;min-height:1000px;box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden;background:radial-gradient(90% 55% at 50% -8%, #16181C 0%, #0A0B0C 60%)">
+
+  <div style="height:38px;flex-shrink:0;display:flex;align-items:center;gap:9px;padding:0 24px;border-bottom:.5px solid rgba(255,255,255,0.05);background:rgba(10,11,12,0.6)">
+    <img src="assets/immersive-logo.png" alt="" style="height:15px;width:15px;object-fit:contain;opacity:0.9"/>
+    <span style="font-size:11px;font-weight:600;letter-spacing:-0.008em;color:#C8C8C8">Immersive Studio Pro</span>
+    <span style="font-size:10px;color:#5A5A5A;font-variant-numeric:tabular-nums;letter-spacing:0.04em;margin-left:2px">v1.0</span>
+    <div style="flex:1"></div>
+    <div style="display:flex;align-items:center;gap:6px">
+      <button style="display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 10px;border-radius:3px;border:.5px solid rgba(255,255,255,0.09);background:transparent;color:#9A9A9A;font-family:inherit;font-size:10.5px;font-weight:500;cursor:pointer" style-hover="border-color:rgba(255,255,255,0.2);color:#E8E8E8"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h6l2 2h10v10H3z"></path></svg>Open project</button>
+      <button style="display:grid;place-items:center;width:22px;height:22px;border-radius:3px;border:.5px solid rgba(255,255,255,0.09);background:transparent;color:#9A9A9A;font-family:inherit;cursor:pointer" style-hover="border-color:rgba(255,255,255,0.2);color:#E8E8E8"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2v.2a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.6 1.7 1.7 0 0 0-1.9.4l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9h-.2a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3h.1A1.7 1.7 0 0 0 10 2.6v-.2a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0 1.2 2.9h.2a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.6 1.1z"></path></svg></button>
+    </div>
+  </div>
+
+  <div style="flex:1;display:flex;justify-content:center;min-height:0;padding:0 28px 22px">
+    <div style="width:100%;max-width:1760px;display:flex;flex-direction:column;min-height:0">
+
+      <div style="display:flex;align-items:center;gap:20px;padding:22px 2px 18px;flex-shrink:0">
+        <img src="assets/immersive-logo.png" alt="Immersive Studio Pro" style="height:46px;width:46px;object-fit:contain;flex-shrink:0"/>
+        <h1 style="margin:0;font-size:27px;font-weight:600;letter-spacing:-0.026em;line-height:1;color:#F4F4F4">Immersive Studio Pro</h1>
+        <div style="flex:1"></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 12px 7px 9px;border:.5px solid rgba(255,255,255,0.07);border-radius:4px;background:rgba(255,255,255,0.015);flex-shrink:0">
+          <img src="assets/alma-logo.png" alt="Alma Digital Studio" style="height:24px;width:24px;object-fit:contain;opacity:0.9"/>
+          <span style="display:flex;flex-direction:column;gap:2px">
+            <span style="font-size:9.5px;font-weight:500;letter-spacing:0.05em;color:#5A5A5A">Created by</span>
+            <span style="font-size:11.5px;font-weight:600;letter-spacing:-0.006em;color:#C8C8C8">Alma Digital Studio</span>
+          </span>
+        </div>
+      </div>
+
+      <div style="flex:1;min-height:612px;max-height:720px;display:grid;grid-template-columns:426px minmax(0,1fr);gap:16px">
+
+        <div style="display:flex;flex-direction:column;gap:9px;padding:14px;box-sizing:border-box;border:.5px solid rgba(255,255,255,0.08);border-radius:5px;background:#101113;overflow:hidden">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:10px;font-weight:600;letter-spacing:0.06em;color:#6A6A6A">New project</span>
+            <span style="flex:1;height:.5px;background:rgba(255,255,255,0.07)"></span>
+          </div>
+
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">
+            <sc-for list="{{ typeTiles }}" as="tp" hint-placeholder-count="3">
+              <button onClick="{{ tp.onSel }}" style="display:flex;flex-direction:column;align-items:flex-start;justify-content:space-between;height:68px;padding:8px 9px;box-sizing:border-box;border-radius:4px;cursor:pointer;font-family:inherit;text-align:left;transition:background .12s,border-color .12s;{{ tp.sty }}">
+                <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="{{ tp.icon }}"></path></svg>
+                <span style="display:flex;flex-direction:column;gap:1px">
+                  <span style="font-size:11px;font-weight:600;letter-spacing:-0.006em">{{ tp.name }}</span>
+                  <span style="font-size:9.5px;font-weight:400;color:#6A6A6A">{{ tp.sub }}</span>
+                </span>
+              </button>
+            </sc-for>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:10px;height:24px">
+            <span style="width:70px;flex-shrink:0;font-size:11px;color:#9A9A9A">Name</span>
+            <input value="{{ pname }}" onChange="{{ onName }}" placeholder="Untitled project" style="flex:1;min-width:0;height:24px;box-sizing:border-box;padding:0 8px;border-radius:3px;border:.5px solid rgba(255,255,255,0.09);background:#0A0B0C;color:#E0E0E0;font-size:11px;font-weight:500;outline:none" style-focus="border-color:rgba(255,255,255,0.24)"/>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:9px">
+            <sc-for list="{{ fields }}" as="fld" hint-placeholder-count="3">
+              <sc-if value="{{ fld.isSeg }}" hint-placeholder-val="{{ true }}">
+                <div style="display:flex;align-items:center;gap:9px;height:22px">
+                  <span style="width:70px;flex-shrink:0;font-size:11px;color:#9A9A9A">{{ fld.label }}</span>
+                  <div style="display:inline-flex;align-items:stretch;gap:2px;padding:2px;box-sizing:border-box;background:#0A0B0C;border:.5px solid rgba(255,255,255,0.09);border-radius:3px">
+                    <sc-for list="{{ fld.opts }}" as="op" hint-placeholder-count="4">
+                      <button onClick="{{ op.onSel }}" style="display:grid;place-items:center;height:16px;padding:0 7px;border:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:10px;font-weight:600;font-variant-numeric:tabular-nums;{{ op.sty }}">{{ op.label }}</button>
+                    </sc-for>
+                  </div>
+                  <sc-if value="{{ fld.hasNum }}" hint-placeholder-val="{{ false }}">
+                    <div style="flex:1"></div>
+                    <div style="position:relative;display:flex;align-items:center;flex-shrink:0">
+                      <input value="{{ fld.num.val }}" onChange="{{ fld.num.onChange }}" onBlur="{{ fld.num.onBlur }}" onKeyDown="{{ fld.num.onKey }}" title="Type a value · arrow keys nudge" style="width:64px;height:22px;box-sizing:border-box;padding:0 22px 0 7px;border-radius:3px;border:.5px solid rgba(255,255,255,0.09);background:#0A0B0C;color:#E0E0E0;font-size:10.5px;font-weight:600;font-variant-numeric:tabular-nums;outline:none" style-focus="border-color:rgba(255,255,255,0.28)"/>
+                      <span style="position:absolute;right:6px;font-size:9px;color:#5A5A5A;pointer-events:none">{{ fld.unit }}</span>
+                    </div>
+                  </sc-if>
+                </div>
+              </sc-if>
+              <sc-if value="{{ fld.isDual }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;align-items:center;gap:9px;height:22px">
+                  <span style="width:70px;flex-shrink:0;font-size:11px;color:#9A9A9A">{{ fld.label }}</span>
+                  <input value="{{ fld.a.val }}" onChange="{{ fld.a.onChange }}" onBlur="{{ fld.a.onBlur }}" onKeyDown="{{ fld.a.onKey }}" title="Width in pixels" style="width:72px;height:22px;box-sizing:border-box;padding:0 8px;border-radius:3px;border:.5px solid rgba(255,255,255,0.09);background:#0A0B0C;color:#E0E0E0;font-size:10.5px;font-weight:600;font-variant-numeric:tabular-nums;outline:none" style-focus="border-color:rgba(255,255,255,0.28)"/>
+                  <span style="font-size:10px;color:#5A5A5A">×</span>
+                  <input value="{{ fld.b.val }}" onChange="{{ fld.b.onChange }}" onBlur="{{ fld.b.onBlur }}" onKeyDown="{{ fld.b.onKey }}" title="Height in pixels" style="width:72px;height:22px;box-sizing:border-box;padding:0 8px;border-radius:3px;border:.5px solid rgba(255,255,255,0.09);background:#0A0B0C;color:#E0E0E0;font-size:10.5px;font-weight:600;font-variant-numeric:tabular-nums;outline:none" style-focus="border-color:rgba(255,255,255,0.28)"/>
+                  <button onClick="{{ fld.onSwap }}" title="Swap width and height" style="display:grid;place-items:center;width:22px;height:22px;border-radius:3px;border:.5px solid rgba(255,255,255,0.09);background:transparent;color:#8A8A8A;cursor:pointer;flex-shrink:0" style-hover="border-color:rgba(255,255,255,0.22);color:#E8E8E8"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v13M4 14l3 3 3-3M17 20V7M14 10l3-3 3 3"></path></svg></button>
+                  <div style="flex:1"></div>
+                  <span style="font-size:10px;font-weight:600;color:#7A7A7A;font-variant-numeric:tabular-nums;flex-shrink:0">{{ fld.aspect }}</span>
+                </div>
+              </sc-if>
+              <sc-if value="{{ fld.isToggle }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;align-items:center;gap:9px;height:22px">
+                  <span style="width:70px;flex-shrink:0;font-size:11px;color:#9A9A9A">{{ fld.label }}</span>
+                  <span style="flex:1;font-size:11px;color:#6A6A6A">{{ fld.note }}</span>
+                  <button onClick="{{ fld.onToggle }}" style="width:26px;height:15px;border-radius:8px;border:none;cursor:pointer;position:relative;flex-shrink:0;transition:background .12s;{{ fld.track }}"><span style="position:absolute;top:2px;width:11px;height:11px;border-radius:50%;background:#F0F0F0;transition:left .12s;{{ fld.knob }}"></span></button>
+                </div>
+              </sc-if>
+            </sc-for>
+          </div>
+
+          <sc-if value="{{ isRoom }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;flex-direction:column;gap:5px;padding:9px;border:.5px solid rgba(255,255,255,0.06);border-radius:4px;background:#0C0D0F">
+              <div style="display:flex;align-items:center;gap:5px;height:12px">
+                <span style="width:16px;flex-shrink:0;font-size:9px;font-weight:600;color:#5A5A5A;text-align:center">#</span>
+                <span style="width:84px;flex-shrink:0;font-size:9px;font-weight:600;letter-spacing:0.05em;color:#5A5A5A">Facing</span>
+                <span style="width:58px;flex-shrink:0;font-size:9px;font-weight:600;letter-spacing:0.05em;color:#5A5A5A">Width px</span>
+                <span style="width:58px;flex-shrink:0;font-size:9px;font-weight:600;letter-spacing:0.05em;color:#5A5A5A">Height px</span>
+                <span style="width:52px;flex-shrink:0;font-size:9px;font-weight:600;letter-spacing:0.05em;color:#5A5A5A">Width cm</span>
+                <span style="width:52px;flex-shrink:0;font-size:9px;font-weight:600;letter-spacing:0.05em;color:#5A5A5A">Height cm</span>
+              </div>
+              <sc-for list="{{ wallRows }}" as="w" hint-placeholder-count="4">
+                <div style="display:flex;align-items:center;gap:5px;height:21px">
+                  <span style="width:16px;flex-shrink:0;display:grid;place-items:center;font-size:9.5px;font-weight:600;color:#7A7A7A;font-variant-numeric:tabular-nums">{{ w.i }}</span>
+                  <button onClick="{{ w.onFacing }}" title="Click to reassign this wall's facing" style="width:84px;flex-shrink:0;display:flex;align-items:center;gap:5px;height:20px;padding:0 6px;box-sizing:border-box;border-radius:2px;border:.5px solid rgba(255,255,255,0.09);background:#141517;font-family:inherit;font-size:10px;font-weight:600;cursor:pointer;color:{{ w.color }}" style-hover="border-color:rgba(255,255,255,0.24)"><span style="width:6px;height:6px;border-radius:1px;flex-shrink:0;background:{{ w.color }}"></span>{{ w.facing }}<span style="flex:1"></span><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#6A6A6A" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg></button>
+                  <input value="{{ w.wv.val }}" onChange="{{ w.wv.onChange }}" onBlur="{{ w.wv.onBlur }}" onKeyDown="{{ w.wv.onKey }}" style="width:58px;flex-shrink:0;height:20px;box-sizing:border-box;padding:0 6px;border-radius:2px;border:.5px solid rgba(255,255,255,0.09);background:#0A0B0C;color:#D8D8D8;font-size:10px;font-weight:500;font-variant-numeric:tabular-nums;outline:none" style-focus="border-color:rgba(255,255,255,0.28)"/>
+                  <input value="{{ w.hv.val }}" onChange="{{ w.hv.onChange }}" onBlur="{{ w.hv.onBlur }}" onKeyDown="{{ w.hv.onKey }}" style="width:58px;flex-shrink:0;height:20px;box-sizing:border-box;padding:0 6px;border-radius:2px;border:.5px solid rgba(255,255,255,0.09);background:#0A0B0C;color:#D8D8D8;font-size:10px;font-weight:500;font-variant-numeric:tabular-nums;outline:none" style-focus="border-color:rgba(255,255,255,0.28)"/>
+                  <input value="{{ w.wc.val }}" onChange="{{ w.wc.onChange }}" onBlur="{{ w.wc.onBlur }}" onKeyDown="{{ w.wc.onKey }}" style="width:52px;flex-shrink:0;height:20px;box-sizing:border-box;padding:0 6px;border-radius:2px;border:.5px solid rgba(255,255,255,0.09);background:#0A0B0C;color:#9A9A9A;font-size:10px;font-weight:500;font-variant-numeric:tabular-nums;outline:none" style-focus="border-color:rgba(255,255,255,0.28)"/>
+                  <input value="{{ w.hc.val }}" onChange="{{ w.hc.onChange }}" onBlur="{{ w.hc.onBlur }}" onKeyDown="{{ w.hc.onKey }}" style="width:52px;flex-shrink:0;height:20px;box-sizing:border-box;padding:0 6px;border-radius:2px;border:.5px solid rgba(255,255,255,0.09);background:#0A0B0C;color:#9A9A9A;font-size:10px;font-weight:500;font-variant-numeric:tabular-nums;outline:none" style-focus="border-color:rgba(255,255,255,0.28)"/>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+
+          <div style="flex:1;min-height:8px"></div>
+
+          <div style="display:flex;flex-direction:column;gap:7px;padding:10px;border:.5px solid rgba(255,255,255,0.06);border-radius:4px;background:#0C0D0F">
+            <span style="font-size:9.5px;font-weight:500;letter-spacing:0.05em;color:#5A5A5A">Master output</span>
+            <sc-for list="{{ outputRows }}" as="o" hint-placeholder-count="3">
+              <div style="display:flex;align-items:baseline;gap:10px">
+                <span style="width:70px;flex-shrink:0;font-size:10px;color:#6A6A6A">{{ o.k }}</span>
+                <span style="flex:1;min-width:0;font-size:11px;font-weight:600;color:#D8D8D8;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ o.v }}</span>
+              </div>
+            </sc-for>
+          </div>
+
+          <a href="{{ createHref }}" style="display:flex;align-items:center;justify-content:center;gap:8px;height:32px;border-radius:4px;border:.5px solid rgba(240,240,240,0.2);background:#EDEDED;color:#101012;font-family:inherit;font-size:12px;font-weight:600;letter-spacing:-0.006em;cursor:pointer;flex-shrink:0" style-hover="background:#FFFFFF">{{ createLabel }}<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></a>
+        </div>
+
+        <div style="display:flex;flex-direction:column;border:.5px solid rgba(255,255,255,0.08);border-radius:5px;background:#0D0E10;overflow:hidden;min-width:0">
+          <div style="height:28px;flex-shrink:0;display:flex;align-items:center;gap:8px;padding:0 10px;border-bottom:.5px solid rgba(255,255,255,0.06);background:#121316">
+            <span style="display:grid;place-items:center;height:16px;padding:0 7px;border-radius:2px;background:#242629;font-size:10px;font-weight:600;color:#D0D0D0;white-space:nowrap;flex-shrink:0">{{ viewerName }}</span>
+            <span style="flex:1;min-width:0;font-size:10px;color:#6A6A6A;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ previewLabel }}</span>
+            <span style="font-size:10px;color:#4E4E4E;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">{{ dragHint }}</span>
+          </div>
+
+          <sc-if value="{{ isDome }}" hint-placeholder-val="{{ true }}">
+            <div style="flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;padding:8px;box-sizing:border-box">
+              <div onPointerDown="{{ onDownOrbit }}" onPointerMove="{{ onMove }}" onPointerUp="{{ onUp }}" onPointerCancel="{{ onUp }}" style="position:relative;border:.5px solid rgba(255,255,255,0.07);border-radius:4px;background:radial-gradient(78% 78% at 50% 45%, #131519 0%, #0A0B0C 100%);overflow:hidden;touch-action:none;{{ stageCursor }}">
+                <svg viewBox="0 0 360 300" preserveAspectRatio="xMidYMid meet" style="position:absolute;inset:0;width:100%;height:100%">
+                  <defs><clipPath id="domeClip"><circle cx="180" cy="150" r="100"></circle></clipPath></defs>
+                  <circle cx="180" cy="150" r="100" fill="#050506"></circle>
+                  <g clip-path="url(#domeClip)">
+                    <g transform="rotate({{ orbit }} 180 150) translate(34.9 29.1) scale(0.806)">
+                      <circle cx="180" cy="150" r="124" fill="#0E1216"></circle>
+                      <path d="M56 150 A124 124 0 0 1 304 150" fill="#141A21"></path>
+                      <circle cx="150" cy="86" r="13" fill="#3A3630"></circle>
+                      <rect x="196" y="96" width="26" height="54" fill="#242A31"></rect>
+                      <rect x="228" y="112" width="18" height="38" fill="#1D2228"></rect>
+                      <rect x="118" y="118" width="30" height="32" fill="#1F252B"></rect>
+                      <path d="M56 150 H304" stroke="rgba(255,255,255,0.14)" stroke-width="1"></path>
+                      <circle cx="180" cy="206" r="26" fill="#191D22"></circle>
+                    </g>
+                  </g>
+                  <circle cx="180" cy="150" r="75" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1"></circle>
+                  <circle cx="180" cy="150" r="50" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1"></circle>
+                  <circle cx="180" cy="150" r="25" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1"></circle>
+                  <path d="M80 150H280M180 50V250" stroke="rgba(255,255,255,0.06)" stroke-width="1"></path>
+                  <sc-for list="{{ domeTicks }}" as="tk" hint-placeholder-count="12">
+                    <line x1="{{ tk.x1 }}" y1="{{ tk.y1 }}" x2="{{ tk.x2 }}" y2="{{ tk.y2 }}" stroke="#FFFFFF" stroke-opacity="{{ tk.o }}" stroke-width="{{ tk.w }}"></line>
+                  </sc-for>
+                  <sc-if value="{{ covWide }}" hint-placeholder-val="{{ false }}">
+                    <circle cx="180" cy="150" r="{{ covRing }}" fill="none" stroke="rgba(224,149,75,0.5)" stroke-width="1" stroke-dasharray="4 4"></circle>
+                  </sc-if>
+                  <circle cx="180" cy="150" r="100" fill="none" stroke="rgba(255,255,255,0.16)" stroke-width="1"></circle>
+                  {{ compassEls }}
+                </svg>
+                <span style="position:absolute;left:10px;top:9px;font-size:9.5px;font-weight:600;letter-spacing:0.05em;color:#5A5A5A;pointer-events:none">Fisheye master</span>
+                <div style="position:absolute;left:0;right:0;bottom:0;height:24px;display:flex;align-items:center;gap:9px;padding:0 10px;box-sizing:border-box;background:rgba(10,11,12,0.72);border-top:.5px solid rgba(255,255,255,0.06);pointer-events:none">
+                  <span style="font-size:10px;font-weight:600;color:#C8C8C8;font-variant-numeric:tabular-nums">{{ viewDims }}</span>
+                  <span style="width:.5px;height:11px;background:rgba(255,255,255,0.12)"></span>
+                  <span style="font-size:10px;color:#8A8A8A;font-variant-numeric:tabular-nums">{{ viewMeta }}</span>
+                  <div style="flex:1"></div>
+                  <span style="font-size:10px;color:#6A6A6A;font-variant-numeric:tabular-nums">{{ orbitReadout }}</span>
+                </div>
+              </div>
+              <div onPointerDown="{{ onDown3d }}" onPointerMove="{{ onMove }}" onPointerUp="{{ onUp }}" onPointerCancel="{{ onUp }}" style="position:relative;border:.5px solid rgba(255,255,255,0.07);border-radius:4px;background:radial-gradient(78% 78% at 50% 45%, #131519 0%, #0A0B0C 100%);overflow:hidden;touch-action:none;{{ stageCursor }}">
+                <svg viewBox="0 0 360 300" preserveAspectRatio="xMidYMid meet" style="position:absolute;inset:0;width:100%;height:100%">
+                  <sc-for list="{{ quads }}" as="q" hint-placeholder-count="40">
+                    <polygon points="{{ q.pts }}" fill="{{ q.fill }}" stroke="{{ q.stroke }}" stroke-width="{{ q.sw }}"></polygon>
+                  </sc-for>
+                  <sc-for list="{{ edges }}" as="e" hint-placeholder-count="8">
+                    <line x1="{{ e.x1 }}" y1="{{ e.y1 }}" x2="{{ e.x2 }}" y2="{{ e.y2 }}" stroke="{{ e.c }}" stroke-width="{{ e.w }}" stroke-linecap="round"></line>
+                  </sc-for>
+                  {{ meshLabelEls }}
+                </svg>
+                <span style="position:absolute;left:10px;top:9px;font-size:9.5px;font-weight:600;letter-spacing:0.05em;color:#5A5A5A;pointer-events:none">Dome · 3D</span>
+                <span style="position:absolute;right:10px;bottom:9px;font-size:10px;color:#6A6A6A;font-variant-numeric:tabular-nums;pointer-events:none">{{ tiltReadout }}</span>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ isFlat }}" hint-placeholder-val="{{ false }}">
+            <div style="flex:1;min-height:0;padding:8px;box-sizing:border-box">
+              <div onPointerDown="{{ onDownPan }}" onPointerMove="{{ onMove }}" onPointerUp="{{ onUp }}" onPointerCancel="{{ onUp }}" style="position:relative;height:100%;border:.5px solid rgba(255,255,255,0.07);border-radius:4px;background:radial-gradient(70% 70% at 50% 45%, #131519 0%, #0A0B0C 100%);overflow:hidden;touch-action:none;{{ stageCursor }}">
+                <svg viewBox="0 0 360 300" preserveAspectRatio="xMidYMid meet" style="position:absolute;inset:0;width:100%;height:100%">
+                  <defs><clipPath id="flatClip"><rect x="{{ flatX }}" y="{{ flatY }}" width="{{ flatW }}" height="{{ flatH }}"></rect></clipPath></defs>
+                  <rect x="{{ flatX }}" y="{{ flatY }}" width="{{ flatW }}" height="{{ flatH }}" fill="#050506"></rect>
+                  <g clip-path="url(#flatClip)">
+                    <g transform="translate({{ panX }} {{ panY }})">
+                      <sc-for list="{{ bars }}" as="b" hint-placeholder-count="7">
+                        <rect x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}" fill="{{ b.c }}"></rect>
+                      </sc-for>
+                      <rect x="{{ flatX }}" y="{{ patY }}" width="{{ flatW }}" height="{{ patH }}" fill="#0E1013"></rect>
+                      <text x="180" y="{{ patTextY }}" text-anchor="middle" fill="#4E4E4E" font-size="10" letter-spacing="3" font-weight="600" font-family="Geist,sans-serif">Immersive</text>
+                    </g>
+                  </g>
+                  <sc-for list="{{ flatGrid }}" as="g" hint-placeholder-count="4">
+                    <line x1="{{ g.x1 }}" y1="{{ g.y1 }}" x2="{{ g.x2 }}" y2="{{ g.y2 }}" stroke="rgba(255,255,255,0.07)" stroke-width="1"></line>
+                  </sc-for>
+                  <rect x="{{ flatX }}" y="{{ flatY }}" width="{{ flatW }}" height="{{ flatH }}" fill="none" stroke="rgba(255,255,255,0.18)" stroke-width="1"></rect>
+                </svg>
+                <span style="position:absolute;left:10px;top:9px;font-size:9.5px;font-weight:600;letter-spacing:0.05em;color:#5A5A5A;pointer-events:none">Flat canvas</span>
+                <div style="position:absolute;left:0;right:0;bottom:0;height:24px;display:flex;align-items:center;gap:9px;padding:0 10px;box-sizing:border-box;background:rgba(10,11,12,0.72);border-top:.5px solid rgba(255,255,255,0.06);pointer-events:none">
+                  <span style="font-size:10px;font-weight:600;color:#C8C8C8;font-variant-numeric:tabular-nums">{{ viewDims }}</span>
+                  <span style="width:.5px;height:11px;background:rgba(255,255,255,0.12)"></span>
+                  <span style="font-size:10px;color:#8A8A8A;font-variant-numeric:tabular-nums">{{ viewMeta }}</span>
+                  <div style="flex:1"></div>
+                  <span style="font-size:10px;color:#6A6A6A;font-variant-numeric:tabular-nums">{{ orbitReadout }}</span>
+                </div>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ isRoom }}" hint-placeholder-val="{{ false }}">
+            <div style="flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:minmax(0,1fr) 158px;gap:8px;padding:8px;box-sizing:border-box">
+              <div style="position:relative;border:.5px solid rgba(255,255,255,0.07);border-radius:4px;background:radial-gradient(78% 78% at 50% 45%, #131519 0%, #0A0B0C 100%);overflow:hidden">
+                <svg viewBox="0 0 360 300" preserveAspectRatio="xMidYMid meet" style="position:absolute;inset:0;width:100%;height:100%">
+                  <g>
+                    <sc-if value="{{ roomFloorOn }}" hint-placeholder-val="{{ true }}">
+                      <rect x="96" y="68" width="168" height="164" fill="rgba(180,190,200,0.045)"></rect>
+                    </sc-if>
+                    <sc-for list="{{ roomGrid }}" as="g" hint-placeholder-count="6">
+                      <line x1="{{ g.x1 }}" y1="{{ g.y1 }}" x2="{{ g.x2 }}" y2="{{ g.y2 }}" stroke="rgba(255,255,255,0.05)" stroke-width="1"></line>
+                    </sc-for>
+                    <sc-for list="{{ planEdges }}" as="pe" hint-placeholder-count="4">
+                      <line x1="{{ pe.x1 }}" y1="{{ pe.y1 }}" x2="{{ pe.x2 }}" y2="{{ pe.y2 }}" stroke="{{ pe.c }}" stroke-width="4" stroke-linecap="square"></line>
+                    </sc-for>
+                    <path d="M180 150 L145 89.4 A70 70 0 0 1 215 89.4 Z" fill="rgba(216,216,216,0.045)" stroke="rgba(216,216,216,0.14)" stroke-width="1"></path>
+                    <circle cx="180" cy="150" r="3.5" fill="rgba(232,232,232,0.9)"></circle>
+                  </g>
+                  {{ planLabelEls }}
+                </svg>
+                <span style="position:absolute;left:10px;top:9px;font-size:9.5px;font-weight:600;letter-spacing:0.05em;color:#5A5A5A;pointer-events:none">Top-down plan</span>
+                <span style="position:absolute;right:10px;bottom:9px;font-size:10px;color:#5A5A5A;pointer-events:none">Fixed · front up</span>
+              </div>
+              <div onPointerDown="{{ onDown3d }}" onPointerMove="{{ onMove }}" onPointerUp="{{ onUp }}" onPointerCancel="{{ onUp }}" style="position:relative;border:.5px solid rgba(255,255,255,0.07);border-radius:4px;background:radial-gradient(78% 78% at 50% 45%, #131519 0%, #0A0B0C 100%);overflow:hidden;touch-action:none;{{ stageCursor }}">
+                <svg viewBox="0 0 360 300" preserveAspectRatio="xMidYMid meet" style="position:absolute;inset:0;width:100%;height:100%">
+                  <sc-for list="{{ groundLines }}" as="gl" hint-placeholder-count="8">
+                    <line x1="{{ gl.x1 }}" y1="{{ gl.y1 }}" x2="{{ gl.x2 }}" y2="{{ gl.y2 }}" stroke="#FFFFFF" stroke-opacity="{{ gl.o }}" stroke-width="0.8"></line>
+                  </sc-for>
+                  <sc-for list="{{ quads }}" as="q" hint-placeholder-count="5">
+                    <polygon points="{{ q.pts }}" fill="{{ q.fill }}" stroke="{{ q.stroke }}" stroke-width="{{ q.sw }}"></polygon>
+                  </sc-for>
+                  {{ meshLabelEls }}
+                </svg>
+                <span style="position:absolute;left:10px;top:9px;font-size:9.5px;font-weight:600;letter-spacing:0.05em;color:#5A5A5A;pointer-events:none">Room · 3D</span>
+                <span style="position:absolute;right:10px;bottom:9px;font-size:10px;color:#6A6A6A;font-variant-numeric:tabular-nums;pointer-events:none">{{ tiltReadout }}</span>
+              </div>
+              <div style="grid-column:1 / 3;display:flex;flex-direction:column;gap:8px;padding:10px;box-sizing:border-box;border:.5px solid rgba(255,255,255,0.07);border-radius:4px;background:#0B0C0E">
+                <div style="display:flex;align-items:center;gap:9px;flex-shrink:0">
+                  <span style="font-size:9.5px;font-weight:600;letter-spacing:0.05em;color:#5A5A5A">Stitched canvas · wall order</span>
+                  <span style="flex:1;height:.5px;background:rgba(255,255,255,0.07)"></span>
+                  <span style="font-size:10px;font-weight:600;color:#C8C8C8;font-variant-numeric:tabular-nums">{{ totalDims }}</span>
+                  <span style="width:.5px;height:11px;background:rgba(255,255,255,0.12)"></span>
+                  <span style="font-size:10px;color:#8A8A8A;font-variant-numeric:tabular-nums">{{ totalMp }}</span>
+                  <span style="width:.5px;height:11px;background:rgba(255,255,255,0.12)"></span>
+                  <span style="font-size:10px;color:#8A8A8A;font-variant-numeric:tabular-nums">{{ totalFps }}</span>
+                </div>
+                <div style="flex:1;min-height:0;display:flex;align-items:stretch;gap:1px;background:rgba(255,255,255,0.07);border:.5px solid rgba(255,255,255,0.09);border-radius:2px;overflow:hidden">
+                  <sc-for list="{{ canvasScreens }}" as="cs" hint-placeholder-count="4">
+                    <div style="min-width:0;display:flex;flex-direction:column;justify-content:space-between;padding:8px;box-sizing:border-box;background:#0A0B0C;{{ cs.sty }}">
+                      <div style="display:flex;align-items:center;gap:6px">
+                        <span style="width:6px;height:6px;border-radius:1px;flex-shrink:0;background:{{ cs.color }}"></span>
+                        <span style="font-size:10px;font-weight:600;color:#C8C8C8;font-variant-numeric:tabular-nums">{{ cs.i }}</span>
+                        <span style="font-size:10px;font-weight:500;color:{{ cs.color }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ cs.facing }}</span>
+                      </div>
+                      <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
+                        <span style="font-size:10.5px;font-weight:600;color:#C8C8C8;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ cs.dims }}</span>
+                        <span style="font-size:9.5px;color:#6A6A6A;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ cs.cm }}</span>
+                        <span style="font-size:9.5px;color:#5A5A5A;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ cs.off }}</span>
+                      </div>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+
+      <div style="flex:1;min-height:18px"></div>
+
+      <div style="flex-shrink:0">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+          <span style="font-size:10px;font-weight:600;letter-spacing:0.06em;color:#6A6A6A">Recent projects</span>
+          <span style="flex:1;height:.5px;background:rgba(255,255,255,0.07)"></span>
+          <a href="#" style="font-size:10.5px;font-weight:500;color:#6A6A6A" style-hover="color:#B8B8B8">Browse all</a>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:9px">
+          <sc-for list="{{ recents }}" as="r" hint-placeholder-count="8">
+            <a href="{{ r.href }}" style="display:flex;flex-direction:column;border:.5px solid rgba(255,255,255,0.07);border-radius:4px;background:#101113;overflow:hidden;cursor:pointer" style-hover="border-color:rgba(255,255,255,0.18);background:#15161A">
+              <span style="position:relative;display:block;aspect-ratio:16/9;background:{{ r.thumbBg }}">
+                <sc-if value="{{ r.isDome }}" hint-placeholder-val="{{ true }}">
+                  <svg viewBox="0 0 160 90" preserveAspectRatio="xMidYMid meet" style="position:absolute;inset:0;width:100%;height:100%"><circle cx="80" cy="45" r="29" fill="rgba(0,0,0,0.35)" stroke="rgba(255,255,255,0.14)" stroke-width="1"></circle><path d="M51 45 A29 29 0 0 1 109 45" fill="rgba(255,255,255,0.05)"></path><circle cx="80" cy="45" r="14" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1"></circle></svg>
+                </sc-if>
+                <sc-if value="{{ r.isFlat }}" hint-placeholder-val="{{ false }}">
+                  <svg viewBox="0 0 160 90" preserveAspectRatio="xMidYMid meet" style="position:absolute;inset:0;width:100%;height:100%"><rect x="{{ r.rx }}" y="{{ r.ry }}" width="{{ r.rw }}" height="{{ r.rh }}" fill="rgba(0,0,0,0.35)" stroke="rgba(255,255,255,0.14)" stroke-width="1"></rect></svg>
+                </sc-if>
+                <sc-if value="{{ r.isRoom }}" hint-placeholder-val="{{ false }}">
+                  <svg viewBox="0 0 160 90" preserveAspectRatio="xMidYMid meet" style="position:absolute;inset:0;width:100%;height:100%"><rect x="55" y="23" width="50" height="44" fill="rgba(0,0,0,0.3)"></rect><line x1="55" y1="23" x2="105" y2="23" stroke="#98A1A8" stroke-width="2.5"></line><line x1="105" y1="23" x2="105" y2="67" stroke="#B9C0C6" stroke-width="2.5"></line><line x1="55" y1="67" x2="105" y2="67" stroke="#E4E7E9" stroke-width="2.5"></line><line x1="55" y1="23" x2="55" y2="67" stroke="#7C858D" stroke-width="2.5"></line></svg>
+                </sc-if>
+                <span style="position:absolute;left:5px;top:5px;display:grid;place-items:center;height:15px;padding:0 5px;border-radius:2px;background:rgba(10,11,12,0.72);font-size:9px;font-weight:600;letter-spacing:0.05em;color:{{ r.glyphColor }}">{{ r.glyph }}</span>
+                <span style="position:absolute;right:5px;bottom:5px;font-size:9px;font-weight:500;color:#9A9A9A;font-variant-numeric:tabular-nums;background:rgba(10,11,12,0.65);padding:1px 4px;border-radius:2px">{{ r.dur }}</span>
+              </span>
+              <span style="display:flex;flex-direction:column;gap:2px;padding:7px 8px 8px">
+                <span style="font-size:10.5px;font-weight:500;color:#D8D8D8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.name }}</span>
+                <span style="font-size:9.5px;color:#6A6A6A;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.meta }}</span>
+              </span>
+            </a>
+          </sc-for>
+        </div>
+      </div>
+
+      <div style="height:40px;flex-shrink:0;display:flex;align-items:center;gap:9px;border-top:.5px solid rgba(255,255,255,0.06);margin-top:16px">
+        <img src="assets/alma-logo.png" alt="Alma Digital Studio" style="height:16px;width:16px;object-fit:contain;opacity:0.6"/>
+        <span style="font-size:10.5px;color:#7A7A7A">Immersive Studio Pro · Created by <span style="color:#A8A8A8;font-weight:500">Alma Digital Studio</span></span>
+        <div style="flex:1"></div>
+        <span style="font-size:10.5px;color:#4E4E4E">© 2026 · All rights reserved</span>
+      </div>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;defaultType&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;dome&quot;,&quot;flat&quot;,&quot;room&quot;],&quot;default&quot;:&quot;dome&quot;,&quot;tsType&quot;:&quot;'dome'|'flat'|'room'&quot;,&quot;section&quot;:&quot;Launcher&quot;},&quot;recentCount&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:8,&quot;min&quot;:4,&quot;max&quot;:8,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Launcher&quot;},&quot;showPreviewPattern&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Preview&quot;}}">
+const FACINGS = [
+  { n: 'Front', c: '#E4E7E9' },
+  { n: 'Right', c: '#B9C0C6' },
+  { n: 'Back', c: '#98A1A8' },
+  { n: 'Left', c: '#7C858D' }
+];
+const colorOf = (n) => (FACINGS.find(f => f.n === n) || FACINGS[0]).c;
+
+class Component extends DCLogic {
+  state = {
+    ptype: this.props.defaultType || 'dome',
+    pname: '',
+    domeRes: 4096, domeCov: 180,
+    flatW: 1920, flatH: 1080, flatColor: 'Rec.709',
+    roomCount: 4, roomFloor: true, roomUniform: true,
+    walls: [
+      { facing: 'Front', w: 3840, h: 2160, wcm: 800, hcm: 450 },
+      { facing: 'Right', w: 3840, h: 2160, wcm: 800, hcm: 450 },
+      { facing: 'Back', w: 3840, h: 2160, wcm: 800, hcm: 450 },
+      { facing: 'Left', w: 3840, h: 2160, wcm: 800, hcm: 450 }
+    ],
+    fps: 60,
+    orbit: 0, pitch: 22, panX: 0, panY: 0,
+    draft: {}, dragging: false
+  };
+
+  clearDraft(k) { this.setState(s => { const d = { ...s.draft }; delete d[k]; return { draft: d }; }); }
+
+  num(key, value, min, max, apply) {
+    const d = this.state.draft;
+    const commit = (raw) => {
+      const n = parseInt(String(raw).replace(/[^0-9]/g, ''), 10);
+      if (!isNaN(n)) apply(Math.max(min, Math.min(max, n)));
+      this.clearDraft(key);
+    };
+    return {
+      val: d[key] !== undefined ? d[key] : String(value),
+      onChange: (e) => { const v = e.target.value; this.setState(s => ({ draft: { ...s.draft, [key]: v } })); },
+      onBlur: (e) => { if (d[key] !== undefined) commit(e.target.value); },
+      onKey: (e) => {
+        if (e.key === 'Enter') { commit(e.target.value); e.target.blur(); }
+        else if (e.key === 'Escape') { this.clearDraft(key); e.target.blur(); }
+        else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+          e.preventDefault();
+          const step = e.shiftKey ? 100 : (e.altKey ? 1 : 10);
+          const base = parseInt(String(d[key] !== undefined ? d[key] : value).replace(/[^0-9]/g, ''), 10) || 0;
+          apply(Math.max(min, Math.min(max, base + (e.key === 'ArrowUp' ? step : -step))));
+          this.clearDraft(key);
+        }
+      }
+    };
+  }
+
+  setWall(i, k, v) {
+    const uniformKeys = ['w', 'h', 'wcm', 'hcm'];
+    this.setState(s => ({ walls: s.walls.map((w, j) => (s.roomUniform && uniformKeys.indexOf(k) >= 0) || j === i ? { ...w, [k]: v } : w) }));
+  }
+
+  cycleFacing(i) {
+    this.setState(s => {
+      const cur = s.walls[i].facing;
+      const order = FACINGS.map(f => f.n);
+      const next = order[(order.indexOf(cur) + 1) % order.length];
+      const j = s.walls.findIndex(w => w.facing === next);
+      const walls = s.walls.map(w => ({ ...w }));
+      walls[i].facing = next;
+      if (j >= 0 && j !== i) walls[j].facing = cur;
+      return { walls };
+    });
+  }
+
+  start(mode, e) {
+    this._d = { m: mode, x: e.clientX, y: e.clientY, o: this.state.orbit, p: this.state.pitch, px: this.state.panX, py: this.state.panY };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) {}
+    this.setState({ dragging: true });
+  }
+  onDownOrbit = (e) => this.start('orbit', e);
+  onDown3d = (e) => this.start('3d', e);
+  onDownPan = (e) => this.start('pan', e);
+  onMove = (e) => {
+    if (!this._d) return;
+    const dx = e.clientX - this._d.x, dy = e.clientY - this._d.y;
+    if (this._d.m === 'pan') {
+      const cl = (n, m) => Math.max(-m, Math.min(m, n));
+      this.setState({ panX: Math.round(cl(this._d.px + dx * 0.5, 40)), panY: Math.round(cl(this._d.py + dy * 0.5, 28)) });
+      return;
+    }
+    let o = (this._d.o + dx * 0.45) % 360; if (o < 0) o += 360;
+    const patch = { orbit: Math.round(o) };
+    if (this._d.m === '3d') patch.pitch = Math.round(Math.max(4, Math.min(78, this._d.p + dy * 0.28)));
+    this.setState(patch);
+  };
+  onUp = () => { this._d = null; this.setState({ dragging: false }); };
+
+  proj(x, y, z, yaw, pitch, dist, scale) {
+    const cy1 = Math.cos(yaw), sy1 = Math.sin(yaw);
+    const X = x * cy1 - z * sy1, Z = x * sy1 + z * cy1;
+    const cp = Math.cos(pitch), sp = Math.sin(pitch);
+    const Y2 = y * cp - Z * sp, Z2 = y * sp + Z * cp;
+    const f = scale / Math.max(0.12, dist + Z2);
+    return { x: 180 + X * f, y: 150 - Y2 * f, z: Z2 };
+  }
+
+  renderVals() {
+    const S = this.state, R = 100, cx = 180, cy = 150;
+    const rad = (d) => d * Math.PI / 180;
+    const yaw = rad(S.orbit), pitch = rad(S.pitch);
+    const P = (x, y, z, dist, scale) => this.proj(x, y, z, yaw, pitch, dist, scale);
+    const f1 = (n) => Math.round(n * 10) / 10;
+    const mpx = (w, h) => (w * h / 1e6).toFixed(1) + ' MP';
+
+    const TYPES = [
+      { k: 'dome', name: 'Dome', sub: 'Fulldome fisheye', viewer: 'Dome viewer', href: 'Editor Domo - Rev 1.dc.html', icon: 'M3.5 17.5a8.5 8.5 0 0 1 17 0 M2 17.5h20 M12 9v8.5 M7.6 11.2h8.8' },
+      { k: 'flat', name: '2D Flat', sub: 'Screens & LED', viewer: 'Canvas viewer', href: 'Editor 2D Flat - Rev 1.dc.html', icon: 'M3 5.5h18v13H3z M3 15l4.5-3.5 3.5 2.5 3-2 7 5' },
+      { k: 'room', name: '360 Room', sub: 'Walls & floor', viewer: 'Room viewer', href: 'Editor 360 - Rev 1.dc.html', icon: 'M12 3l8 4.5v9L12 21l-8-4.5v-9z M12 12v9 M4 7.5l8 4.5 8-4.5' }
+    ];
+    const isDome = S.ptype === 'dome', isFlat = S.ptype === 'flat', isRoom = S.ptype === 'room';
+
+    const typeTiles = TYPES.map(t => ({
+      name: t.name, sub: t.sub, icon: t.icon,
+      onSel: () => this.setState({ ptype: t.k, orbit: 0, pitch: 22, panX: 0, panY: 0, draft: {} }),
+      sty: S.ptype === t.k
+        ? 'background:#1C1E22;border:.5px solid rgba(255,255,255,0.24);color:#F0F0F0;box-shadow:inset 0 1px 0 rgba(255,255,255,0.05)'
+        : 'background:#0C0D0F;border:.5px solid rgba(255,255,255,0.07);color:#8A8A8A'
+    }));
+
+    const seg = (opts, cur, onPick) => opts.map(o => {
+      const v = (o && typeof o === 'object') ? o.v : o;
+      const lab = (o && typeof o === 'object') ? o.label : String(o);
+      return { label: lab, sty: cur === v ? 'background:#EDEDED;color:#141414' : 'background:transparent;color:#8A8A8A', onSel: () => onPick(v) };
+    });
+    const fpsField = { isSeg: true, label: 'Frame rate', opts: seg([24, 25, 30, 48, 50, 60], S.fps, v => this.setState({ fps: v })) };
+
+    let fields = [], outputRows = [], previewLabel = '', viewDims = '', viewMeta = '';
+
+    if (isDome) {
+      fields = [
+        { isSeg: true, label: 'Resolution', opts: seg([2048, 3072, 4096, 6144, 8192], S.domeRes, v => this.setState({ domeRes: v })), hasNum: true, unit: 'px', num: this.num('domeRes', S.domeRes, 512, 16384, v => this.setState({ domeRes: v })) },
+        { isSeg: true, label: 'Angle', opts: seg([{ v: 180, label: '180°' }, { v: 200, label: '200°' }, { v: 210, label: '210°' }, { v: 220, label: '220°' }], S.domeCov, v => this.setState({ domeCov: v })), hasNum: true, unit: '°', num: this.num('domeCov', S.domeCov, 140, 240, v => this.setState({ domeCov: v })) },
+        fpsField
+      ];
+      outputRows = [
+        { k: 'Master', v: S.domeRes + ' × ' + S.domeRes + ' fisheye' },
+        { k: 'Coverage', v: S.domeCov + '° · ' + (S.domeCov > 180 ? 'below horizon' : 'hemisphere') },
+        { k: 'Timing', v: S.fps + ' fps · ' + mpx(S.domeRes, S.domeRes) }
+      ];
+      previewLabel = S.domeRes + '² · ' + S.domeCov + '° · ' + S.fps + ' fps';
+      viewDims = S.domeRes + ' × ' + S.domeRes + ' px';
+      viewMeta = mpx(S.domeRes, S.domeRes) + ' · ' + S.domeCov + '° · ' + S.fps + ' fps';
+    } else if (isFlat) {
+      const g = (a, b) => b ? g(b, a % b) : a;
+      const d = g(S.flatW, S.flatH) || 1;
+      const arTxt = (S.flatW / d) + ':' + (S.flatH / d);
+      fields = [
+        { isSeg: true, label: 'Preset', opts: seg([
+            { v: '1920x1080', label: '1080p' }, { v: '3840x2160', label: '4K' }, { v: '1080x1920', label: '9:16' },
+            { v: '1080x1080', label: '1:1' }, { v: '2560x720', label: 'Wall' }
+          ], S.flatW + 'x' + S.flatH, v => { const p = v.split('x'); this.setState({ flatW: +p[0], flatH: +p[1], draft: {} }); }) },
+        { isDual: true, label: 'Size', aspect: arTxt,
+          a: this.num('flatW', S.flatW, 16, 16384, v => this.setState({ flatW: v })),
+          b: this.num('flatH', S.flatH, 16, 16384, v => this.setState({ flatH: v })),
+          onSwap: () => this.setState(s => ({ flatW: s.flatH, flatH: s.flatW, draft: {} })) },
+        { isSeg: true, label: 'Color', opts: seg(['Rec.709', 'P3', 'Rec.2020'], S.flatColor, v => this.setState({ flatColor: v })) },
+        fpsField
+      ];
+      outputRows = [
+        { k: 'Canvas', v: S.flatW + ' × ' + S.flatH + ' · ' + arTxt },
+        { k: 'Color', v: S.flatColor },
+        { k: 'Timing', v: S.fps + ' fps · ' + mpx(S.flatW, S.flatH) }
+      ];
+      previewLabel = S.flatW + ' × ' + S.flatH + ' · ' + S.flatColor + ' · ' + S.fps + ' fps';
+      viewDims = S.flatW + ' × ' + S.flatH + ' px';
+      viewMeta = mpx(S.flatW, S.flatH) + ' · ' + arTxt + ' · ' + S.flatColor + ' · ' + S.fps + ' fps';
+    } else {
+      fields = [
+        { isSeg: true, label: 'Walls', opts: seg([{ v: 2, label: '2' }, { v: 3, label: '3' }, { v: 4, label: '4' }], S.roomCount, v => this.setState({ roomCount: v })) },
+        { isSeg: true, label: 'Preset', opts: seg([
+            { v: '1920x1080', label: 'HD' }, { v: '2560x1440', label: '1440p' }, { v: '3840x2160', label: '4K' }, { v: '4096x2160', label: 'DCI' }, { v: '2048x2048', label: 'Square' }
+          ], S.walls[0].w + 'x' + S.walls[0].h, v => { const p = v.split('x'); this.setState(s => ({ walls: s.walls.map(w => ({ ...w, w: +p[0], h: +p[1] })), draft: {} })); }) },
+        { isToggle: true, label: 'Floor', note: 'Add a floor surface', track: S.roomFloor ? 'background:#4A5A66' : 'background:#3A3A3A', knob: S.roomFloor ? 'left:13px' : 'left:2px', onToggle: () => this.setState(s => ({ roomFloor: !s.roomFloor })) },
+        { isToggle: true, label: 'Uniform', note: 'Edit one wall, apply to all', track: S.roomUniform ? 'background:#4A5A66' : 'background:#3A3A3A', knob: S.roomUniform ? 'left:13px' : 'left:2px', onToggle: () => this.setState(s => ({ roomUniform: !s.roomUniform })) },
+        fpsField
+      ];
+    }
+
+    const wallsActive = S.walls.slice(0, S.roomCount);
+    const totalW = wallsActive.reduce((a, w) => a + w.w, 0);
+    const totalH = wallsActive.reduce((a, w) => Math.max(a, w.h), 0);
+    const totalPx = wallsActive.reduce((a, w) => a + w.w * w.h, 0);
+
+    const wallRows = wallsActive.map((w, idx) => ({
+      i: idx + 1, facing: w.facing, color: colorOf(w.facing),
+      onFacing: () => this.cycleFacing(idx),
+      wv: this.num('w' + idx + 'w', w.w, 16, 16384, v => this.setWall(idx, 'w', v)),
+      hv: this.num('w' + idx + 'h', w.h, 16, 16384, v => this.setWall(idx, 'h', v)),
+      wc: this.num('w' + idx + 'wc', w.wcm, 10, 20000, v => this.setWall(idx, 'wcm', v)),
+      hc: this.num('w' + idx + 'hc', w.hcm, 10, 20000, v => this.setWall(idx, 'hcm', v))
+    }));
+
+    if (isRoom) {
+      outputRows = [
+        { k: 'Stitched', v: totalW + ' × ' + totalH + ' px' },
+        { k: 'Surfaces', v: S.roomCount + ' walls' + (S.roomFloor ? ' + floor' : '') + ' · ' + (totalPx / 1e6).toFixed(1) + ' MP' },
+        { k: 'Timing', v: S.fps + ' fps' }
+      ];
+      previewLabel = S.roomCount + ' walls' + (S.roomFloor ? ' + floor' : '') + ' · ' + totalW + ' × ' + totalH + ' · ' + S.fps + ' fps';
+    }
+
+    const domeTicks = [];
+    for (let i = 0; i < 24; i++) {
+      const maj = i % 6 === 0, med = i % 2 === 0, len = maj ? 10 : (med ? 5 : 0);
+      if (!len) continue;
+      const a = rad(i * 15);
+      domeTicks.push({ x1: f1(cx + Math.sin(a) * R), y1: f1(cy - Math.cos(a) * R), x2: f1(cx + Math.sin(a) * (R - len)), y2: f1(cy - Math.cos(a) * (R - len)), w: maj ? 1.2 : 0.8, o: maj ? 0.34 : 0.15 });
+    }
+    const compass = ['N', 'E', 'S', 'W'].map((n, i) => {
+      const a = rad(i * 90 + S.orbit);
+      return { n, x: f1(cx + Math.sin(a) * (R - 17)), y: f1(cy - Math.cos(a) * (R - 17) + 3.4) };
+    });
+
+    let fw = 246, fh = 246 * (S.flatH / S.flatW);
+    if (fh > 192) { fh = 192; fw = 192 * (S.flatW / S.flatH); }
+    fw = Math.round(fw); fh = Math.round(fh);
+    const fX = Math.round(cx - fw / 2), fY = Math.round(cy - fh / 2);
+    const flatGrid = [
+      [fX + fw / 3, fY, fX + fw / 3, fY + fh], [fX + 2 * fw / 3, fY, fX + 2 * fw / 3, fY + fh],
+      [fX, fY + fh / 3, fX + fw, fY + fh / 3], [fX, fY + 2 * fh / 3, fX + fw, fY + 2 * fh / 3]
+    ].map(l => ({ x1: f1(l[0]), y1: f1(l[1]), x2: f1(l[2]), y2: f1(l[3]) }));
+    const BAR = ['#1E2429', '#242B22', '#2A2620', '#1F262C', '#282430', '#22282A', '#1A1D20'];
+    const bars = BAR.map((c, i) => ({ c, x: Math.round(fX + i * fw / 7) - 1, y: fY - 40, w: Math.ceil(fw / 7) + 2, h: Math.round(fh * 0.62) + 40 }));
+    const patY = fY + Math.round(fh * 0.62), patH = fh - Math.round(fh * 0.62) + 40;
+
+    const roomGrid = [];
+    for (let i = 1; i < 4; i++) { roomGrid.push({ x1: 96 + i * 42, y1: 68, x2: 96 + i * 42, y2: 232 }); roomGrid.push({ x1: 96, y1: 68 + i * 41, x2: 264, y2: 68 + i * 41 }); }
+    const PLAN = { Front: [96, 68, 264, 68], Right: [264, 68, 264, 232], Back: [96, 232, 264, 232], Left: [96, 68, 96, 232] };
+    const LBL = { Front: [0, -108], Right: [116, 0], Back: [0, 108], Left: [-116, 0] };
+    const planEdges = [], planLabels = [];
+    if (isRoom) {
+      wallsActive.forEach((w, idx) => {
+        const c = colorOf(w.facing), e = PLAN[w.facing], l = LBL[w.facing];
+        planEdges.push({ x1: e[0], y1: e[1], x2: e[2], y2: e[3], c });
+        const bx = f1(cx + l[0]), by = f1(cy + l[1]);
+        planLabels.push({ n: (idx + 1) + ' · ' + w.facing, c, s: 9.5, w: 600, x: bx, y: f1(by - 5) });
+        planLabels.push({ n: w.wcm + ' × ' + w.hcm + ' cm', c: '#7A7A7A', s: 8.5, w: 500, x: bx, y: f1(by + 6) });
+        planLabels.push({ n: w.w + ' × ' + w.h + ' px', c: '#5A5A5A', s: 8.5, w: 500, x: bx, y: f1(by + 16) });
+      });
+    }
+
+    const quads = [], edges = [], meshLabels = [], groundLines = [];
+    if (isDome) {
+      const elevMin = -(S.domeCov - 180) / 2, AZ = 18, EL = 8, dist = 3.4, sc = 250;
+      const sph = (a, e) => ({ x: Math.cos(rad(e)) * Math.sin(rad(a)), y: Math.sin(rad(e)), z: Math.cos(rad(e)) * Math.cos(rad(a)) });
+      for (let i = 0; i < AZ; i++) {
+        for (let j = 0; j < EL; j++) {
+          const a0 = i * 360 / AZ, a1 = (i + 1) * 360 / AZ;
+          const e0 = elevMin + j * (90 - elevMin) / EL, e1 = elevMin + (j + 1) * (90 - elevMin) / EL;
+          const pts = [[a0, e0], [a1, e0], [a1, e1], [a0, e1]].map(c => { const p = sph(c[0], c[1]); return P(p.x, p.y, p.z, dist, sc); });
+          const nrm = sph((a0 + a1) / 2, (e0 + e1) / 2);
+          const lam = Math.max(0, nrm.x * -0.42 + nrm.y * 0.78 + nrm.z * 0.46);
+          const v = Math.round(15 + lam * 42);
+          quads.push({
+            pts: pts.map(p => f1(p.x) + ',' + f1(p.y)).join(' '),
+            fill: 'rgb(' + v + ',' + (v + 2) + ',' + (v + 5) + ')',
+            stroke: 'rgba(255,255,255,0.055)', sw: 0.7,
+            z: (pts[0].z + pts[1].z + pts[2].z + pts[3].z) / 4
+          });
+        }
+      }
+      quads.sort((a, b) => b.z - a.z);
+      for (let i = 0; i < 4; i++) {
+        const p = sph(i * 90, Math.max(0, elevMin) + 3);
+        const q = P(p.x * 1.16, p.y, p.z * 1.16, dist, sc);
+        meshLabels.push({ n: ['N', 'E', 'S', 'W'][i], c: '#7A7A7A', s: 9.5, x: f1(q.x), y: f1(q.y) });
+      }
+      const horiz = [];
+      for (let i = 0; i <= 48; i++) { const p = sph(i * 360 / 48, elevMin); horiz.push(P(p.x, p.y, p.z, dist, sc)); }
+      for (let i = 0; i < 48; i++) edges.push({ x1: f1(horiz[i].x), y1: f1(horiz[i].y), x2: f1(horiz[i + 1].x), y2: f1(horiz[i + 1].y), c: 'rgba(232,232,232,0.28)', w: 1 });
+    } else if (isRoom) {
+      const HW = 1.35, HD = 1.05, H = 1.05, dist = 4.6, sc = 268;
+      for (let i = -3; i <= 3; i++) {
+        const a = P(i * 0.45, 0, -1.35, dist, sc), b = P(i * 0.45, 0, 1.35, dist, sc);
+        groundLines.push({ x1: f1(a.x), y1: f1(a.y), x2: f1(b.x), y2: f1(b.y), o: 0.05 });
+        const c2 = P(-1.35, 0, i * 0.45, dist, sc), d2 = P(1.35, 0, i * 0.45, dist, sc);
+        groundLines.push({ x1: f1(c2.x), y1: f1(c2.y), x2: f1(d2.x), y2: f1(d2.y), o: 0.05 });
+      }
+      if (S.roomFloor) {
+        const floor = [P(-HW, 0, -HD, dist, sc), P(HW, 0, -HD, dist, sc), P(HW, 0, HD, dist, sc), P(-HW, 0, HD, dist, sc)];
+        quads.push({ pts: floor.map(p => f1(p.x) + ',' + f1(p.y)).join(' '), fill: 'rgba(180,190,200,0.05)', stroke: 'rgba(255,255,255,0.08)', sw: 0.8, z: 99 });
+      }
+      const GEO = {
+        Front: [[-HW, 0, HD], [HW, 0, HD], [HW, H, HD], [-HW, H, HD]],
+        Back: [[HW, 0, -HD], [-HW, 0, -HD], [-HW, H, -HD], [HW, H, -HD]],
+        Right: [[HW, 0, HD], [HW, 0, -HD], [HW, H, -HD], [HW, H, HD]],
+        Left: [[-HW, 0, -HD], [-HW, 0, HD], [-HW, H, HD], [-HW, H, -HD]]
+      };
+      const list = wallsActive.map((w, idx) => {
+        const pts = GEO[w.facing].map(p => P(p[0], p[1], p[2], dist, sc));
+        return { i: idx + 1, w, pts, z: pts.reduce((a, p) => a + p.z, 0) / 4 };
+      });
+      list.sort((a, b) => b.z - a.z);
+      list.forEach(it => {
+        const hex = colorOf(it.w.facing);
+        const r = parseInt(hex.slice(1, 3), 16), g2 = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+        quads.push({ pts: it.pts.map(p => f1(p.x) + ',' + f1(p.y)).join(' '), fill: 'rgba(' + r + ',' + g2 + ',' + b + ',0.09)', stroke: 'rgba(' + r + ',' + g2 + ',' + b + ',0.7)', sw: 1.2, z: it.z });
+        const c0 = it.pts.reduce((a, p) => ({ x: a.x + p.x / 4, y: a.y + p.y / 4 }), { x: 0, y: 0 });
+        meshLabels.push({ n: it.i + ' · ' + it.w.facing, c: hex, s: 9.5, x: f1(c0.x), y: f1(c0.y - 2) });
+        meshLabels.push({ n: it.w.w + ' × ' + it.w.h + ' px', c: '#6A6A6A', s: 8.5, x: f1(c0.x), y: f1(c0.y + 9) });
+      });
+    }
+
+    const canvasScreens = wallsActive.map((w, idx) => ({
+      i: idx + 1, facing: w.facing, color: colorOf(w.facing),
+      dims: w.w + ' × ' + w.h + ' px', cm: w.wcm + ' × ' + w.hcm + ' cm',
+      off: 'x offset ' + (idx === 0 ? 0 : wallsActive.slice(0, idx).reduce((a, x) => a + x.w, 0)),
+      sty: 'flex:' + w.w + ' 1 0'
+    }));
+
+    const cur = TYPES.find(t => t.k === S.ptype);
+    const ALL = [
+      { name: 'Cosmos · Act 01', meta: '4096² · 60p', dur: '04:12', t: 'dome', glyph: 'Dome', glyphColor: '#C9A86B', thumbBg: 'radial-gradient(circle at 50% 45%, #22201A 0%, #0E0E10 72%)' },
+      { name: 'Lobby LED Loop', meta: '3840×2160', dur: '00:45', t: 'flat', ar: 16 / 9, glyph: '2D', glyphColor: '#6BA6C9', thumbBg: 'linear-gradient(135deg, #16202A 0%, #0E0E10 74%)' },
+      { name: 'Immersive Room 360', meta: '4 walls · 15360×2160', dur: '06:20', t: 'room', glyph: '360', glyphColor: '#B9C0C6', thumbBg: 'linear-gradient(135deg, #171A1D 0%, #0E0E10 74%)' },
+      { name: 'Planetarium Intro', meta: '4096² · 60p', dur: '01:38', t: 'dome', glyph: 'Dome', glyphColor: '#A8B07A', thumbBg: 'radial-gradient(circle at 50% 45%, #1D231C 0%, #0E0E10 72%)' },
+      { name: 'Vertical Teaser', meta: '1080×1920', dur: '00:22', t: 'flat', ar: 9 / 16, glyph: '2D', glyphColor: '#C9A86B', thumbBg: 'linear-gradient(135deg, #241E16 0%, #0E0E10 74%)' },
+      { name: 'Museum Hall B', meta: '3 walls · 11520×2160', dur: '08:00', t: 'room', glyph: '360', glyphColor: '#8A9198', thumbBg: 'linear-gradient(135deg, #1A1C1F 0%, #0E0E10 74%)' },
+      { name: 'Aurora Dome Test', meta: '6144² · 30p', dur: '02:05', t: 'dome', glyph: 'Dome', glyphColor: '#8FA8C9', thumbBg: 'radial-gradient(circle at 50% 45%, #1A1F27 0%, #0E0E10 72%)' },
+      { name: 'Square Social Cut', meta: '1080×1080', dur: '00:15', t: 'flat', ar: 1, glyph: '2D', glyphColor: '#9A9A9A', thumbBg: 'linear-gradient(135deg, #1C1C1F 0%, #0E0E10 74%)' }
+    ];
+    const nRec = Math.max(4, Math.min(8, this.props.recentCount || 8));
+    const hrefOf = { dome: 'Editor Domo - Rev 1.dc.html', flat: 'Editor 2D Flat - Rev 1.dc.html', room: 'Editor 360 - Rev 1.dc.html' };
+    const recents = ALL.slice(0, nRec).map(r => {
+      let rw = 70, rh = 70 / (r.ar || 1);
+      if (rh > 52) { rh = 52; rw = 52 * (r.ar || 1); }
+      return { ...r, href: hrefOf[r.t], isDome: r.t === 'dome', isFlat: r.t === 'flat', isRoom: r.t === 'room', rx: Math.round(80 - rw / 2), ry: Math.round(45 - rh / 2), rw: Math.round(rw), rh: Math.round(rh) };
+    });
+
+    const svgText = (o, i) => React.createElement('text', {
+      key: i, x: o.x, y: o.y, textAnchor: 'middle', fill: o.c || '#8A8A8A',
+      fontSize: o.s || 9.5, fontWeight: o.w || 600, fontFamily: 'Geist,sans-serif'
+    }, o.n);
+
+    return {
+      compassEls: compass.map(svgText), planLabelEls: planLabels.map(svgText), meshLabelEls: meshLabels.map(svgText),
+      typeTiles, fields, isDome, isFlat, isRoom, wallRows, outputRows, previewLabel, viewDims, viewMeta,
+      pname: S.pname, onName: (e) => this.setState({ pname: e.target.value }),
+      viewerName: cur.viewer,
+      covWide: S.domeCov > 180, covRing: Math.round(R * (180 / S.domeCov)),
+      domeTicks, compass, orbit: S.orbit, panX: S.panX, panY: S.panY,
+      flatX: fX, flatY: fY, flatW: fw, flatH: fh, flatGrid, bars, patY, patH,
+      patTextY: patY + Math.round((fh - Math.round(fh * 0.62)) / 2) + 4,
+      roomGrid, planEdges, planLabels, roomFloorOn: S.roomFloor,
+      quads, edges, meshLabels, groundLines,
+      canvasScreens, totalDims: totalW + ' × ' + totalH + ' px', totalMp: (totalPx / 1e6).toFixed(1) + ' MP', totalFps: S.fps + ' fps',
+      onDownOrbit: this.onDownOrbit, onDown3d: this.onDown3d, onDownPan: this.onDownPan,
+      onMove: this.onMove, onUp: this.onUp,
+      stageCursor: S.dragging ? 'cursor:grabbing' : 'cursor:grab',
+      dragHint: isFlat ? 'Drag to pan' : (isRoom ? 'Drag the 3D view to orbit' : 'Drag to orbit · vertical tilts 3D'),
+      orbitReadout: isFlat ? ('pan ' + S.panX + ', ' + S.panY) : (S.orbit + '°'),
+      tiltReadout: S.orbit + '° · ' + S.pitch + '°',
+      createHref: cur.href, createLabel: 'Create ' + cur.name + ' project', recents
+    };
+  }
+}
+</script>
+</body>
+</html>

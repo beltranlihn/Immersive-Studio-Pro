@@ -14,6 +14,7 @@
 | [0006](adr-0006-automatizacion-after-effects.md) | Modelo de automatización After Effects | Accepted |
 | [0007](adr-0007-archivar-no-borrar.md) | Código deprecado se archiva, no se borra | Accepted |
 | [0008](adr-0008-rediseno-rev1-regla-de-poda.md) | UI recreada calcada al diseño "Rev 1" + regla de poda | Accepted |
+| [0009](adr-0009-arranque-en-dos-ventanas.md) | Arranque en dos ventanas: splash propio + editor oculto hasta estar listo | Accepted |
 
 **Cuándo escribir una ADR:** cuando una decisión sea **importante, cara o riesgosa de revertir**. No para cada cambio —
 para las que un desarrollador (o Claude) futuro necesitaría entender el *porqué*.

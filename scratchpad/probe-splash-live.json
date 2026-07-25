@@ -1,0 +1,79 @@
+{
+  "geometria": {
+    "ventana": [
+      949,
+      949
+    ],
+    "lienzoCSS": [
+      1080,
+      1080
+    ],
+    "transform": "matrix(0.878704, 0, 0, 0.878704, -540, -540)",
+    "pintado": {
+      "w": 949,
+      "h": 949
+    },
+    "caja": {
+      "x": 0,
+      "y": 0,
+      "r": 949,
+      "b": 949
+    },
+    "centrado": true,
+    "padding": "84px",
+    "radius": "8px",
+    "logo": {
+      "w": 387,
+      "h": 387
+    },
+    "pill": {
+      "w": 105,
+      "h": 63
+    },
+    "nombre": "52px",
+    "build": "1.0.0  ·  Build 2026-07-25",
+    "statusH": "32px",
+    "barra": {
+      "w": 947,
+      "h": 4
+    }
+  },
+  "muestras": [
+    {
+      "ms": 144,
+      "w": "",
+      "status": "Starting up",
+      "bye": ""
+    },
+    {
+      "ms": 689,
+      "w": "26.1%",
+      "status": "Initializing dome projection",
+      "bye": ""
+    },
+    {
+      "ms": 1398,
+      "w": "38%",
+      "status": "Building timeline engine",
+      "bye": ""
+    },
+    {
+      "ms": 1942,
+      "w": "80.2%",
+      "status": "Restoring workspace",
+      "bye": ""
+    },
+    {
+      "ms": 2487,
+      "w": "90.2%",
+      "status": "Restoring workspace",
+      "bye": ""
+    },
+    {
+      "ms": 2849,
+      "w": "100%",
+      "status": "Ready",
+      "bye": "bye"
+    }
+  ]
+}

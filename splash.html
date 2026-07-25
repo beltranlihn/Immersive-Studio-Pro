@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Immersive Studio Pro</title>
+<style>
+  /* ============================================================================================================
+     SPLASH DE ARRANQUE — ventana propia de 1080×1080, sin cromo, previa a la ventana del editor.
+     Recreado (no portado) del handoff de Claude Design: scratchpad/redesign/design_handoff_launcher_splash/
+     "Loading Splash - Rev 1.dc.html". Toda medida de acá sale de ese prototipo y del README del handoff.
+
+     ESCALADO: el diseño es de 1080×1080 fijos, pero en una pantalla de 1080p esa altura no entra (la barra de
+     tareas se come el resto). El lienzo se maquetó SIEMPRE a 1080×1080 y se escala con un transform según el
+     tamaño real de la ventana, así las proporciones quedan idénticas caiga donde caiga.
+     ============================================================================================================ */
+  @font-face{font-family:'Geist';font-style:normal;font-weight:400;font-display:block;src:url('assets/fonts/geist-400.woff2') format('woff2');}
+  @font-face{font-family:'Geist';font-style:normal;font-weight:500;font-display:block;src:url('assets/fonts/geist-500.woff2') format('woff2');}
+  @font-face{font-family:'Geist';font-style:normal;font-weight:600;font-display:block;src:url('assets/fonts/geist-600.woff2') format('woff2');}
+
+  html,body{margin:0;height:100%;overflow:hidden;background:transparent;}
+  body{
+    font-family:'Geist',system-ui,sans-serif;-webkit-font-smoothing:antialiased;color:#D8D8D8;
+    -webkit-user-select:none;user-select:none;cursor:default;
+    -webkit-app-region:drag; /* la ventana no tiene barra: se arrastra desde cualquier lado */
+  }
+  /* Lienzo del diseño: SIEMPRE 1080×1080; el JS le pone la escala.
+     Va posicionado a mano y NO con `place-items:center`: cuando el lienzo (1080) es más ancho que la ventana
+     (p.ej. 949 en una pantalla 1080p), la pista del grid arranca en 0 y desborda hacia la derecha, así que al
+     escalar quedaba corrido ~65px y el borde derecho se salía. Con left/top 50% + translate(-50%,-50%) el
+     centro es el centro pase lo que pase con el tamaño. */
+  #card{
+    position:absolute;left:50%;top:50%;
+    width:1080px;height:1080px;box-sizing:border-box;
+    display:flex;flex-direction:column;padding:84px;
+    border:.5px solid rgba(255,255,255,0.08);border-radius:8px;overflow:hidden;
+    background:radial-gradient(78% 60% at 22% 18%, #1B1D20 0%, #121315 52%, #0E0F11 100%);
+    transform-origin:center center;
+    transform:translate(-50%,-50%) scale(1);
+  }
+  .upper{flex:1;display:flex;align-items:center;justify-content:space-between;gap:40px;}
+  .mark{height:440px;width:440px;object-fit:contain;flex-shrink:0;}
+  .edition{display:grid;place-items:center;height:72px;padding:0 34px;border-radius:36px;background:#EDEDED;color:#101012;font-size:32px;font-weight:600;letter-spacing:-0.01em;flex-shrink:0;}
+  .lower{display:flex;align-items:flex-end;flex-shrink:0;}
+  .lcol{display:flex;flex-direction:column;gap:14px;min-width:0;}
+  .pname{font-size:52px;font-weight:600;letter-spacing:-0.026em;line-height:1;color:#F4F4F4;}
+  .build{font-size:24px;font-weight:500;color:#7A7A7A;font-variant-numeric:tabular-nums;}
+  /* alto fijo: el bloque no puede reflowear cuando cambia el texto de estado (checklist del handoff) */
+  .status{height:32px;display:flex;align-items:center;font-size:24px;font-weight:400;color:#9A9A9A;}
+  .credit{display:flex;align-items:center;gap:12px;margin-top:16px;}
+  .credit img{height:30px;width:30px;object-fit:contain;opacity:0.6;}
+  .credit span{font-size:21px;color:#6A6A6A;}
+  .credit b{color:#8A8A8A;font-weight:500;}
+  .track{position:absolute;left:0;right:0;bottom:0;height:4px;background:rgba(255,255,255,0.07);}
+  .fill{position:relative;height:100%;width:0;background:#EDEDED;overflow:hidden;transition:width .12s linear;}
+  .fill>span{position:absolute;inset:0;width:40px;background:linear-gradient(90deg,rgba(255,255,255,0) 0%,rgba(255,255,255,0.85) 50%,rgba(255,255,255,0) 100%);animation:ispSheen 1.6s linear infinite;}
+  @keyframes ispSheen{0%{transform:translateX(-100%)}100%{transform:translateX(320%)}}
+  /* el cierre lo pide el proceso principal cuando el editor terminó de arrancar */
+  #card.bye{transition:opacity .22s ease;opacity:0;}
+</style>
+</head>
+<body>
+  <div id="card">
+    <div class="upper">
+      <img class="mark" src="assets/immersive-logo.png" alt="Immersive Studio Pro">
+      <span class="edition">Pro</span>
+    </div>
+    <div class="lower">
+      <div class="lcol">
+        <span class="pname">Immersive Studio Pro</span>
+        <span class="build" id="build">1.0.0</span>
+        <span class="status" id="status">Starting up</span>
+        <div class="credit">
+          <img src="assets/alma-logo.png" alt="Alma Digital Studio">
+          <span>Created by <b>Alma Digital Studio</b></span>
+        </div>
+      </div>
+    </div>
+    <div class="track"><div class="fill" id="fill"><span></span></div></div>
+  </div>
+
+<script>
+(function(){
+  'use strict';
+  var card=document.getElementById('card'), fillEl=document.getElementById('fill'),
+      statusEl=document.getElementById('status'), buildEl=document.getElementById('build');
+
+  /* el lienzo mide 1080; se escala al lado menor de la ventana para caber en cualquier pantalla */
+  function fit(){ var s=Math.min(innerWidth,innerHeight)/1080; card.style.transform='translate(-50%,-50%) scale('+s+')'; }
+  fit(); addEventListener('resize',fit);
+
+  /* Umbrales de estado del diseño. En producción NO hay temporizador sintético: los hitos los manda el editor
+     mientras arranca de verdad (ver DSP.bootProgress en app.js). El texto se elige por el porcentaje alcanzado,
+     igual que en el prototipo. */
+  var STEPS=[[0,'Starting up'],[9,'Loading render engine'],[22,'Initializing dome projection'],
+             [38,'Building timeline engine'],[54,'Loading effects library'],[68,'Scanning media cache'],
+             [80,'Restoring workspace'],[91,'Preparing viewports'],[100,'Ready']];
+  function stepFor(p){ var s=STEPS[0][1]; for(var i=0;i<STEPS.length;i++) if(p>=STEPS[i][0]) s=STEPS[i][1]; return s; }
+
+  var shown=0;      // porcentaje pintado
+  var target=0;     // porcentaje pedido por el editor
+  var label=null;   // texto explícito (si el editor manda uno, gana sobre el umbral)
+
+  /* La barra nunca retrocede y se acerca al objetivo suavemente: un arranque rápido no debe verse como un salto
+     seco de 0 a 100, y uno lento no debe quedar clavado. */
+  setInterval(function(){
+    if(shown>=target) return;
+    shown=Math.min(target, shown+Math.max(0.4,(target-shown)*0.14));
+    fillEl.style.width=shown.toFixed(1)+'%';
+    statusEl.textContent=label||stepFor(shown);
+  },40);
+
+  if(window.SPLASH){
+    SPLASH.onInit(function(info){ if(info&&info.build)buildEl.textContent=info.build; });
+    SPLASH.onProgress(function(pct,text){
+      if(typeof pct==='number') target=Math.max(target,Math.max(0,Math.min(100,pct)));
+      label=text||null;
+    });
+    SPLASH.onBye(function(){ target=100; label='Ready'; shown=100; fillEl.style.width='100%'; statusEl.textContent='Ready';
+      setTimeout(function(){ card.className='bye'; },140); });
+  } else {
+    /* sin puente (abierto suelto en un navegador para revisar el diseño): corre el temporizador del prototipo */
+    var t=0; setInterval(function(){ t+=40; var d=7000; if(t<=d) target=100*(1-Math.pow(1-t/d,2.1)); else target=100; },40);
+  }
+})();
+</script>
+</body>
+</html>

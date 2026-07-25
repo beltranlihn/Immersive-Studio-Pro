@@ -20,7 +20,14 @@
 - [ ] **Pasada visual** con la ventana al frente (las capturas de píxel salen negras en segundo plano).
 - [ ] Tres checkboxes nativos fuera del sistema de toggles: `#bkToggle`, `#txtStroke` (Clip), `#motionPrev` (Motion).
 - [ ] Verificar el **waveform de audio** con un archivo real (el clip de prueba era sintético).
-- [ ] Etapa **6 · Launcher** y **7 · variantes por formato** (360 / 2D).
+- [x] **Etapa 6a · Splash de carga** — ventana propia de 1080² → editor en 16:9 _(R151)_. Handoff nuevo en
+      `scratchpad/redesign/design_handoff_launcher_splash/` (`Loading Splash - Rev 1.dc.html` + README).
+- [ ] **Etapa 6b · Launcher (landing)** — `Launcher - Rev 4.dc.html`. **Es la pieza grande que queda**: tres tipos de
+      proyecto (Domo / 2D Flat / Sala 360) con todos sus parámetros, visores técnicos en vivo (fisheye, domo 3D,
+      planta cenital, sala 3D, tira cosida), tabla de muros con intercambio de orientación, campos numéricos con
+      borrador (Enter/Esc/flechas) y fila de 8 proyectos recientes. Reemplaza a `showLanding`.
+      Requisito duro del handoff: la página **nunca scrollea** y **no cambia de alto** al cambiar de tipo.
+- [ ] Etapa **7 · variantes por formato** (360 / 2D) del editor.
 
 ## Arranque (wins rápidos) 🟢
 - [x] **[T5] Mute visual** — pista silenciada → sus clips a opacidad **alta** (`.muted`, `.82`, sin trama → claramente

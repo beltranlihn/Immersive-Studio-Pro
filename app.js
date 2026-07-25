@@ -1,5 +1,22 @@
 "use strict";
 /* ===================== Dome Studio Pro — engine + UI ===================== */
+/* [ARRANQUE · handoff launcher+splash] El splash es una VENTANA APARTE de 1080² que muestra el proceso principal
+   (splash.html) mientras esta ventana arranca oculta; al terminar se revela el editor en 16:9 y el splash se va.
+   Acá sólo reportamos HITOS REALES: cada bootMark() se dispara en el punto donde esa parte terminó de verdad.
+   El TEXTO lo elige el splash a partir del porcentaje (tabla del diseño), así no hay dos fuentes para lo mismo.
+   Se usa `window.dsp` directo y no la constante DSP porque ésta se define mucho más abajo (L~1289) y los
+   primeros hitos ocurren antes. */
+const _bootT0=(typeof performance!=='undefined'&&performance.now)?performance.now():Date.now();
+let _bootPct=0;
+function bootMark(pct){ if(pct<=_bootPct)return; _bootPct=pct;
+  try{ if(window.dsp&&window.dsp.bootProgress)window.dsp.bootProgress(pct); }catch(e){} }
+/* El arranque real puede tardar 300ms; el splash no puede ser un parpadeo. Se respeta un mínimo en pantalla,
+   igual que hacía el splash viejo con sus 2 vueltas de logo. */
+const BOOT_MIN_MS=2400;
+function bootReveal(){ document.body.classList.remove('preboot'); // fuera de Electron no hay splash: revelar y ya
+  if(!(window.dsp&&window.dsp.bootReady))return;
+  const el=((typeof performance!=='undefined'&&performance.now)?performance.now():Date.now())-_bootT0;
+  setTimeout(()=>{ try{ window.dsp.bootReady(); }catch(e){} }, Math.max(0,BOOT_MIN_MS-el)); }
 const PI=Math.PI, HALF_PI=PI/2, D2R=PI/180, R2D=180/PI, COMP=2048;
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 let _id=1; const uid=()=>_id++;
@@ -211,7 +228,9 @@ void main(){
   else if(u_blend>0.5){ o=vec4(mix(vec3(1.0),col,ef), 1.0); }   // darken (MIN): neutral 1 where uncovered → dst unchanged
   else { o=vec4(mix(col,col*ef,u_premul), ef); }                // normal/add (premul 0) + screen/multiply (premul 1, RGB now weighted by mask×op too)
 }`;
+bootMark(9);  // [arranque] contexto WebGL vivo y compilador listo → "Loading render engine"
 const PW=prog(VSW,FSW);
+bootMark(22); // [arranque] programa de warp del domo compilado → "Initializing dome projection"
 const LW={flat:gl.getAttribLocation(PW,'a_flat'),uv:gl.getAttribLocation(PW,'a_uv'),
   d:gl.getUniformLocation(PW,'u_d'),u:gl.getUniformLocation(PW,'u_u'),v:gl.getUniformLocation(PW,'u_v'),
   half:gl.getUniformLocation(PW,'u_half'),mir:gl.getUniformLocation(PW,'u_mir'),tex:gl.getUniformLocation(PW,'u_tex'),op:gl.getUniformLocation(PW,'u_op'),cull:gl.getUniformLocation(PW,'u_cull'),
@@ -401,6 +420,7 @@ void main(){
   o=vec4(col,1.0);
 }`;
 const P3=prog(VS3,FS3);
+bootMark(38); // [arranque] todos los programas GL (warp/blit/3D) compilados y enlazados
 const L3={pos:gl.getAttribLocation(P3,'a_pos'),uv:gl.getAttribLocation(P3,'a_uv'),mvp:gl.getUniformLocation(P3,'u_mvp'),master:gl.getUniformLocation(P3,'u_master'),grid:gl.getUniformLocation(P3,'u_grid'),flipx:gl.getUniformLocation(P3,'u_flipx'),hfade:gl.getUniformLocation(P3,'u_hfade')};
 const domeVAO=gl.createVertexArray(); let domeCount=0, _domeVB=null, _domeCov=-1;
 /* Dome cap mesh — a spherical cap of half-angle covHalf (π/2 = 180° hemisphere; >π/2 = past the spring line for
@@ -2100,17 +2120,8 @@ function startLogoLoop(imgEl,fps,onLoop){ if(!imgEl)return ()=>{}; preloadLogoFr
   imgEl.src=logoFramePath(0);
   const step=t=>{ if(!last)last=t; if(t-last>=1000/fps){ i=(i+1)%LOGO_FRAMES; if(i===0&&onLoop)onLoop(); imgEl.src=logoFramePath(i); last=t; } raf=requestAnimationFrame(step); }; // [R134] onLoop fires each time the loop wraps
   raf=requestAnimationFrame(step); return ()=>{ if(raf)cancelAnimationFrame(raf); raf=0; }; }
-/* [R134] branded square splash: the logo loop plays in a small square window for `minLoops` cycles, then reveals. */
-function showSplash(minLoops,onReady){ document.body.classList.remove('preboot'); // [boot] the splash is taking over → reveal the editor under it (kills the pre-splash flash of the empty editor chrome); synchronous, so no paint happens with #app visible-but-uncovered
-  if(document.getElementById('splashOv')){ if(onReady)onReady(); return; }
-  const ov=document.createElement('div'); ov.className='overlay'; ov.id='splashOv'; ov.style.background='#0E0F11'; ov.style.zIndex='360';
-  ov.innerHTML=`<div class="splashcard"><img class="splashlogo" width="128" height="128" alt="Immersive Studio Pro"><div class="splashttl">Immersive Studio Pro</div></div>`;
-  document.body.appendChild(ov); let loops=0, done=false;
-  const stop=startLogoLoop(ov.querySelector('.splashlogo'),30,()=>{ if(++loops>=minLoops&&!done){ done=true; finish(); } });
-  ov._stopLogo=stop;
-  function finish(){ stop(); if(onReady)onReady(); // paint the destination (start screen / onboarding) UNDER the splash FIRST, so the fade reveals it — not a bare editor frame (landing z-300 < splash z-360)
-    ov.style.transition='opacity .28s'; ov.style.opacity='0'; setTimeout(()=>{ ov.remove(); },300); }
-  setTimeout(()=>{ if(!done){ done=true; finish(); } }, minLoops*3200+1500); } // safety: never hang if rAF is throttled
+/* [archivado 20260725] `showSplash` — el splash pasó a ser una ventana propia (splash.html + main.js) →
+   _backup/deprecated/20260725-in-page-splash.js. Ver `bootMark`/`bootReveal` arriba del todo. */
 function getRecents(){ try{ const a=JSON.parse(localStorage.getItem('domeProRecents')||'[]'); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
 function saveRecents(a){ try{ localStorage.setItem('domeProRecents', JSON.stringify(a.slice(0,12))); }catch(e){} }
 function projThumb(){ try{ if(!glc.width)return null; const w=200, h=Math.max(1,Math.round(w*glc.height/glc.width)); const c=document.createElement('canvas'); c.width=w; c.height=h; c.getContext('2d').drawImage(glc,0,0,w,h); return c.toDataURL('image/jpeg',0.72); }catch(e){ return null; } }
@@ -7251,8 +7262,11 @@ $$('#inspTabs .instab').forEach(b=>{ b.onclick=()=>{ state.inspTab=b.dataset.tab
 /* ===================== INIT ===================== */
 function init(){
   loadWorkspace(); applyLang(); syncSimpleUI(); // [R94f] Simple clips is the default → light the button + set body.simpleclips on boot
+  bootMark(54); // [arranque] preferencias + espacio de trabajo + idioma aplicados
   ensureSequences(); renderSeqBar();
-  renderMedia(); renderTimeline(); renderInspector(); vzLbl(); updViewCtl(); updStatus(); projTitle();
+  renderMedia(); bootMark(68); // [arranque] panel de medios reconstruido
+  renderTimeline(); renderInspector(); bootMark(80); // [arranque] timeline e inspector armados
+  vzLbl(); updViewCtl(); updStatus(); projTitle();
   if(state.prefs.tallInsp){ try{setTallInsp(true);}catch(e){} }
   requestAnimationFrame(()=>{resize();requestAnimationFrame(resize);}); setTimeout(resize,200);
   if(!HAS_WC) $('#statEngine').textContent='WebGL · MediaRecorder';
@@ -7267,8 +7281,17 @@ function init(){
   setInterval(()=>{ glCheck('tick'); let mem=null; try{ if(performance.memory)mem=Math.round(performance.memory.usedJSHeapSize/1048576); }catch(_){} diag('debug','heartbeat','',{seq:activeSeq()&&activeSeq().name, clips:state.clips.length, media:state.media.length, playing:state.playing, ph:+state.playhead.toFixed(2), heapMB:mem}); diagFlush(); }, 5000);
   window.addEventListener('beforeunload',()=>{ try{stopNDI();}catch(_){ } try{closeAllNdi();}catch(_){ } diag('info','session','session end'); diagFlush(); });
   document.addEventListener('visibilitychange',()=>{ if(document.hidden){ diag('info','session','hidden'); diagFlush(); } });
-  showSplash(2, ()=>{ if(document.getElementById('loadingOv') || currentPath) return; // [R134] branded logo-loop splash (~2 cycles) → then… (unless a double-clicked project is already opening)
-    if(!onboardDone()) startOnboarding(); else showLanding(); }); // [D7] first launch → demo scene + guided tour; afterwards → start screen
+  /* [ARRANQUE · handoff launcher+splash] El splash dejó de ser una capa de este documento: es una ventana
+     aparte y esta ventana está OCULTA hasta que avisemos. O sea que acá ya no hace falta ningún truco contra el
+     parpadeo (el `preboot` de R147 sigue puesto sólo por si se abre fuera de Electron): se pinta el destino con
+     calma y recién cuando está listo se pide revelar. */
+  bootMark(91); // [arranque] visores dimensionados, primer render pedido
+  const _dest = (document.getElementById('loadingOv') || currentPath)
+    ? Promise.resolve()                                             // ya hay un proyecto abriéndose (doble clic en un .isp)
+    : (onboardDone() ? Promise.resolve(showLanding())               // [D7] arranques posteriores → pantalla de inicio
+                     : startOnboarding());                          //      primer arranque → escena demo + recorrido
+  Promise.resolve(_dest).catch(e=>{ try{diag('error','boot','destination failed',{err:String((e&&e.message)||e)});}catch(_){} })
+    .then(bootReveal); // revelar la ventana 16:9 SÓLO con el destino ya pintado
   if(IS_ELEC&&DSP.onConfirmClose){ DSP.onConfirmClose(()=>{ appConfirm(T('You have unsaved changes. Close without saving?','Hay cambios sin guardar. ¿Cerrar sin guardar?'),ok=>{ if(ok&&DSP.forceClose)DSP.forceClose(); },{ok:T('Close without saving','Cerrar sin guardar'),cancel:T('Cancel','Cancelar'),danger:true}); }); } // styled close confirm (replaces the native OS dialog)
 }
 init();

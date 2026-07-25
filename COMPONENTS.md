@@ -189,7 +189,8 @@
 | open/load | Abrir + reconstruir estado | app.js · `loadProject`/`openProjectPath` (~L5296) | ✅ | — |
 | reloadMedia/replace | Relink/swap/adoptar archivos | app.js · `reloadMedia`/`replaceMedia` (~L5335) | ✅ | — |
 | autosave/recovery/recents | Autosave a disco, snapshots, recientes | app.js · autosave (~L5482) / `addRecent` (~L2089) | ✅ | — |
-| landing/splash/loading | Pantalla de inicio + loop de logo | app.js · `showLanding`/`showSplash`/`startLogoLoop` (~L2073) | ✅ | [U9] |
+| Splash de arranque | **Ventana propia 1080²** previa al editor; barra por hitos reales | splash.html · splash-preload.js · main.js `createSplash`/`finishBoot` · app.js `bootMark`/`bootReveal` | ✅ | R151 |
+| landing/loading | Pantalla de inicio + loop de logo (el splash ya no vive acá) | app.js · `showLanding`/`showLoadingScreen`/`startLogoLoop` (~L2073) | ✅ | [U9] |
 | Barra de menús | Dropdowns File/Edit/Window | app.js · `openAppMenu` (~L5809) · #menubar | ✅ | [D3] |
 | Sistema de menú contextual | Primitiva `openMenu`/`closeMenu` | app.js · `openMenu` (~L5788) | ✅ | — |
 | Command palette | Ctrl+K/F1/? todos los comandos | app.js · `openPalette` (~L5972) · #helpBtn | ✅ | — |
@@ -1755,6 +1756,21 @@ Bootstrap constants (app.js): `HAS_WC` (~L1259) = WebCodecs + Mp4Muxer present; 
 - **Invariants / gotchas:** `projTitle()` pushes the dirty flag to main every time; a failed IPC send falls back to `forceClose`.
 - **Status:** ✅
 - **Roadmap:** —
+
+## Splash de arranque — ventana propia (splash.html)
+- **Purpose:** Ventana cuadrada sin cromo que se muestra SOLA mientras el editor arranca oculto; al terminar se revela el editor en 16:9 y el splash se desvanece. Recreado del handoff `scratchpad/redesign/design_handoff_launcher_splash/Loading Splash - Rev 1.dc.html`.
+- **Location:** `splash.html` (diseño + animación) · `splash-preload.js` (puente `SPLASH.onInit/onProgress/onBye`) · `main.js` `createSplash()`/`splashSend()`/`finishBoot()`/`initialSize169()` · `app.js` `bootMark(pct)`/`bootReveal()` (arriba del todo) + los hitos repartidos por el arranque · `preload.js` `bootProgress`/`bootReady` · IPC `dsp:bootProgress`/`dsp:bootReady`, `splash:init`/`splash:progress`/`splash:bye`.
+- **State/data:** `_bootPct` (monótono) y `_bootT0` en el renderer; `bootDone`/`bootTimer`/`splashWin` en el main.
+- **Invariants / gotchas:**
+  - **La ventana del editor nace oculta** (`show:false`) y NO se muestra en `ready-to-show`: la revela `finishBoot()`. Si se toca eso sin más, el editor no aparece nunca. Salvavidas: `BOOT_TIMEOUT_MS` (25s) y `render-process-gone` también llaman a `finishBoot()`.
+  - **Se muestra la principal ANTES de cerrar el splash** (y el cierre va 420ms después): al revés se ve el escritorio en el medio.
+  - **El lienzo del splash mide siempre 1080×1080** y se escala con `transform`. Va posicionado con `left/top:50% + translate(-50%,-50%)`, **no** con `place-items:center`: con la ventana más chica que 1080 (p.ej. 949 en una pantalla 1080p) la pista del grid arranca en 0 y desborda → el lienzo quedaba corrido ~65px. Verificado: caja en x=0 y right=innerWidth.
+  - **Hitos reales, texto del diseño:** `bootMark()` sólo manda el porcentaje; el texto lo elige `splash.html` con la tabla de umbrales del handoff, así no hay dos fuentes para el mismo string. El porcentaje es monótono (nunca retrocede) y se topa en 91 hasta que el arranque termina de verdad — el 100% significa "listo", no "casi".
+  - **Mínimo en pantalla `BOOT_MIN_MS` (2400ms):** el arranque real puede tardar 300ms y el splash no puede ser un parpadeo (el splash viejo hacía lo mismo con sus 2 vueltas de logo).
+  - **`package.json` › `build.files` es una LISTA EXPLÍCITA:** `splash.html` y `splash-preload.js` tuvieron que agregarse ahí. Sin eso el `.exe` empaquetado arranca sin splash y, como la ventana espera un `bootReady` que nunca llega, se ve vacío hasta el timeout.
+  - `body.preboot` (R147) queda por si se abre `index.html` fuera de Electron; dentro de Electron ya no hace falta (la ventana está oculta), pero `bootReveal()` lo quita igual.
+- **Status:** ✅ verificado por CDP (splash a los ~0.8s, editor 1600×900 = 16:9 exacto, splash cerrado a los ~4.0s, cero errores de consola)
+- **Roadmap:** handoff launcher+splash, pantalla 1
 
 ## Status bar / tooltips
 - **Purpose:** Info-view status line (instant tooltip text + **active-tool hint**), autosave status, hover tooltips (~1s) converted from `title` attrs.

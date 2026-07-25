@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<style>
+@font-face{font-family:'Geist';font-style:normal;font-weight:400;font-display:swap;src:url('assets/fonts/geist-400.woff2') format('woff2');}
+@font-face{font-family:'Geist';font-style:normal;font-weight:500;font-display:swap;src:url('assets/fonts/geist-500.woff2') format('woff2');}
+@font-face{font-family:'Geist';font-style:normal;font-weight:600;font-display:swap;src:url('assets/fonts/geist-600.woff2') format('woff2');}
+html,body{margin:0;min-height:100%;}
+body{background:#08090A;font-family:'Geist',system-ui,sans-serif;-webkit-font-smoothing:antialiased;color:#D8D8D8;}
+a{color:#9A9A9A;text-decoration:none;} a:hover{color:#E8E8E8;}
+@keyframes ispRing{0%,100%{opacity:.18}50%{opacity:.85}}
+@keyframes ispSheen{0%{transform:translateX(-100%)}100%{transform:translateX(320%)}}
+</style>
+</helmet>
+<div style="min-height:100vh;display:grid;place-items:center;padding:40px;box-sizing:border-box">
+  <div style="position:relative;width:1080px;height:1080px;box-sizing:border-box;display:flex;flex-direction:column;padding:84px;border:.5px solid rgba(255,255,255,0.08);border-radius:8px;overflow:hidden;background:radial-gradient(78% 60% at 22% 18%, #1B1D20 0%, #121315 52%, #0E0F11 100%)">
+
+    <div style="flex:1;display:flex;align-items:center;justify-content:space-between;gap:40px">
+      <img src="assets/immersive-logo.png" alt="Immersive Studio Pro" style="height:440px;width:440px;object-fit:contain;flex-shrink:0"/>
+      <span style="display:grid;place-items:center;height:72px;padding:0 34px;border-radius:36px;background:#EDEDED;color:#101012;font-size:32px;font-weight:600;letter-spacing:-0.01em;flex-shrink:0">Pro</span>
+    </div>
+
+    <div style="display:flex;align-items:flex-end;flex-shrink:0">
+      <div style="display:flex;flex-direction:column;gap:14px;min-width:0">
+        <span style="font-size:52px;font-weight:600;letter-spacing:-0.026em;line-height:1;color:#F4F4F4">Immersive Studio Pro</span>
+        <span style="font-size:24px;font-weight:500;color:#7A7A7A;font-variant-numeric:tabular-nums">{{ buildLine }}</span>
+        <span style="height:32px;display:flex;align-items:center;font-size:24px;font-weight:400;color:#9A9A9A">{{ status }}</span>
+        <div style="display:flex;align-items:center;gap:12px;margin-top:16px">
+          <img src="assets/alma-logo.png" alt="Alma Digital Studio" style="height:30px;width:30px;object-fit:contain;opacity:0.6"/>
+          <span style="font-size:21px;color:#6A6A6A">Created by <span style="color:#8A8A8A;font-weight:500">Alma Digital Studio</span></span>
+        </div>
+      </div>
+
+    </div>
+
+    <div style="position:absolute;left:0;right:0;bottom:0;height:4px;background:rgba(255,255,255,0.07)">
+      <div style="position:relative;height:100%;background:#EDEDED;overflow:hidden;transition:width .12s linear;{{ barW }}">
+        <span style="position:absolute;inset:0;width:40px;background:linear-gradient(90deg,rgba(255,255,255,0) 0%,rgba(255,255,255,0.85) 50%,rgba(255,255,255,0) 100%);animation:ispSheen 1.6s linear infinite"></span>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1160,&quot;height&quot;:1160},&quot;durationSec&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:7,&quot;min&quot;:2,&quot;max&quot;:20,&quot;step&quot;:0.5,&quot;unit&quot;:&quot;s&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Loading&quot;},&quot;loop&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Loading&quot;},&quot;buildLabel&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;1.0.0  ·  Build 2026-07-25_a41f9c2&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Loading&quot;}}">
+const STEPS = [
+  [0, 'Starting up'],
+  [9, 'Loading render engine'],
+  [22, 'Initializing dome projection'],
+  [38, 'Building timeline engine'],
+  [54, 'Loading effects library'],
+  [68, 'Scanning media cache'],
+  [80, 'Restoring workspace'],
+  [91, 'Preparing viewports'],
+  [100, 'Ready']
+];
+
+class Component extends DCLogic {
+  state = { p: 0, held: 0 };
+
+  componentDidMount() {
+    this.tick = 0;
+    this.timer = setInterval(() => {
+      const dur = Math.max(1, this.props.durationSec || 7) * 1000;
+      const loop = this.props.loop !== false;
+      this.tick += 40;
+      if (this.tick <= dur) {
+        const t = this.tick / dur;
+        this.setState({ p: Math.min(100, 100 * (1 - Math.pow(1 - t, 2.1))) });
+      } else if (this.tick <= dur + 1400) {
+        if (this.state.p < 100) this.setState({ p: 100 });
+      } else if (loop) {
+        this.tick = 0;
+        this.setState({ p: 0 });
+      }
+    }, 40);
+  }
+  componentWillUnmount() { clearInterval(this.timer); }
+
+  renderVals() {
+    const p = this.state.p;
+    let status = STEPS[0][1];
+    for (let i = 0; i < STEPS.length; i++) if (p >= STEPS[i][0]) status = STEPS[i][1];
+    return {
+      status,
+      pct: Math.round(p) + '%',
+      barW: 'width:' + p.toFixed(1) + '%',
+      buildLine: this.props.buildLabel || '1.0.0  ·  Build 2026-07-25_a41f9c2'
+    };
+  }
+}
+</script>
+</body>
+</html>
