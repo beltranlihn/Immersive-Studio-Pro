@@ -2150,41 +2150,288 @@ function loadingWaitMedia(deadline){ if(!_loadingOv)return; const anyLoading=sta
   setLoadingMsg((anyLoading||proxying)?(proxying?T('Buffering proxies…','Cargando proxys…'):T('Loading media…','Cargando medios…')):T('Loading…','Cargando…'));
   _loadingPoll=setTimeout(()=>loadingWaitMedia(deadline),200); }
 function escAttr(s){ return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+/* ==============================================================================================================
+   LAUNCHER (pantalla de inicio) — recreado del handoff "Launcher - Rev 4.dc.html" de Claude Design.
+   Reemplaza al landing de cuatro botones: acá se elige el tipo de proyecto, se editan TODOS sus parámetros y se
+   ve el resultado antes de crearlo.
+
+   VISORES: el prototipo dibuja sus previews con SVG propios. NO se portan — el editor ya tiene los visores buenos
+   y son los que de verdad describen el formato, así que se reusan tal cual (pedido de Beltrán):
+     · drawSeqViz(cv,'dome',{cov})            → fisheye con anillos de elevación, horizonte y rosa de orientación
+     · drawSeqViz(cv,'flat',{w,h})            → lienzo con regla de tercios y relación de aspecto
+     · drawRoomIso(cv,walls,floor,activeRole) → sala en isométrica
+     · drawRoomStrip(cv,walls,floor,activeRole)→ tira cosida por píxeles
+   Son las MISMAS funciones que usan los diálogos de creación, así que lo que se ve acá es lo que se obtiene.
+
+   ESTADO: `_lch` (local, no toca `state` hasta crear). El modelo es el del handoff; los muros usan la forma que ya
+   espera `newRoomProject` ({role,order,wcm,hcm,pxW,pxH}) y sus roles coinciden con las orientaciones del diseño.
+   ============================================================================================================== */
+/* Iconos que el registro ICO no tiene (gear/swap/arrow). Se toman los paths del propio prototipo en vez de
+   inventarlos o reusar uno parecido. */
+const LCH_SVG=(d,s,sw)=>`<svg width="${s||13}" height="${s||13}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw||1.7}" stroke-linecap="round" stroke-linejoin="round"><path d="${d}"></path></svg>`;
+const LCH_ICO={
+  gear:'M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2v.2a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.6 1.7 1.7 0 0 0-1.9.4l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9h-.2a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3h.1A1.7 1.7 0 0 0 10 2.6v-.2a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0 1.2 2.9h.2a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.6 1.1z',
+  swap:'M7 4v13M4 14l3 3 3-3M17 20V7M14 10l3-3 3 3',
+  arrowR:'M5 12h14M13 6l6 6-6 6'
+};
+/* DESVIACIÓN DELIBERADA respecto al handoff: el diseño propone una rampa neutra por orientación
+   (Front #E4E7E9 · Right #B9C0C6 · Back #98A1A8 · Left #7C858D). Acá se usan los colores REALES del editor
+   (`ROOM_ROLE_COL`), porque el visor de la derecha es el del editor y pinta los muros con ellos: con la rampa del
+   diseño, el chip de una orientación y su muro en el visor saldrían de colores distintos. Entre "más lindo" y
+   "lo que ves es lo que hay", gana lo segundo — que es justamente por lo que se reusan los visores.
+   OJO: `ROOM_ROLE_COL` se define mucho más abajo en el archivo, así que se lee PEREZOSAMENTE (dentro de una
+   función) y no en una constante de nivel superior — si no, salta la zona muerta temporal al cargar. */
+const lchFacings=()=>ROOM_ROLES.map(n=>({n,c:ROOM_ROLE_COL[n]}));
+const lchColor=n=>ROOM_ROLE_COL[n]||'#8892A0';
+const LCH_TYPES=[
+  {k:'dome',name:'Dome',sub:'Fulldome fisheye',viewer:'Dome viewer',icon:'M3.5 17.5a8.5 8.5 0 0 1 17 0 M2 17.5h20 M12 9v8.5 M7.6 11.2h8.8'},
+  {k:'flat',name:'2D Flat',sub:'Screens & LED',viewer:'Canvas viewer',icon:'M3 5.5h18v13H3z M3 15l4.5-3.5 3.5 2.5 3-2 7 5'},
+  {k:'room',name:'360 Room',sub:'Walls & floor',viewer:'Room viewer',icon:'M12 3l8 4.5v9L12 21l-8-4.5v-9z M12 12v9 M4 7.5l8 4.5 8-4.5'}
+];
+let _lch=null;
+function lchInit(){ return { ptype:'dome', pname:'',
+  domeRes:4096, domeCov:180,
+  flatW:1920, flatH:1080,
+  roomCount:4, roomFloor:true, roomUniform:true,
+  walls:[{role:'Front',wcm:800,hcm:450,pxW:3840,pxH:2160},{role:'Right',wcm:800,hcm:450,pxW:3840,pxH:2160},
+         {role:'Back', wcm:800,hcm:450,pxW:3840,pxH:2160},{role:'Left', wcm:800,hcm:450,pxW:3840,pxH:2160}],
+  fps:60, draft:{} }; }
+const lchMP=(w,h)=>(w*h/1e6).toFixed(1)+' MP';
+function lchAspect(w,h){ const g=(a,b)=>b?g(b,a%b):a; const d=g(w,h)||1; return (w/d)+':'+(h/d); }
+function lchEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+/* --- campo numérico con BORRADOR: escribir no compromete nada hasta Enter/blur; Esc descarta; ↑/↓ ±10,
+       Shift ±100, Alt ±1 (mecánica exacta del handoff). Se marca con data-lk para poder devolver el foco. --- */
+function lchNum(key,value,min,max,apply,cls){
+  const d=_lch.draft, val=(d[key]!==undefined?d[key]:String(value));
+  return `<input class="${cls||'lch-num'}" data-lk="${key}" data-lmin="${min}" data-lmax="${max}" value="${lchEsc(val)}" spellcheck="false">`;
+}
+function lchWireNums(root){
+  root.querySelectorAll('[data-lk]').forEach(inp=>{
+    const key=inp.dataset.lk, min=+inp.dataset.lmin, max=+inp.dataset.lmax;
+    const commit=raw=>{ const n=parseInt(String(raw).replace(/[^0-9]/g,''),10);
+      delete _lch.draft[key];
+      if(!isNaN(n))lchApply(key,Math.max(min,Math.min(max,n))); else renderLauncher(); };
+    inp.oninput=()=>{ _lch.draft[key]=inp.value; };            // sin re-render: el DOM ya muestra lo tecleado
+    inp.onblur=()=>{ if(_lch.draft[key]!==undefined)commit(inp.value); };
+    inp.onkeydown=e=>{ e.stopPropagation();
+      if(e.key==='Enter'){ commit(inp.value); inp.blur(); }
+      else if(e.key==='Escape'){ delete _lch.draft[key]; inp.blur(); renderLauncher(); }
+      else if(e.key==='ArrowUp'||e.key==='ArrowDown'){ e.preventDefault();
+        const step=e.shiftKey?100:(e.altKey?1:10);
+        const base=parseInt(String(_lch.draft[key]!==undefined?_lch.draft[key]:inp.value).replace(/[^0-9]/g,''),10)||0;
+        delete _lch.draft[key];
+        lchApply(key,Math.max(min,Math.min(max,base+(e.key==='ArrowUp'?step:-step)))); } };
+  });
+}
+/* un único punto de aplicación: la clave dice a dónde va el valor */
+function lchApply(key,v){
+  if(key==='domeRes')_lch.domeRes=v; else if(key==='domeCov')_lch.domeCov=v;
+  else if(key==='flatW')_lch.flatW=v; else if(key==='flatH')_lch.flatH=v;
+  else { const m=key.match(/^w(\d+)(pxW|pxH|wcm|hcm)$/); if(m){ const i=+m[1],k=m[2];
+    const uni=_lch.roomUniform; _lch.walls.forEach((w,j)=>{ if(uni||j===i)w[k]=v; }); } }
+  renderLauncher();
+}
+/* clic en la orientación: pasa a la siguiente e INTERCAMBIA con quien la tuviera (nunca dos iguales) */
+function lchCycleFacing(i){ const order=lchFacings().map(f=>f.n); const cur=_lch.walls[i].role;
+  const next=order[(order.indexOf(cur)+1)%order.length];
+  const j=_lch.walls.findIndex(w=>w.role===next);
+  _lch.walls[i].role=next; if(j>=0&&j!==i)_lch.walls[j].role=cur; renderLauncher(); }
+
+function lchActiveWalls(){ return _lch.walls.slice(0,_lch.roomCount); }
+function lchCfgWalls(){ return lchActiveWalls().map((w,i)=>({role:w.role,order:i+1,wcm:w.wcm,hcm:w.hcm,pxW:w.pxW,pxH:w.pxH})); }
+
+function hideLanding(){ const o=document.getElementById('landingOv'); if(o){ if(o._stopLogo)o._stopLogo(); o.remove(); } }
 function showLanding(){ if(document.getElementById('landingOv'))return;
-  const recents=IS_ELEC?getRecents():[];
-  const domeGlyph='<div style="width:38px;height:38px;opacity:0.5;">'+LOGO_SVG+'</div>';
-  const card=r=>`<button class="lgcard" data-path="${escAttr(r.path)}" title="${escAttr(r.path)}" style="text-align:left;background:#15181C;border:.5px solid rgba(255,255,255,0.09);border-radius:9px;overflow:hidden;cursor:pointer;padding:0;display:flex;flex-direction:column;transition:border-color .12s;">
-      <div style="aspect-ratio:16/10;background:var(--s0) ${r.thumb?`center/cover no-repeat url(${r.thumb})`:''};display:flex;align-items:center;justify-content:center;border-bottom:.5px solid rgba(255,255,255,0.06);">${r.thumb?'':domeGlyph}</div>
-      <div style="padding:8px 11px;min-width:0;"><div style="font-size:13px;color:var(--ink);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escAttr(r.name)}</div><div style="font-size:11px;color:var(--ink-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;">${relTime(r.t)}${r.folder?' · '+escAttr(r.folder.split(/[\\/]/).pop()):''}</div></div></button>`;
-  const ov=document.createElement('div'); ov.className='overlay'; ov.id='landingOv'; ov.style.background='#0E0F11'; ov.style.zIndex='300';
-  ov.innerHTML=`<div style="width:min(900px,92vw);max-height:88vh;display:flex;flex-direction:column;gap:22px;">
-     <div style="display:flex;align-items:center;gap:20px;">
-       <img id="lgLogo" width="104" height="104" style="width:104px;height:104px;flex-shrink:0;object-fit:contain;border-radius:22px;" alt="Immersive Studio Pro">
-       <div><div style="font-size:25px;font-weight:600;color:var(--ink);letter-spacing:-0.015em;">Immersive Studio Pro</div>
-         <div style="font-size:13px;color:var(--ink-3);margin-top:4px;">${T('Dome · 2D · 360 room','Domo · 2D · sala 360')} · <b style="color:var(--ink-2);font-weight:500;">Version 1.0</b></div></div>
-     </div>
-     <div style="display:flex;gap:12px;flex-wrap:wrap;">
-       <button id="lgNew" class="mbtn pri" style="height:40px;padding:0 18px;font-size:13px;">${ICO('plus',16)} ${T('New dome project','Nuevo proyecto domo')}</button>
-       <button id="lgNew2d" class="mbtn pri" style="height:40px;padding:0 18px;font-size:13px;background:var(--s2);color:var(--ink);">${ICO('plus',16)} ${T('New 2D project','Nuevo proyecto 2D')}</button>
-       <button id="lgNewRoom" class="mbtn pri" style="height:40px;padding:0 18px;font-size:13px;background:var(--s2);color:var(--ink);">${ICO('plus',16)} ${T('New 360 room','Nueva sala 360')}</button>
-       <button id="lgOpen" class="mbtn" style="height:40px;padding:0 16px;font-size:13px;">${ICO('folder',15)} ${T('Open project…','Abrir proyecto…')}</button>
-     </div>
-     <div style="display:flex;flex-direction:column;min-height:0;">
-       <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.09em;color:var(--ink-dim);margin-bottom:11px;">${T('Recent','Recientes')}</div>
-       <div id="lgRecents" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(188px,1fr));gap:12px;overflow-y:auto;padding-right:4px;">
-         ${recents.length? recents.map(card).join('') : `<div style="color:var(--ink-2);font-size:13px;padding:6px 0;">${T('No recent projects yet — create one to get started.','Aún no hay proyectos recientes — crea uno para empezar.')}</div>`}
-       </div>
-     </div>
-     <div style="font-size:11px;color:var(--ink-dim);letter-spacing:0.02em;padding-top:2px;">Created by Alma Digital Studio — all rights reserved</div>
-   </div>`;
+  _lch=_lch||lchInit();
+  const ov=document.createElement('div'); ov.className='overlay lch'; ov.id='landingOv'; ov.style.zIndex='300';
+  ov.innerHTML=`<div class="lch-wrap">
+    <div class="lch-top">
+      <img src="assets/immersive-logo.png" alt="" style="height:15px;width:15px;object-fit:contain;opacity:.9;">
+      <span class="nm">Immersive Studio Pro</span><span class="ver">v1.0</span>
+      <div style="flex:1;"></div>
+      <button class="lch-tbtn" id="lchOpen">${ICO('folder',12)}${T('Open project','Abrir proyecto')}</button>
+      <button class="lch-tico" id="lchPrefs" title="${T('Preferences','Preferencias')}">${LCH_SVG(LCH_ICO.gear,13,1.6)}</button>
+    </div>
+    <div class="lch-mid"><div class="lch-col">
+      <div class="lch-hero">
+        <img src="assets/immersive-logo.png" alt="" style="height:46px;width:46px;object-fit:contain;flex-shrink:0;">
+        <h1>Immersive Studio Pro</h1>
+        <div style="flex:1;"></div>
+        <div class="lch-alma"><img src="assets/alma-logo.png" alt="" style="height:24px;width:24px;object-fit:contain;opacity:.9;">
+          <span style="display:flex;flex-direction:column;gap:2px;"><span class="k">${T('Created by','Creado por')}</span><span class="v">Alma Digital Studio</span></span></div>
+      </div>
+      <div class="lch-work">
+        <div class="lch-panel" id="lchPanel"></div>
+        <div class="lch-viewer" id="lchViewer"></div>
+      </div>
+      <div class="lch-spacer"></div>
+      <div class="lch-recents">
+        <div class="lch-seclab" style="margin-bottom:10px;"><span>${T('Recent projects','Proyectos recientes')}</span><span class="lch-rule"></span></div>
+        <div class="lch-rgrid" id="lchRecents"></div>
+      </div>
+      <div class="lch-foot">
+        <img src="assets/alma-logo.png" alt="" style="height:16px;width:16px;object-fit:contain;opacity:.6;">
+        <span class="l">Immersive Studio Pro · ${T('Created by','Creado por')} <b>Alma Digital Studio</b></span>
+        <div style="flex:1;"></div><span class="r">© 2026 · ${T('All rights reserved','Todos los derechos reservados')}</span>
+      </div>
+    </div></div></div>`;
   document.body.appendChild(ov);
-  ov._stopLogo=startLogoLoop(ov.querySelector('#lgLogo')); // [U9] animated logo loop
-  ov.querySelector('#lgNew').onclick=()=>{ domeSetupDialog(cfg=>{ hideLanding(); newProject('dome',cfg.res,cfg.res,cfg.fps,cfg.cov); }); };
-  ov.querySelector('#lgNew2d').onclick=()=>{ flatResDialog((w,h,fps)=>{ hideLanding(); newProject('flat',w,h,fps); }); };
-  { const rb=ov.querySelector('#lgNewRoom'); if(rb)rb.onclick=()=>{ roomSetupDialog(cfg=>{ hideLanding(); newRoomProject(cfg); }); }; }
-  ov.querySelector('#lgOpen').onclick=()=>{ openProject().then(()=>{}); }; // loadProject hides the landing on success
-  ov.querySelectorAll('.lgcard').forEach(b=>{ b.onmouseenter=()=>b.style.borderColor='rgba(201,205,211,0.5)'; b.onmouseleave=()=>b.style.borderColor='rgba(255,255,255,0.09)';
-    b.onclick=()=>{ const p=b.dataset.path; if(!p)return; if(IS_ELEC&&DSP.exists){ DSP.exists(p).then(ok=>{ if(ok)openProjectPath(p); else { appAlert(T('That project file was moved or deleted.','Ese archivo de proyecto se movió o eliminó.')); const a=getRecents().filter(r=>r.path!==p); saveRecents(a); hideLanding(); showLanding(); } }); } else openProjectPath(p); }; }); }
+  ov.querySelector('#lchOpen').onclick=()=>{ openProject().then(()=>{}); }; // loadProject esconde el launcher al abrir
+  ov.querySelector('#lchPrefs').onclick=()=>openPrefs();
+  renderLauncher(); lchRenderRecents();
+}
+
+function renderLauncher(){ const ov=document.getElementById('landingOv'); if(!ov||!_lch)return;
+  const foc=document.activeElement, fk=(foc&&foc.dataset&&foc.dataset.lk)||null, fs0=foc&&foc.selectionStart;
+  const S=_lch, isDome=S.ptype==='dome', isFlat=S.ptype==='flat', isRoom=S.ptype==='room';
+  const seg=(opts,cur,attr)=>opts.map(o=>{ const v=(o&&typeof o==='object')?o.v:o, lab=(o&&typeof o==='object')?o.label:String(o);
+    return `<button data-${attr}="${lchEsc(v)}"${String(cur)===String(v)?' class="on"':''}>${lchEsc(lab)}</button>`; }).join('');
+  const row=(label,inner)=>`<div class="lch-row"><span class="lab">${label}</span>${inner}</div>`;
+  const fpsRow=row(T('Frame rate','Cuadros/s'),`<div class="lch-seg" data-lg="fps">${seg([24,25,30,48,50,60],S.fps,'v')}</div>`);
+
+  let fields='', out=[], viewerName='', summary='';
+  if(isDome){
+    fields=row(T('Resolution','Resolución'),`<div class="lch-seg" data-lg="domeRes">${seg([2048,3072,4096,6144,8192],S.domeRes,'v')}</div><div style="flex:1;"></div>`
+        +`<div class="lch-numw">${lchNum('domeRes',S.domeRes,512,16384)}<span class="unit">px</span></div>`)
+      + row(T('Angle','Ángulo'),`<div class="lch-seg" data-lg="domeCov">${seg([{v:180,label:'180°'},{v:200,label:'200°'},{v:210,label:'210°'},{v:220,label:'220°'}],S.domeCov,'v')}</div><div style="flex:1;"></div>`
+        +`<div class="lch-numw">${lchNum('domeCov',S.domeCov,140,240)}<span class="unit">°</span></div>`)
+      + fpsRow;
+    out=[[T('Master','Máster'),S.domeRes+' × '+S.domeRes+' fisheye'],
+         [T('Coverage','Cobertura'),S.domeCov+'° · '+(S.domeCov>180?T('below horizon','bajo el horizonte'):T('hemisphere','hemisferio'))],
+         [T('Timing','Tiempo'),S.fps+' fps · '+lchMP(S.domeRes,S.domeRes)]];
+    viewerName=T('Dome viewer','Visor de domo'); summary=S.domeRes+'² · '+S.domeCov+'° · '+S.fps+' fps';
+  } else if(isFlat){
+    const ar=lchAspect(S.flatW,S.flatH);
+    fields=row(T('Preset','Preajuste'),`<div class="lch-seg" data-lg="flatPre">${seg([{v:'1920x1080',label:'1080p'},{v:'3840x2160',label:'4K'},{v:'1080x1920',label:'9:16'},{v:'1080x1080',label:'1:1'},{v:'2560x720',label:'Wall'}],S.flatW+'x'+S.flatH,'v')}</div>`)
+      + row(T('Size','Tamaño'),`${lchNum('flatW',S.flatW,16,16384,null,'lch-num dual')}<span style="font-size:10px;color:#5A5A5A;">×</span>${lchNum('flatH',S.flatH,16,16384,null,'lch-num dual')}`
+        +`<button class="lch-swap" id="lchSwap" title="${T('Swap width and height','Intercambiar ancho y alto')}">${LCH_SVG(LCH_ICO.swap,12)}</button><div style="flex:1;"></div><span class="lch-ar">${ar}</span>`)
+      + fpsRow;
+    out=[[T('Canvas','Lienzo'),S.flatW+' × '+S.flatH+' · '+ar],[T('Timing','Tiempo'),S.fps+' fps · '+lchMP(S.flatW,S.flatH)]];
+    viewerName=T('Canvas viewer','Visor de lienzo'); summary=S.flatW+' × '+S.flatH+' · '+S.fps+' fps';
+  } else {
+    fields=row(T('Walls','Muros'),`<div class="lch-seg" data-lg="roomCount">${seg([2,3,4],S.roomCount,'v')}</div>`)
+      + row(T('Preset','Preajuste'),`<div class="lch-seg" data-lg="roomPre">${seg([{v:'1920x1080',label:'HD'},{v:'2560x1440',label:'1440p'},{v:'3840x2160',label:'4K'},{v:'4096x2160',label:'DCI'},{v:'2048x2048',label:'Square'}],S.walls[0].pxW+'x'+S.walls[0].pxH,'v')}</div>`)
+      + row(T('Floor','Piso'),`<span class="note">${T('Add a floor surface','Añadir superficie de piso')}</span><button class="lch-sw${S.roomFloor?' on':''}" id="lchFloor"><i></i></button>`)
+      + row(T('Uniform','Uniforme'),`<span class="note">${T('Edit one wall, apply to all','Editar un muro, aplicar a todos')}</span><button class="lch-sw${S.roomUniform?' on':''}" id="lchUni"><i></i></button>`)
+      + fpsRow;
+    const aw=lchActiveWalls(), tw=aw.reduce((a,w)=>a+w.pxW,0), th=aw.reduce((a,w)=>Math.max(a,w.pxH),0), tp=aw.reduce((a,w)=>a+w.pxW*w.pxH,0);
+    out=[[T('Stitched','Cosido'),tw+' × '+th+' px'],
+         [T('Surfaces','Superficies'),S.roomCount+' '+T('walls','muros')+(S.roomFloor?' + '+T('floor','piso'):'')+' · '+(tp/1e6).toFixed(1)+' MP'],
+         [T('Timing','Tiempo'),S.fps+' fps']];
+    viewerName=T('Room viewer','Visor de sala'); summary=S.roomCount+' '+T('walls','muros')+(S.roomFloor?' + '+T('floor','piso'):'')+' · '+tw+' × '+th+' · '+S.fps+' fps';
+  }
+
+  let wallTable='';
+  if(isRoom){ wallTable=`<div class="lch-walls">
+      <div class="lch-whead"><span style="width:16px;text-align:center;">#</span><span style="width:84px;">${T('Facing','Orientación')}</span>
+        <span style="width:58px;">${T('Width px','Ancho px')}</span><span style="width:58px;">${T('Height px','Alto px')}</span>
+        <span style="width:52px;">${T('Width cm','Ancho cm')}</span><span style="width:52px;">${T('Height cm','Alto cm')}</span></div>`
+      + lchActiveWalls().map((w,i)=>`<div class="lch-wrow"><span class="ix">${i+1}</span>
+          <button class="lch-facing" data-lface="${i}" style="color:${lchColor(w.role)};" title="${T('Click to reassign this wall','Clic para reasignar este muro')}">
+            <span class="sw" style="background:${lchColor(w.role)};"></span>${w.role}<span style="flex:1;"></span>${ICO('chevDown',9)}</button>
+          ${lchNum('w'+i+'pxW',w.pxW,16,16384,null,'lch-wnum').replace('class="lch-wnum"','class="lch-wnum" style="width:58px;"')}
+          ${lchNum('w'+i+'pxH',w.pxH,16,16384,null,'lch-wnum').replace('class="lch-wnum"','class="lch-wnum" style="width:58px;"')}
+          ${lchNum('w'+i+'wcm',w.wcm,10,20000,null,'lch-wnum cm').replace('class="lch-wnum cm"','class="lch-wnum cm" style="width:52px;"')}
+          ${lchNum('w'+i+'hcm',w.hcm,10,20000,null,'lch-wnum cm').replace('class="lch-wnum cm"','class="lch-wnum cm" style="width:52px;"')}
+        </div>`).join('') + `</div>`; }
+
+  const cur=LCH_TYPES.find(t=>t.k===S.ptype);
+  const panel=ov.querySelector('#lchPanel');
+  panel.innerHTML=`<div class="lch-seclab"><span>${T('New project','Nuevo proyecto')}</span><span class="lch-rule"></span></div>
+    <div class="lch-tiles">${LCH_TYPES.map(t=>`<button class="lch-tile${t.k===S.ptype?' on':''}" data-ltype="${t.k}">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="${t.icon}"></path></svg>
+        <span style="display:flex;flex-direction:column;gap:1px;"><span class="tn">${t.name}</span><span class="ts">${t.sub}</span></span></button>`).join('')}</div>
+    <div class="lch-name"><span style="width:70px;flex-shrink:0;font-size:11px;color:#9A9A9A;">${T('Name','Nombre')}</span>
+      <input id="lchName" value="${lchEsc(S.pname)}" placeholder="${T('Untitled project','Proyecto sin título')}" spellcheck="false"></div>
+    <div style="display:flex;flex-direction:column;gap:9px;">${fields}</div>
+    ${wallTable}
+    <div class="lch-grow"></div>
+    <div class="lch-out"><span class="t">${T('Master output','Salida máster')}</span>
+      ${out.map(o=>`<div class="lch-outrow"><span class="k">${o[0]}</span><span class="v">${lchEsc(o[1])}</span></div>`).join('')}</div>
+    <button class="lch-create" id="lchCreate">${T('Create','Crear')} ${cur.name} ${T('project','proyecto')}${LCH_SVG(LCH_ICO.arrowR,13,2)}</button>`;
+
+  // ---- visor: los MISMOS canvas del editor, no SVGs nuevos ----
+  const vw=ov.querySelector('#lchViewer');
+  const pane=(cap,id,extra)=>`<div class="lch-pane${extra?' hasdata':''}"><canvas id="${id}"></canvas><span class="lch-cap">${cap}</span>${extra||''}</div>`;
+  const dataStrip=(d1,d2)=>`<div class="lch-data"><span class="d1">${lchEsc(d1)}</span><span class="sep"></span><span class="d2">${lchEsc(d2)}</span></div>`;
+  let panes='';
+  if(isDome) panes=`<div class="lch-panes one">${pane(T('Fisheye master','Máster fisheye'),'lchCvDome',dataStrip(S.domeRes+' × '+S.domeRes+' px',lchMP(S.domeRes,S.domeRes)+' · '+S.domeCov+'° · '+S.fps+' fps'))}</div>`;
+  else if(isFlat) panes=`<div class="lch-panes one">${pane(T('Flat canvas','Lienzo plano'),'lchCvFlat',dataStrip(S.flatW+' × '+S.flatH+' px',lchMP(S.flatW,S.flatH)+' · '+lchAspect(S.flatW,S.flatH)+' · '+S.fps+' fps'))}</div>`;
+  else { const aw=lchActiveWalls(), tw=aw.reduce((a,w)=>a+w.pxW,0), th=aw.reduce((a,w)=>Math.max(a,w.pxH),0), tp=aw.reduce((a,w)=>a+w.pxW*w.pxH,0);
+    // El visor de sala del editor ya trae 3D Y planta cenital en el MISMO canvas (el diseño los pedía como dos
+    // paneles; esto los da juntos y a escala). Por eso una sola celda arriba y sin `.lch-cap`: el canvas dibuja
+    // sus propios rótulos "3D" y "PLAN cm" y superponer otro los pisaba.
+    panes=`<div class="lch-panes room" style="grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) 172px;">
+      <div class="lch-pane"><canvas id="lchCvIso"></canvas></div>
+      <div class="lch-stitch" style="grid-column:1;"><div class="lch-sthead"><span class="t">${T('Stitched canvas · wall order','Lienzo cosido · orden de muros')}</span><span class="lch-rule"></span>
+        <span style="font-size:10px;font-weight:600;color:#C8C8C8;font-variant-numeric:tabular-nums;">${tw} × ${th} px</span><span class="sep" style="width:.5px;height:11px;background:rgba(255,255,255,0.12);"></span>
+        <span style="font-size:10px;color:#8A8A8A;font-variant-numeric:tabular-nums;">${(tp/1e6).toFixed(1)} MP</span></div>
+        <div style="flex:1;min-height:0;position:relative;"><canvas id="lchCvStrip" style="position:absolute;inset:0;width:100%;height:100%;"></canvas></div></div>
+    </div>`; }
+  vw.innerHTML=`<div class="lch-vtop"><span class="lch-vname">${viewerName}</span><span class="lch-vsum">${lchEsc(summary)}</span>
+      <span class="lch-vhint">${T('Live preview of the project','Vista previa en vivo del proyecto')}</span></div>${panes}`;
+  lchPaint();
+
+  // ---- wiring ----
+  panel.querySelectorAll('[data-ltype]').forEach(b=>b.onclick=()=>{ _lch.ptype=b.dataset.ltype; _lch.draft={}; renderLauncher(); });
+  { const n=panel.querySelector('#lchName'); n.oninput=()=>{ _lch.pname=n.value; }; n.onkeydown=e=>e.stopPropagation(); }
+  const segPick=(lg,fn)=>{ const g=panel.querySelector('.lch-seg[data-lg="'+lg+'"]'); if(g)g.querySelectorAll('button').forEach(b=>b.onclick=()=>{ fn(b.dataset.v); renderLauncher(); }); };
+  segPick('fps',v=>_lch.fps=+v);
+  segPick('domeRes',v=>{_lch.domeRes=+v;_lch.draft={};});
+  segPick('domeCov',v=>{_lch.domeCov=+v;_lch.draft={};});
+  segPick('flatPre',v=>{const p=v.split('x');_lch.flatW=+p[0];_lch.flatH=+p[1];_lch.draft={};});
+  segPick('roomCount',v=>_lch.roomCount=+v);
+  segPick('roomPre',v=>{const p=v.split('x');_lch.walls.forEach(w=>{w.pxW=+p[0];w.pxH=+p[1];});_lch.draft={};});
+  { const s=panel.querySelector('#lchSwap'); if(s)s.onclick=()=>{ const w=_lch.flatW; _lch.flatW=_lch.flatH; _lch.flatH=w; _lch.draft={}; renderLauncher(); }; }
+  { const f=panel.querySelector('#lchFloor'); if(f)f.onclick=()=>{ _lch.roomFloor=!_lch.roomFloor; renderLauncher(); }; }
+  { const u=panel.querySelector('#lchUni'); if(u)u.onclick=()=>{ _lch.roomUniform=!_lch.roomUniform; renderLauncher(); }; }
+  panel.querySelectorAll('[data-lface]').forEach(b=>b.onclick=()=>lchCycleFacing(+b.dataset.lface));
+  lchWireNums(panel);
+  panel.querySelector('#lchCreate').onclick=()=>lchCreate();
+  if(fk){ const el=panel.querySelector('[data-lk="'+fk+'"]'); if(el){ el.focus(); try{ el.setSelectionRange(fs0,fs0); }catch(e){} } }
+}
+
+/* Pinta los canvas del visor con los MISMOS painters del editor. Se dimensionan por DPR para que no salgan borrosos.
+   Va en rAF a propósito: llamado justo después de escribir el innerHTML, el layout todavía no existe y
+   getBoundingClientRect() devuelve 0 → los canvas se quedaban en su 300×150 por defecto y se veían estirados. */
+function lchPaint(){ requestAnimationFrame(lchPaintNow); }
+function lchPaintNow(){ const ov=document.getElementById('landingOv'); if(!ov||!_lch)return;
+  const fit=cv=>{ if(!cv)return null; const r=cv.getBoundingClientRect(); if(!r.width||!r.height)return null;
+    const dpr=Math.min(2,window.devicePixelRatio||1); cv.width=Math.round(r.width*dpr); cv.height=Math.round(r.height*dpr);
+    cv.style.width='100%'; cv.style.height='100%'; return cv; };
+  const S=_lch;
+  if(S.ptype==='dome'){ const cv=fit(ov.querySelector('#lchCvDome')); if(cv)try{ drawSeqViz(cv,'dome',{cov:S.domeCov}); }catch(e){} }
+  else if(S.ptype==='flat'){ const cv=fit(ov.querySelector('#lchCvFlat')); if(cv)try{ drawSeqViz(cv,'flat',{w:S.flatW,h:S.flatH}); }catch(e){} }
+  else { const w=lchCfgWalls();
+    const a=fit(ov.querySelector('#lchCvIso')); if(a)try{ drawRoomIso(a,w,S.roomFloor,null); }catch(e){}
+    const b=fit(ov.querySelector('#lchCvStrip')); if(b)try{ drawRoomStrip(b,w,S.roomFloor,null); }catch(e){} }
+}
+
+function lchRenderRecents(){ const host=document.getElementById('lchRecents'); if(!host)return;
+  const rec=(IS_ELEC?getRecents():[]).slice(0,8);
+  if(!rec.length){ host.innerHTML=`<div class="lch-empty">${T('No recent projects yet — create one to get started.','Aún no hay proyectos recientes — crea uno para empezar.')}</div>`; return; }
+  host.innerHTML=rec.map(r=>`<button class="lch-rcard" data-path="${lchEsc(r.path)}" title="${lchEsc(r.path)}">
+      <span class="lch-thumb" style="background:${r.thumb?`center/cover no-repeat url(${lchEsc(r.thumb)})`:'linear-gradient(135deg,#171A1D 0%,#0E0E10 74%)'};">
+        <span class="lch-badge" style="color:#B9C0C6;">${T('Project','Proyecto')}</span>
+        <span class="lch-dur">${lchEsc(relTime(r.t))}</span></span>
+      <span class="lch-rbody"><span class="n">${lchEsc(r.name)}</span><span class="m">${lchEsc((r.folder||'').split(/[\\/]/).pop()||'')}</span></span>
+    </button>`).join('');
+  host.querySelectorAll('.lch-rcard').forEach(b=>{ b.onclick=()=>{ const p=b.dataset.path; if(!p)return;
+    if(IS_ELEC&&DSP.exists){ DSP.exists(p).then(ok=>{ if(ok)openProjectPath(p); else { appAlert(T('That project file was moved or deleted.','Ese archivo de proyecto se movió o eliminó.')); saveRecents(getRecents().filter(r=>r.path!==p)); lchRenderRecents(); } }); }
+    else openProjectPath(p); }; });
+}
+
+/* Crear: se delega en las MISMAS funciones que usan los diálogos, así el proyecto sale idéntico venga de donde venga. */
+function lchCreate(){ const S=_lch, name=(S.pname||'').trim();
+  const after=()=>{ if(name){ const as=activeSeq(); if(as){ as.name=name; renderSeqBar(); } projTitle(); } };
+  hideLanding();
+  if(S.ptype==='dome') newProject('dome',S.domeRes,S.domeRes,S.fps,S.domeCov).then(after,()=>showLanding());
+  else if(S.ptype==='flat') newProject('flat',S.flatW,S.flatH,S.fps).then(after,()=>showLanding());
+  else { const cfg={ walls:lchCfgWalls(), fps:S.fps, floor:S.roomFloor?{wcm:500,dcm:400,pxW:1920,pxH:1080}:null };
+    newRoomProject(cfg).then(after,()=>showLanding()); }
+}
+addEventListener('resize',()=>{ if(document.getElementById('landingOv'))lchPaint(); });
 
 /* ===================== [D7] ONBOARDING — first-run demo project + step overlay =====================
    On first launch (flag absent) we skip the landing, build a small dome demo with reference shapes, and walk a

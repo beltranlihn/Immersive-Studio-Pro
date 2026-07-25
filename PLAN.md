@@ -1,5 +1,52 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 153 — Launcher: la pantalla de inicio del handoff, con los visores REALES del editor
+
+Segunda mitad del handoff launcher+splash. El landing viejo eran cuatro botones que abrían los diálogos de
+creación; el launcher expone **todos** los parámetros de los tres formatos y muestra el resultado antes de crear.
+
+**La decisión que define esta ronda la puso Beltrán:** *"el código de 3D y visualizadores ya los tienes, porque los
+usas en editor. Extraelos de ahí"*. El prototipo trae sus propios SVGs (fisheye con graticula, domo 3D con
+proyección a mano, planta cenital, sala 3D, tira cosida) y **no se portaron**. En su lugar se reusan los painters
+que el editor ya usa en los diálogos de creación:
+
+| panel | función reusada |
+|---|---|
+| Máster fisheye | `drawSeqViz(cv,'dome',{cov})` — anillos de elevación, horizonte y rosa de orientación |
+| Lienzo plano | `drawSeqViz(cv,'flat',{w,h})` — regla de tercios y relación de aspecto |
+| Sala (3D + planta) | `drawRoomIso(cv,walls,floor,null)` — trae **las dos vistas en el mismo canvas** |
+| Lienzo cosido | `drawRoomStrip(cv,walls,floor,null)` — anchos proporcionales por píxeles |
+
+Lo que se ve en el launcher es, literalmente, lo que dibuja el editor. Y salió mejor que el plan: el visor de sala
+del editor ya resuelve en un canvas lo que el diseño pedía en dos paneles separados.
+
+**Desviación deliberada — colores de orientación.** El diseño propone una rampa neutra (Front #E4E7E9 …). Se usan
+los del editor (`ROOM_ROLE_COL`), porque el visor de la derecha pinta los muros con ésos: con la rampa del diseño,
+el chip de una orientación y su muro saldrían de colores distintos. Entre "más lindo" y "lo que ves es lo que hay",
+gana lo segundo — que es justamente por lo que se reusan los visores.
+
+**Detalles que costaron:**
+- **Los campos numéricos no re-renderizan al teclear.** El borrador (`_lch.draft`) se escribe en `oninput` sin
+  redibujar; si redibujara, el input perdería el foco en cada tecla. El commit (Enter/blur/flechas) sí redibuja y
+  devuelve el foco vía `data-lk`. Mecánica del handoff completa: Enter confirma, Esc descarta, ↑/↓ ±10, Shift ±100,
+  Alt ±1, y clampea.
+- **`lchPaint()` va en `requestAnimationFrame`.** Llamado justo después del `innerHTML` el layout no existe todavía,
+  `getBoundingClientRect()` da 0 y los canvas se quedaban en su 300×150 por defecto — pintaban, pero estirados.
+- **`ROOM_ROLE_COL` se lee perezosamente.** Está definido mucho más abajo en el archivo; en una `const` de nivel
+  superior saltaba la zona muerta temporal al cargar.
+
+**Verificado por CDP:** alto idéntico en los tres tipos (panel 426×612, visor 1102×612, página 1000) y **la página no
+scrollea** — el requisito duro del handoff; borrador/Enter/Esc/flechas/clamp; intercambio de orientación sin dejar
+dos muros iguales; "Uniforme" escribiendo en los cuatro muros; los cuatro canvas pintados a su tamaño real; cero
+errores de consola.
+
+**Deuda anotada:** el panel de Domo del diseño lleva DOS vistas (fisheye + domo 3D) y acá va sólo el fisheye — el 3D
+del editor es WebGL sobre `#gl` y extraerlo a un canvas suelto no es un copiar-pegar. En la tira cosida, el total
+que dibuja `drawRoomStrip` se solapa con la etiqueta del último muro a este alto; no se tocó el painter porque lo
+comparte el diálogo de sala.
+
+**Archivado (ADR-0007):** `_backup/deprecated/20260725-landing-v1.js`.
+
 ## ROUND 152 — Pistas iguales, una sola barra vertical y barra del visor responsiva
 
 Segunda pasada del rediseño sobre el editor, dirigida por Beltrán mientras revisaba: *"pista de audio y vídeo se

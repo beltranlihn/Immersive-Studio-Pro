@@ -1,0 +1,170 @@
+{
+  "porTipo": {
+    "dome": {
+      "panel": {
+        "w": 426,
+        "h": 612
+      },
+      "viewer": {
+        "w": 1102,
+        "h": 612
+      },
+      "work": {
+        "w": 1544,
+        "h": 612
+      },
+      "pagina": {
+        "w": 1600,
+        "h": 1000
+      },
+      "scrollea": false,
+      "tiles": [
+        {
+          "t": "dome",
+          "on": true
+        },
+        {
+          "t": "flat",
+          "on": false
+        },
+        {
+          "t": "room",
+          "on": false
+        }
+      ],
+      "filas": 3,
+      "muros": 0,
+      "out": [
+        "Master: 4096 × 4096 fisheye",
+        "Coverage: 180° · hemisphere",
+        "Timing: 60 fps · 16.8 MP"
+      ],
+      "crear": "Create Dome project",
+      "canvas": [
+        {
+          "id": "lchCvDome",
+          "w": 1082,
+          "h": 564,
+          "pintado": true
+        }
+      ]
+    },
+    "flat": {
+      "panel": {
+        "w": 426,
+        "h": 612
+      },
+      "viewer": {
+        "w": 1102,
+        "h": 612
+      },
+      "work": {
+        "w": 1544,
+        "h": 612
+      },
+      "pagina": {
+        "w": 1600,
+        "h": 1000
+      },
+      "scrollea": false,
+      "tiles": [
+        {
+          "t": "dome",
+          "on": false
+        },
+        {
+          "t": "flat",
+          "on": true
+        },
+        {
+          "t": "room",
+          "on": false
+        }
+      ],
+      "filas": 3,
+      "muros": 0,
+      "out": [
+        "Canvas: 1920 × 1080 · 16:9",
+        "Timing: 60 fps · 2.1 MP"
+      ],
+      "crear": "Create 2D Flat project",
+      "canvas": [
+        {
+          "id": "lchCvFlat",
+          "w": 1082,
+          "h": 564,
+          "pintado": true
+        }
+      ]
+    },
+    "room": {
+      "panel": {
+        "w": 426,
+        "h": 612
+      },
+      "viewer": {
+        "w": 1102,
+        "h": 612
+      },
+      "work": {
+        "w": 1544,
+        "h": 612
+      },
+      "pagina": {
+        "w": 1600,
+        "h": 1000
+      },
+      "scrollea": false,
+      "tiles": [
+        {
+          "t": "dome",
+          "on": false
+        },
+        {
+          "t": "flat",
+          "on": false
+        },
+        {
+          "t": "room",
+          "on": true
+        }
+      ],
+      "filas": 5,
+      "muros": 4,
+      "out": [
+        "Stitched: 15360 × 2160 px",
+        "Surfaces: 4 walls + floor · 33.2 MP",
+        "Timing: 60 fps"
+      ],
+      "crear": "Create 360 Room project",
+      "canvas": [
+        {
+          "id": "lchCvIso",
+          "w": 1082,
+          "h": 398,
+          "pintado": true
+        },
+        {
+          "id": "lchCvStrip",
+          "w": 1062,
+          "h": 115,
+          "pintado": true
+        }
+      ]
+    }
+  },
+  "numericos": {
+    "borradorNoAplica": 4096,
+    "trasEnter": 7000,
+    "trasFlecha": 7010,
+    "clamp": 16384,
+    "escDescarta": 180,
+    "facing": {
+      "antes": "Front,Right,Back,Left",
+      "despues": "Right,Front,Back,Left",
+      "sinRepetidos": true
+    },
+    "uniforme": "2000,2000,2000,2000"
+  },
+  "consoleErrors": []
+}

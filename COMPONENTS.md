@@ -191,6 +191,7 @@
 | reloadMedia/replace | Relink/swap/adoptar archivos | app.js · `reloadMedia`/`replaceMedia` (~L5335) | ✅ | — |
 | autosave/recovery/recents | Autosave a disco, snapshots, recientes | app.js · autosave (~L5482) / `addRecent` (~L2089) | ✅ | — |
 | Splash de arranque | **Ventana propia 1080²** previa al editor; barra por hitos reales | splash.html · splash-preload.js · main.js `createSplash`/`finishBoot` · app.js `bootMark`/`bootReveal` | ✅ | R151 |
+| Launcher (pantalla de inicio) | Elegir tipo, editar TODOS los parámetros y ver el resultado antes de crear | app.js · `showLanding`/`renderLauncher`/`lchPaint`/`lchCreate` · #landingOv.lch · CSS `.lch-*` | ✅ | R153 |
 | landing/loading | Pantalla de inicio + loop de logo (el splash ya no vive acá) | app.js · `showLanding`/`showLoadingScreen`/`startLogoLoop` (~L2073) | ✅ | [U9] |
 | Barra de menús | Dropdowns File/Edit/Window | app.js · `openAppMenu` (~L5809) · #menubar | ✅ | [D3] |
 | Sistema de menú contextual | Primitiva `openMenu`/`closeMenu` | app.js · `openMenu` (~L5788) | ✅ | — |
@@ -1757,6 +1758,21 @@ Bootstrap constants (app.js): `HAS_WC` (~L1259) = WebCodecs + Mp4Muxer present; 
 - **Invariants / gotchas:** `projTitle()` pushes the dirty flag to main every time; a failed IPC send falls back to `forceClose`.
 - **Status:** ✅
 - **Roadmap:** —
+
+## Launcher (pantalla de inicio) — showLanding / renderLauncher
+- **Purpose:** Crear un proyecto de uno de los tres tipos (Domo / 2D Flat / Sala 360) con **todos** sus parámetros a la vista y una **vista previa en vivo** antes de comprometerse, o reabrir un reciente. Recreado del handoff `Launcher - Rev 4.dc.html`.
+- **Location:** app.js · `showLanding()`/`hideLanding()` (nombres conservados: los llaman `init`, `startOnboarding`, `loadProject`…), `renderLauncher()`, `lchPaint()/lchPaintNow()`, `lchRenderRecents()`, `lchCreate()`, `lchNum`/`lchWireNums`/`lchApply` (campos con borrador), `lchCycleFacing`, `lchFacings`/`lchColor`, `LCH_TYPES`, `LCH_SVG`/`LCH_ICO`. Estado local `_lch`. CSS `.lch-*` en index.html. DOM `#landingOv.lch`.
+- **VISORES — se REUSAN los del editor, no se dibujan de nuevo:** `drawSeqViz(cv,'dome',{cov})` · `drawSeqViz(cv,'flat',{w,h})` · `drawRoomIso(cv,walls,floor,null)` · `drawRoomStrip(cv,walls,floor,null)`. Son los MISMOS painters que usan los diálogos de creación, así que lo que se ve en el launcher es lo que se obtiene. El prototipo traía SVGs propios (fisheye, domo 3D, planta, sala 3D, tira): **no se portaron** — pedido explícito de Beltrán.
+- **Invariants / gotchas:**
+  - **Alto idéntico para los tres tipos** y la página **no scrollea nunca** (requisito duro del handoff). Verificado: panel 426×612, visor 1102×612, página 1000 en Domo, 2D y Sala.
+  - **`lchPaint()` va en `requestAnimationFrame`**: llamado justo después de escribir el `innerHTML` el layout todavía no existe, `getBoundingClientRect()` da 0 y los canvas se quedaban en su 300×150 por defecto (se veían estirados).
+  - **Los campos numéricos NO re-renderizan al teclear**: `oninput` sólo escribe en `_lch.draft`. Si re-renderizaran, el input perdería el foco en cada tecla. El commit (Enter/blur/flechas) sí re-renderiza y devuelve el foco vía `data-lk`.
+  - **Colores de orientación = los del EDITOR (`ROOM_ROLE_COL`), no la rampa neutra del diseño.** Si no, el chip de una orientación y su muro en el visor saldrían de colores distintos. `ROOM_ROLE_COL` se define más abajo en el archivo → se lee **perezosamente** (`lchFacings()`), nunca en una `const` de nivel superior (TDZ al cargar).
+  - **La sala usa UN panel arriba, no dos:** `drawRoomIso` ya trae 3D **y** planta cenital en el mismo canvas (el diseño los pedía separados). Sin `.lch-cap` en ese panel: el canvas dibuja sus propios rótulos "3D"/"PLAN cm".
+  - **Crear delega en `newProject`/`newRoomProject`** — las mismas que usan los diálogos, así el proyecto sale idéntico venga de donde venga. Los muros se pasan con la forma que ya espera `newRoomProject` (`{role,order,wcm,hcm,pxW,pxH}`) y sus roles coinciden con las orientaciones del diseño.
+- **Deuda anotada:** el panel de Domo del diseño tiene DOS paneles (fisheye + domo 3D); acá va sólo el fisheye, porque el 3D del editor es WebGL sobre `#gl` y extraerlo a un canvas suelto no es un copiar-pegar. En la tira cosida, el total que dibuja `drawRoomStrip` se solapa con la etiqueta del último muro a este alto (comportamiento del painter compartido con el diálogo de sala; no se tocó para no cambiar el diálogo).
+- **Status:** ✅ verificado por CDP (alto estable en los 3 tipos, sin scroll, borrador/Enter/Esc/flechas/clamp, intercambio de orientación sin repetidos, uniforme, canvas pintados a tamaño real, 0 errores de consola)
+- **Roadmap:** handoff launcher+splash, pantalla 2
 
 ## Splash de arranque — ventana propia (splash.html)
 - **Purpose:** Ventana cuadrada sin cromo que se muestra SOLA mientras el editor arranca oculto; al terminar se revela el editor en 16:9 y el splash se desvanece. Recreado del handoff `scratchpad/redesign/design_handoff_launcher_splash/Loading Splash - Rev 1.dc.html`.
