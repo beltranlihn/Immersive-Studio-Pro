@@ -1,0 +1,404 @@
+{
+  "topbar": [
+    {
+      "tag": "div",
+      "id": null,
+      "cls": "top",
+      "h": 28,
+      "bg": "#1B1B1B",
+      "kids": [
+        {
+          "id": null,
+          "cls": "dot",
+          "txt": "",
+          "w": 6
+        },
+        {
+          "id": "menubar",
+          "cls": "menubar",
+          "txt": "File\n       Edit\n       Window",
+          "w": 143
+        },
+        {
+          "id": null,
+          "cls": "",
+          "txt": "",
+          "w": 1423
+        },
+        {
+          "id": "projTitle",
+          "cls": "",
+          "txt": "Immersive Dome · Untitled proj",
+          "w": 175
+        },
+        {
+          "id": "fmtChip",
+          "cls": "tnum",
+          "txt": "4096² · 60p · PNG",
+          "w": 87
+        },
+        {
+          "id": "helpBtn",
+          "cls": "tbtn",
+          "txt": "?",
+          "w": 22
+        }
+      ]
+    }
+  ],
+  "vis": {
+    "h": 28,
+    "groups": [
+      {
+        "id": "viewModeSeg",
+        "cls": "vseg",
+        "w": 177,
+        "vis": true,
+        "txt": "Dome Master\n          3D Previ"
+      },
+      {
+        "id": "d3sep",
+        "cls": "vdiv",
+        "w": 0,
+        "vis": false,
+        "txt": ""
+      },
+      {
+        "id": "threeModeSeg",
+        "cls": "vseg",
+        "w": 0,
+        "vis": false,
+        "txt": "Orbit\n           Viewer"
+      },
+      {
+        "id": "roomOutBtn",
+        "cls": "togbtn",
+        "w": 0,
+        "vis": false,
+        "txt": "Outside tex"
+      },
+      {
+        "id": null,
+        "cls": "vdiv",
+        "w": 1,
+        "vis": true,
+        "txt": ""
+      },
+      {
+        "id": "dispSeg",
+        "cls": "vseg",
+        "w": 171,
+        "vis": true,
+        "txt": "α"
+      },
+      {
+        "id": null,
+        "cls": "vdiv",
+        "w": 1,
+        "vis": true,
+        "txt": ""
+      },
+      {
+        "id": "qualitySeg",
+        "cls": "vseg",
+        "w": 92,
+        "vis": true,
+        "txt": "Full\n          ½\n          ¼"
+      },
+      {
+        "id": "proxyToggle",
+        "cls": "vseg",
+        "w": 68,
+        "vis": true,
+        "txt": "Proxy"
+      },
+      {
+        "id": null,
+        "cls": "",
+        "w": 434,
+        "vis": true,
+        "txt": ""
+      },
+      {
+        "id": "azelReadout",
+        "cls": "vslab",
+        "w": 90,
+        "vis": true,
+        "txt": "AZ 0°EL 35°"
+      },
+      {
+        "id": "fovCtl",
+        "cls": "vslab",
+        "w": 0,
+        "vis": false,
+        "txt": "FOV60°"
+      },
+      {
+        "id": "dollyCtl",
+        "cls": "vslab",
+        "w": 0,
+        "vis": false,
+        "txt": "DOLLY0.8"
+      },
+      {
+        "id": "distCtl",
+        "cls": "vslab",
+        "w": 0,
+        "vis": false,
+        "txt": "DIST3.0"
+      },
+      {
+        "id": null,
+        "cls": "vdiv",
+        "w": 1,
+        "vis": true,
+        "txt": ""
+      },
+      {
+        "id": null,
+        "cls": "vseg",
+        "w": 102,
+        "vis": true,
+        "txt": "100%"
+      },
+      {
+        "id": null,
+        "cls": "vdiv",
+        "w": 1,
+        "vis": true,
+        "txt": ""
+      },
+      {
+        "id": null,
+        "cls": "vseg",
+        "w": 88,
+        "vis": true,
+        "txt": "Output"
+      }
+    ],
+    "overlaysIconOnly": [
+      {
+        "d": "grid",
+        "txt": "",
+        "title": "Reference grid"
+      },
+      {
+        "d": "safe",
+        "txt": "",
+        "title": "Safe-zone overlay"
+      },
+      {
+        "d": "outline",
+        "txt": "",
+        "title": "Clip outlines"
+      },
+      {
+        "d": "hfade",
+        "txt": "",
+        "title": "Fade near the dome horizon"
+      },
+      {
+        "d": "checker",
+        "txt": "α",
+        "title": "Alpha checkerboard"
+      }
+    ],
+    "output": {
+      "present": true,
+      "on": false
+    },
+    "removed": [
+      {
+        "id": "perfBtn",
+        "present": false
+      },
+      {
+        "id": "popoutBtn",
+        "present": false
+      },
+      {
+        "id": "ndiBtn",
+        "present": false
+      },
+      {
+        "id": "spoutBtn",
+        "present": false
+      }
+    ],
+    "viewModeSegParent": "vptool",
+    "totalWidthUsed": 1224,
+    "barWidth": 1328
+  },
+  "insp": {
+    "headerH": 26,
+    "tabsInWell": true,
+    "tabs": [
+      {
+        "tab": "insp",
+        "on": true,
+        "txt": "Inspector"
+      },
+      {
+        "tab": "react",
+        "on": false,
+        "txt": "Reactive FX"
+      }
+    ],
+    "hasTallBtn": true,
+    "hasHideBtn": true,
+    "clipColorBar": {
+      "found": false
+    },
+    "sections": [
+      {
+        "id": "secTf",
+        "sec": "tf",
+        "txt": "Dome · Transform",
+        "shown": true,
+        "tt": "none",
+        "fs": "11px"
+      },
+      {
+        "id": "secFx",
+        "sec": "clip",
+        "txt": "Clip",
+        "shown": true,
+        "tt": "none",
+        "fs": "11px"
+      },
+      {
+        "id": "secSource",
+        "sec": "source",
+        "txt": "Source",
+        "shown": true,
+        "tt": "none",
+        "fs": "11px"
+      },
+      {
+        "id": "secPlayback",
+        "sec": "playback",
+        "txt": "Playback",
+        "shown": false,
+        "tt": "none",
+        "fs": "11px"
+      },
+      {
+        "id": "secColor",
+        "sec": "color",
+        "txt": "Color",
+        "shown": true,
+        "tt": "none",
+        "fs": "11px"
+      },
+      {
+        "id": "secMotion",
+        "sec": "motion",
+        "txt": "Motion",
+        "shown": true,
+        "tt": "none",
+        "fs": "11px"
+      }
+    ],
+    "masterGradeGone": {
+      "insMaster": false,
+      "fn": "undefined"
+    },
+    "sourceRows": [
+      {
+        "lab": "Fulldome src",
+        "ctl": [
+          "checkbox"
+        ]
+      },
+      {
+        "lab": "Equirect 360°",
+        "ctl": [
+          "checkbox"
+        ]
+      },
+      {
+        "lab": "Fisheye",
+        "ctl": [
+          "checkbox",
+          "number"
+        ]
+      }
+    ],
+    "playbackRows": [],
+    "ioswCount": 0,
+    "rawCheckboxes": 6,
+    "paramColors": [
+      {
+        "lab": "Azimuth",
+        "pc": "#E0954B",
+        "fill": "#E0954B"
+      },
+      {
+        "lab": "Elevation",
+        "pc": "#D8C24B",
+        "fill": "#D8C24B"
+      },
+      {
+        "lab": "Size",
+        "pc": "#E0645C",
+        "fill": "#E0645C"
+      },
+      {
+        "lab": "Rotation",
+        "pc": "#C58BD0",
+        "fill": "#C58BD0"
+      },
+      {
+        "lab": "Opacity",
+        "pc": "#7FB2E8",
+        "fill": "#7FB2E8"
+      },
+      {
+        "lab": "Blur",
+        "pc": "#4FB3C9",
+        "fill": "#4FB3C9"
+      },
+      {
+        "lab": "Feather",
+        "pc": "#6FBF95",
+        "fill": "#6FBF95"
+      },
+      {
+        "lab": "Crop",
+        "pc": "#8FA8C0",
+        "fill": "#8FA8C0"
+      },
+      {
+        "lab": "Mask",
+        "pc": null,
+        "fill": "#000000"
+      },
+      {
+        "lab": "Mask size",
+        "pc": null,
+        "fill": "#000000"
+      },
+      {
+        "lab": "Point mask",
+        "pc": null,
+        "fill": "#000000"
+      },
+      {
+        "lab": "Expand",
+        "pc": null,
+        "fill": "#000000"
+      },
+      {
+        "lab": "Blend",
+        "pc": null,
+        "fill": "#000000"
+      },
+      {
+        "lab": "React to audio",
+        "pc": null,
+        "fill": "#000000"
+      }
+    ],
+    "kfDiamondColored": "ninguna fila automatizada"
+  }
+}

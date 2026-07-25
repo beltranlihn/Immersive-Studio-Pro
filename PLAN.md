@@ -1,5 +1,99 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 150 — Master Grade fuera del código (cierra la deuda abierta por R148)
+
+Decisión de Beltrán, sin rodeos: *"Eso nunca lo voy a aplicar, no me interesa. Que salga del code y se vaya a
+deprecated."* Y sin proyectos activos, así que no hay compatibilidad que preservar.
+
+Era el estado peor de los tres posibles: R148 sacó la **UI** (el diseño "Rev 1" no tiene sección Master Grade) pero
+dejó el **motor** vivo, así que un `.isp` viejo con grado guardado se seguía renderizando graduado **sin nada en
+pantalla que lo dijera y sin forma de resetearlo**. Ahora sale entero.
+
+**Archivado (ADR-0007), verbatim y con encabezado:** `_backup/deprecated/20260725-master-grade-engine.js` —
+shader `_MGFS`/programa `_MG`/`_MGu`, `_masterClip`, `_mgRT`/`_mgTarget`, `masterGradeOn()`, `applyMasterGrade()`,
+`state.seqGrade`, el CSS huérfano de `#insMaster`, y los **seis call-sites** con su ubicación: preview (`render`),
+`ndiTick`, `spoutTick`, `renderExportFrame`, `saveActiveSeq`→`s.grade`, `loadSeqIntoState`, más los dos trozos de
+`preloadLUTs` (LUT de la secuencia activa y LUT por nest) y el `grade:` de `serMedia`. Restaurarlo requiere **los dos**
+archivos en orden: primero el motor, después `master-grade-ui.js`.
+
+**Verificado por CDP tras sacarlo:** los siete símbolos (`applyMasterGrade`, `masterGradeOn`, `_masterClip`, `_mgRT`,
+`_MG`, `_MGu`, `renderMasterGrade`) ya no existen · `state.seqGrade` es `undefined` · el contexto WebGL no se pierde y
+`render()` sigue · la sección **Color por clip queda intacta** (Exposure/Contrast/Saturation/Temp/Tint/Glow/Chroma +
+3 ruedas lift/gamma/gain + LUT) · `serProject` ya no escribe `grade` · y **un `.isp` viejo con `grade` puesto —
+incluso con una ruta de LUT inexistente— abre sin romper**: el campo se ignora. Cero errores de consola.
+
+**Sobre el export:** la línea era `masterGradeOn()?applyMasterGrade(_exTex,SR):_exTex`, y `masterGradeOn()` era
+siempre falso desde R148 (sin UI, defaults identidad). O sea que la rama viva ya era `_exTex`: el export es idéntico,
+no hace falta re-verificar un render largo.
+
+## ROUND 149 — Auditoría del rediseño "Rev 1" y sus arreglos
+
+Barrido por CDP a 1920×1080 de las etapas 0-5 contra el prototipo, con informe en **`AUDITORIA-REV1.md`** y scripts
+en `scratchpad/audit-rev1-{a..e}.mjs` (medición) y `scratchpad/verify-audit-fixes.mjs` (verificación). Cero errores
+de consola en todos los pases.
+
+**Lo primero que encontró la auditoría fue un problema con la auditoría.** El primer barrido se hizo contra
+`REDISEÑO-UI.md`, que es una **traducción** del handoff, no el handoff. Cuatro de los nueve hallazgos resultaron
+**falsos**: el `.md` describía cosas que el prototipo no tiene. Al verificar cada hallazgo contra el `.dc.html`
+antes de tocar código, la app estaba bien y el que estaba mal era el documento:
+- *"El menú no está unificado"* — el prototipo (`RevDomo:32-35`) tiene los **mismos tres botones** File · Edit · Window.
+- *"El selector de modo no está en la top bar"* — en el prototipo tampoco: vive en la barra del visor.
+- *"Los labels de la Create row nunca aparecen"* — el prototipo hace `createLbl: S.mediaW<340 ? 'display:none':''`
+  con `mediaW:288` por defecto: **en el diseño tampoco se ven** al ancho por defecto. Nuestro umbral equivale a
+  ~338px de panel, correcto dentro de 1.5px.
+- *"El chip de parámetro trunca"* — el prototipo usa el mismo `flex:1;min-width:0` con elipsis y el mismo `hdrW:168`:
+  la elipsis es intencional.
+Las cuatro secciones equivocadas de `REDISEÑO-UI.md` quedaron corregidas, con nota de qué decían antes. **Regla que
+queda: ante cualquier duda manda el `.dc.html`; el `.md` es un índice para navegarlo, no la fuente.**
+
+**Alturas y superficies de barra (§0).** El diseño fija 28px para toda barra y 22 para el status; había cinco fuera:
+header de Media 26→28, header de Inspector 26→28 (comparten `.panhead`), transport 30→28, status 24→22, y el well de
+edición `#tlEditSeg` 18→22 con botones de 16 — era el único de los once wells fuera de medida. `.zoomgrp` y `#snapBtn`
+igualados a 22. Superficies verificadas una por una: top bar `#1B1B1B`, headers `#111111`, **sólo el transport**
+`#242424` (token nuevo `--bar`), status `#1B1B1B`. Mi primera lectura decía "top bar y transport en `#242424`" y era
+media verdad — el prototipo pone la top bar en el mismo gris del panel.
+
+**La barra del visor ya no salta (§3).** El grupo de cámara 3D era el **segundo** del clúster izquierdo, así que al
+entrar en 3D corría todo lo de su derecha: `dispSeg` +151px, `qualitySeg` +152, `proxyToggle` +152. En el prototipo
+(`RevDomo:154-158`) es el **último** del clúster, justo antes del `flex:1`; movido allí. Medido después: dispSeg 494 y
+qualitySeg 681 en 2D **y** en 3D, sin overflow. De paso, el "residual de 30-50px" que arrastraban las notas **no
+existía**: la barra usa ~1224px de 1328.
+
+**Source y Playback con toggles (§4).** El `.iosw` del diseño (26×15, knob de 11, verde `#4A8D6F` al on) estaba
+**bien construido pero sólo se usaba en Preferences**; el inspector seguía con checkboxes nativos. Ahora Source
+(Fulldome src · Equirect 360° · Fisheye) y Playback (Loop · Reverse) usan la forma de fila del prototipo: etiqueta ·
+descripción apagada · switch a la derecha. `Amount` del fisheye pasó a **su propia fila y sólo cuando Fisheye está
+encendido** (`RevDomo:317-319`), en vez de un campo numérico semi-transparente pegado al checkbox.
+
+**La búsqueda de media vuelve a existir (§2).** `#mediaSearch` había quedado `display:none` en R148, así que
+**Ctrl+F era un no-op**. `showMediaSearch(on)` es ahora la única puerta: revela un campo real en la fila de filtros
+apartando el well de filtros para ocupar la fila (200px útiles sobre un panel de 292), abre el panel si estaba
+plegado, y Esc lo cierra **limpiando el filtro** — para que no quede un panel filtrado sin nada en pantalla que lo
+explique.
+
+**Hint de herramienta en el status (§7).** `#statInfo` ya existía (barra de ayuda al hover, R102) pero se vaciaba sin
+hover, y el diseño muestra siempre la pista de la herramienta activa. Ahora `setInfo(null)` cae a
+`TOOL_HINTS[state.tl.tool]` reusando el mismo parser (`Nombre (ATAJO) — descripción`), sin segundo camino de código;
+`setTool` y `applyLang` lo repintan. Los valores de `TOOL_HINTS` son **funciones**, no cadenas, para que `T()` se
+reevalúe al cambiar de idioma.
+
+**Cosmética.** `.mmeta`/`.selmeta` de 11 a 10px — ojo: el uppercase **sí es del diseño** (`RevDomo:275`), sólo que se
+tolera únicamente a 10px, así que mi hallazgo original ("quitar el uppercase") habría sido un error. Título de sección
+`Dome · Transform` → `Transform`. Tooltip de `Fit`, que prometía "(H·W)" cuando `fitAll()` sólo ajusta el horizontal.
+`#roomOutBtn` de 24 a 22px.
+
+**Desviación deliberada anotada:** el prototipo pinta el status en `#8C8C8C`; se deja en `--ink-2` porque el token
+dice explícitamente que `#8C8C8C` no es texto de cuerpo (Lc −38) y R102 ya subió los textos que estaban ahí.
+
+**Gotcha del propio trabajo:** un comentario `//` metido a mitad de una sentencia de una sola línea (la de
+`#roomOutBtn`) se comió el resto, incluidas dos llaves de cierre → `node --check` cayó con "Unexpected end of input"
+al final del archivo. En un `app.js` de líneas largas, los comentarios inline van al final de la línea o en `/* */`.
+
+**Deuda que queda:** Master Grade sigue dormido (motor vivo, sin UI para editarlo ni resetearlo — decisión de
+Beltrán); tres checkboxes nativos sueltos que el diseño no cubre (`#bkToggle`, `#txtStroke`, `#motionPrev`); el
+waveform de audio no se pudo verificar (el clip inyectado es sintético, sin picos decodificados); y falta el juicio
+visual con la ventana al frente, porque las capturas de píxel salen negras con la ventana en segundo plano.
+
 ## ROUND 148 — Rediseño "Rev 1" (Claude Design): etapas 0-5 (tokens · shell · inspector · transport · timeline)
 
 Recreación de la UI **calcada** al handoff de Claude Design (`scratchpad/redesign/design_handoff_immersive_studio/`,

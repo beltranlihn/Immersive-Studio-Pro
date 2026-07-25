@@ -8,10 +8,18 @@
 - [x] Etapas **0-5**: tokens · componentes · shell · inspector (Source/Playback, sin Master Grade) · transport
       (secuencias en la barra del play, well Simple/Auto/Grid/Fit) · timeline (pistas unificadas, chips de
       automatización, V-zoom, fade en esquinas). _(R148)_
-- [ ] **Auditoría por CDP a 1920×1080** de las etapas 2-5 contra §1-§6 del spec (siguiente paso inmediato).
-- [ ] Residuales anotados: `#mediaSearch` sin entrada de usuario (Ctrl+F es no-op) · Master Grade sin forma de
-      editarse/resetearse · tooltip de `Fit` promete "(H·W)" y sólo ajusta el horizontal · barra del visor 2D↔3D
-      puede empujar ~30-50px.
+- [x] **Auditoría por CDP a 1920×1080** de las etapas 0-5 — informe en `AUDITORIA-REV1.md`. _(R149)_
+- [x] **Arreglos de la auditoría** _(R149)_: alturas de barra (media/inspector/transport/status) y wells de edición y
+      zoom a 22px · superficies por barra (sólo el transport en `#242424`) · Source y Playback con toggles `.iosw` ·
+      Ctrl+F con campo real · hint de herramienta en el status · micro-metadata a 10px · título "Transform" ·
+      tooltip de `Fit` · barra del visor sin saltos 2D↔3D. **Cuatro hallazgos eran falsos** (errores de la
+      traducción `REDISEÑO-UI.md`, ya corregida): mandá siempre el `.dc.html`.
+- [x] **Master Grade — CERRADO (R150).** Beltrán decidió sacarlo del código. Motor archivado en
+      `_backup/deprecated/20260725-master-grade-engine.js` (la UI ya estaba, desde R148). Verificado por CDP: nada
+      roto, el grado por clip intacto, y un `.isp` viejo con `grade` abre sin problema (se ignora).
+- [ ] **Pasada visual** con la ventana al frente (las capturas de píxel salen negras en segundo plano).
+- [ ] Tres checkboxes nativos fuera del sistema de toggles: `#bkToggle`, `#txtStroke` (Clip), `#motionPrev` (Motion).
+- [ ] Verificar el **waveform de audio** con un archivo real (el clip de prueba era sintético).
 - [ ] Etapa **6 · Launcher** y **7 · variantes por formato** (360 / 2D).
 
 ## Arranque (wins rápidos) 🟢

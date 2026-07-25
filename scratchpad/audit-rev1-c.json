@@ -1,0 +1,297 @@
+{
+  "bar2d": {
+    "mode": "2d",
+    "used": 1224,
+    "bar": 1328,
+    "scrollW": 1328,
+    "clientW": 1328
+  },
+  "bar3d": {
+    "mode": "3d",
+    "used": 1208,
+    "bar": 1328,
+    "scrollW": 1328,
+    "clientW": 1328,
+    "overflow": false,
+    "groupsVisible": [
+      "viewModeSeg",
+      "d3sep",
+      "threeModeSeg",
+      "vdiv",
+      "dispSeg",
+      "vdiv",
+      "qualitySeg",
+      "proxyToggle",
+      "",
+      "distCtl",
+      "vdiv",
+      "vseg",
+      "vdiv",
+      "vseg"
+    ]
+  },
+  "transport": {
+    "h": 30,
+    "bg": "#1B1B1B",
+    "zones": [
+      {
+        "id": "seqTabs",
+        "cls": "seqtabs",
+        "x": 10,
+        "w": 125,
+        "h": 22,
+        "txt": "Sequence 1✕＋"
+      },
+      {
+        "id": null,
+        "cls": "tccenter",
+        "x": 675,
+        "w": 570,
+        "h": 28,
+        "txt": "00:02:00120f TCFrames"
+      },
+      {
+        "id": null,
+        "cls": "",
+        "x": 143,
+        "w": 1450,
+        "h": 0,
+        "txt": ""
+      },
+      {
+        "id": "snapBtn",
+        "cls": "togbtn2",
+        "x": 1601,
+        "w": 33,
+        "h": 18,
+        "txt": ""
+      },
+      {
+        "id": "tlEditSeg",
+        "cls": "editseg",
+        "x": 1642,
+        "w": 210,
+        "h": 18,
+        "txt": "Simple Auto Grid Fit"
+      },
+      {
+        "id": null,
+        "cls": "zoomgrp",
+        "x": 1860,
+        "w": 50,
+        "h": 18,
+        "txt": ""
+      }
+    ],
+    "seqTabs": {
+      "inTransport": true,
+      "h": 22,
+      "tabs": [
+        {
+          "txt": "Sequence 1✕",
+          "on": true,
+          "add": false,
+          "h": 16
+        },
+        {
+          "txt": "＋",
+          "on": false,
+          "add": true,
+          "h": 16
+        }
+      ]
+    },
+    "editSeg": {
+      "h": 18,
+      "bg": "#262626",
+      "btns": [
+        {
+          "id": "simpleClipBtn",
+          "txt": "Simple",
+          "on": true,
+          "h": 16
+        },
+        {
+          "id": "curvesBtn",
+          "txt": "Auto",
+          "on": true,
+          "h": 16
+        },
+        {
+          "id": "tlGridBtn",
+          "txt": "Grid",
+          "on": true,
+          "h": 16
+        },
+        {
+          "id": "fitAllBtn",
+          "txt": "Fit",
+          "on": false,
+          "h": 16
+        }
+      ]
+    },
+    "snapOutsideWell": true,
+    "tcBox": {
+      "txt": "00:02:00",
+      "fs": "13px",
+      "bg": "#111111"
+    },
+    "zoomGrp": true
+  },
+  "timeline": {
+    "toolRailW": 32,
+    "trackHdrW": 168,
+    "rulerpadH": 22,
+    "rulerpadEmpty": true,
+    "lanesInMain": 5,
+    "lanesInAudioZone": 0,
+    "audioZoneDisplay": "none",
+    "audioBarPresent": false,
+    "laneOrder": [
+      {
+        "tag": "V4",
+        "aud": false,
+        "h": 82
+      },
+      {
+        "tag": "V3",
+        "aud": false,
+        "h": 82
+      },
+      {
+        "tag": "V2",
+        "aud": false,
+        "h": 82
+      },
+      {
+        "tag": "V1",
+        "aud": false,
+        "h": 82
+      },
+      {
+        "tag": "A1",
+        "aud": true,
+        "h": 41
+      }
+    ],
+    "autoChips": [
+      {
+        "chips": 2,
+        "labels": [
+          "Effects",
+          "Opacity"
+        ],
+        "swatch": "#7FB2E8",
+        "truncated": [
+          false,
+          true
+        ]
+      },
+      {
+        "chips": 2,
+        "labels": [
+          "Effects",
+          "Opacity"
+        ],
+        "swatch": "#7FB2E8",
+        "truncated": [
+          false,
+          true
+        ]
+      },
+      {
+        "chips": 2,
+        "labels": [
+          "Effects",
+          "Opacity"
+        ],
+        "swatch": "#7FB2E8",
+        "truncated": [
+          false,
+          true
+        ]
+      }
+    ],
+    "fadeHandle": {
+      "radius": "2px",
+      "w": "7px",
+      "h": "7px",
+      "top": "3px"
+    },
+    "vzoom": {
+      "present": true,
+      "w": 12,
+      "thumb": {
+        "w": 5,
+        "h": 105
+      },
+      "visible": true
+    },
+    "autoCurve": {
+      "found": true,
+      "w": 480
+    },
+    "waveform": 0,
+    "playheadW": "2px",
+    "zoomBar": true
+  },
+  "status": {
+    "h": 24,
+    "txt": "Ready✕ CPU 0% · RAM 412 MB · GPU 3% 2.9/8.0 GB Shape · 5 media · 4 clips WebGL · WebCodecs",
+    "kids": [
+      "Ready",
+      "✕",
+      "CPU 0%   ·   RAM 412 MB   ",
+      "Shape · 5 media · 4 clips",
+      "WebGL · WebCodecs"
+    ]
+  },
+  "colorRows": [
+    {
+      "lab": "Exposure",
+      "pc": "#E8C84B"
+    },
+    {
+      "lab": "Contrast",
+      "pc": "#B0C4DE"
+    },
+    {
+      "lab": "Saturation",
+      "pc": "#D06FB0"
+    },
+    {
+      "lab": "Temp",
+      "pc": "#E08A4B"
+    },
+    {
+      "lab": "Tint",
+      "pc": "#B08AD0"
+    },
+    {
+      "lab": "Glow",
+      "pc": "#F0E68C"
+    },
+    {
+      "lab": "Chroma",
+      "pc": "#5FC9A8"
+    },
+    {
+      "pc": null
+    },
+    {
+      "pc": null
+    },
+    {
+      "lab": "LUT",
+      "pc": null
+    }
+  ],
+  "itemHdr": "no encontrado (selector)",
+  "selMeta": {
+    "txt": "TEXT · 8s",
+    "fs": "11px",
+    "tt": "uppercase",
+    "color": "#B8B8B8"
+  }
+}

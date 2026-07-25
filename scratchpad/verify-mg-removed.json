@@ -1,0 +1,56 @@
+{
+  "simbolosMuertos": [
+    {
+      "s": "applyMasterGrade",
+      "existe": false
+    },
+    {
+      "s": "masterGradeOn",
+      "existe": false
+    },
+    {
+      "s": "_masterClip",
+      "existe": false
+    },
+    {
+      "s": "_mgRT",
+      "existe": false
+    },
+    {
+      "s": "_MG",
+      "existe": false
+    },
+    {
+      "s": "_MGu",
+      "existe": false
+    },
+    {
+      "s": "renderMasterGrade",
+      "existe": false
+    }
+  ],
+  "stateSeqGrade": "undefined",
+  "insMasterEnDOM": false,
+  "glLost": false,
+  "colorRows": [
+    "Exposure",
+    "Contrast",
+    "Saturation",
+    "Temp",
+    "Tint",
+    "Glow",
+    "Chroma",
+    "LUT"
+  ],
+  "ruedasLGG": 3,
+  "lutPorClip": true,
+  "serTieneGrade": false,
+  "ispViejo": {
+    "cargaOk": true,
+    "cargaErr": null,
+    "clips": 4,
+    "seqGradeTrasCargar": "undefined"
+  },
+  "renderExportFrame": "fn ok",
+  "consoleErrors": []
+}

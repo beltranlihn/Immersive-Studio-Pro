@@ -127,9 +127,10 @@
 | Ruedas Lift/Gamma/Gain | Grado primario estilo DaVinci | app.js · `wheelRGB`/`bindClipGrade` | ✅ | R130 |
 | Curvas de tono | Curvas luma+RGB → LUT 256×1 | app.js · `buildCurveData`/`clipCurveTex`/`bindClipCurve` | ✅ | R132 |
 | Grado en PFD/PEQ | Fulldome/equirect ya reciben ruedas/curvas/LUT (paridad con FSW) | app.js · `bindClipLUT(c,LFD/LEQ)` en draw PFD/PEQ | ✅ | R138 (gap cerrado) |
-| Grado máster de secuencia | Motor VIVO (numérico + ruedas + curvas + LUT; preview/export/NDI/Spout). **UI ARCHIVADA R148** — el diseño no tiene "Master Grade"; el grado se edita por clip en la sección Color | app.js · `applyMasterGrade`/`_MG`/`state.seqGrade` · UI en `_backup/deprecated/master-grade-ui.js` | ✅ motor · 🗄️ UI | Rev1 §4 |
+| ~~Grado máster de secuencia~~ | **ARCHIVADO COMPLETO** — UI en R148, motor en R150. El grado vive **por clip** en la sección Color | `_backup/deprecated/master-grade-ui.js` + `20260725-master-grade-engine.js` | 🗄️ | R150, ADR-0008 |
 | `renderInspector` | Reconstruye + sincroniza el inspector | app.js · `renderInspector`/`refreshInspector` | ✅ | [I1]/[I2] |
 | 6 secciones colapsables | Transform/Clip/**Source**/**Playback**/Color/Motion | app.js · `applySecCollapse` · #fxRows/#sourceRows/#playbackRows/#colorRows/#motionFx | ✅ | Rev1 §4 |
+| Toggles de Source/Playback | Switch `.iosw` (26×15, verde al on) — fila: etiqueta · descripción · switch | app.js · `swRow`/`swBind` (Source ~L2966) y `pbRow` (Playback ~L3072) | ✅ | R149 |
 | Filas de parámetro | Fader + diamante + arco de mod | app.js · `buildRows`/`startValDrag` · `.prow` | ✅ | [A1] |
 | Máscara dropdown + PNG | Máscara shape/PNG + tamaño | app.js · `MASK_IDX` · #maskSel | ✅ | — |
 | Máscaras pen-tool | Multi máscara por puntos, invert/feather | app.js · `buildPenMaskUI`/`rasterizePenMasks` | ✅ | [I3] |
@@ -179,7 +180,7 @@
 | Selección de media | Single/range/toggle multi-select | app.js · `selectMedia` (~L1774) | ✅ | [M2] |
 | Import | Archivos/drag/carpetas/secuencias | app.js · `importFiles`/`importDropped` (~L1264) | ✅ | [M5] |
 | Carpetas | Árbol de carpetas anidadas + colores | app.js · `drawFolder` (~L1663) · #newFolderBtn (**oculto R148**: clic-derecho en Media) | ✅ | [M1] |
-| Búsqueda de media | Filtro de texto con debounce | app.js · (~L5500) · #mediaSearch (**input oculto R148**: solo Ctrl+F) | ✅ | — |
+| Búsqueda de media | Filtro de texto con debounce; **Ctrl+F revela el campo** en la fila de filtros, Esc lo cierra | app.js · `showMediaSearch` (~L5660) · #mediaSearch | ✅ | R149 |
 | Orden de media (Sort) | Dropdown Name/Date/Type — reemplaza el segmentado Group None/Folder/Type | app.js · `MEDIA_SORTS`/`mediaSortLabel` (~L5673) · `state.mediaSort` · #mediaSortBtn | ✅ | Rev1 §2 |
 | Vista List/Grid | Well de 2 botones en el header del panel | app.js · #mediaViewSeg (`state.mediaView`) | ✅ | Rev1 §2 |
 | Create row | Import (primario) + Text/Shape/Compose/Adjust; labels colapsan a icono (container-query) | index.html `.crrow`/`.crbtn` · #importBtn/#textBtn/#shapeBtn/#ringBtn/#adjLayerBtn | ✅ | Rev1 §2 |
@@ -205,9 +206,10 @@
 - **🗄️ Automatización legacy — ARCHIVADO (R137).** Las funciones muertas (`_autoOff` override/re-enable + perform-and-bake `recWrite`/`bakeRecorded` + `#autoRecBtn`) se sacaron del software y viven en `_backup/deprecated/20260722-automation-override-and-perform-bake.js` (recuperables). Verificado por CDP: motor de automatización intacto. **Barrido menor HECHO (R137):** removidos los reads no-op de `_autoOff` en sepAuto, returnToDefault, `drawAutoCurve` (var `off`), fxKfToggle y borrado de fx — solo queda `_autoOff` en un comentario (app.js L463). Curva renderiza OK (verificado por píxel).
 - **✅ Sub-lanes apiladas — LIMPIADO (R143).** Confirmado código muerto (mapeo arch-explorer): el render de sub-carriles apilados `appendAutoLanes` ya estaba neutralizado por `[A5]` (`return;` de cabeza), así que `lane._auto`/`lane._autoH` + `addAutoLane(At)` + `laneAutoH` y la lista legacy de clip `c._auto` (`closeAuto` + copia en `sepAuto` + `returnToDefault` + filtro en fx-delete) no dirigían nada. Archivado en `_backup/deprecated/20260723-automation-sublanes-and-clip-auto.js` y quitado. Único modelo vigente: `lane._autoP` (una superposición por pista vía `laneAutoP`/`attachClipAuto` + chooser de cabecera). Data vieja en `.isp` (lanes[]._auto) queda ignorada (sin migración necesaria). Verificado por CDP.
 - **✅ Gap de grado en fulldome/equirect — CERRADO (R138).** Las rutas PFD/PEQ ahora llaman `bindClipLUT(c,LFD/LEQ)` (que encadena grade+curve) y los shaders FSFD/FSEQ aplican ruedas/curvas/LUT igual que FSW. Las tres funciones bind aceptan un struct de ubicaciones `L` (default `LW`). LUT en unit 2, curva en unit 3 (libres en PFD/PEQ). Identidad por defecto → clips existentes sin cambio. Verificado: ambos shaders compilan+linkan en WebGL2 real.
-- **🗄️ Master Grade UI — ARCHIVADA (R148).** Sacada por la regla de poda del rediseño ("lo que no está en el diseño se saca"). El **motor sigue vivo** (`state.seqGrade`/`applyMasterGrade`) y los grados guardados en `.isp` existentes se siguen aplicando, pero **ya no hay forma de editarlos ni de resetearlos desde la UI**. Decidir con Beltrán: (a) dejarlo dormido, (b) migrar `state.seqGrade` a la sección Color de la secuencia, o (c) archivar también el motor. Archivo: `_backup/deprecated/master-grade-ui.js`.
-- **⚠️ Búsqueda de media sin entrada (R148).** El input `#mediaSearch` quedó `display:none` y **Ctrl+F ahora es un no-op** (enfoca un nodo oculto). El filtro (`state.mediaQuery` en `renderMedia`) sigue funcionando si se setea por código. Falta darle un punto de entrada real o archivarlo.
-- **⚠️ Tooltip de `Fit` promete de más (R148).** `#fitAllBtn` dice "Fit all clips & tracks to the timeline view (H·W)" pero `fitAll()` sólo ajusta el eje horizontal (`pxPerSec`); la altura de pistas no se toca (para eso está el V-zoom). Corregir el tooltip o implementar el ajuste vertical.
+- **🗄️ Master Grade — ARCHIVADO DEL TODO (R148 UI + R150 motor). CERRADO.** Beltrán decidió (c): fuera del código. Ya no queda nada vivo — `state.seqGrade`, `masterGradeOn`, `applyMasterGrade`, `_masterClip`, `_MG` y sus seis call-sites salieron a `_backup/deprecated/20260725-master-grade-engine.js`. Verificado por CDP: los siete símbolos no existen, el render sigue, la sección **Color por clip** queda intacta (5 numéricos + Glow/Chroma + 3 ruedas LGG + LUT), `serProject` ya no escribe `grade`, y **un `.isp` viejo con `grade` (incluso con una ruta de LUT inexistente) abre sin romper** — el campo se ignora. Cero errores de consola.
+- **✅ Búsqueda de media — CERRADO (R149).** `Ctrl+F` revela un campo real en la fila de filtros (`showMediaSearch`), abre el panel si estaba plegado y aparta el well de filtros para ocupar la fila (200px útiles sobre un panel de 292); `Esc` lo cierra limpiando el filtro. Antes enfocaba un input `display:none`.
+- **✅ Tooltip de `Fit` — CERRADO (R149).** Ya no promete "(H·W)": dice "Fit the whole timeline to the visible width", que es lo que `fitAll()` hace.
+- **⚠️ Tres checkboxes nativos fuera del sistema de toggles (R149).** `#bkToggle` (Remove black) y `#txtStroke` en la sección Clip, `#motionPrev` en Motion. La regla §0 del rediseño da un toggle `.iosw` (26×15, verde) para todo booleano, y Source/Playback ya lo usan; estas tres filas no las cubre el diseño, así que se convierten cuando se toquen.
 - **🚧 [D2] cola de export = snapshot congelado** — la cola actual muta el `state` vivo; falta el "snapshot congelado al enviar" que pide [D2].
 - **🚧 ClipDecoder streaming** — apagado por defecto (`state.view.wcDecode`), pendiente de mover a worker.
 - **Colisión de nombres de tickets** — códigos viejos del PLAN (T2/T3/T4/T5 del motor de reproducción, R18) NO son los mismos que los de CORRECCIONES-V2 (T2 trim micro-snap, T4 faders 3D, etc.). Ojo al enlazar.
@@ -488,7 +490,7 @@ separate subsystem — only cross-references appear here.
 - **Location:** index.html `.transport`. Handlers: `#tlZoomIn/#tlZoomOut`, `#prevMk/#addMk/#nextMk`, `#snapBtn`→`toggleSnap()` (L2346), `#simpleClipBtn`→`toggleSimpleClips()` (L2350), `#tlGridBtn` (~L5822), `#fitAllBtn`→`fitAll()` (~L5820).
 - **State owned:** `state.tl.pxPerSec`, `state.tl.snap`, `state.tl.simpleClips`, `state.tl.gridOn`, `state.loop`
 - **Key symbols:** `#seqTabs` (sequences, LEFT zone since R148), `#markIn/#markOut`, `#playBtn`, `#followBtn`, `#tc/#bbt`, `#tcModeSeg`, `#loopBtn`; edit well `#tlEditSeg` = `#simpleClipBtn` (Simple) · `#curvesBtn` (Auto, key A) · `#tlGridBtn` (Grid) · `#fitAllBtn` (Fit); `#snapBtn` sits outside the well.
-- **Invariants / gotchas:** Zoom buttons clamp `pxPerSec` to [TL_PPS_MIN, TL_PPS_MAX]. `#curvesBtn` toggles `state.inlineCurves` (automation subsystem). **[R148 · Rev1]** design §5 layout = 3 zones: sequences (left) · transport (centre) · Simple/Auto/Grid/Fit + zoom (right). `state.tl.gridOn===false` hides the timeline grid lines (default = on, so old projects are unchanged); `fitAll()` fits the whole duration to the visible width and resets scroll.
+- **Invariants / gotchas:** Zoom buttons clamp `pxPerSec` to [TL_PPS_MIN, TL_PPS_MAX]. `#curvesBtn` toggles `state.inlineCurves` (automation subsystem). **[R148 · Rev1]** design §5 layout = 3 zones: sequences (left) · transport (centre) · Simple/Auto/Grid/Fit + zoom (right). `state.tl.gridOn===false` hides the timeline grid lines (default = on, so old projects are unchanged); `fitAll()` fits the whole duration to the visible WIDTH only — track height is the V-zoom's job (the tooltip used to promise "H·W"; fixed R149). **[R149 · auditoría]** the bar is 28px on `--bar` (#242424 — the ONLY bar with that surface); `#tlEditSeg`, `.zoomgrp` and `#snapBtn` are all 22px wells with 16px buttons.
 - **Status:** ✅
 - **Roadmap:** [U1] (minimalist labels: Snap→"S" etc.), [U6] frames button removal
 
@@ -1125,8 +1127,20 @@ Subsystem map of `app.js` — verified line numbers (app.js = 6992 lines). Two h
 - **Status:** ✅ (gap closed R138)
 - **Roadmap:** —
 
-## Sequence master grade (R139/R140/R141) — 🗄️ UI ARCHIVADA en R148
-> **[R148 · Rev1] The UI was removed** (design has no "Master Grade"; grading lives in the per-clip Color section). Archived verbatim in `_backup/deprecated/master-grade-ui.js` — `renderMasterGrade()` + `#insMaster`/`MASTER_PARAMS`/`MASTER_WHEELS` + master curves editor. **The ENGINE stays live and untouched**: `state.seqGrade`, `masterGradeOn()`, `applyMasterGrade()`, `_masterClip`, and `saveActiveSeq`→`s.grade` persistence. With no UI, `state.seqGrade` keeps its identity defaults → the grade is dormant (zero cost), and grades stored in existing `.isp` projects still apply. To restore editing, re-mount an `#insMaster` host and call `renderMasterGrade()` from `renderInspector()`.
+## 🗄️ Sequence master grade (R139/R140/R141) — ARCHIVADO DEL TODO (R148 + R150)
+> **Ya no existe en el software.** Salió en dos pasos: la **UI** en R148 (regla de poda del rediseño — el diseño no
+> tiene sección "Master Grade") y el **motor** en R150 (decisión de Beltrán: *"eso nunca lo voy a aplicar"*). Sin UI,
+> el motor seguía aplicando en silencio el grado de un `.isp` viejo sin forma de verlo ni resetearlo, así que quedarse
+> a mitad era el peor de los tres estados.
+> **Dónde vive ahora:** `_backup/deprecated/master-grade-ui.js` (UI) + `_backup/deprecated/20260725-master-grade-engine.js`
+> (shader `_MGFS`/`_MG`/`_MGu`, `_masterClip`, `_mgRT`/`_mgTarget`, `masterGradeOn`, `applyMasterGrade`, `state.seqGrade`,
+> los seis call-sites y el CSS de `#insMaster`). **Restaurar requiere los DOS, en orden: motor y después UI.**
+> **Compatibilidad:** un `grade` guardado en un `.isp` viejo se ignora al abrir (verificado por CDP, incluso con una
+> ruta de LUT inexistente); `serProject` ya no lo escribe. El grado por clip (Color) no se tocó.
+> **Nota sobre el export:** el bake era `masterGradeOn()?applyMasterGrade(_exTex,SR):_exTex` y `masterGradeOn()` era
+> siempre falso desde R148 (sin UI, defaults identidad) → la rama viva ya era `_exTex`. El export es idéntico.
+
+El detalle de abajo queda como **historia** de cómo funcionaba, no como descripción del código actual.
 
 - **Purpose:** A per-sequence GLOBAL grade over the FINAL composite (on top of per-clip grading): numeric (exp/con/sat/temp/tint) + lift/gamma/gain wheels + curves + master LUT, in preview + export + NDI + Spout.
 - **Location:** app.js · shader `_MGFS`/prog `_MG` + `applyMasterGrade(inTex,size)`/`masterGradeOn()`/`_mgTarget`/`_masterClip` (near `applyBlackKey`) · preview injection in `render()` · export injection in `renderExportFrame` (grades `_exTex` before the PB blit) · NDI `ndiTick`/Spout tick (grade the FBO tex, read from `_mgRT.fbo`) · UI `renderMasterGrade()` + `#insMaster`.
@@ -1428,7 +1442,7 @@ Reference map of `app.js` (single-file WebGL2 renderer). Line numbers verified a
 - **Location:** app.js · `updFmtChip()` (~L5196); `updModeUI()` (~L4929, called from loadSeqIntoState & relabel L6279)
 - **State/data:** `activeSeq().mode/w/h/cov/fps`, `fc._codec`, `#viewModeSeg`, `#dispSeg`, `#azelReadout`
 - **Key symbols:** `flatLikeMode`; flat (non-room) forces `view.mode='2d'` (no 3D) at L4934
-- **Invariants / gotchas:** Chip covers dome coverage only when ≠180. Room has a real 3D view (assembled walls); plain flat does not.
+- **Invariants / gotchas:** Chip covers dome coverage only when ≠180. Room has a real 3D view (assembled walls); plain flat does not. **[R149 · auditoría §3] ORDEN DE LA BARRA DEL VISOR — no reordenar:** el clúster izquierdo es `#viewModeSeg` · `#dispSeg` · `#qualitySeg` · `#proxyToggle` · **`#d3sep`+`#threeModeSeg`(+`#roomOutBtn`, insertado por JS tras el seg)** y recién ahí el `flex:1`. El grupo de cámara 3D va ÚLTIMO a propósito (prototipo RevDomo:154-158): puesto antes, al entrar en 3D empujaba overlays y calidad +151px. Todo lo que aparezca/desaparezca por modo tiene que colgar del final del clúster o del lado derecho.
 - **Status:** ✅
 - **Roadmap:** [F2] layout consistency across modes (pending, Ticket #52)
 
@@ -1585,8 +1599,8 @@ Bootstrap constants (app.js): `HAS_WC` (~L1259) = WebCodecs + Mp4Muxer present; 
 - **Purpose:** Live text filter of the media panel (`#mediaSearch`, debounced 150ms).
 - **Location:** app.js L5500-5504; DOM: `#mediaSearch`, `#mediaSearchClr`.
 - **State/data:** `state.mediaQuery` (consumed in `renderMedia` L1632).
-- **Invariants / gotchas:** the filter existed in renderMedia before the input did (R92-T5 P1). Esc clears + blurs. **[R148 · Rev1]** the visible search box was removed from the panel (design §2); `#mediaSearch` survives as a `display:none` input and `#mediaSearchClr` no longer exists (wiring is `if(sc)`-guarded, so nothing throws). ⚠️ **Consequence: the search is currently UNREACHABLE** — Ctrl+F (L5870) focuses a `display:none` input, which is a no-op. Pending decision: give it a real entry point (popover / overlay) or archive `state.mediaQuery` too.
-- **Status:** ⚠️ motor vivo, sin entrada de usuario
+- **Invariants / gotchas:** the filter existed in renderMedia before the input did (R92-T5 P1). **[R148 · Rev1]** the visible search box left the panel (design §2) and `#mediaSearchClr` no longer exists (wiring is `if(sc)`-guarded). **[R149 · auditoría]** `showMediaSearch(on)` is the single entry point: `Ctrl+F` un-collapses the media pane if needed, adds `.show` to `#mediaSearch` and hides BOTH `#filtSpacer` and `#filtSeg` so the field owns the row (~200px on a 292px panel); `Esc` (or blurring it empty) closes it and clears `state.mediaQuery`, so a filtered panel never survives with nothing on screen explaining it.
+- **Status:** ✅
 - **Roadmap:** —
 
 ---
@@ -1743,8 +1757,8 @@ Bootstrap constants (app.js): `HAS_WC` (~L1259) = WebCodecs + Mp4Muxer present; 
 - **Roadmap:** —
 
 ## Status bar / tooltips
-- **Purpose:** Info-view status line (instant tooltip text), autosave status, hover tooltips (~1s) converted from `title` attrs.
-- **Location:** app.js · tooltips IIFE (L6307-…), `#statInfo`/`#statAuto` (index.html L840,847). `updEnable`/`setDis` write `data-why` for disabled-control reasons (L5440-5455).
-- **Invariants / gotchas:** tooltip contract "Name — what it does · SHORTCUT"; native `title` moved to `data-tip` once so the OS tooltip never double-shows.
+- **Purpose:** Info-view status line (instant tooltip text + **active-tool hint**), autosave status, hover tooltips (~1s) converted from `title` attrs.
+- **Location:** app.js · tooltips IIFE, `#statInfo`/`#statAuto`. `updEnable`/`setDis` write `data-why` for disabled-control reasons. **[R149]** `TOOL_HINTS` (next to `setTool`) + `toolHintEl()`/`window.refreshToolHint()` inside the IIFE.
+- **Invariants / gotchas:** tooltip contract "Name — what it does · SHORTCUT"; native `title` moved to `data-tip` once so the OS tooltip never double-shows. **[R149 · Rev1 §7]** `setInfo(null)` (and any element with an empty `data-tip`) no longer clears the bar: it falls back to the ACTIVE TOOL's hint, which the design shows permanently (RevDomo:645). The fallback builds a detached `<span data-tip=…>` so the same parser renders it — no second code path. `setTool` and `applyLang` both call `refreshToolHint()`; the IIFE calls it once at boot. `TOOL_HINTS` values are FUNCTIONS, not strings, so they re-evaluate `T()` after a language switch. Height is 22px (design §7).
 - **Status:** ✅
 - **Roadmap:** —

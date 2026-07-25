@@ -71,6 +71,8 @@
     --well-deep:#0A0B0C;   /* pozo más profundo que s0 (launcher gradient / campos hundidos) */
     --toggle-on:#4A8D6F;   /* switch encendido = verde (distinto de --state-on gris de segmentados/botones) */
     --react-blue:#7FB2E8;  /* audio / reactivo */
+    --bar:#242424;         /* [AUDITORÍA Rev1] superficie del TRANSPORT. Verificado contra el prototipo: sólo el
+                              transport lleva #242424; la top bar y el status van en #1B1B1B (--surface). */
     /* color por parámetro: mismo hue en el fader, el diamante de keyframe y la curva de automatización del timeline */
     --p-az:#E0954B;   /* Azimuth / X   */  --p-el:#D8C24B;   /* Elevation / Y */
     --p-size:#E0645C; /* Size / Scale  */  --p-rot:#C58BD0;  /* Rotation     */
@@ -103,7 +105,7 @@
   /* [boot] hide the editor chrome until app.js mounts the splash → no flash of the editor while the HTML paints before the script runs (body stays dark). Overlays live outside #app so they're unaffected. */
   body.preboot #app{visibility:hidden;}
   /* top bar */
-  .top{height:28px;flex-shrink:0;display:flex;align-items:center;gap:var(--sp-8);padding:0 10px;background:var(--surface);border-bottom:.5px solid rgba(255,255,255,0.09);}
+  .top{height:28px;flex-shrink:0;display:flex;align-items:center;gap:var(--sp-8);padding:0 10px;background:var(--surface);border-bottom:.5px solid rgba(255,255,255,0.09);} /* [AUDITORÍA Rev1] el prototipo pone la TOP bar en #1B1B1B (sólo el transport va en --bar) */
   .dot{width:6px;height:6px;border-radius:50%;background:var(--ink-2);flex-shrink:0;}
   /* [U-18] segmented controls — ONE canonical look (surface-2 · border rgba .1 · radius 2). Variant rules below keep ONLY real size/padding differences. */
   .seg,.vseg,.filtseg,.editseg,.groupseg,.seg2{background:var(--surface-2);border:.5px solid rgba(255,255,255,0.1);border-radius:2px;}
@@ -119,7 +121,7 @@
   .stagecol{flex:1;min-width:0;display:flex;flex-direction:column;}
   .mid{flex:1;min-height:0;display:flex;background:var(--bg-1);}
   aside{display:flex;flex-direction:column;background:var(--bg-2);}
-  .panhead{height:26px;flex-shrink:0;display:flex;align-items:center;gap:6px;padding:0 8px;background:var(--s0);border-bottom:.5px solid rgba(0,0,0,0.45);}
+  .panhead{height:28px;flex-shrink:0;display:flex;align-items:center;gap:6px;padding:0 8px;background:var(--s0);border-bottom:.5px solid rgba(0,0,0,0.45);} /* [AUDITORÍA Rev1] 26→28: altura de barra del diseño (headers de Media e Inspector) */
   .pantab{display:flex;align-items:center;gap:6px;height:18px;padding:0 6px;background:transparent;border:none;border-radius:2px;}
   .pantab .ttl{font-size:11px;font-weight:600;letter-spacing:-0.008em;color:var(--ink-2);}
   .countbadge{font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:11px;font-weight:500;color:var(--ink-faint);background:var(--bg-0);padding:1px 5px;border-radius:2px;}
@@ -141,6 +143,12 @@
   .crbtn.dis{opacity:.45;cursor:default;} .crbtn.dis:hover{background:var(--s2);color:var(--ink-2);}
   .crrow{container-type:inline-size;} .crlbl{display:none;} /* label oculto por defecto (panel angosto) */
   @container (min-width:322px){ .crlbl{display:inline;} } /* al ensanchar el panel, aparecen los labels de la Create row */
+  /* [AUDITORÍA Rev1] campo de búsqueda de media: oculto hasta que Ctrl+F lo revela (.show) */
+  .mediasearch{display:none;flex:1;min-width:0;height:22px;background:var(--s0);border:.5px solid rgba(255,255,255,0.12);border-radius:3px;color:var(--ink);font-family:inherit;font-size:11px;padding:0 8px;outline:none;box-shadow:inset 0 1px 2px rgba(0,0,0,0.5);}
+  .mediasearch::placeholder{color:var(--ink-3);}
+  .mediasearch:focus{border-color:rgba(255,255,255,0.28);}
+  .mediasearch.show{display:block;}
+  .mediasearch.show ~ #mediaSortBtn{margin-left:6px;}
   /* [REDISEÑO Rev1] disparador de dropdown (Sort media, Output…): pill 22px con label + chevron */
   .ddbtn{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px;border-radius:3px;border:.5px solid rgba(255,255,255,0.09);background:var(--s2);color:var(--ink-2);font-family:inherit;font-size:10px;font-weight:600;cursor:pointer;flex-shrink:0;transition:background .12s,color .12s;}
   .ddbtn:hover{background:var(--state-hover);color:var(--ink);}
@@ -190,7 +198,7 @@
   .mthumb .pbar.gen>i{background:var(--auto-live);transition:width .2s linear;}
   .mthumb .pbar .pbtxt{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font:600 9px Geist,system-ui,sans-serif;color:var(--ink);letter-spacing:.03em;pointer-events:none;}
   .mname{font-size:11px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-  .mmeta{font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:11px;color:var(--ink-2);text-transform:uppercase;letter-spacing:0.06em;}
+  .mmeta{font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:var(--ink-2);text-transform:uppercase;letter-spacing:0.04em;} /* [AUDITORÍA Rev1] 11→10px: el uppercase SÍ es del diseño, pero sólo a 10px (micro-metadata, RevDomo:275) */
   .mdot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
   .drop{margin:8px;border:1px dashed rgba(255,255,255,0.12);border-radius:2px;padding:18px 10px;text-align:center;color:var(--ink-faint);cursor:pointer;font-size:11px;line-height:1.6;}
   .drop:hover{border-color:var(--ink-2);color:var(--ink-2);} .drop b{color:var(--ink-2);}
@@ -248,7 +256,7 @@
   .selhead{display:flex;align-items:center;gap:var(--sp-12);padding:11px 12px 10px;}
   .selthumb{width:44px;height:29px;border-radius:2px;background-size:cover;background-position:center;border:.5px solid rgba(255,255,255,0.14);background-color:var(--surface-2);}
   .selname{font-size:13px;font-weight:600;letter-spacing:-0.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink);}
-  .selmeta{font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:11px;letter-spacing:0.02em;color:var(--ink-2);margin-top:2px;text-transform:uppercase;} /* [R92-T5] informational text lifted to ~4.5:1 (long dark-room sessions) */
+  .selmeta{font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;letter-spacing:0.04em;color:var(--ink-2);margin-top:2px;text-transform:uppercase;} /* [AUDITORÍA Rev1] 11→10px (RevDomo:275 — el uppercase se tolera SÓLO a este tamaño) */ /* [R92-T5] informational text lifted to ~4.5:1 (long dark-room sessions) */
   .sechead{width:100%;display:flex;align-items:center;gap:6px;height:20px;padding:0 12px;border:none;background:transparent;cursor:pointer;}
   .fxhdr .fxtog,.fxhdr .fxcol,.fxhdr .fxdel{background:none;border:none;} .fxhdr .fxtog:hover,.fxhdr .fxcol:hover,.fxhdr .fxdel:hover{background:var(--surface-3);} .fxhdr .fxdel:hover{color:var(--ink-2) !important;}
   /* [X2] reactive-FX card body: grouped into labelled sections (Routing / Response / Parameters) so each effect box reads as ordered blocks, not a flat stack */
@@ -259,12 +267,7 @@
   .aselect{appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%239EA5AD' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6 6-6'/></svg>");background-repeat:no-repeat;background-position:right 4px center;padding-right:15px;}
   .sechead .t{font-family:'Geist',system-ui,sans-serif;font-size:11px;font-weight:600;letter-spacing:-0.005em;color:var(--ink);} /* [Rev1] Title Case, no uppercase (design §4) */
   .sechead .ln{flex:1;height:.5px;background:rgba(255,255,255,0.09);}
-  /* [master grade] sequence-level grade section at the top of the inspector */
-  #insMaster{border-bottom:.5px solid rgba(255,255,255,0.07);}
-  #insMaster .mgdot{width:6px;height:6px;border-radius:50%;background:var(--ink);flex-shrink:0;margin-left:6px;box-shadow:0 0 5px rgba(224,224,224,0.5);}
-  #insMaster .mgrow{padding:2px 12px;}
-  #insMaster .mgrow .lab{font-size:11px;color:var(--ink-2);}
-  #insMaster .mgrow .num{font-variant-numeric:tabular-nums;font-size:11px;color:var(--ink);}
+  /* [archivado 20260725] CSS de #insMaster (Master Grade) → _backup/deprecated/20260725-master-grade-engine.js */
   /* [R102·D-T3] 24px de alto de fila: los controles de 20px en filas de 22px quedaban a 23px de centro a centro VERTICALMENTE (no entre ellos: entre filas). SC 2.5.8 AA pide 24. Nota: Blender envia 20px + buttonspacey 2 = paso 22, o sea que incumpliria la norma AA de 2023 — la norma es posterior a su diseno. Preferimos la norma. */
   .prow{display:flex;align-items:center;gap:var(--sp-8);padding:1px 12px;min-height:24px;border-bottom:.5px solid rgba(255,255,255,0.04);}
   .prow .kf{width:20px;height:20px;flex-shrink:0;display:grid;place-items:center;border:none;background:transparent;cursor:pointer;color:var(--ink-faint);}
@@ -301,7 +304,7 @@
   .insEmpty{display:flex;flex-direction:column;align-items:center;gap:var(--sp-12);color:var(--ink-faint);text-align:center;padding:50px 20px;font-size:13px;line-height:1.6;}
 
   /* transport */
-  .transport{height:30px;flex-shrink:0;display:flex;align-items:center;gap:var(--sp-8);padding:0 10px;background:var(--surface);border-top:.5px solid rgba(0,0,0,0.4);border-bottom:.5px solid rgba(0,0,0,0.4);position:relative;}
+  .transport{height:28px;flex-shrink:0;display:flex;align-items:center;gap:var(--sp-8);padding:0 10px;background:var(--bar);border-top:.5px solid rgba(0,0,0,0.4);border-bottom:.5px solid rgba(0,0,0,0.4);position:relative;} /* [AUDITORÍA Rev1] 30→28 + superficie de barra */
   .tccenter{position:absolute;left:50%;top:0;height:100%;transform:translateX(-50%);display:flex;align-items:center;gap:var(--sp-8);}
   .tbtn{width:22px;height:22px;display:grid;place-items:center;border:none;border-radius:2px;background:transparent;color:var(--ink-2);cursor:pointer;transition:background .12s,transform .1s;}
   .tbtn:hover{background:var(--surface-2);color:var(--ink);} .tbtn:active{transform:scale(.88);}
@@ -311,7 +314,13 @@
   .tcbox{display:flex;align-items:center;justify-content:center;gap:var(--sp-8);font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;height:22px;padding:0 11px;border-radius:2px;background:var(--bg-0);border:.5px solid rgba(255,255,255,0.06);box-shadow:inset 0 1px 3px rgba(0,0,0,0.5);}
   .tcbox .tc{font-size:13px;font-weight:500;color:var(--ink);letter-spacing:0.02em;display:inline-block;min-width:72px;text-align:center;font-variant-numeric:tabular-nums;}
   .tcbox .du{font-size:11px;color:var(--ink-faint);display:inline-block;min-width:50px;text-align:right;font-variant-numeric:tabular-nums;}
-  /* [U-18] .editseg fully covered by the shared segmented rules above */
+  /* [AUDITORÍA Rev1 · §5] el well de edición (Simple·Auto·Grid·Fit) era el único segmentado a 18px: pasa a la
+     medida de well del diseño (22px de contenedor, 16px de botón, sin divisores internos), igual que .vseg.
+     #snapBtn vive fuera del well pero en la misma barra → misma altura para que la fila no quede escalonada. */
+  .editseg{height:22px;padding:2px;gap:2px;box-sizing:border-box;overflow:visible;background:var(--s2);}
+  .editseg button{height:16px;padding:0 8px;font-size:10px;font-weight:600;border-radius:2px;}
+  .editseg button+button{border-left:none;}
+  #snapBtn{height:22px;}
   /* [R130] lift/gamma/gain color wheels (primary grade) */
   .cwrap{display:flex;gap:8px;justify-content:space-between;}
   .cwcol{display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;min-width:0;}
@@ -345,7 +354,8 @@
   .work .wkh{position:absolute;top:0;height:11px;width:7px;pointer-events:auto;cursor:ew-resize;z-index:1;} .work .wkh.l{left:-3px;} .work .wkh.r{right:-3px;}
   .timesel{position:absolute;top:0;bottom:0;background:rgba(201,205,211,0.13);border-left:1px solid rgba(201,205,211,0.6);border-right:1px solid rgba(201,205,211,0.6);z-index:4;pointer-events:none;}
   .timesel.insert{background:transparent;border-right-width:0;} /* zero-width click = a single thin insert line (play starts here), not the thick playhead */
-  .zoomgrp{display:inline-flex;align-items:stretch;height:18px;border:.5px solid rgba(255,255,255,0.09);border-radius:2px;overflow:hidden;background:var(--bg-2);}
+  .zoomgrp{display:inline-flex;align-items:stretch;gap:2px;padding:2px;height:22px;box-sizing:border-box;border:.5px solid rgba(255,255,255,0.09);border-radius:3px;background:var(--surface);} /* [AUDITORÍA Rev1] well de zoom del transport: 22px con botones de 16 (prototipo RevDomo:517) */
+  .zoomgrp button{height:16px;border-radius:2px;}
   .zoomgrp button{width:24px;display:grid;place-items:center;border:none;background:transparent;color:var(--ink-2);cursor:pointer;}
   .zoomgrp button+button{border-left:.5px solid rgba(255,255,255,0.09);}
   .zoomgrp button:hover{background:var(--surface-3);}
@@ -595,7 +605,11 @@
   .cmediaitem .cmname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
 
   /* status bar */
-  .status{height:24px;flex-shrink:0;display:flex;align-items:center;gap:var(--sp-16);padding:0 12px;background:var(--s0);border-top:.5px solid rgba(0,0,0,0.4);font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:11px;color:var(--ink-2);letter-spacing:0.04em;}
+  /* [AUDITORÍA Rev1 · §7] 24→22px, superficie de panel (#1B1B1B) y borde superior claro, como el prototipo.
+     DESVIACIÓN DELIBERADA: el prototipo pinta el texto en #8C8C8C (--ink-3); lo dejamos en --ink-2 porque el
+     token dice explícitamente que #8C8C8C "NO es texto de cuerpo" (Lc −38) y R102 ya subió los textos que
+     estaban ahí. Si Beltrán prefiere la fidelidad al prototipo, es cambiar --ink-2 por --ink-3 acá. */
+  .status{height:22px;flex-shrink:0;display:flex;align-items:center;gap:var(--sp-16);padding:0 12px;background:var(--surface);border-top:.5px solid rgba(255,255,255,0.07);font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--ink-2);letter-spacing:0.04em;}
   .status .ok{color:var(--ink-2);}
 
   /* modals */
@@ -754,7 +768,11 @@
           <button data-f="image" title="Image"><i class="ic" data-ico="image"></i></button>
           <button data-f="audio" title="Audio"><i class="ic" data-ico="audio"></i></button>
         </div>
-        <div style="flex:1;"></div>
+        <div style="flex:1;" id="filtSpacer"></div>
+        <!-- [AUDITORÍA Rev1] la búsqueda no tiene botón (el diseño la sacó de la vista) pero SÍ tiene que existir:
+             Ctrl+F revela este campo aquí mismo; Esc lo limpia y lo esconde. Antes apuntaba a un input display:none
+             y el atajo era un no-op. -->
+        <input id="mediaSearch" class="mediasearch" type="text" placeholder="Search media…" spellcheck="false">
         <button class="ddbtn" id="mediaSortBtn" title="Sort media"><span id="mediaSortLbl">Name</span><span style="display:flex;color:var(--ink-3);"><i class="ic" data-ico="chevDown" data-s="9"></i></span></button>
       </div>
       <!-- [REDISEÑO Rev1] Create row: Import (primario) + Text/Shape/Compose/Adjust · los labels (.crlbl) se colapsan a icono cuando el panel es angosto (container-query) -->
@@ -767,7 +785,6 @@
         <div style="flex:1;"></div>
       </div>
       <button id="newFolderBtn" title="New folder" style="display:none;"></button><!-- oculto: el JS lo usa (clic-derecho en Media → Nueva carpeta) -->
-      <input id="mediaSearch" type="text" style="display:none;"><!-- oculto: Ctrl+F referencia este input (búsqueda visible retirada del rediseño) -->
       <div class="medialist" id="mediaList"></div>
       <input id="fileInput" type="file" accept="image/*,video/*,audio/*" multiple style="display:none;">
       <input id="projInput" type="file" accept=".rdome,application/json" style="display:none;">
@@ -780,11 +797,6 @@
         <div class="vseg" id="viewModeSeg">
           <button data-v="2d" class="on"><i class="ic" data-ico="view2d"></i> Dome Master</button><!-- [U-42] industry term; updModeUI relabels it "2D Master" on flat/room sequences -->
           <button data-v="3d"><i class="ic" data-ico="view3d"></i> 3D Preview</button>
-        </div>
-        <div class="vdiv" id="d3sep" style="display:none;"></div>
-        <div class="vseg" id="threeModeSeg" style="display:none;">
-          <button data-m="orbit" class="on"><i class="ic" data-ico="orbit"></i> Orbit</button>
-          <button data-m="spec"><i class="ic" data-ico="viewer"></i> Viewer</button>
         </div>
         <div class="vdiv"></div>
         <!-- [REDISEÑO Rev1] overlays icon-only (tooltip) -->
@@ -802,6 +814,13 @@
           <button data-q="0.25">¼</button>
         </div>
         <div class="vseg" id="proxyToggle" title="Viewport uses proxies (faster). Turn off to preview the original clips."><button data-p="proxy" class="on"><i class="ic" data-ico="bolt"></i> Proxy</button></div>
+        <!-- [AUDITORÍA Rev1 · §3] el grupo de cámara 3D va AL FINAL del clúster izquierdo (prototipo RevDomo:154-158),
+             no después de #viewModeSeg: así, al aparecer/desaparecer, no empuja overlays ni calidad (antes saltaban +151px). -->
+        <div class="vdiv" id="d3sep" style="display:none;"></div>
+        <div class="vseg" id="threeModeSeg" style="display:none;">
+          <button data-m="orbit" class="on"><i class="ic" data-ico="orbit"></i> Orbit</button>
+          <button data-m="spec"><i class="ic" data-ico="viewer"></i> Viewer</button>
+        </div>
         <div style="flex:1;"></div>
         <div class="vslab" id="azelReadout"><span class="k">AZ <span class="v" id="azR">0°</span></span><span class="k">EL <span class="v" id="elR">35°</span></span></div>
         <div class="vslab" id="fovCtl" style="display:none;"><span class="k">FOV</span><input type="range" min="40" max="160" value="60" id="fovRange" class="vfader"><span class="v" id="fovLbl" style="width:26px;text-align:right;">60°</span></div>
@@ -841,8 +860,8 @@
         <button class="ibtn flat" id="hideInsp" title="Collapse panel"><i class="ic" data-ico="panelL"></i></button>
       </div>
       <div class="insbody" id="insBody">
-        <!-- [DEPRECATED · Rev1] #insMaster (always-visible Master Grade) removed — no Master Grade in the design;
-             grading lives in the per-clip Color section. UI archived in _backup/deprecated/master-grade-ui.js. -->
+        <!-- [ARCHIVADO] Master Grade fuera del todo: la UI en R148 (master-grade-ui.js) y el MOTOR en R150
+             (20260725-master-grade-engine.js). El grado vive por clip en la sección Color. -->
         <div class="insEmpty" id="insEmpty"><span style="opacity:.5;"><i class="ic" data-ico="panel" data-s="26"></i></span>Select a clip<br>in the timeline or viewport</div>
         <div id="insGroup" style="display:none;"></div>
         <div id="insCtl" style="display:none;">
@@ -897,7 +916,7 @@
       <button id="simpleClipBtn" title="Simple clips (Premiere-style): drag and select a clip from anywhere on it — range selection works outside clips only"><i class="ic" data-ico="clip"></i> Simple</button>
       <button id="curvesBtn" title="Show/hide automation (clip parameters + reactive FX) · A"><i class="ic" data-ico="curves"></i> Auto</button>
       <button id="tlGridBtn" title="Grid — show/hide the timeline grid lines">Grid</button>
-      <button id="fitAllBtn" title="Fit all clips & tracks to the timeline view (H·W)">Fit</button>
+      <button id="fitAllBtn" title="Fit the whole timeline to the visible width">Fit</button><!-- [AUDITORÍA Rev1] el tooltip prometía "(H·W)": fitAll() sólo ajusta el eje horizontal (la altura la da el V-zoom) -->
     </div>
     <div class="zoomgrp"><button id="tlZoomOut" title="Zoom out timeline"><i class="ic" data-ico="zoomOut"></i></button><button id="tlZoomIn" title="Zoom in timeline"><i class="ic" data-ico="zoomIn"></i></button></div>
   </div>

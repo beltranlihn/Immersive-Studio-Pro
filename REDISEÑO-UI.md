@@ -21,6 +21,9 @@ Los `.dc.html` de **360** y **2D** son variantes del mismo shell (sólo cambian 
   hover `#303030` · well/recessed `#111111` (o `#0A0B0C`/`#0A0A0A` en nidos profundos) · barra sup/transport `#242424`
   / `#111`. Bordes: hairline `.5px rgba(255,255,255,.08–.16)`; sombra recessed `inset 0 1px 2/3px rgba(0,0,0,.5)`.
 - **Alturas de barra = 28px** (top bar, transport, header de inspector, header de media). Status = 22px.
+  **Superficies por barra (verificado contra el prototipo, R149):** top bar `#1B1B1B` (`RevDomo:30`) · headers de
+  Media e Inspector `#111111` (`RevDomo:49`, `:259`) · **transport `#242424`** (`RevDomo:482`, la única que lo lleva)
+  · status `#1B1B1B` (`RevDomo:643`). *Todo well de barra (edición, zoom) es 22px con botones de 16.*
 - **Controles = 22px** de alto; **pills/segmentos internos = 16px**; iconos 11–13px.
 - **Tipografía:** títulos de item 13px/600 `letter-spacing:-0.01em`; labels de sección 11px/600 `-0.005em`;
   labels de fila 11px `#B8B8B8`; valores tabulares 11px `#E0E0E0` (`font-variant-numeric:tabular-nums`);
@@ -46,29 +49,40 @@ Los `.dc.html` de **360** y **2D** son variantes del mismo shell (sólo cambian 
 
 ---
 
-## 1 · TOP BAR (28px) — `RevDomo:29`
-- Contenedor 28px, `#242424` (o `#111`), bordes top/bottom hairline, `padding:0 8px`, gap 8.
-- **Izquierda:** botón de **menú unificado** (hamburguesa / logo) → un solo dropdown con File/Edit/View… (reemplaza la
-  menubar de varios botones). Regla de dropdown §0.
-- **Centro/segmentos:** selector de **modo de vista** (Domo/2D/Room según proyecto) como well.
-- **Derecha:** **nombre de proyecto** + **chip de formato** (`--ink-dim`) + `?` ayuda.
+## 1 · TOP BAR (28px) — `RevDomo:29-41`
+> ⚠️ **CORREGIDO EN LA AUDITORÍA (2026-07-25).** Esta sección decía "botón de menú unificado (hamburguesa/logo)" y
+> "selector de modo de vista en el centro". **El prototipo no tiene ninguna de las dos cosas** (`RevDomo:32-35` son
+> tres botones File · Edit · Window; el selector de modo vive en la barra del visor, `RevDomo:136`). Era un error de
+> esta traducción, no de la app. Se auditó contra este texto y se levantaron dos hallazgos falsos.
+
+- Contenedor 28px, **`#1B1B1B`** (`RevDomo:30` — el `#242424` es del **transport**, no de aquí), borde inferior hairline.
+- **Izquierda:** punto de 6px + **menubar de tres botones**: `File` · `Edit` · `Window` (22px de alto, 11px/500).
+- **Centro:** nada — un `flex:1` que empuja el resto a la derecha.
+- **Derecha:** **nombre de proyecto** (11px/600) + **chip de formato** (`#6D6D6D`) + `?` ayuda (22×22).
 - **QUITAR (→ deprecated):** botones sueltos New / Open / Save / Export de la barra (viven en el menú File). JS
-  blindado con `if($('#saveBtn'))` etc. *(ya hecho, sin commitear)*.
+  blindado con `if($('#saveBtn'))` etc. *(hecho en R148)*.
 
 ## 2 · PANEL MEDIA — `RevDomo:46`
 - **Header (28px):** well **List/Grid** + título.
 - **Fila de filtros:** well **All · Video · Image · Audio** + **dropdown Sort** (Name/Date/Type) — reemplaza None/Folder/Type.
 - **Create row:** `Import` (primario) + `Text · Shape · Compose · Adjust`; labels colapsan a icono por container-query.
-- **QUITAR (→ deprecated):** buscador visible y "New folder" visible (quedan por atajo/clic-derecho). *(ya hecho)*.
-- Estado: `mediaSort`, `mediaFilter`. *(Etapa hecha; re-verificar contra diseño al mínimo detalle.)*
+  **Umbral exacto del prototipo:** `createLbl: S.mediaW < 340 ? 'display:none' : ''` con `mediaW:288` por defecto →
+  **en el diseño, al ancho por defecto los labels NO se ven**; aparecen al ensanchar el panel más allá de ~340px.
+  Nuestro `@container (min-width:322px)` sobre `.crrow` equivale a ~338px de panel: correcto, no tocar.
+- **QUITAR (→ deprecated):** buscador visible y "New folder" visible (quedan por atajo/clic-derecho). *(hecho)*.
+  El atajo tiene que **funcionar**: **Ctrl+F** revela el campo en la fila de filtros (aparta el well de filtros para
+  ocupar la fila), **Esc** lo cierra y limpia el filtro. *(R149 — antes enfocaba un input `display:none`.)*
+- Estado: `mediaSort`, `mediaFilter`.
 
 ## 3 · BARRA DEL VISOR — `RevDomo:133`
 - Overlays (Grid/Safe/Outline/Horizon/Alpha) **icon-only** en well; Proxy + calidad Full/½/¼ a la derecha.
 - **Output dropdown** consolida Full performance · Viewer window · NDI · Spout (los 4 botones sueltos → deprecated;
   indicador pulsante en `#outputBtn` si NDI/Spout on). *(ya hecho)*.
-- **Regla 2D↔3D:** en 3D aparecen controles de cámara (Orbit/Viewer, faders); en 2D aparecen Az/El. Colocar el grupo
-  de cámara **después** de dispSeg y reservar hueco para que no salte la barra (queda deuda residual ~30-50px por el
-  ancho de los faders; decidir con Beltrán: faders compactos o Az/El icon-only).
+- **Regla 2D↔3D:** en 3D aparecen controles de cámara (Orbit/Viewer, faders); en 2D aparece Az/El. En el prototipo el
+  well de modo 3D es **el último del clúster izquierdo** (`RevDomo:154-158`: va después de calidad, justo antes del
+  `flex:1`), así que al aparecer **no empuja nada**. *(R149: era el segundo del clúster y corría overlays/calidad
+  +151px; movido. Medido: dispSeg 494 y qualitySeg 681 en 2D **y** en 3D, sin overflow a 1920.)*
+- El "residual de 30-50px de overflow" que arrastraban las notas **no existe**: a 1920 la barra usa ~1224 de 1328.
 
 ## 4 · INSPECTOR — `RevDomo:255`
 Panel `#1B1B1B`, header 28px `#111`.
@@ -132,6 +146,11 @@ Contenedor `#111`, handle de resize arriba (RevDomo:526). Estructura en columnas
 
 ## 7 · STATUS (22px) — `RevDomo:642`
 `Ready` + hint contextual de herramienta · (spacer) · `CPU% · RAM · GPU%` · `N clip selected` · `WebGL · WebCodecs`.
+- El hint es el de la **herramienta activa** (`RevDomo:645`: *"Select (V) — click a clip to select · drag its title to
+  move"*, en `#6D6D6D`). Implementado en `TOOL_HINTS` + `refreshToolHint()`: `#statInfo` cae a este texto cuando no
+  hay hover, reusando el parser de tooltips de R102 (`Nombre (ATAJO) — descripción`). *(R149.)*
+- **Desviación deliberada:** el prototipo pinta el status en `#8C8C8C`; lo dejamos en `--ink-2` porque el token dice
+  que `#8C8C8C` no es texto de cuerpo (Lc −38) y R102 ya subió los textos que estaban ahí.
 
 ---
 
@@ -150,11 +169,21 @@ Contenedor `#111`, handle de resize arriba (RevDomo:526). Estructura en columnas
   **Pendiente: auditar** curvas coloreadas y waveform contra §6.
 - [ ] **6 · Launcher** + **7 · variantes por formato** (360/2D).
 
-### Deuda abierta del rediseño (entrada para la auditoría)
-- **Búsqueda de media sin entrada:** `#mediaSearch` quedó `display:none` → **Ctrl+F es un no-op**. Decidir: popover o archivar.
-- **Master Grade dormido:** el motor sigue aplicando `state.seqGrade` de proyectos viejos, pero ya no se puede editar ni resetear.
-- **Tooltip de `Fit`** promete "(H·W)" y `fitAll()` sólo ajusta el eje horizontal.
-- **Residual de la barra del visor** (§3): el grupo de cámara 3D todavía puede empujar la barra ~30-50px al cambiar 2D↔3D.
+### Auditoría (2026-07-25) — informe en `AUDITORIA-REV1.md`
+Barrido por CDP a 1920×1080 contra §0-§7. **Cerrados en R149:** alturas de barra (media/inspector/transport/status),
+wells de edición y zoom a 22px, superficies por barra, Source y Playback con toggles, hint de herramienta en el
+status, Ctrl+F con campo real, micro-metadata a 10px, título "Transform", tooltip de `Fit`, y la barra del visor sin
+saltos 2D↔3D. **Cuatro hallazgos resultaron falsos** (menú unificado, selector de modo en la top bar, labels de la
+Create row, truncado del chip de parámetro): venían de errores de esta traducción, ya corregidos arriba.
+
+### Deuda abierta
+- ~~**Master Grade dormido**~~ — **CERRADO (R150):** Beltrán lo sacó del código. El motor está archivado junto a su
+  UI; el grado vive por clip en la sección Color, como manda el diseño.
+- **Tres checkboxes nativos sueltos** fuera de las secciones del diseño: `#bkToggle` (Remove black) y `#txtStroke`
+  (Clip), `#motionPrev` (Motion). El diseño no los cubre, pero la regla §0 del toggle es global → convertirlos
+  cuando se toquen esas filas.
+- **Juicio visual:** la auditoría es por DOM/estilo computado; falta una pasada mirando la ventana al frente.
+- Etapas **6 · Launcher** y **7 · variantes por formato** sin empezar.
 
 **Poda transversal:** a medida que se toca cada región, archivar en `_backup/deprecated/` todo lo que el diseño no
 muestre (con su HTML/CSS/JS), actualizando la fila en `COMPONENTS.md` en el mismo commit.

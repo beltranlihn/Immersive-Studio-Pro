@@ -82,7 +82,7 @@ const state = {
   prefs:{ reducedMotion:false, snapping:true, grid:true, safe:false, mediaCollapsed:false, inspCollapsed:false, tallInsp:false },
   mediaFilter:'all', mediaQuery:'', mediaGroupBy:'none', collapsedGroups:{}, folders:[], folderColors:{}, mediaView:'list', mediaFolder:null, selFolder:null,
   useProxies:true, previewQuality:1, markers:[], selMarkerId:null, clipboard:null,
-  groups:[], selGroupId:null, dirty:false, selLane:null, selIds:[], openSeqs:[], activeSeqId:null, seqW:4096, seqH:4096, seqMode:'dome', seqCov:180, seqGrade:{exposure:0,contrast:0,saturation:0,temperature:0,tint:0}, // [master grade] per-sequence global grade over the final composite (phase 1: numeric)
+  groups:[], selGroupId:null, dirty:false, selLane:null, selIds:[], openSeqs:[], activeSeqId:null, seqW:4096, seqH:4096, seqMode:'dome', seqCov:180, /* [archivado 20260725] state.seqGrade → _backup/deprecated/20260725-master-grade-engine.js */
   shapeBox:null, easeClip:null, shuttle:0, /* [R97] J/K/L speed: 0 = off (normal transport) · ±0.25…±8 */ // [R95] Shape Box holds live refs to keyframe objects → it must be dropped whenever those objects are replaced (undo, project/sequence load). easeClip = copied normalised easing. // [archivado 20260722·R137] autoRec (perform-and-bake) removido
   lang:'en',
   lastSaved:null,
@@ -294,8 +294,8 @@ function markCurveDirty(c){ if(c)c._curveDirty=true; }
 function bindClipCurve(c,L){ L=L||LW; const tex=clipCurveTex(c); gl.uniform1f(L.hasCurve, tex?1:0);
   gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, tex||_curveIdentity); gl.uniform1i(L.curve,3); gl.activeTexture(gl.TEXTURE0); }
 function preloadLUTs(){ const paths=new Set(); const scan=cs=>{ for(const c of (cs||[]))if(c&&c.props&&c.props.lut)paths.add(c.props.lut); }; // re-load LUTs referenced by a just-opened project so the look appears without a manual reload
-  scan(state.clips); for(const m of state.media)if(isSeqMedia(m)){ scan(m.nestClips); if(m.grade&&m.grade.lut)paths.add(m.grade.lut); } // [master grade] also reload per-sequence master LUTs
-  if(state.seqGrade&&state.seqGrade.lut)paths.add(state.seqGrade.lut);
+  scan(state.clips); for(const m of state.media)if(isSeqMedia(m))scan(m.nestClips);
+  // [archivado 20260725] ya no hay LUT máster que precargar (ni de `state.seqGrade` ni de `m.grade`): sólo LUTs por clip
   if(!paths.size)return; Promise.all([...paths].map(p=>loadLUT(p))).then(()=>{ try{ if(_raOn)raInvalidate(); render(); }catch(e){} }); }
 const N=120, meshVAO=gl.createVertexArray(); gl.bindVertexArray(meshVAO); let meshCount=0;
 (()=>{const vv=[],ix=[];for(let j=0;j<=N;j++)for(let i=0;i<=N;i++)vv.push((i/N)*2-1,(j/N)*2-1,i/N,j/N);
@@ -942,7 +942,7 @@ function render(){ if(glLost)return;
   else { prepNests(state.clips,state.playhead,0);
     gl.bindFramebuffer(gl.FRAMEBUFFER,compFBO); composite(state.playhead,compSize,false); gl.bindFramebuffer(gl.FRAMEBUFFER,null);
     raStore(state.playhead); }
-  if(masterGradeOn())_srcTex=applyMasterGrade(_srcTex,compSize); // [master grade] grade the FINAL composite — post render-ahead cache so grade edits stay live (not baked) and every view mode (2D/dome/room/viewer) shows it
+  // [archivado 20260725] acá iba el grade máster del composite final → _backup/deprecated/20260725-master-grade-engine.js
   const W=glc.width,H=glc.height;
   if(state.view.mode==='3d' && isRoom()){ renderRoom3D(_srcTex); }
   else if(state.view.mode==='3d' && !_flat){
@@ -1047,7 +1047,7 @@ function ndiTick(){ if(!_ndiOn||!DSP.ndi)return;
     const flatBak=_drawFlat, aspBak=_compAspect; _drawFlat=false; // NDI is ALWAYS the fulldome master (square 1:1, no grid/overlays)
     gl.bindFramebuffer(gl.FRAMEBUFFER,_ndiFBO); gl.disable(gl.DEPTH_TEST);
     composite(state.playhead,_ndiRes,true); // opaque black surround; the dome disc = the master
-    if(masterGradeOn()){ applyMasterGrade(_ndiTex,_ndiRes); gl.bindFramebuffer(gl.FRAMEBUFFER,_mgRT.fbo); } // [master grade phase 2] NDI carries the graded master too
+    // [archivado 20260725] NDI emite el composite tal cual (ya no hay grade máster que aplicarle)
     gl.readPixels(0,0,_ndiRes,_ndiRes,gl.RGBA,gl.UNSIGNED_BYTE,_ndiBuf);
     gl.bindFramebuffer(gl.FRAMEBUFFER,null); gl.viewport(0,0,glc.width,glc.height); _drawFlat=flatBak; _compAspect=aspBak;
     DSP.ndi.send(_ndiBuf,_ndiRes,_ndiRes,true); _ndiFrames++; // flipY: bottom-up WebGL → top-down NDI (negative stride, zero copy)
@@ -1084,7 +1084,7 @@ function spoutTick(){ if(!_spoutOn||!DSP.spout)return;
     const flatBak=_drawFlat, aspBak=_compAspect; _drawFlat=false; // ALWAYS the fulldome master (square 1:1, no grid/overlays)
     gl.bindFramebuffer(gl.FRAMEBUFFER,_spoutFBO); gl.disable(gl.DEPTH_TEST);
     composite(state.playhead,_spoutRes,true);
-    if(masterGradeOn()){ applyMasterGrade(_spoutTex,_spoutRes); gl.bindFramebuffer(gl.FRAMEBUFFER,_mgRT.fbo); } // [master grade phase 2] Spout carries the graded master too
+    // [archivado 20260725] Spout emite el composite tal cual (ya no hay grade máster que aplicarle)
     gl.readPixels(0,0,_spoutRes,_spoutRes,gl.RGBA,gl.UNSIGNED_BYTE,_spoutBuf);
     gl.bindFramebuffer(gl.FRAMEBUFFER,null); gl.viewport(0,0,glc.width,glc.height); _drawFlat=flatBak; _compAspect=aspBak;
     DSP.spout.send(_spoutBuf,_spoutRes,_spoutRes,true); // flipY: bottom-up WebGL → top-down Spout (flip done in the addon)
@@ -2836,13 +2836,14 @@ const FX=[['opacity','Opacity','%',0,100],['blur','Blur','px',0,20],['feather','
 const FX_COLOR_KEYS=new Set(['exposure','contrast','saturation','temperature','tint','glow','chroma']); // [I2] these FX rows go to the Color section; the rest (opacity/blur/feather/crop) stay in Clip
 const PLABELS={az:['Azimuth','Azimut'],el:['Elevation','Elevación'],size:['Size','Tamaño'],rot:['Rotation','Rotación'],x:['Pos X','Pos X'],y:['Pos Y','Pos Y'],scale:['Scale','Escala'],opacity:['Opacity','Opacidad'],blur:['Blur','Desenfoque'],feather:['Feather','Desvanecer'],crop:['Crop','Recortar'],exposure:['Exposure','Exposición'],contrast:['Contrast','Contraste'],saturation:['Saturation','Saturación'],temperature:['Temp','Temp'],tint:['Tint','Tinte'],glow:['Glow','Brillo'],chroma:['Chroma','Cromática']};
 const propLabel=p=>{const m=PLABELS[p];return m?T(m[0],m[1]):p;};
-/* [DEPRECATED · Rev1 redesign 2026-07-25] The always-visible "Master Grade" inspector UI was removed — the design
-   has no Master Grade section (per-clip grading lives in the Color section). The whole UI builder
-   (renderMasterGrade + _masterOpen/MASTER_PARAMS/MASTER_WHEELS/seqGradeObj) is archived in
-   _backup/deprecated/master-grade-ui.js. The GRADE LOGIC stays live and unchanged: state.seqGrade (L85),
-   masterGradeOn()/applyMasterGrade()/_masterClip (~L6812+), export bake (~L4389), per-seq persistence (~L5098).
-   With no editing UI, state.seqGrade rests at its all-0 defaults → identity (no visible change). To restore the
-   editor, re-add an #insMaster host and call renderMasterGrade() from renderInspector(). */
+/* [ARCHIVADO · Master Grade — 2026-07-25] Sacado en DOS pasos y ya no queda NADA vivo:
+   · R148 (rediseño Rev 1): la UI siempre-visible del inspector → _backup/deprecated/master-grade-ui.js.
+     El diseño no tiene sección "Master Grade"; el grado se edita por clip en la sección Color.
+   · R150 (decisión de Beltrán, "eso nunca lo voy a aplicar"): el MOTOR entero → _backup/deprecated/
+     20260725-master-grade-engine.js — shader _MG, applyMasterGrade/masterGradeOn, _masterClip, state.seqGrade
+     y sus seis call-sites (preview, NDI, Spout, export, saveActiveSeq, loadSeqIntoState).
+   Un `grade` guardado en un .isp viejo simplemente se ignora al abrir (no rompe nada). Para restaurarlo hacen
+   falta LOS DOS archivos: primero el motor, después la UI. */
 function renderInspector(){ try{ _renderInspectorMain(); }catch(e){ console.error('inspector',e); } try{ renderReactivePanel(); }catch(e){} applyInspTab(); }
 function _renderInspectorMain(){
   const g=state.selGroupId!=null?groupById(state.selGroupId):null;
@@ -2870,7 +2871,7 @@ function _renderInspectorMain(){
   { const d=isAud?'none':''; ['#secTf','#mirrorWrap','#secFx','#tfRows','#fxRows','#secSource','#sourceRows','#secPlayback','#playbackRows','#secColor','#colorRows','#secMotion','#motionRows'].forEach(s=>{const el=$(s);if(el)el.style.display=d;}); const ia=$('#insAudio'); if(ia)ia.style.display=isAud?'block':'none'; }
   if(isAud){ $('#tfRows').innerHTML=''; $('#fxRows').innerHTML=''; buildAudioInspector(c,m); return; }
   $('#mirrorBtn').classList.toggle('on',c.props.mirror);
-  { const st=$('#secTf'); if(st){ const tt=st.querySelector('.t'); if(tt)tt.textContent=isFlat()?T('Transform','Transformación'):T('Dome · Transform','Domo · Transformación'); } }
+  { const st=$('#secTf'); if(st){ const tt=st.querySelector('.t'); if(tt)tt.textContent=T('Transform','Transformación'); } } // [AUDITORÍA Rev1] el diseño titula la sección "Transform" a secas (RevDomo:280); el modo ya se lee en el chip de formato y en el visor
   { const sf=$('#secFx'); if(sf){ const tt=sf.querySelector('.t'); if(tt)tt.textContent=T('Clip','Clip'); } const sc=$('#secColor'); if(sc){ const tt=sc.querySelector('.t'); if(tt)tt.textContent=T('Color','Color'); } const sm=$('#secMotion'); if(sm){ const tt=sm.querySelector('.t'); if(tt)tt.textContent=T('Motion','Movimiento'); } const ss=$('#secSource'); if(ss){ const tt=ss.querySelector('.t'); if(tt)tt.textContent=T('Source','Fuente'); } const sp=$('#secPlayback'); if(sp){ const tt=sp.querySelector('.t'); if(tt)tt.textContent=T('Playback','Reproducción'); } } // [I2/Rev1] section titles (secFx reused as the Clip section; Source/Playback/Color/Motion)
   buildRows('#tfRows', isFlat()?TF_FLAT:TF, c);
   { const fxAll=(!isFlat()&&c.props.fulldome)?FX.filter(f=>['opacity','feather','exposure','contrast','saturation','temperature','tint'].includes(f[0])):FX; // fulldome path (PFD) supports opacity + grade + mask/feather
@@ -2959,30 +2960,40 @@ function _renderInspectorMain(){
   const reReact=()=>{const cc=selClip();if(cc){pushUndo();cc.props.react=$('#reactSel').value;cc.props.reactAmt=+$('#reactAmt').value||0;render();}};
   rrow.querySelector('#reactSel').onchange=reReact; rrow.querySelector('#reactAmt').onchange=reReact;
   // Fulldome source toggle — source is already a fisheye/dome master → fills the dome 1:1 (no patch warp). Dome-only.
-  if(!isFlat()){ const fdrow=document.createElement('div'); fdrow.className='prow';
-    fdrow.innerHTML=`<span class="kf" style="cursor:default;"></span><span class="lab">${T('Fulldome src','Fuente fulldome')}</span>
-      <label style="display:flex;align-items:center;gap:6px;flex:1;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="fdToggle" ${c.props.fulldome?'checked':''}> ${T('Map 1:1 to dome (no warp)','Mapear 1:1 al domo (sin warp)')}</label>`;
-    $('#sourceRows').appendChild(fdrow); // [Rev1] Source section
-    fdrow.querySelector('#fdToggle').onchange=e=>{const cc=selClip();if(cc){pushUndo();cc.props.fulldome=e.target.checked; if(e.target.checked)cc.props.equirect=false; if(_raOn)raInvalidate();render();renderInspector();}};
+  if(!isFlat()){
+    /* [AUDITORÍA Rev1 · §4] Source pasa de checkboxes nativos a los TOGGLES del diseño (26×15, verde al on —
+       prototipo RevDomo:315-316). Forma de fila del diseño: etiqueta · descripción apagada · switch a la derecha.
+       El .iosw ya existía (se usaba sólo en Preferences); acá se reutiliza, no se duplica. */
+    const swRow=(id,label,desc,on)=>{ const r=document.createElement('div'); r.className='prow';
+      r.innerHTML=`<span class="kf" style="cursor:default;"></span><span class="lab">${label}</span>`
+        +`<span style="flex:1;min-width:0;font-size:11px;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${desc}</span>`
+        +`<button class="iosw ${on?'on':''}" id="${id}" role="switch" aria-checked="${on?'true':'false'}"><i></i></button>`;
+      $('#sourceRows').appendChild(r); return r; };
+    const swBind=(row,id,apply)=>{ const b=row.querySelector('#'+id);
+      b.onclick=()=>{ const cc=selClip(); if(!cc)return; pushUndo(); apply(cc,!b.classList.contains('on'));
+        if(_raOn)raInvalidate(); render(); markDirty(); renderInspector(); }; };
+
+    const fdrow=swRow('fdToggle',T('Fulldome src','Fuente fulldome'),T('Map 1:1 to dome (no warp)','Mapear 1:1 al domo (sin warp)'),!!c.props.fulldome);
+    swBind(fdrow,'fdToggle',(cc,on)=>{ cc.props.fulldome=on; if(on)cc.props.equirect=false; });
     // [F7] Equirect 360° source: the clip is a 2:1 panorama → mapped onto the dome. Azimuth (Transform) = camera yaw; Tilt = pitch. Mutually exclusive with Fulldome src.
-    const eqrow=document.createElement('div'); eqrow.className='prow';
-    eqrow.innerHTML=`<span class="kf" style="cursor:default;"></span><span class="lab">${T('Equirect 360°','Equirect 360°')}</span>
-      <label style="display:flex;align-items:center;gap:6px;flex:1;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="eqToggle" ${c.props.equirect?'checked':''}> ${T('Map panorama to dome (Azimuth = camera yaw)','Mapear panorama al domo (Azimut = giro de cámara)')}</label>`;
-    $('#sourceRows').appendChild(eqrow); // [Rev1] Source section
-    eqrow.querySelector('#eqToggle').onchange=e=>{const cc=selClip();if(cc){pushUndo();cc.props.equirect=e.target.checked; if(e.target.checked)cc.props.fulldome=false; if(_raOn)raInvalidate();render();renderInspector();}};
+    const eqrow=swRow('eqToggle',T('Equirect 360°','Equirect 360°'),T('Panorama → dome (Azimuth = yaw)','Panorama → domo (Azimut = giro)'),!!c.props.equirect);
+    swBind(eqrow,'eqToggle',(cc,on)=>{ cc.props.equirect=on; if(on)cc.props.fulldome=false; });
     if(c.props.equirect){ const eprow=document.createElement('div'); eprow.className='prow';
       eprow.innerHTML=`<span class="kf" style="cursor:default;visibility:hidden;"></span><span class="lab" style="font-size:11px;color:var(--ink-2);">${T('Tilt','Inclinación')}</span>
         <input type="range" id="eqPitch" min="-90" max="90" value="${Math.round(c.props.eqPitch||0)}" style="flex:1;height:20px;"><span class="tnum" id="eqPitchV" style="width:40px;text-align:right;color:var(--ink-dim);">${Math.round(c.props.eqPitch||0)}°</span>`;
       $('#sourceRows').appendChild(eprow); // [Rev1] Source section
       const pr=eprow.querySelector('#eqPitch'); pr.onpointerdown=()=>pushUndo(); pr.oninput=e=>{ const cc=selClip(); if(!cc)return; cc.props.eqPitch=+e.target.value; eprow.querySelector('#eqPitchV').textContent=(+e.target.value)+'°'; if(_raOn)raInvalidate(); render(); }; pr.onchange=()=>markDirty(); }
     // Fisheye pre-warp (R83) — for FLAT clips that lack the fisheye curvature a dome master needs
-    const fhrow=document.createElement('div'); fhrow.className='prow';
-    fhrow.innerHTML=`<span class="kf" style="cursor:default;"></span><span class="lab">${T('Fisheye','Ojo de pez')}</span>
-      <label style="display:flex;align-items:center;gap:6px;flex:1;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="fhToggle" ${c.props.fisheye?'checked':''}> ${T('Warp flat → fisheye','Deformar plano → ojo de pez')}</label>
-      <input type="number" id="fhAmt" value="${c.props.fisheyeAmt!=null?c.props.fisheyeAmt:60}" min="0" max="100" title="${T('Amount','Cantidad')}" style="width:46px;height:18px;background:var(--s2);border:.5px solid rgba(255,255,255,0.12);border-radius:2px;color:var(--ink);text-align:center;${c.props.fisheye?'':'opacity:.4;'}">`;
-    $('#sourceRows').appendChild(fhrow); // [Rev1] Source section
-    fhrow.querySelector('#fhToggle').onchange=e=>{const cc=selClip();if(cc){pushUndo();cc.props.fisheye=e.target.checked;const inp=fhrow.querySelector('#fhAmt');if(inp)inp.style.opacity=e.target.checked?'1':'.4';if(_raOn)raInvalidate();render();}};
-    fhrow.querySelector('#fhAmt').onchange=e=>{const cc=selClip();if(cc){pushUndo();cc.props.fisheyeAmt=Math.max(0,Math.min(100,+e.target.value||0));if(_raOn)raInvalidate();render();}}; }
+    const fhrow=swRow('fhToggle',T('Fisheye','Ojo de pez'),T('Warp flat → fisheye','Deformar plano → ojo de pez'),!!c.props.fisheye);
+    swBind(fhrow,'fhToggle',(cc,on)=>{ cc.props.fisheye=on; });
+    // Amount vive en su PROPIA fila y sólo cuando Fisheye está encendido (diseño RevDomo:317-319) — antes era un
+    // number pegado a la derecha del checkbox, semi-transparente cuando no aplicaba.
+    if(c.props.fisheye){ const farow=document.createElement('div'); farow.className='prow';
+      const amt=c.props.fisheyeAmt!=null?c.props.fisheyeAmt:60;
+      farow.innerHTML=`<span class="kf" style="cursor:default;visibility:hidden;"></span><span class="lab" style="font-size:11px;color:var(--ink-2);">${T('Amount','Cantidad')}</span>
+        <input type="range" id="fhAmt" min="0" max="100" value="${amt}" style="flex:1;height:20px;"><span class="tnum" id="fhAmtV" style="width:40px;text-align:right;color:var(--ink-dim);">${amt}</span>`;
+      $('#sourceRows').appendChild(farow);
+      const fa=farow.querySelector('#fhAmt'); fa.onpointerdown=()=>pushUndo(); fa.oninput=e=>{ const cc=selClip(); if(!cc)return; cc.props.fisheyeAmt=Math.max(0,Math.min(100,+e.target.value||0)); farow.querySelector('#fhAmtV').textContent=cc.props.fisheyeAmt; if(_raOn)raInvalidate(); render(); }; fa.onchange=()=>markDirty(); } }
   // R130 · lift/gamma/gain color wheels (primary grade) — any visual clip. Drag the handle = color balance; slider = luminance master; double-click = reset.
   if(m && m.kind!=='audio'){ const wrow=document.createElement('div'); wrow.className='prow'; wrow.style.alignItems='flex-start';
     const specs=[['cgLift','Lift'],['cgGamma','Gamma'],['cgGain','Gain']];
@@ -3057,16 +3068,18 @@ function _renderInspectorMain(){
       mix.oninput=e=>{ const cc=selClip(); if(!cc)return; cc.props.lutMix=+e.target.value; const v=lrow.querySelector('#lutMixV'); if(v)v.textContent=cc.props.lutMix+'%'; if(_raOn)raInvalidate(); render(); markDirty(); }; }
     const clr=lrow.querySelector('#lutClear'); if(clr)clr.onclick=()=>{ const cc=selClip(); if(!cc)return; pushUndo(); cc.props.lut=null; if(_raOn)raInvalidate(); render(); refreshInspector(); markDirty(); }; }
   // Loopable toggle — video / audio / sequence clips only: the source repeats, and the right edge can be dragged out forever (R81)
-  if(m && (m.kind==='video'||m.kind==='audio'||isSeqMedia(m))){ const lrow=document.createElement('div'); lrow.className='prow';
-    lrow.innerHTML=`<span class="kf" style="cursor:default;"></span><span class="lab">${T('Loop','Loop')}</span>
-      <label style="display:flex;align-items:center;gap:6px;flex:1;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="loopToggle" ${c.loop?'checked':''}> ${T('Loopable (extend the clip to repeat)','Loopeable (extiende el clip para repetir)')}</label>`;
-    $('#playbackRows').appendChild(lrow); // [Rev1] Playback section
-    lrow.querySelector('#loopToggle').onchange=()=>{const cc=selClip();if(cc)toggleLoop(cc);};
-    if(c.loop && m.kind!=='audio'){ const lr=document.createElement('div'); lr.className='prow'; // R88: ping-pong reverse (video / sequence)
-      lr.innerHTML=`<span class="kf" style="cursor:default;visibility:hidden;"></span><span class="lab" style="font-size:11px;color:var(--ink-2);">${T('Reverse','Inverso')}</span>
-        <label style="display:flex;align-items:center;gap:6px;flex:1;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="loopRevToggle" ${c.loopRev?'checked':''}> ${T('Ping-pong (fwd → back → fwd)','Ping-pong (ida → vuelta → ida)')}</label>`;
-      $('#playbackRows').appendChild(lr); // [Rev1] Playback section
-      lr.querySelector('#loopRevToggle').onchange=()=>{const cc=selClip();if(cc)toggleLoopReverse(cc);}; } }
+  if(m && (m.kind==='video'||m.kind==='audio'||isSeqMedia(m))){
+    /* [AUDITORÍA Rev1 · §4] Playback también con TOGGLE en vez de checkbox (misma forma de fila que Source) */
+    const pbRow=(id,label,desc,on)=>{ const r=document.createElement('div'); r.className='prow';
+      r.innerHTML=`<span class="kf" style="cursor:default;"></span><span class="lab">${label}</span>`
+        +`<span style="flex:1;min-width:0;font-size:11px;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${desc}</span>`
+        +`<button class="iosw ${on?'on':''}" id="${id}" role="switch" aria-checked="${on?'true':'false'}"><i></i></button>`;
+      $('#playbackRows').appendChild(r); return r; };
+    const lrow=pbRow('loopToggle',T('Loop','Loop'),T('Extend the clip to repeat','Extender el clip para repetir'),!!c.loop);
+    lrow.querySelector('#loopToggle').onclick=()=>{const cc=selClip();if(cc)toggleLoop(cc);};
+    if(c.loop && m.kind!=='audio'){ // R88: ping-pong reverse (video / sequence)
+      const lr=pbRow('loopRevToggle',T('Reverse','Inverso'),T('Ping-pong (fwd → back → fwd)','Ping-pong (ida → vuelta → ida)'),!!c.loopRev);
+      lr.querySelector('#loopRevToggle').onclick=()=>{const cc=selClip();if(cc)toggleLoopReverse(cc);}; } }
   // [REDISEÑO Rev1] Playback · Speed — per-clip playback rate (c.speed, default 1); time-based media only (video/audio/sequence)
   if(m && (m.kind==='video'||m.kind==='audio'||isSeqMedia(m))){ const sp=document.createElement('div'); sp.className='prow'; const spct=Math.round((c.speed||1)*100);
     sp.innerHTML=`<span class="kf" style="cursor:default;visibility:hidden;"></span><span class="lab">${T('Speed','Velocidad')}</span>
@@ -4334,7 +4347,7 @@ function renderExportFrame(t,res,ss,wall){ const flat=isFlat(); _drawFlat=flat; 
     gl.uniform1f(LB.flat,1); gl.uniform2f(LB.uvsc,uSc,vSc); gl.uniform2f(LB.uvof,uOf,vOf); gl.uniform1f(LB.hfade,0); }
   else if(flat){ const A=_compAspect, s=Math.min(2/A,2), Fx=s*A/2, Fy=s/2; gl.uniform1f(LB.flat,1); gl.uniform2f(LB.uvsc,Fx,Fy); gl.uniform2f(LB.uvof,(1-Fx)/2,(1-Fy)/2); gl.uniform1f(LB.hfade,0); }
   else { gl.uniform1f(LB.flat,0); gl.uniform2f(LB.uvsc,1,1); gl.uniform2f(LB.uvof,0,0); gl.uniform1f(LB.hfade, state.view.hfade?HFADE:0); }
-  const _exOut=masterGradeOn()?applyMasterGrade(_exTex,SR):_exTex; // [master grade] bake the sequence master grade into the exported frame → export matches preview (WYSIWYG)
+  const _exOut=_exTex; // [archivado 20260725] ya no hay grade máster que hornear: el export es el composite tal cual (el grado vive por clip)
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,_exOut); gl.uniform1i(LB.tex,0); gl.drawArrays(gl.TRIANGLES,0,6); gl.bindVertexArray(null);
   gl.finish();
 }
@@ -5025,7 +5038,7 @@ function serMedia(m){ return {id:m.id,name:m.name,kind:m.kind,w:m.w,h:m.h,mode:m
   text:m.text,tfontSize:m.tfontSize,tweight:m.tweight,tfont:m.tfont,talign:m.talign,tlineH:m.tlineH,titalic:m.titalic,tcolor:m.tcolor,tbg:m.tbg,tstroke:m.tstroke,tstrokeColor:m.tstrokeColor,
   shape:m.shape,fill:m.fill,stroke:m.stroke,strokeW:m.strokeW,sw:m.sw,sh:m.sh,
   nestClips:(m.kind==='nest'?(m.nestClips||[]).map(serClip):null), nestLanes:(m.kind==='nest'?m.nestLanes:null),
-  nestMarkers:(m.kind==='nest'?(m.nestMarkers||[]):null), nestGroups:(m.kind==='nest'?(m.nestGroups||[]):null), nestPlayhead:(m.kind==='nest'?(m.nestPlayhead||0):null), nestWorkIn:(m.kind==='nest'?(m.nestWorkIn??null):null), nestWorkOut:(m.kind==='nest'?(m.nestWorkOut??null):null), comp:(m.comp||null), grade:(m.kind==='nest'?(m.grade||null):null),
+  nestMarkers:(m.kind==='nest'?(m.nestMarkers||[]):null), nestGroups:(m.kind==='nest'?(m.nestGroups||[]):null), nestPlayhead:(m.kind==='nest'?(m.nestPlayhead||0):null), nestWorkIn:(m.kind==='nest'?(m.nestWorkIn??null):null), nestWorkOut:(m.kind==='nest'?(m.nestWorkOut??null):null), comp:(m.comp||null), /* [archivado 20260725] grade: del nest */
   thumb:(m.kind==='audio'?m.thumb:null)}; }
 let _serLight=false; // when true (autosave), drop heavy fields (maskData PNGs) to stay under the localStorage quota
 function serClip(c){ const o=JSON.parse(JSON.stringify(c)); delete o.maskTex; delete o._penCv; delete o._elB; delete o._szB; delete o._curveTex; delete o._curveDirty; if(_serLight)delete o.maskData; return o; } // R132: _curveTex is a live GL texture (rebuilt from props.curves), _curveDirty a transient flag // maskTex is a live GL texture; _penCv is the pen-mask raster canvas (rebuilt from penMasks); _elB/_szB are transient drag baselines; maskData (dataURL) kept except in the light autosave copy
@@ -5043,10 +5056,10 @@ function ensureSequences(){ let seqs=state.media.filter(isSeqMedia);
   if(!state.openSeqs||!state.openSeqs.length || !state.openSeqs.some(id=>isSeqMedia(mediaById(id)))) state.openSeqs=[seqs[0].id];
   if(!activeSeq()) state.activeSeqId=state.openSeqs[0]||seqs[0].id;
   loadSeqIntoState(activeSeq()); }
-function saveActiveSeq(){ const s=activeSeq(); if(!s)return; s.nestClips=state.clips; s.nestLanes=state.lanes; s.nestMarkers=state.markers; s.nestGroups=state.groups; s.nestPlayhead=state.playhead; s.nestWorkIn=state.workIn; s.nestWorkOut=state.workOut; s.grade=state.seqGrade; s.dur=seqDur(s); } // [master grade] per-sequence grade travels with the nest media // nests render via the per-frame _nestPool (no per-media FBO); serMedia omits transient GL fields
+function saveActiveSeq(){ const s=activeSeq(); if(!s)return; s.nestClips=state.clips; s.nestLanes=state.lanes; s.nestMarkers=state.markers; s.nestGroups=state.groups; s.nestPlayhead=state.playhead; s.nestWorkIn=state.workIn; s.nestWorkOut=state.workOut; s.dur=seqDur(s); } /* [archivado 20260725] s.grade */ // nests render via the per-frame _nestPool (no per-media FBO); serMedia omits transient GL fields
 function loadSeqIntoState(s){ if(!s)return; state.clips=s.nestClips||[]; state.lanes=(s.nestLanes&&s.nestLanes.length?s.nestLanes:defLanes());
   if(!s.comp && !state.lanes.some(l=>l.kind==='audio')){ const n=state.lanes.filter(l=>l.kind==='audio').length+1; state.lanes.push({id:uid(),name:'Audio '+n,tag:'A'+n,kind:'audio'}); s.nestLanes=state.lanes; } /* [R92-T9] audio module always present on real timelines (old projects get one); compositions (m.comp) stay video-only; no markDirty (idempotent) */
-  state.markers=s.nestMarkers||[]; state.groups=s.nestGroups||[]; state.playhead=s.nestPlayhead||0; state.workIn=s.nestWorkIn??null; state.workOut=s.nestWorkOut??null; state.fps=s.fps||state.fps||60; state.seqW=s.w||state.seqW||4096; state.seqH=s.h||state.seqH||4096; state.seqMode=s.mode||'dome'; state.seqCov=s.cov||180; state.seqGrade=Object.assign({exposure:0,contrast:0,saturation:0,temperature:0,tint:0}, s.grade||{}); /* [master grade] restore this sequence's grade (identity default) */ state.selId=null; state.selIds=[]; state.selGroupId=null; state.selMarkerId=null; state.autoSel=null; state.hoverAuto=null; state.shapeBox=null; /* [R95·B1] the box holds live keyframe refs — undo/sequence switch replaces those objects, so it must go with them */ _arCache=null; try{raInvalidate();}catch(e){} try{updModeUI();}catch(e){} } // invalidate render-ahead + reactive cache: a cached flat frame / band cache belongs to the previous sequence
+  state.markers=s.nestMarkers||[]; state.groups=s.nestGroups||[]; state.playhead=s.nestPlayhead||0; state.workIn=s.nestWorkIn??null; state.workOut=s.nestWorkOut??null; state.fps=s.fps||state.fps||60; state.seqW=s.w||state.seqW||4096; state.seqH=s.h||state.seqH||4096; state.seqMode=s.mode||'dome'; state.seqCov=s.cov||180; /* [archivado 20260725] state.seqGrade — un s.grade de un .isp viejo se ignora sin romper nada */ state.selId=null; state.selIds=[]; state.selGroupId=null; state.selMarkerId=null; state.autoSel=null; state.hoverAuto=null; state.shapeBox=null; /* [R95·B1] the box holds live keyframe refs — undo/sequence switch replaces those objects, so it must go with them */ _arCache=null; try{raInvalidate();}catch(e){} try{updModeUI();}catch(e){} } // invalidate render-ahead + reactive cache: a cached flat frame / band cache belongs to the previous sequence
 function updModeUI(){ const fl=isFlat(), room=isRoom(); // a 360 room has a real 3D view (assembled walls); plain 2D flat does not
   const b3=document.querySelector('#viewModeSeg button[data-v="3d"]'); if(b3){ b3.style.display=(fl&&!room)?'none':''; b3.textContent=room?T('3D Room','Sala 3D'):T('3D Preview','Vista 3D'); }
   const b2=document.querySelector('#viewModeSeg button[data-v="2d"]'); if(b2){ const lb=fl?T('2D Master','Máster 2D'):T('Dome Master','Máster de domo'); const last=b2.lastChild; if(last&&last.nodeType===3)last.textContent=' '+lb; else b2.textContent=lb; } // [U-42] dome shows "Dome Master"; flat/room keep "2D Master" (last text node → the icon survives)
@@ -5642,10 +5655,21 @@ function wireDrop(el){ el.addEventListener('dragover',e=>e.preventDefault()); el
   importDropped(e.dataTransfer, target); }); } // R89: OS files/folders dropped ONTO a folder header land in that folder; otherwise in the browsed (grid) or selected (tree) folder
 $('#importBtn').onclick=()=>$('#fileInput').click();
 /* [R92-T5 P1] media search — the state.mediaQuery filter existed in renderMedia; the input never did */
+/* [AUDITORÍA Rev1] El rediseño quitó el buscador VISIBLE del panel, no la búsqueda: Ctrl+F revela el campo en la
+   fila de filtros y Esc lo cierra. Al cerrarse con texto escrito se limpia el filtro, para que no quede un panel
+   filtrado sin nada en pantalla que lo explique. */
+function showMediaSearch(on){ const si=$('#mediaSearch'), sp=$('#filtSpacer'), fs=$('#filtSeg'); if(!si)return;
+  si.classList.toggle('show',!!on);
+  // el campo se queda con TODA la fila: el espaciador y el well de filtros se apartan mientras se busca (si no,
+  // el input queda en ~72px sobre un panel de 292 y no se lee lo que uno escribe). Vuelven al cerrar.
+  if(sp)sp.style.display=on?'none':''; if(fs)fs.style.display=on?'none':'';
+  if(on){ si.focus(); si.select(); }
+  else { if(si.value){ si.value=''; state.mediaQuery=''; renderMedia(); } si.blur(); } }
 { const si=$('#mediaSearch'), sc=$('#mediaSearchClr'); if(si){ let _msDeb=0;
   const apply=()=>{ state.mediaQuery=si.value.trim(); if(sc)sc.style.display=si.value?'':'none'; renderMedia(); };
   si.oninput=()=>{ clearTimeout(_msDeb); _msDeb=setTimeout(apply,150); };
-  si.onkeydown=e=>{ e.stopPropagation(); if(e.key==='Escape'){ si.value=''; apply(); si.blur(); } if(e.key==='Enter')apply(); };
+  si.onkeydown=e=>{ e.stopPropagation(); if(e.key==='Escape'){ showMediaSearch(false); } if(e.key==='Enter')apply(); };
+  si.onblur=()=>{ if(!si.value)showMediaSearch(false); }; // vacío y sin foco → se retira solo
   if(sc)sc.onclick=()=>{ si.value=''; apply(); }; } }
 /* [R93c] the ⚡ toolbar button was removed per request — proxies are generated via right-click on media (multi-selection supported) */
 $('#textBtn').onclick=()=>createTextClip();
@@ -5733,7 +5757,7 @@ $('#viewModeSeg').querySelectorAll('button').forEach(b=>b.onclick=()=>{ state.vi
   $('#azelReadout').style.display=is3?'none':'inline-flex'; updViewCtl(); setVpCursor(); resize(); });
 $('#threeModeSeg').querySelectorAll('button').forEach(b=>b.onclick=()=>{ state.view.three=b.dataset.m; $('#threeModeSeg').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); if(b.dataset.m==='spec'&&isRoom())roomStandDefaults(); updViewCtl(); render(); }); // entering Viewer in a room → face the front wall (FOV 60, dolly −0.5)
 // 3D-room walls are see-through from OUTSIDE (translucent flat); this button also paints the clip texture translucent on the outside
-{ const seg=$('#threeModeSeg'); if(seg&&seg.parentElement){ const b=document.createElement('button'); b.id='roomOutBtn'; b.className='togbtn'; b.style.cssText='display:none;height:24px;padding:0 10px;font-size:11px;'; b.textContent=T('Outside tex','Textura ext.'); b.title=T('Show the clip texture (translucent) on the outside of the walls too','Mostrar la textura del clip (translúcida) también por fuera de los muros'); b.onclick=()=>{ state.view.roomOutTex=!state.view.roomOutTex; b.classList.toggle('on',state.view.roomOutTex); render(); }; seg.parentElement.insertBefore(b, seg.nextSibling); } }
+{ const seg=$('#threeModeSeg'); if(seg&&seg.parentElement){ const b=document.createElement('button'); b.id='roomOutBtn'; b.className='togbtn'; b.style.cssText='display:none;height:22px;padding:0 10px;font-size:10px;font-weight:600;'; /* [AUDITORÍA Rev1] medida de control del diseño (22px), no 24 */ b.textContent=T('Outside tex','Textura ext.'); b.title=T('Show the clip texture (translucent) on the outside of the walls too','Mostrar la textura del clip (translúcida) también por fuera de los muros'); b.onclick=()=>{ state.view.roomOutTex=!state.view.roomOutTex; b.classList.toggle('on',state.view.roomOutTex); render(); }; seg.parentElement.insertBefore(b, seg.nextSibling); } }
 function updViewCtl(){ const is3=state.view.mode==='3d',spec=state.view.three==='spec'; $('#fovCtl').style.display=(is3&&spec)?'inline-flex':'none'; $('#dollyCtl').style.display=(is3&&spec)?'inline-flex':'none';
   { const ro=$('#roomOutBtn'); if(ro){ ro.style.display=(is3&&isRoom())?'inline-flex':'none'; ro.classList.toggle('on',!!state.view.roomOutTex); } }
   if(is3&&spec){ const fr=$('#fovRange'); if(fr){ fr.value=state.view.cam.fov; faderFill(fr); const fl=$('#fovLbl'); if(fl)fl.textContent=Math.round(state.view.cam.fov)+'°'; } const dr2=$('#dollyRange'); if(dr2){ dr2.value=state.view.cam.back; faderFill(dr2); const dl2=$('#dollyLbl'); if(dl2)dl2.textContent=(+state.view.cam.back).toFixed(1); } } // reflect the live FOV/dolly on the sliders when entering Viewer mode
@@ -5824,7 +5848,18 @@ $('#tlZoomIn').onclick=()=>{state.tl.pxPerSec=Math.min(TL_PPS_MAX,state.tl.pxPer
 $('#tlZoomOut').onclick=()=>{state.tl.pxPerSec=Math.max(TL_PPS_MIN,state.tl.pxPerSec*0.8);renderTimeline();};
 /* tools */
 $('#toolRail').querySelectorAll('button').forEach(b=>b.onclick=()=>setTool(b.dataset.t));
-function setTool(t){ state.tl.tool=t; $('#toolRail').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x.dataset.t===t)); applyToolCursor(); }
+/* [AUDITORÍA Rev1 · §7] El diseño muestra SIEMPRE una pista de la herramienta activa junto a "Ready"
+   (RevDomo:645: "Select (V) — click a clip to select · drag its title to move"). Se escribe con el mismo
+   contrato de tooltip que ya parsea setInfo ("Nombre (ATAJO) — descripción"), así que no hay parser nuevo. */
+const TOOL_HINTS={
+  select:      ()=>T('Select (V) — click a clip to select · drag its title to move','Seleccionar (V) — clic en un clip para seleccionarlo · arrastra su título para moverlo'),
+  trackselect: ()=>T('Track select — selects the clip and everything to its right','Seleccionar pista — toma el clip y todo lo que está a su derecha'),
+  hand:        ()=>T('Hand (H) — drag to pan the timeline','Mano (H) — arrastra para desplazar la línea de tiempo'),
+  trim:        ()=>T('Trim (T) — the zone under the cursor picks ripple / roll / slip / slide','Recortar (T) — la zona bajo el cursor elige ripple / roll / slip / slide'),
+  razor:       ()=>T('Razor (B) — click a clip to cut it at that point','Cuchilla (B) — clic en un clip para cortarlo en ese punto'),
+  zoom:        ()=>T('Zoom (Z) — click to zoom in · Alt-click to zoom out','Zoom (Z) — clic para acercar · Alt+clic para alejar')
+};
+function setTool(t){ state.tl.tool=t; $('#toolRail').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x.dataset.t===t)); applyToolCursor(); if(window.refreshToolHint)refreshToolHint(); }
 
 /* panel resize */
 function gutter(el,pane,which){ el.addEventListener('pointerdown',e=>{ const w0=pane.offsetWidth,x0=e.clientX; const mv=ev=>{let w=which==='L'?w0+(ev.clientX-x0):w0-(ev.clientX-x0);w=Math.max(180,Math.min(560,w));pane.style.width=w+'px';resize();}; const up=()=>{window.removeEventListener('pointermove',mv);window.removeEventListener('pointerup',up);saveWorkspace();};window.addEventListener('pointermove',mv);window.addEventListener('pointerup',up); }); }
@@ -5867,7 +5902,7 @@ window.addEventListener('keydown',e=>{ const tag=(e.target.tagName||'').toLowerC
   if(mod&&e.key.toLowerCase()==='s'){e.preventDefault();saveProject(e.shiftKey);return;}
   if(mod&&e.key.toLowerCase()==='e'){e.preventDefault(); if(e.shiftKey)openExport(); else { splitAtSelection(); flashStatus(T('Split (Ctrl+E) — Export is Ctrl+Shift+E','Dividir (Ctrl+E) — Exportar es Ctrl+Shift+E')); } return;} // Ctrl+E = Split (Ableton) · Ctrl+Shift+E = Export · [R94-UT2·U-25] disambiguate for users expecting Export
   if(mod&&e.key.toLowerCase()==='i'){e.preventDefault();$('#fileInput').click();return;}
-  if(mod&&e.key.toLowerCase()==='f'){e.preventDefault(); const si=$('#mediaSearch'); if(si){ si.focus(); si.select(); } return;} // [R92-T5] Ctrl+F = media search
+  if(mod&&e.key.toLowerCase()==='f'){e.preventDefault(); if(state.prefs&&state.prefs.mediaCollapsed){ state.prefs.mediaCollapsed=false; setPaneCollapsed('#mediaPane',false); } showMediaSearch(true); return;} // [R92-T5] Ctrl+F = media search · [AUDITORÍA Rev1] revela el campo (y abre el panel si estaba plegado)
   if(mod&&e.key.toLowerCase()==='o'){e.preventDefault();openProject();return;}
   if(mod&&e.key.toLowerCase()==='z'){e.preventDefault();e.shiftKey?redo():undo();return;}
   if(mod&&e.key.toLowerCase()==='c'&&state.autoSel&&state.autoSel.set&&state.autoSel.set.size){e.preventDefault();copyAutoSel();return;} // selected breakpoints → copy the curve slice, not the clip
@@ -6447,6 +6482,7 @@ function applyLang(){ const L=state.lang; document.documentElement.lang=L;
   txt('#mediaPane .pantab .ttl','Media','Medios');
   ttl('#newFolderBtn','New folder','Nueva carpeta'); ttl('#importBtn','Import media','Importar medios'); ttl('#textBtn','Add text / title','Añadir texto / título'); ttl('#shapeBtn','Add shape','Añadir forma'); ttl('#hideMedia','Hide panel','Ocultar panel');
   txt('#importBtn .crlbl','Import','Importar'); txt('#textBtn .crlbl','Text','Texto'); txt('#shapeBtn .crlbl','Shape','Forma'); { const l=$('#mediaSortLbl'); if(l&&typeof mediaSortLabel==='function')l.textContent=mediaSortLabel(); } // [REDISEÑO Rev1] labels (.crlbl span) de la Create row + Sort
+  if(window.refreshToolHint)refreshToolHint(); // [AUDITORÍA Rev1] el hint de herramienta del status también se traduce
   txt('#filtSeg button[data-f="all"]','All','Todos');
   ttl('#filtSeg button[data-f="video"]','Video','Vídeo'); ttl('#filtSeg button[data-f="image"]','Image','Imagen'); ttl('#filtSeg button[data-f="audio"]','Audio','Audio');
   txt('#groupLbl','Group','Agrupar');
@@ -6496,7 +6532,12 @@ function applyLang(){ const L=state.lang; document.documentElement.lang=L;
      Contrato del tooltip (HIG de Blender): "Nombre — qué hace · ATAJO". Se parte por el primer guión largo o
      paréntesis, así que los 151 títulos que ya existen funcionan sin reescribir ninguno. */
   const info=()=>document.getElementById('statInfo');
+  /* [AUDITORÍA Rev1 · §7] sin hover la barra ya no queda vacía: cae al hint de la herramienta activa (TOOL_HINTS).
+     Devuelve un nodo suelto con data-tip para reusar el mismo parser de abajo. */
+  function toolHintEl(){ const h=TOOL_HINTS[(state.tl&&state.tl.tool)||'select']; if(!h)return null;
+    const d=document.createElement('span'); d.setAttribute('data-tip',h()); return d; }
   function setInfo(el){ const bar=info(); if(!bar)return;
+    if(!el || !(el.getAttribute('data-tip')||'').trim()) el=toolHintEl();
     if(!el){ bar.textContent=''; bar.classList.remove('why'); return; }
     const txt=(el.getAttribute('data-tip')||'').trim(); if(!txt){ bar.textContent=''; bar.classList.remove('why'); return; }
     // Ámbar SOLO con un motivo explícito (data-why, que pone setDis). Un control bloqueado sin motivo se lee
@@ -6528,6 +6569,8 @@ function applyLang(){ const L=state.lang; document.documentElement.lang=L;
   document.addEventListener('pointerout',e=>{ if(curEl&&!curEl.contains(e.relatedTarget)){ hide(); setInfo(null); } });
   document.addEventListener('pointerdown',()=>hide(),true);
   window.addEventListener('blur',()=>hide());
+  window.refreshToolHint=()=>setInfo(null); // [AUDITORÍA Rev1] setTool + idioma lo repintan
+  refreshToolHint();                        // estado inicial (herramienta Select)
 })();
 
 /* live CPU / RAM / GPU usage in the status bar (CPU% normalized to all cores, RAM = app working set, GPU via nvidia-smi) */
@@ -6760,38 +6803,8 @@ function applyBlackKey(inTex,size,c){ const thr=Math.max(0,Math.min(100,c.props.
   gl.bindFramebuffer(gl.FRAMEBUFFER,rt.fbo); gl.viewport(0,0,size,size); gl.drawArrays(gl.TRIANGLES,0,6);
   gl.bindVertexArray(null); gl.bindFramebuffer(gl.FRAMEBUFFER,prevFBO); gl.viewport(pv[0],pv[1],pv[2],pv[3]); gl.enable(gl.BLEND); NORMAL_BLEND();
   return rt.tex; }
-/* [master grade] sequence-level global grade applied to the FINAL composite (after all clips), before the view
-   projection/export blit. Phase 1: numeric grade (exposure/contrast/saturation/temp/tint) — same math as FSW so it
-   matches per-clip grading. Runs as one full-screen pass; skipped entirely when the grade is identity (zero cost). */
-const _MGFS=`#version 300 es
-precision highp float; in vec2 v_uv; out vec4 o; uniform sampler2D u_tex; uniform float u_exp,u_con,u_sat,u_tmp,u_tnt;
-uniform vec3 u_lift,u_gamma,u_gain; uniform sampler2D u_curve; uniform float u_hasCurve; uniform highp sampler3D u_lut; uniform float u_hasLut,u_lutMix; // [master grade phase 2] wheels + curves + LUT (same chain as FSW)
-void main(){ vec4 c=texture(u_tex,v_uv); vec3 col=c.rgb;
-  col*=exp2(u_exp); col=(col-0.5)*(1.0+u_con)+0.5; float L=dot(col,vec3(0.2126,0.7152,0.0722)); col=mix(vec3(L),col,1.0+u_sat); col*=vec3(1.0+u_tmp,1.0,1.0-u_tmp); col*=vec3(1.0-u_tnt*0.5,1.0+u_tnt,1.0-u_tnt*0.5);
-  col=pow(max(u_gain*col+u_lift,0.0), u_gamma); col=clamp(col,0.0,1.0);                 // R130 lift/gamma/gain
-  if(u_hasCurve>0.5){ col.r=texture(u_curve,vec2(col.r,0.5)).r; col.g=texture(u_curve,vec2(col.g,0.5)).g; col.b=texture(u_curve,vec2(col.b,0.5)).b; col=vec3(texture(u_curve,vec2(col.r,0.5)).a, texture(u_curve,vec2(col.g,0.5)).a, texture(u_curve,vec2(col.b,0.5)).a); } // R132 curves
-  if(u_hasLut>0.5){ col=mix(col, texture(u_lut, col).rgb, u_lutMix); }                    // R116 LUT
-  o=vec4(col, c.a); }`; // alpha preserved (dome surround stays transparent); grade only touches rgb
-const _MG=ppCompile(_MGFS); const _MGu={tex:gl.getUniformLocation(_MG,'u_tex'),exp:gl.getUniformLocation(_MG,'u_exp'),con:gl.getUniformLocation(_MG,'u_con'),sat:gl.getUniformLocation(_MG,'u_sat'),tmp:gl.getUniformLocation(_MG,'u_tmp'),tnt:gl.getUniformLocation(_MG,'u_tnt'),
-  lift:gl.getUniformLocation(_MG,'u_lift'),gamma:gl.getUniformLocation(_MG,'u_gamma'),gain:gl.getUniformLocation(_MG,'u_gain'),curve:gl.getUniformLocation(_MG,'u_curve'),hasCurve:gl.getUniformLocation(_MG,'u_hasCurve'),lut:gl.getUniformLocation(_MG,'u_lut'),hasLut:gl.getUniformLocation(_MG,'u_hasLut'),lutMix:gl.getUniformLocation(_MG,'u_lutMix')}; // field names match the L-struct that bindClipLUT/Grade/Curve expect → reuse the clip grade pipeline
-const _masterClip={props:null}; // a stand-in "clip" so bindClipLUT/Grade/Curve can drive the master grade (holds _curveTex/_curveDirty for the curve-texture cache)
-let _mgRT=null;
-function _mgTarget(size){ if(!_mgRT){ _mgRT={tex:gl.createTexture(),fbo:gl.createFramebuffer(),size:0}; } if(_mgRT.size!==size){ _ppTex(_mgRT.tex,size); gl.bindFramebuffer(gl.FRAMEBUFFER,_mgRT.fbo); gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,_mgRT.tex,0); gl.bindFramebuffer(gl.FRAMEBUFFER,null); _mgRT.size=size; } return _mgRT; }
-function masterGradeOn(){ const g=state.seqGrade; if(!g)return false;
-  if((g.exposure||0)||(g.contrast||0)||(g.saturation||0)||(g.temperature||0)||(g.tint||0))return true;
-  const w=a=>a&&((a[0]||0)||(a[1]||0)||(a[2]||0)); if(w(g.cgLift)||w(g.cgGamma)||w(g.cgGain))return true; // wheels
-  if(g.lut)return true; // master LUT
-  if(g.curves&&!curveIsIdentity(g.curves))return true; // curves
-  return false; }
-function applyMasterGrade(inTex,size){ if(!masterGradeOn())return inTex; const g=state.seqGrade;
-  const prevFBO=gl.getParameter(gl.FRAMEBUFFER_BINDING), pv=gl.getParameter(gl.VIEWPORT); const rt=_mgTarget(size);
-  gl.disable(gl.BLEND); gl.bindVertexArray(_ppVAO); gl.useProgram(_MG);
-  gl.uniform1f(_MGu.exp,(g.exposure||0)/100); gl.uniform1f(_MGu.con,(g.contrast||0)/100); gl.uniform1f(_MGu.sat,(g.saturation||0)/100); gl.uniform1f(_MGu.tmp,(g.temperature||0)/100*0.15); gl.uniform1f(_MGu.tnt,(g.tint||0)/100*0.15);
-  _masterClip.props=g; bindClipLUT(_masterClip,_MGu); // [phase 2] reuse the clip grade pipeline: sets wheels+curve+LUT on units 2/3, restores TEXTURE0
-  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,inTex); gl.uniform1i(_MGu.tex,0);
-  gl.bindFramebuffer(gl.FRAMEBUFFER,rt.fbo); gl.viewport(0,0,size,size); gl.drawArrays(gl.TRIANGLES,0,6);
-  gl.bindVertexArray(null); gl.bindFramebuffer(gl.FRAMEBUFFER,prevFBO); gl.viewport(pv[0],pv[1],pv[2],pv[3]); gl.enable(gl.BLEND); NORMAL_BLEND();
-  return rt.tex; }
+/* [archivado 20260725] motor de Master Grade (shader _MG + applyMasterGrade/masterGradeOn + state.seqGrade y sus
+   seis call-sites) → _backup/deprecated/20260725-master-grade-engine.js. El grado vive por clip en la sección Color. */
 const _FH=`#version 300 es
 precision highp float; in vec2 v_uv; out vec4 o; uniform sampler2D u_tex; uniform vec2 u_res; uniform float u_t,u_amt;`;
 const FXCATS={distort:['Distort','Distorsión'],stylize:['Stylize','Estilizar'],color:['Color','Color'],feedback:['Feedback','Realimentación'],dome:['Dome','Domo']};

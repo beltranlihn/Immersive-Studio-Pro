@@ -1,0 +1,148 @@
+{
+  "viewerBar": {
+    "v2": {
+      "mode": "2d",
+      "g": {
+        "viewModeSeg": {
+          "x": 300,
+          "vis": true
+        },
+        "dispSeg": {
+          "x": 494,
+          "vis": true
+        },
+        "qualitySeg": {
+          "x": 681,
+          "vis": true
+        },
+        "proxyToggle": {
+          "x": 781,
+          "vis": true
+        },
+        "threeModeSeg": {
+          "x": 0,
+          "vis": false
+        }
+      },
+      "overflow": false
+    },
+    "v3": {
+      "mode": "3d",
+      "g": {
+        "viewModeSeg": {
+          "x": 300,
+          "vis": true
+        },
+        "dispSeg": {
+          "x": 494,
+          "vis": true
+        },
+        "qualitySeg": {
+          "x": 681,
+          "vis": true
+        },
+        "proxyToggle": {
+          "x": 781,
+          "vis": true
+        },
+        "threeModeSeg": {
+          "x": 865,
+          "vis": true
+        }
+      },
+      "overflow": false
+    }
+  },
+  "search": {
+    "shown": true,
+    "focused": true,
+    "w": 72,
+    "filteredItems": 3,
+    "hiddenAfter": true,
+    "queryCleared": true
+  },
+  "alturas": {
+    "top": 28,
+    "mediaHead": 28,
+    "inspHead": 28,
+    "vptool": 28,
+    "transport": 28,
+    "status": 22,
+    "editSeg": 22,
+    "snapBtn": 22,
+    "zoomGrp": 22
+  },
+  "superficies": {
+    "top": "#1B1B1B",
+    "transport": "#242424",
+    "status": "#1B1B1B",
+    "mediaHead": "#111111"
+  },
+  "editSegBtns": [
+    {
+      "id": "simpleClipBtn",
+      "h": 16
+    },
+    {
+      "id": "curvesBtn",
+      "h": 16
+    },
+    {
+      "id": "tlGridBtn",
+      "h": 16
+    },
+    {
+      "id": "fitAllBtn",
+      "h": 16
+    }
+  ],
+  "zoomBtns": [
+    16,
+    16
+  ],
+  "toggles": {
+    "ioswEnInspector": 3,
+    "checkboxesCrudos": 3,
+    "muestra": {
+      "size": {
+        "w": 26,
+        "h": 15
+      },
+      "knob": {
+        "w": 11,
+        "h": 11
+      }
+    },
+    "sourceRows": [
+      {
+        "lab": "Fulldome src",
+        "sw": true
+      },
+      {
+        "lab": "Equirect 360°",
+        "sw": true
+      },
+      {
+        "lab": "Fisheye",
+        "sw": true
+      }
+    ]
+  },
+  "statusHint": {
+    "txt": "Select — click a clip to select · drag its title to moveV",
+    "k": "Select",
+    "sc": "V"
+  },
+  "tituloTransform": "Transform",
+  "micro": {
+    "mmeta": {
+      "fs": "10px",
+      "tt": "uppercase"
+    },
+    "selmeta": {
+      "fs": "10px",
+      "tt": "uppercase"
+    }
+  },
+  "fitTooltip": "Fit the whole timeline to the visible width"
+}

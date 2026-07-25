@@ -1,0 +1,199 @@
+{
+  "viewerBarShift": {
+    "p2d": {
+      "mode": "2d",
+      "g": {
+        "viewModeSeg": {
+          "x": 300,
+          "vis": true
+        },
+        "d3sep": {
+          "x": 0,
+          "vis": false
+        },
+        "threeModeSeg": {
+          "x": 0,
+          "vis": false
+        },
+        "roomOutBtn": {
+          "x": 0,
+          "vis": false
+        },
+        "dispSeg": {
+          "x": 494,
+          "vis": true
+        },
+        "qualitySeg": {
+          "x": 681,
+          "vis": true
+        },
+        "proxyToggle": {
+          "x": 781,
+          "vis": true
+        },
+        "azelReadout": {
+          "x": 1299,
+          "vis": true
+        },
+        "fovCtl": {
+          "x": 0,
+          "vis": false
+        },
+        "dollyCtl": {
+          "x": 0,
+          "vis": false
+        },
+        "distCtl": {
+          "x": 0,
+          "vis": false
+        }
+      }
+    },
+    "p3d": {
+      "mode": "3d",
+      "g": {
+        "viewModeSeg": {
+          "x": 300,
+          "vis": true
+        },
+        "d3sep": {
+          "x": 485,
+          "vis": true
+        },
+        "threeModeSeg": {
+          "x": 494,
+          "vis": true
+        },
+        "roomOutBtn": {
+          "x": 0,
+          "vis": false
+        },
+        "dispSeg": {
+          "x": 645,
+          "vis": true
+        },
+        "qualitySeg": {
+          "x": 833,
+          "vis": true
+        },
+        "proxyToggle": {
+          "x": 933,
+          "vis": true
+        },
+        "azelReadout": {
+          "x": 0,
+          "vis": false
+        },
+        "fovCtl": {
+          "x": 0,
+          "vis": false
+        },
+        "dollyCtl": {
+          "x": 0,
+          "vis": false
+        },
+        "distCtl": {
+          "x": 1236,
+          "vis": true
+        }
+      }
+    }
+  },
+  "createRowThreshold": [
+    {
+      "paneW": 292,
+      "labelShown": false
+    },
+    {
+      "paneW": 310,
+      "labelShown": false
+    },
+    {
+      "paneW": 322,
+      "labelShown": false
+    },
+    {
+      "paneW": 330,
+      "labelShown": false
+    },
+    {
+      "paneW": 360,
+      "labelShown": true
+    }
+  ],
+  "insTop": [
+    {
+      "tag": "div",
+      "id": "selColorBar",
+      "cls": "",
+      "h": 4,
+      "txt": ""
+    },
+    {
+      "tag": "div",
+      "id": null,
+      "cls": "selhead",
+      "h": 54,
+      "txt": "Audit toneAUDIO · 6s"
+    },
+    {
+      "tag": "div",
+      "id": "grpChipHost",
+      "cls": "",
+      "h": 0,
+      "txt": ""
+    },
+    {
+      "tag": "button",
+      "id": "secTf",
+      "cls": "sechead",
+      "h": 0,
+      "txt": "Dome · Transform"
+    },
+    {
+      "tag": "div",
+      "id": "tfRows",
+      "cls": "",
+      "h": 0,
+      "txt": ""
+    },
+    {
+      "tag": "div",
+      "id": "mirrorWrap",
+      "cls": "",
+      "h": 0,
+      "txt": "Mirror"
+    }
+  ],
+  "stripCands": [
+    {
+      "cls": "",
+      "h": 4,
+      "bg": "#5A8D7E"
+    },
+    {
+      "cls": "ln",
+      "h": 0.5,
+      "bg": "#FFFFFF"
+    }
+  ],
+  "audio": {
+    "clipFound": true,
+    "svg": 0,
+    "waveEl": [
+      "div.fill",
+      "div.scrim",
+      "div.tt",
+      "div.hd l",
+      "div.hd r",
+      "div.fadeh fadeL",
+      "div.fadeh fadeR",
+      "div.kfstrip"
+    ],
+    "laneH": 41,
+    "resizeGrip": true,
+    "collapseBtn": true
+  },
+  "iosw": [],
+  "ioswCSS": "width: 26px; height: 15px; border-radius: 8px; border-width: medium; border-style: none; border-color: currentcolor; border-image: initial; background: rgb(58, "
+}
