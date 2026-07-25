@@ -45,7 +45,7 @@
        solo aguanta si es una regla, no un gusto. Añadir un tercero exige cambiar este comentario. */
     --auto-live:#4FC3E8;  /* cian  = vivo / arrastrable */
     --auto-ovr:#E5B567;   /* ámbar = anulado */
-    --danger:#D98A8A;
+    --danger:#E06C6C;  /* [REDISEÑO Rev1] danger un poco más saturado (era #D98A8A) */
     /* ESTADO. Un toggle encendido NO es una superficie más: es estado, así que no cuenta contra el tope de 3.
        Resolve lo dice dos veces en su manual ("Light gray when turned on, dark gray when turned off"):
        el encendido se lee por VALOR, no por color — la saturación se reserva para significado. */
@@ -66,6 +66,16 @@
     --bg-0:var(--s0); --bg-1:var(--s0); --bg-2:var(--s1);
     --surface:var(--s1); --surface-2:var(--s2); --surface-3:var(--state-hover);
     --ink-faint:var(--ink-2); /* LEVANTADO: 26 usos que eran texto real a Lc −38 */
+    /* ===== [REDISEÑO Rev1] tokens nuevos — la paleta de superficies del editor ya coincidía (s0/s1/s2/state-on/hover);
+       esto agrega lo que faltaba: pozo profundo, toggle verde, azul reactivo y el SISTEMA DE COLOR POR PARÁMETRO. ===== */
+    --well-deep:#0A0B0C;   /* pozo más profundo que s0 (launcher gradient / campos hundidos) */
+    --toggle-on:#4A8D6F;   /* switch encendido = verde (distinto de --state-on gris de segmentados/botones) */
+    --react-blue:#7FB2E8;  /* audio / reactivo */
+    /* color por parámetro: mismo hue en el fader, el diamante de keyframe y la curva de automatización del timeline */
+    --p-az:#E0954B;   /* Azimuth / X   */  --p-el:#D8C24B;   /* Elevation / Y */
+    --p-size:#E0645C; /* Size / Scale  */  --p-rot:#C58BD0;  /* Rotation     */
+    --p-op:#7FB2E8;   /* Opacity       */  --p-exp:#E8C84B;  /* Exposure     */
+    --p-sat:#D06FB0;  /* Saturation    */
   }
   *{box-sizing:border-box;}
   html,body{margin:0;height:100%;}
@@ -119,6 +129,21 @@
   .gutter{width:5px;flex-shrink:0;cursor:col-resize;background:transparent;margin:0 -2.5px;z-index:8;}
   .gutter:hover{background:rgba(255,255,255,0.18);}
 
+  /* [REDISEÑO Rev1] "well" = segmentado hundido (List/Grid, filtros, tabs del inspector, tabs de tipo del launcher) */
+  .well{display:inline-flex;align-items:stretch;gap:2px;padding:2px;height:22px;box-sizing:border-box;background:var(--s2);border:.5px solid rgba(255,255,255,0.1);border-radius:3px;flex-shrink:0;}
+  .well button{display:grid;place-items:center;height:16px;padding:0 7px;border:none;border-radius:2px;background:transparent;color:var(--ink-2);font-family:inherit;font-size:10px;font-weight:600;cursor:pointer;transition:background .12s,color .12s;}
+  .well button:hover:not(.on){color:var(--ink);}
+  .well button.on{background:var(--state-on);color:var(--ink);}
+  /* [REDISEÑO Rev1] botón de "crear" en la fila de acciones del panel Media (icon + label); .pri = Import (primario) */
+  .crbtn{display:inline-flex;align-items:center;gap:5px;height:16px;padding:0 7px;border-radius:3px;border:.5px solid rgba(255,255,255,0.09);background:var(--s2);color:var(--ink-2);font-family:inherit;font-size:10px;font-weight:600;cursor:pointer;transition:background .12s,color .12s;white-space:nowrap;}
+  .crbtn:hover{background:var(--state-hover);color:var(--ink);}
+  .crbtn.pri{border-color:rgba(255,255,255,0.2);background:var(--state-on);color:var(--ink);} .crbtn.pri:hover{background:#565656;color:#fff;}
+  .crbtn.dis{opacity:.45;cursor:default;} .crbtn.dis:hover{background:var(--s2);color:var(--ink-2);}
+  .crrow{container-type:inline-size;} .crlbl{display:none;} /* label oculto por defecto (panel angosto) */
+  @container (min-width:322px){ .crlbl{display:inline;} } /* al ensanchar el panel, aparecen los labels de la Create row */
+  /* [REDISEÑO Rev1] disparador de dropdown (Sort media, Output…): pill 22px con label + chevron */
+  .ddbtn{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px;border-radius:3px;border:.5px solid rgba(255,255,255,0.09);background:var(--s2);color:var(--ink-2);font-family:inherit;font-size:10px;font-weight:600;cursor:pointer;flex-shrink:0;transition:background .12s,color .12s;}
+  .ddbtn:hover{background:var(--state-hover);color:var(--ink);}
   /* media */
   .toolrow{display:flex;align-items:center;gap:var(--sp-8);flex-shrink:0;border-bottom:.5px solid rgba(255,255,255,0.05);}
   /* [R102·D-T1] 20px, no 18: es la altura de control de Blender ("Widget unit is 20 pixels at 1X scale") y a
@@ -173,7 +198,14 @@
   /* viewport */
   main{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--bg-1);position:relative;overflow:hidden;}
   .vptool{height:28px;flex-shrink:0;display:flex;align-items:center;gap:var(--sp-8);padding:0 8px;background:var(--surface);border-bottom:.5px solid rgba(0,0,0,0.35);overflow:hidden;}
-  .vseg button{height:100%;white-space:nowrap;} /* [U-18] look shared with .seg */
+  /* [REDISEÑO Rev1] los grupos del visor son "wells" hundidos (segmentado 22px, botones 16px, sin divisores internos) */
+  .vseg{display:inline-flex;align-items:stretch;gap:2px;padding:2px;height:22px;box-sizing:border-box;background:var(--s2);border:.5px solid rgba(255,255,255,0.1);border-radius:3px;flex-shrink:0;}
+  .vseg button{height:16px;padding:0 8px;font-size:10px;font-weight:600;border-radius:2px;white-space:nowrap;}
+  .vseg button+button{border-left:none;}
+  .vseg button.on{background:var(--state-on);color:var(--ink);}
+  #outputBtn.on{color:var(--auto-live);} /* [REDISEÑO Rev1] Output activo (NDI/Spout emitiendo) */
+  #outputBtn.on::after{content:'';position:absolute;top:2px;right:2px;width:5px;height:5px;border-radius:50%;background:var(--auto-live);box-shadow:0 0 5px var(--auto-live);animation:recpulse 1.4s ease-in-out infinite;}
+  body.rm-on #outputBtn.on::after{animation:none;}
   .vdiv{width:.5px;height:16px;background:rgba(255,255,255,0.08);flex-shrink:0;}
   .vslab{display:inline-flex;align-items:center;gap:6px;height:18px;padding:0 7px;border-radius:2px;background:var(--surface-2);border-top:.5px solid rgba(255,255,255,0.05);border-bottom:.5px solid rgba(0,0,0,0.3);}
   .vslab .k{font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:11px;letter-spacing:0.08em;color:var(--ink-faint);}
@@ -222,10 +254,10 @@
   /* [X2] reactive-FX card body: grouped into labelled sections (Routing / Response / Parameters) so each effect box reads as ordered blocks, not a flat stack */
   .fxbody{padding:5px 8px 7px;display:flex;flex-direction:column;gap:4px;}
   .fxseg{display:flex;gap:4px;margin-bottom:1px;}
-  .fxsec{font-family:'Geist',system-ui,sans-serif;font-size:8.5px;font-weight:600;letter-spacing:0.11em;text-transform:uppercase;color:var(--ink-3);padding:5px 1px 1px;user-select:none;}
+  .fxsec{font-family:'Geist',system-ui,sans-serif;font-size:8.5px;font-weight:600;letter-spacing:0.02em;color:var(--ink-3);padding:5px 1px 1px;user-select:none;} /* [Rev1] sin uppercase */
   .fxsec:first-child{padding-top:1px;}
   .aselect{appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%239EA5AD' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6 6-6'/></svg>");background-repeat:no-repeat;background-position:right 4px center;padding-right:15px;}
-  .sechead .t{font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink-2);}
+  .sechead .t{font-family:'Geist',system-ui,sans-serif;font-size:11px;font-weight:600;letter-spacing:-0.005em;color:var(--ink);} /* [Rev1] Title Case, no uppercase (design §4) */
   .sechead .ln{flex:1;height:.5px;background:rgba(255,255,255,0.09);}
   /* [master grade] sequence-level grade section at the top of the inspector */
   #insMaster{border-bottom:.5px solid rgba(255,255,255,0.07);}
@@ -244,7 +276,8 @@
   .prow.auto .lab{color:var(--ink);font-weight:500;} /* param carries automation (Ableton-style highlight) */
   .prow .field{flex:1;display:flex;align-items:center;justify-content:flex-end;gap:8px;height:20px;cursor:ew-resize;}
   .prow .track{flex:1;height:3px;border-radius:1px;background:var(--bg-0);box-shadow:inset 0 1px 2px rgba(0,0,0,0.55);position:relative;overflow:hidden;}
-  .prow .track>i{position:absolute;left:0;top:0;bottom:0;background:#FFFFFF;}
+  .prow .track>i{position:absolute;left:0;top:0;bottom:0;background:var(--pc,#FFFFFF);} /* [REDISEÑO Rev1] relleno del fader en el hue del parámetro (--pc = autoColor(p)) */
+  .prow.auto .nav button[data-k=add]{color:var(--pc);} /* diamante de keyframe en el hue del parámetro cuando está automatizado */
   /* [R102·D-T3] Un valor arrastrable ES un campo editable → superficie s0 (más OSCURA que el panel), no s2.
      Antes era s2, o sea idéntico a un botón: dos comportamientos con la misma pinta.
      La regla investigada decía "reserva UN acento saturado para lo arrastrable" (Blender: `wcol_num.item`
@@ -284,7 +317,7 @@
   .cwcol{display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;min-width:0;}
   .cwheel{width:64px;height:64px;border-radius:50%;position:relative;cursor:crosshair;border:.5px solid rgba(255,255,255,0.16);touch-action:none;background:radial-gradient(circle at 50% 50%, rgba(122,126,132,0.92) 0%, rgba(122,126,132,0.22) 40%, transparent 68%), conic-gradient(from 0deg, #ff4d4d, #b64dff, #4d7bff, #4dffff, #4dff7b, #e8ff4d, #ff4d4d);}
   .cwheel .cwh{position:absolute;width:9px;height:9px;border-radius:50%;background:#fff;border:1.5px solid #0a0a0a;box-shadow:0 0 3px rgba(0,0,0,0.6);transform:translate(-50%,-50%);left:50%;top:50%;pointer-events:none;}
-  .cwcol .cwlab{font-size:10px;letter-spacing:0.04em;text-transform:uppercase;color:var(--ink-3);}
+  .cwcol .cwlab{font-size:10px;letter-spacing:0.08em;color:var(--ink-3);} /* [Rev1] no uppercase (design §4) */
   .cwcol input[type=range].cwm{width:64px;height:15px;accent-color:var(--ink-2);}
   .ctab{height:16px;padding:0 8px;font-size:10px;font-weight:600;border:.5px solid rgba(255,255,255,0.12);border-radius:2px;background:var(--surface-2);color:var(--ink-3);cursor:pointer;}
   .ctab.on{background:var(--state-on);color:var(--ink);border-color:rgba(255,255,255,0.2);}
@@ -325,9 +358,9 @@
   .toolrail{width:32px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 0;background:var(--s1);border-right:.5px solid rgba(0,0,0,0.4);}
   .toolrail button{width:24px;height:24px;display:grid;place-items:center;border:none;border-radius:2px;background:transparent;color:var(--ink-3);cursor:pointer;transition:background .12s,color .12s;}
   .toolrail button:hover{background:var(--surface-3);} .toolrail button.on{background:var(--state-on);color:var(--ink);}
-  .trackhdr{width:152px;flex-shrink:0;display:flex;flex-direction:column;background:var(--surface);border-right:.5px solid rgba(0,0,0,0.4);z-index:3;overflow-x:hidden;overflow-y:auto;position:relative;scrollbar-width:none;} /* [R92-T9] scrolls NATIVELY in sync with #tlscroll so its sticky audio module pins identically · [L2] flex-column so #audioHeadZone (margin-top:auto) pins to the bottom in step with the clip column */
+  .trackhdr{width:168px;flex-shrink:0;display:flex;flex-direction:column;background:var(--surface);border-right:.5px solid rgba(0,0,0,0.4);z-index:3;overflow-x:hidden;overflow-y:auto;position:relative;scrollbar-width:none;} /* [REDISEÑO Rev1] 168px (antes 152): los chips de automatización truncaban (nota de revisión del diseño) */ /* [R92-T9] scrolls NATIVELY in sync with #tlscroll so its sticky audio module pins identically · [L2] flex-column so #audioHeadZone (margin-top:auto) pins to the bottom in step with the clip column */
   .trackhdr::-webkit-scrollbar{display:none;}
-  .trackhdr .rulerpad{height:22px;border-bottom:.5px solid rgba(0,0,0,0.4);background:var(--surface);position:sticky;top:0;z-index:6;display:flex;align-items:center;padding:0 10px;} /* pinned time-bar corner — also holds the VIDEO group label */
+  .trackhdr .rulerpad{height:22px;flex-shrink:0;box-sizing:border-box;border-bottom:.5px solid rgba(0,0,0,0.4);background:var(--surface);position:sticky;top:0;z-index:6;display:flex;align-items:center;padding:0 10px;} /* [Rev1] flex-shrink:0 → mantiene 22px (=alto del ruler) al quedar vacío, si no colapsa y desalinea headers/lanes 9px */ /* pinned time-bar corner — also holds the VIDEO group label */
   .lanehdr{position:relative;display:flex;align-items:center;gap:var(--sp-8);padding:0 7px 0 10px;border-bottom:.5px solid rgba(255,255,255,0.05);cursor:pointer;}
   .lanehdr:hover{background:rgba(255,255,255,0.03);}
   /* [R102·D-T2] Base = standby; con foco en la línea de tiempo, selección plena. El contorno inset completo
@@ -363,7 +396,7 @@
   .prow.modon .num{color:var(--auto-live);}
   .modpan{position:fixed;z-index:9000;width:360px;background:var(--surface);border:.5px solid rgba(255,255,255,0.16);border-radius:3px;box-shadow:0 8px 26px rgba(0,0,0,0.6);font-size:11px;color:var(--ink-2);}
   .modpan .mph{display:flex;align-items:center;gap:6px;padding:7px 9px;border-bottom:.5px solid rgba(255,255,255,0.08);}
-  .modpan .mph b{color:var(--ink);font-weight:600;} .modpan .mpsub{color:var(--ink-faint);font-size:11px;text-transform:uppercase;letter-spacing:.08em;flex:1;}
+  .modpan .mph b{color:var(--ink);font-weight:600;} .modpan .mpsub{color:var(--ink-faint);font-size:11px;letter-spacing:.02em;flex:1;} /* [Rev1] sin uppercase */
   .modpan .mpx{width:18px;height:18px;display:grid;place-items:center;background:none;border:none;color:var(--ink-faint);cursor:pointer;} .modpan .mpx:hover{color:var(--ink);}
   .modpan .mplist{max-height:280px;overflow-y:auto;}
   .modpan .mpempty{padding:12px 10px;color:var(--ink-faint);text-align:center;}
@@ -394,10 +427,13 @@
   .autoduo .aselect{width:100%;height:16px;font-size:11px;}
   .autoduo .adev{color:var(--ink-faint);}
   /* [R95·E4] unfocused lanes show device/parameter as 2-line text instead of two truncated dropdowns ("Tra∨ ◆S∨") */
-  .autoduo.txt{flex-direction:column;align-items:flex-start;justify-content:center;gap:0;cursor:pointer;line-height:1.25;overflow:hidden;}
-  .autoduo.txt .adev-t{font-size:11px;color:var(--ink-faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;}
-  .autoduo.txt .apar-t{font-size:11px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;}
-  .autoduo.txt:hover .apar-t{color:var(--ink);}
+  /* [REDISEÑO Rev1] chooser de automatización como 2 chips (Effect-type + Parameter con swatch de color) — diseño §6 */
+  .autoduo.txt{flex-direction:row;align-items:center;justify-content:flex-start;gap:6px;cursor:pointer;overflow:hidden;}
+  .autoduo.txt .achip{display:inline-flex;align-items:center;gap:5px;flex:1;min-width:0;height:18px;padding:0 7px;border-radius:3px;font-size:10px;font-weight:600;background:var(--surface);border:.5px solid rgba(255,255,255,0.08);color:var(--ink-2);}
+  .autoduo.txt:hover .achip{color:var(--ink);background:var(--surface-2);}
+  .autoduo.txt .achip .alab{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .autoduo.txt .achip svg{flex-shrink:0;opacity:.6;}
+  .autoduo.txt .asw2{width:6px;height:6px;border-radius:1px;flex-shrink:0;}
   /* [R95·E1] the parameter's hue as a 3px side bar — the visual tie between a header and its curve (costs no width) */
   .autohdr,.lanehdr .autoctl{position:relative;}
   .autohdr::before,.lanehdr .autoctl::before{content:'';position:absolute;left:0;top:2px;bottom:2px;width:3px;border-radius:2px;background:var(--pc,transparent);}
@@ -427,6 +463,15 @@
   .autohdr .abt.on{color:var(--ink);border-color:rgba(201,205,211,0.5);}
   .autohdr .abt.areen{display:none;color:var(--ink-2);border-color:rgba(201,205,211,0.5);} .autohdr .abt.areen.show{display:grid;}
   .lanehdr .autoctl .abt.ovr,.autohdr .abt.ovr{color:#E5B567;border-color:rgba(229,181,103,0.55);} /* [R94-UT2·U-16] amber = automation overridden (Ableton-style), vs white "on" = following the curve */
+  /* [REDISEÑO Rev1] V-zoom: columna de 12px a la derecha del área de clips; arrastrar el thumb escala la ALTURA de las pistas (diseño §6) */
+  .tlvzoom{width:12px;flex-shrink:0;background:var(--bg-0);position:relative;border-left:.5px solid rgba(0,0,0,0.4);}
+  .tlvztrack{position:absolute;left:3.5px;top:27px;bottom:6px;width:5px;background:#161616;border-radius:2px;}
+  .tlvzthumb{position:absolute;left:0;width:5px;background:rgba(255,255,255,0.10);border-radius:2px;cursor:grab;}
+  .tlvzthumb:hover{background:rgba(255,255,255,0.18);}
+  .tlvzthumb:active{cursor:grabbing;}
+  .tlvzthumb::before,.tlvzthumb::after{content:'';position:absolute;left:50%;width:7px;height:7px;transform:translateX(-50%);border-radius:50%;background:rgba(184,184,184,0.7);}
+  .tlvzthumb::before{top:-1px;} .tlvzthumb::after{bottom:-1px;}
+  .tlvzthumb:hover::before,.tlvzthumb:hover::after{background:var(--ink);}
   .tlscroll{flex:1;overflow-x:hidden;overflow-y:auto;position:relative;} /* [T3] native h-scrollbar hidden → the custom zoom-scrollbar (#tlZoomBar) drives horizontal scroll + zoom */
   /* [T3] Premiere-style zoom-scrollbar: a thumb whose body scrolls and whose circular end-caps zoom (drag out = zoom out, in = zoom in), anchored to the opposite edge */
   .tlzoom{height:15px;flex-shrink:0;background:var(--s0);position:relative;border-top:.5px solid rgba(0,0,0,0.4);}
@@ -504,7 +549,7 @@
   body.automode .clip .hd{bottom:auto;height:15px;}
   body.automode .clip .hd:hover{background:rgba(201,205,211,0.38);}
   .clip .fadeh{position:absolute;top:0;width:11px;height:11px;z-index:4;cursor:ew-resize;}
-  .clip .fadeh::after{content:'';position:absolute;top:2px;width:7px;height:7px;border-radius:50%;background:var(--ink);border:1px solid var(--bg-1);box-shadow:0 1px 2px rgba(0,0,0,0.6);}
+  .clip .fadeh::after{content:'';position:absolute;top:3px;width:7px;height:7px;border-radius:2px;background:var(--ink);border:1px solid var(--bg-1);box-shadow:0 1px 2px rgba(0,0,0,0.6);} /* [Rev1] cuadradito en la esquina superior (diseño §6) en vez de círculo */
   .clip .fadeh.fadeL{transform:translateX(-50%);} .clip .fadeh.fadeL::after{left:1px;}
   .clip .fadeh.fadeR{transform:translateX(50%);} .clip .fadeh.fadeR::after{right:1px;}
   .clip .fadeh:hover::after{background:var(--ink-2);}
@@ -532,6 +577,12 @@
   .seqtab .seqx:hover{opacity:1;color:var(--ink);background:rgba(255,255,255,0.15);}
   .seqtab.seqadd{color:var(--ink-2);font-weight:700;padding:0 9px;border-radius:2px;border-style:dashed;}
   .seqtab.seqadd:hover{color:var(--ink);border-color:var(--ink-2);}
+  /* [REDISEÑO Rev1] #seqTabs como well compacto dentro del transport (misma barra del play) */
+  .transport .seqtabs{padding:2px;height:22px;box-sizing:border-box;gap:2px;background:var(--surface-2);border:.5px solid rgba(255,255,255,0.1);border-radius:3px;border-bottom:.5px solid rgba(255,255,255,0.1);max-width:36%;flex-shrink:1;overflow-x:auto;}
+  .transport .seqtabs::-webkit-scrollbar{height:0;}
+  .transport .seqtab{height:16px;padding:0 8px;border-radius:2px;background:transparent;border:none;}
+  .transport .seqtab.on{background:var(--state-on);color:var(--ink);border:none;}
+  .transport .seqtab.seqadd{padding:0 7px;border:none;color:var(--ink-2);}
   .mthumb.mseq{background:linear-gradient(135deg,var(--s2),var(--s1));display:flex;align-items:center;justify-content:center;}
   .cmini{display:flex;flex-direction:column;gap:var(--sp-4);flex:1;min-width:58px;font-size:11px;color:var(--ink-2);}
   .cmini input{height:20px;background:var(--surface-2);border:.5px solid rgba(255,255,255,0.12);border-radius:2px;color:var(--ink);text-align:center;font-size:11px;font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;}
@@ -579,19 +630,20 @@
   .qbar{flex:1;height:6px;border-radius:2px;background:var(--bg-0);overflow:hidden;} .qbar>i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--ink-2),var(--ink));}
 
   .menu{position:fixed;z-index:60;background:var(--surface);border:.5px solid rgba(255,255,255,0.13);border-radius:2px;box-shadow:0 12px 34px rgba(0,0,0,0.55);padding:4px;min-width:170px;}
-  .menu button{display:flex;align-items:center;gap:var(--sp-8);width:100%;text-align:left;padding:6px 9px;font-size:11px;border:none;background:transparent;color:var(--ink-2);cursor:pointer;border-radius:2px;}
+  .menu button{display:flex;align-items:center;gap:var(--sp-8);width:100%;min-height:26px;text-align:left;padding:0 9px;font-size:11px;border:none;background:transparent;color:var(--ink-2);cursor:pointer;border-radius:2px;} /* [REDISEÑO Rev1] ítems 26px */
   .menu button:hover{background:var(--surface-3);} .menu button:focus-visible{background:var(--surface-3);} /* [R94-UT5·U-10a] arrow-key focus reads like hover (plus the global outline ring) */
   .menu .sep{height:.5px;background:rgba(255,255,255,0.08);margin:4px 2px;}
   .menu button.danger{color:var(--danger);}
   .menu button.danger:hover{color:var(--danger);} /* same hue, brighter — stays legible on the hover surface */
-  .iosw{width:34px;height:18px;border-radius:9px;border:none;background:var(--surface-2);position:relative;cursor:pointer;transition:background .15s;}
-  .iosw>i{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--ink-2);transition:transform .15s,background .15s;}
-  .iosw.on{background:var(--ink-2);} .iosw.on>i{transform:translateX(16px);background:var(--s1);} /* [U-41] on = light track + dark knob (reads at a glance) */
+  /* [REDISEÑO Rev1] toggle switch: 26×15 track, knob 11px que desliza left 2→13px, ON = verde --toggle-on */
+  .iosw{width:26px;height:15px;border-radius:8px;border:none;background:#3A3A3A;position:relative;cursor:pointer;transition:background .12s;flex-shrink:0;}
+  .iosw>i{position:absolute;top:2px;left:2px;width:11px;height:11px;border-radius:50%;background:var(--ink);transition:left .12s;}
+  .iosw.on{background:var(--toggle-on);} .iosw.on>i{left:13px;}
   .rm-on *,.rm-on *::before,.rm-on *::after{transition:none!important;animation:none!important;}
   .groupseg button{padding:0 7px;} /* [U-18] look shared with .seg */
   .ringbtn{display:inline-flex;align-items:center;gap:var(--sp-6);height:18px;padding:0 9px;font-size:11px;font-weight:500;white-space:nowrap;border-radius:2px;border:.5px solid rgba(255,255,255,0.14);background:var(--surface-2);color:var(--ink-2);cursor:pointer;}
   .ringbtn:hover{background:var(--state-on);color:var(--ink);}
-  .grphead2{display:flex;align-items:center;gap:6px;height:24px;padding:0 6px;margin-top:4px;cursor:pointer;color:var(--ink-2);font-size:11px;font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;letter-spacing:0.12em;text-transform:uppercase;}
+  .grphead2{display:flex;align-items:center;gap:6px;height:24px;padding:0 6px;margin-top:4px;cursor:pointer;color:var(--ink-2);font-size:11px;font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;letter-spacing:0.02em;} /* [Rev1] sin uppercase */
   .folderhdr{text-transform:none;letter-spacing:0.02em;font-size:11px;border-radius:2px;border:.5px solid transparent;}
   .folderhdr .fnm{cursor:pointer;} .folderhdr .fdel{opacity:0;color:var(--ink-3);} .folderhdr:hover .fdel{opacity:1;} .folderhdr .fdel:hover{color:var(--ink);}
   .folderdrop{margin:2px 6px 4px;padding:9px 8px;border:1px dashed rgba(255,255,255,0.16);border-radius:3px;color:var(--ink-dim);font-size:11px;text-align:center;}
@@ -624,12 +676,12 @@
   /* R112 · 360 room setup — habla el idioma del sistema de modales: pozos s0 para lo editable, secciones en
      mayúscula espaciada (como .grphead2), y el color de rol reducido a un punto (saturación = significado). */
   .rs-cv{width:100%;height:212px;display:block;border-radius:3px;border:.5px solid var(--line);background:radial-gradient(140% 155% at 50% 0%,#191B20,#0A0B0D);box-shadow:inset 0 1px 0 rgba(255,255,255,0.03);}
-  .rs-sec{display:flex;align-items:center;gap:8px;margin:16px 2px 8px;font-size:9.5px;font-weight:600;letter-spacing:0.13em;text-transform:uppercase;color:var(--ink-3);}
+  .rs-sec{display:flex;align-items:center;gap:8px;margin:16px 2px 8px;font-size:11px;font-weight:600;letter-spacing:-0.005em;color:var(--ink-2);} /* [Rev1] sin uppercase, tamaño de título de sección */
   .rs-sec::after{content:'';flex:1;height:.5px;background:var(--line-soft);}
   .rs-sec .rs-note{color:var(--ink-dim);letter-spacing:0.01em;text-transform:none;font-weight:500;font-size:10px;}
   .rs-hdr,.rs-wall{display:grid;grid-template-columns:20px 42px minmax(0,1.2fr) 62px 62px minmax(0,1.3fr);gap:8px;align-items:center;}
   .rs-ordnum{justify-self:center;font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:12px;font-weight:600;color:var(--ink-2);} /* [F3] fixed screen-order number */
-  .rs-hdr{padding:0 8px 6px;font-size:9px;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--ink-3);}
+  .rs-hdr{padding:0 8px 6px;font-size:10px;font-weight:600;letter-spacing:0.01em;color:var(--ink-3);} /* [Rev1] sin uppercase */
   .rs-hdr>span:nth-child(n+3){text-align:center;}
   .rs-wall{padding:5px 8px;border-radius:3px;border:.5px solid transparent;transition:background .1s,border-color .1s;}
   .rs-wall:hover,.rs-wall.act{background:rgba(255,255,255,0.04);border-color:var(--line);}
@@ -671,17 +723,10 @@
       <button class="menubtn" data-menu="edit" data-t="menuEdit">Edit</button>
       <button class="menubtn" data-menu="window" data-t="menuWindow">Window</button>
     </div>
-    <span style="font-size:11px;font-weight:600;letter-spacing:-0.008em;color:var(--ink-2);white-space:nowrap;" id="projTitle">Immersive Dome · Show 01</span>
-    <span class="tnum" style="font-size:11px;letter-spacing:0.02em;color:var(--ink-faint);cursor:pointer;" id="fmtChip" title="Sequence settings">4096² · 60p · PNG</span>
     <div style="flex:1;"></div>
-    <!-- [U5] Undo/Redo buttons removed — Ctrl+Z / Ctrl+Shift+Z only -->
-    <div class="seg">
-      <button id="newBtn" title="New project · Ctrl+N"><i class="ic" data-ico="plus"></i> New</button>
-      <button id="openBtn" title="Open project · Ctrl+O"><i class="ic" data-ico="folder"></i> Open</button>
-      <button id="saveBtn" title="Save · Ctrl+S"><i class="ic" data-ico="save"></i> Save</button>
-      <button id="saveMenuBtn" title="Save As… / incremental · Ctrl+Shift+S" style="padding:0 6px;"><i class="ic" data-ico="chevDown"></i></button>
-      <button id="exportBtn" title="Export · Ctrl+Shift+E"><span style="color:var(--ink-2);display:flex;"><i class="ic" data-ico="share"></i></span> Export</button>
-    </div>
+    <!-- [REDISEÑO Rev1] top bar: New/Open/Save/Export removidos (van al menú File). Nombre de proyecto + formato + "?" a la derecha. -->
+    <span style="font-size:11px;font-weight:600;letter-spacing:-0.008em;color:var(--ink-2);white-space:nowrap;" id="projTitle">Immersive Dome · Show 01</span>
+    <span class="tnum" style="font-size:11px;color:var(--ink-dim);cursor:pointer;margin-right:2px;" id="fmtChip" title="Sequence settings">4096² · 60p · PNG</span>
     <button class="tbtn" id="helpBtn" title="All commands &amp; shortcuts · F1" style="font-size:13px;font-weight:600;">?</button>
   </div>
 
@@ -691,37 +736,38 @@
     <!-- MEDIA -->
     <aside id="mediaPane" style="width:292px;flex-shrink:0;border-right:.5px solid rgba(255,255,255,0.09);">
       <button class="railexp" id="mediaRail" title="Expand media panel"><i class="ic" data-ico="panelL"></i><span class="rlab">Media</span></button>
+      <!-- [REDISEÑO Rev1] header: Media + count · well List/Grid · ocultar -->
       <div class="panhead">
         <div class="pantab"><span style="color:var(--ink-3);display:flex;"><i class="ic" data-ico="folder"></i></span><span class="ttl">Media</span><span class="countbadge" id="mediaCount">0</span></div>
         <div style="flex:1;"></div>
-        <div style="display:flex;align-items:center;gap:var(--sp-6);">
-          <button class="ibtn" id="mediaViewBtn" title="Grid / list view"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg></button>
-          <button class="ibtn" id="newFolderBtn" title="New folder"><i class="ic" data-ico="folder"></i></button>
-          <button class="ibtn" id="textBtn" title="Add text / title"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 6h14"/><path d="M12 6v13"/></svg></button>
-          <button class="ibtn" id="shapeBtn" title="Add shape"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="7" width="16" height="10" rx="1.5"/></svg></button>
-          <button class="ibtn" id="importBtn" title="Import media" style="color:var(--ink-2);"><i class="ic" data-ico="plus"></i></button>
-          <button class="ibtn flat" id="hideMedia" title="Hide panel"><i class="ic" data-ico="panelL"></i></button>
+        <div class="well" id="mediaViewSeg">
+          <button data-mv="list" class="on" title="List view"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 6h14M5 12h14M5 18h14"/></svg></button>
+          <button data-mv="grid" title="Grid view"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg></button>
         </div>
+        <button class="ibtn flat" id="hideMedia" title="Hide panel"><i class="ic" data-ico="panelL"></i></button>
       </div>
+      <!-- [REDISEÑO Rev1] filtros en well (All + Video/Image/Audio) + Sort dropdown (reemplaza None/Folder/Type + búsqueda) -->
       <div class="toolrow" style="height:28px;padding:0 8px;gap:var(--sp-8);">
-        <div class="filtseg" id="filtSeg">
+        <div class="well" id="filtSeg">
           <button data-f="all" class="on">All</button>
           <button data-f="video" title="Video"><i class="ic" data-ico="video"></i></button>
           <button data-f="image" title="Image"><i class="ic" data-ico="image"></i></button>
           <button data-f="audio" title="Audio"><i class="ic" data-ico="audio"></i></button>
         </div>
-        <div style="width:.5px;height:16px;background:rgba(255,255,255,0.08);flex-shrink:0;"></div>
-        <span class="tnum" id="groupLbl" style="display:none;">Group</span>
-        <div class="groupseg" id="groupSeg"><button data-g="none" class="on">None</button><button data-g="folder">Folder</button><button data-g="type">Type</button></div>
+        <div style="flex:1;"></div>
+        <button class="ddbtn" id="mediaSortBtn" title="Sort media"><span id="mediaSortLbl">Name</span><span style="display:flex;color:var(--ink-3);"><i class="ic" data-ico="chevDown" data-s="9"></i></span></button>
       </div>
-      <div class="toolrow" style="height:28px;padding:0 8px;gap:var(--sp-6);">
-        <div class="searchbox" style="flex:1;display:flex;align-items:center;gap:var(--sp-6);min-width:0;">
-          <input id="mediaSearch" type="text" placeholder="Search media… (Ctrl+F)" spellcheck="false" style="flex:1;min-width:0;height:19px;background:var(--s0);border:.5px solid rgba(255,255,255,0.09);border-radius:2px;color:var(--ink);font-family:inherit;font-size:11px;padding:0 6px;outline:none;">
-          <button class="ibtn" id="mediaSearchClr" title="Clear search" style="display:none;width:18px;height:18px;">✕</button><!-- [U-20] density exception: lives INSIDE the 18px search field (a 22² box would overflow it) -->
-        </div>
-        <button class="ringbtn" id="adjLayerBtn" title="Create an adjustment layer — its Reactive FX affect everything below it"><i class="ic" data-ico="layers"></i> Adjust</button>
-        <button class="ringbtn" id="ringBtn" title="Create composition (ring / grid / random)"><i class="ic" data-ico="ring"></i> Compose</button>
+      <!-- [REDISEÑO Rev1] Create row: Import (primario) + Text/Shape/Compose/Adjust · los labels (.crlbl) se colapsan a icono cuando el panel es angosto (container-query) -->
+      <div class="toolrow crrow" style="height:28px;padding:0 8px;gap:4px;">
+        <button class="crbtn pri" id="importBtn" title="Import media"><i class="ic" data-ico="plus"></i><span class="crlbl">Import</span></button>
+        <button class="crbtn" id="textBtn" title="Add text / title"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 6h14"/><path d="M12 6v13"/></svg><span class="crlbl">Text</span></button>
+        <button class="crbtn" id="shapeBtn" title="Add shape"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="7" width="16" height="10" rx="1.5"/></svg><span class="crlbl">Shape</span></button>
+        <button class="crbtn" id="ringBtn" title="Create composition (ring / grid / random)"><i class="ic" data-ico="ring"></i><span class="crlbl">Compose</span></button>
+        <button class="crbtn" id="adjLayerBtn" title="Create an adjustment layer — its Reactive FX affect everything below it"><i class="ic" data-ico="layers"></i><span class="crlbl">Adjust</span></button>
+        <div style="flex:1;"></div>
       </div>
+      <button id="newFolderBtn" title="New folder" style="display:none;"></button><!-- oculto: el JS lo usa (clic-derecho en Media → Nueva carpeta) -->
+      <input id="mediaSearch" type="text" style="display:none;"><!-- oculto: Ctrl+F referencia este input (búsqueda visible retirada del rediseño) -->
       <div class="medialist" id="mediaList"></div>
       <input id="fileInput" type="file" accept="image/*,video/*,audio/*" multiple style="display:none;">
       <input id="projInput" type="file" accept=".rdome,application/json" style="display:none;">
@@ -741,12 +787,13 @@
           <button data-m="spec"><i class="ic" data-ico="viewer"></i> Viewer</button>
         </div>
         <div class="vdiv"></div>
+        <!-- [REDISEÑO Rev1] overlays icon-only (tooltip) -->
         <div class="vseg" id="dispSeg">
-          <button data-d="grid" class="on"><i class="ic" data-ico="grid"></i> Grid</button>
-          <button data-d="safe"><i class="ic" data-ico="safe"></i> Safe</button>
-          <button data-d="outline"><i class="ic" data-ico="outline"></i> Outline</button>
-          <button data-d="hfade" title="Fade content near the dome horizon (spring line)"><i class="ic" data-ico="cull"></i> Horizon</button>
-          <button data-d="checker" title="Checkerboard background — see how the alpha behaves"><i class="ic" data-ico="grid"></i> Alpha</button>
+          <button data-d="grid" class="on" title="Reference grid"><i class="ic" data-ico="grid"></i></button>
+          <button data-d="safe" title="Safe-zone overlay"><i class="ic" data-ico="safe"></i></button>
+          <button data-d="outline" title="Clip outlines"><i class="ic" data-ico="outline"></i></button>
+          <button data-d="hfade" title="Fade content near the dome horizon (spring line)"><i class="ic" data-ico="cull"></i></button>
+          <button data-d="checker" title="Alpha checkerboard — see how the alpha behaves"><i class="ic" data-ico="safe"></i> α</button>
         </div>
         <div class="vdiv"></div>
         <div class="vseg" id="qualitySeg" title="Preview quality (does not affect export)">
@@ -767,10 +814,8 @@
           <button id="vzIn" style="width:25px;padding:0;justify-content:center;"><i class="ic" data-ico="zoomIn"></i></button>
         </div>
         <div class="vdiv"></div>
-        <div class="vseg"><button id="perfBtn" title="Full performance — hide the editor, show only the viewer (Esc to exit)" style="width:26px;padding:0;justify-content:center;"><i class="ic" data-ico="tallpanel"></i></button></div>
-        <div class="vseg"><button id="popoutBtn" title="Open a viewer-only window — drag it to a second screen" style="width:26px;padding:0;justify-content:center;"><i class="ic" data-ico="popout"></i></button></div>
-        <div class="vseg"><button id="ndiBtn" title="NDI output — broadcast the clean Dome master (1:1) over the network" style="width:26px;padding:0;justify-content:center;"><i class="ic" data-ico="ndi"></i></button></div>
-        <div class="vseg"><button id="spoutBtn" title="Spout output — share the clean Dome master (1:1) as a local GPU texture (Resolume / TouchDesigner / OBS)" style="width:26px;padding:0;justify-content:center;font:600 10px Geist,system-ui,sans-serif;letter-spacing:.03em;">SP</button></div>
+        <!-- [REDISEÑO Rev1] Output dropdown: consolida Full performance · Viewer window · NDI · Spout en un solo menú -->
+        <div class="vseg"><button id="outputBtn" title="Output — Full performance · Viewer window · NDI · Spout" style="position:relative;gap:5px;"><i class="ic" data-ico="ndi"></i>Output<span style="display:flex;opacity:.6;"><i class="ic" data-ico="chevDown" data-s="9"></i></span></button></div>
       </div>
       <div class="stage" id="stage">
         <div class="checkerbg" id="checkerBg"></div>
@@ -786,14 +831,18 @@
     <aside id="inspPane" style="width:300px;flex-shrink:0;border-left:.5px solid rgba(255,255,255,0.09);">
       <button class="railexp" id="inspRail" title="Expand inspector"><i class="ic" data-ico="panel"></i><span class="rlab">Inspector</span></button>
       <div class="panhead" id="inspTabs">
-        <button class="pantab instab on" data-tab="insp" style="background:none;border:none;cursor:pointer;color:inherit;"><span style="color:var(--ink-3);display:flex;"><i class="ic" data-ico="panel"></i></span><span class="ttl">Inspector</span></button>
-        <button class="pantab instab" data-tab="react" style="background:none;border:none;cursor:pointer;color:inherit;"><span style="color:var(--ink-3);display:flex;"><i class="ic" data-ico="curves"></i></span><span class="ttl">Reactive FX</span></button>
+        <!-- [REDISEÑO Rev1] tabs Inspector / Reactive FX en un well -->
+        <div class="well" style="height:22px;">
+          <button class="instab on" data-tab="insp" style="display:inline-flex;align-items:center;gap:5px;"><i class="ic" data-ico="panel"></i><span class="ttl">Inspector</span></button>
+          <button class="instab" data-tab="react" style="display:inline-flex;align-items:center;gap:5px;"><i class="ic" data-ico="curves"></i><span class="ttl">Reactive FX</span></button>
+        </div>
         <div style="flex:1;"></div>
         <button class="ibtn flat" id="tallInspBtn" title="Full-height inspector column (shrinks the timeline width)"><i class="ic" data-ico="tallpanel"></i></button>
         <button class="ibtn flat" id="hideInsp" title="Collapse panel"><i class="ic" data-ico="panelL"></i></button>
       </div>
       <div class="insbody" id="insBody">
-        <div id="insMaster"></div><!-- [master grade] sequence-level global grade, always visible (built by renderMasterGrade) -->
+        <!-- [DEPRECATED · Rev1] #insMaster (always-visible Master Grade) removed — no Master Grade in the design;
+             grading lives in the per-clip Color section. UI archived in _backup/deprecated/master-grade-ui.js. -->
         <div class="insEmpty" id="insEmpty"><span style="opacity:.5;"><i class="ic" data-ico="panel" data-s="26"></i></span>Select a clip<br>in the timeline or viewport</div>
         <div id="insGroup" style="display:none;"></div>
         <div id="insCtl" style="display:none;">
@@ -805,6 +854,11 @@
           <div style="padding:6px 14px;" id="mirrorWrap"><button class="togbtn" id="mirrorBtn"><i class="ic" data-ico="mirror"></i> Mirror</button></div>
           <button class="sechead" id="secFx" data-sec="clip"><span style="color:var(--ink-dim);display:flex;"><i class="ic" data-ico="chevDown"></i></span><span class="t">Clip</span><span class="ln"></span></button>
           <div id="fxRows"></div>
+          <!-- [REDISEÑO Rev1] Source (projection/fisheye) y Playback (loop) como secciones propias -->
+          <button class="sechead" id="secSource" data-sec="source"><span style="color:var(--ink-dim);display:flex;"><i class="ic" data-ico="chevDown"></i></span><span class="t">Source</span><span class="ln"></span></button>
+          <div id="sourceRows"></div>
+          <button class="sechead" id="secPlayback" data-sec="playback"><span style="color:var(--ink-dim);display:flex;"><i class="ic" data-ico="chevDown"></i></span><span class="t">Playback</span><span class="ln"></span></button>
+          <div id="playbackRows"></div>
           <button class="sechead" id="secColor" data-sec="color"><span style="color:var(--ink-dim);display:flex;"><i class="ic" data-ico="chevDown"></i></span><span class="t">Color</span><span class="ln"></span></button>
           <div id="colorRows"></div>
           <button class="sechead" id="secMotion" data-sec="motion"><span style="color:var(--ink-dim);display:flex;"><i class="ic" data-ico="chevDown"></i></span><span class="t">Motion</span><span class="ln"></span></button>
@@ -818,6 +872,8 @@
 
   <!-- TRANSPORT -->
   <div class="transport">
+    <!-- [REDISEÑO Rev1] secuencias en la barra del play (zona izquierda, estilo well) -->
+    <div class="seqtabs" id="seqTabs"></div>
     <div class="tccenter">
       <button class="tbtn" id="markIn" title="Mark In · I (right-click clears the range)"><i class="ic" data-ico="markIn"></i></button>
       <button class="tbtn" id="toStart" title="Go to start · Home"><i class="ic" data-ico="toStart"></i></button>
@@ -835,19 +891,21 @@
       </div>
     </div>
     <div style="flex:1;"></div>
-    <div class="editseg">
-      <button id="snapBtn" title="Snap to Grid · S / Ctrl+4"><i class="ic" data-ico="snap"></i></button>
+    <button class="togbtn2" id="snapBtn" title="Snap to Grid · S / Ctrl+4"><i class="ic" data-ico="snap"></i></button>
+    <!-- [REDISEÑO Rev1] well de edición: Simple · Auto · Grid · Fit (diseño §5) -->
+    <div class="editseg" id="tlEditSeg">
       <button id="simpleClipBtn" title="Simple clips (Premiere-style): drag and select a clip from anywhere on it — range selection works outside clips only"><i class="ic" data-ico="clip"></i> Simple</button>
-      <!-- [U6] grid-spacing readout removed (unnecessary) — grid still adjustable via Ctrl+1/2/4/5 -->
+      <button id="curvesBtn" title="Show/hide automation (clip parameters + reactive FX) · A"><i class="ic" data-ico="curves"></i> Auto</button>
+      <button id="tlGridBtn" title="Grid — show/hide the timeline grid lines">Grid</button>
+      <button id="fitAllBtn" title="Fit all clips & tracks to the timeline view (H·W)">Fit</button>
     </div>
-    <button class="togbtn2" id="curvesBtn" title="Show/hide automation (clip parameters + reactive FX) · A"><i class="ic" data-ico="curves"></i></button>
     <div class="zoomgrp"><button id="tlZoomOut" title="Zoom out timeline"><i class="ic" data-ico="zoomOut"></i></button><button id="tlZoomIn" title="Zoom in timeline"><i class="ic" data-ico="zoomIn"></i></button></div>
   </div>
 
   <!-- TIMELINE -->
   <div class="timeline">
     <div class="hres" id="tlResize" title="Drag to resize the timeline"></div>
-    <div class="seqtabs" id="seqTabs"></div>
+    <!-- [REDISEÑO Rev1] #seqTabs movido a la barra del transport (misma barra del play) -->
     <div class="tlmain">
       <div class="toolrail" id="toolRail">
         <button data-t="select" class="on" title="Select (V)"><i class="ic" data-ico="cursor"></i></button>
@@ -866,6 +924,8 @@
         <div class="playhead" id="playhead" style="left:0;"></div>
         <div class="snapline" id="snapline"></div>
       </div>
+      <!-- [REDISEÑO Rev1] barra de V-zoom (altura de pistas) a la derecha del área de clips (diseño §6) -->
+      <div class="tlvzoom" id="tlVZoom"><div class="tlvztrack" id="tlVZoomTrack"><div class="tlvzthumb" id="tlVZoomThumb" title="Drag to zoom track height"></div></div></div>
     </div>
     <div class="tlzoom" id="tlZoomBar"><div class="tlztrack" id="tlZoomTrack"><div class="tlzthumb" id="tlZoomThumb"><span class="tlzcap l" data-cap="l"></span><span class="tlzcap r" data-cap="r"></span></div></div></div>
   </div>

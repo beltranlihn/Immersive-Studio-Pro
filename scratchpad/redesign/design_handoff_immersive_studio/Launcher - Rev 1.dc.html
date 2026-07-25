@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<style>
+@font-face{font-family:'Geist';font-style:normal;font-weight:400;font-display:swap;src:url('assets/fonts/geist-400.woff2') format('woff2');}
+@font-face{font-family:'Geist';font-style:normal;font-weight:500;font-display:swap;src:url('assets/fonts/geist-500.woff2') format('woff2');}
+@font-face{font-family:'Geist';font-style:normal;font-weight:600;font-display:swap;src:url('assets/fonts/geist-600.woff2') format('woff2');}
+html,body{margin:0;height:100%;}
+body{background:#0A0B0C;font-family:'Geist',system-ui,sans-serif;-webkit-font-smoothing:antialiased;color:#D8D8D8;}
+a{color:#9A9A9A;text-decoration:none;} a:hover{color:#E8E8E8;}
+</style>
+</helmet>
+<div style="min-height:100vh;box-sizing:border-box;display:flex;flex-direction:column;background:radial-gradient(120% 70% at 50% -20%, #131519 0%, #0A0B0C 55%)">
+  <div style="height:38px;flex-shrink:0;display:flex;align-items:center;gap:8px;padding:0 20px;border-bottom:.5px solid rgba(255,255,255,0.05)">
+    <img src="assets/immersive-logo.png" alt="" style="height:15px;width:15px;object-fit:contain;opacity:0.85"/>
+    <span style="font-size:11px;font-weight:600;letter-spacing:0.01em;color:#C8C8C8">Immersive Studio Pro</span>
+    <div style="flex:1"></div>
+    <span style="font-size:10px;color:#5A5A5A;font-variant-numeric:tabular-nums;letter-spacing:0.04em">v1.0</span>
+    <span style="width:.5px;height:14px;background:rgba(255,255,255,0.1)"></span>
+    <button style="display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 10px;border-radius:3px;border:.5px solid rgba(255,255,255,0.09);background:transparent;color:#9A9A9A;font-family:inherit;font-size:10.5px;font-weight:500;cursor:pointer" style-hover="border-color:rgba(255,255,255,0.2);color:#E8E8E8">Open project</button>
+  </div>
+
+  <div style="flex:1;display:flex;flex-direction:column;align-items:center;min-height:0;padding:0 24px">
+    <div style="width:100%;max-width:940px;display:flex;flex-direction:column;flex:1;min-height:0">
+      <div style="display:flex;align-items:center;gap:14px;padding:34px 2px 22px">
+        <img src="assets/immersive-logo.png" alt="Immersive Studio Pro" style="height:42px;width:42px;object-fit:contain;opacity:0.95"/>
+        <div style="display:flex;flex-direction:column;gap:5px">
+          <h1 style="margin:0;font-size:23px;font-weight:600;letter-spacing:-0.01em;line-height:1;color:#F0F0F0">Immersive Studio Pro</h1>
+          <span style="font-size:11.5px;font-weight:400;letter-spacing:0.01em;color:#7A7A7A">Fulldome · 360 room · 2D — one timeline, every surface.</span>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:18px;align-items:stretch">
+        <div style="width:380px;flex-shrink:0;display:flex;flex-direction:column;gap:11px">
+          <span style="font-size:10px;font-weight:600;letter-spacing:0.14em;color:#6A6A6A;text-transform:uppercase">New project</span>
+          <div style="display:inline-flex;align-items:stretch;gap:2px;padding:3px;box-sizing:border-box;background:#141517;border:.5px solid rgba(255,255,255,0.08);border-radius:4px">
+            <sc-for list="{{ typeTabs }}" as="tp" hint-placeholder-count="3">
+              <button onClick="{{ tp.onSel }}" style="flex:1;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:30px;border:none;border-radius:3px;cursor:pointer;font-family:inherit;font-size:11px;font-weight:600;{{ tp.sty }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="{{ tp.icon }}"></path></svg>{{ tp.name }}</button>
+            </sc-for>
+          </div>
+          <div style="font-size:11px;line-height:1.45;color:#7A7A7A;min-height:30px">{{ propNote }}</div>
+          <div style="display:flex;flex-direction:column;gap:10px;padding-top:2px">
+            <sc-for list="{{ fields }}" as="fld" hint-placeholder-count="3">
+              <sc-if value="{{ fld.isSeg }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;align-items:center;gap:10px;min-height:22px">
+                <span style="width:78px;flex-shrink:0;font-size:11px;color:#9A9A9A">{{ fld.label }}</span>
+                <div style="display:inline-flex;align-items:stretch;gap:1px;padding:2px;box-sizing:border-box;background:#0A0B0C;border:.5px solid rgba(255,255,255,0.09);border-radius:3px;flex-wrap:wrap">
+                  <sc-for list="{{ fld.opts }}" as="op" hint-placeholder-count="4">
+                    <button onClick="{{ op.onSel }}" style="display:grid;place-items:center;height:17px;padding:0 8px;border:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:10px;font-weight:600;{{ op.sty }}">{{ op.label }}</button>
+                  </sc-for>
+                </div>
+              </div>
+              </sc-if>
+              <sc-if value="{{ fld.isToggle }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:center;gap:10px;min-height:22px">
+                <span style="width:78px;flex-shrink:0;font-size:11px;color:#9A9A9A">{{ fld.label }}</span>
+                <span style="flex:1;font-size:11px;color:#6A6A6A">{{ fld.note }}</span>
+                <button onClick="{{ fld.onToggle }}" style="width:26px;height:15px;border-radius:8px;border:none;cursor:pointer;position:relative;flex-shrink:0;{{ fld.track }}"><span style="position:absolute;top:2px;width:11px;height:11px;border-radius:50%;background:#E8E8E8;transition:left .12s;{{ fld.knob }}"></span></button>
+              </div>
+              </sc-if>
+            </sc-for>
+          </div>
+          <div style="flex:1"></div>
+          <div style="display:flex;align-items:center;gap:10px;padding-top:8px;border-top:.5px solid rgba(255,255,255,0.06)">
+            <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px"><span style="font-size:9.5px;letter-spacing:0.1em;color:#5A5A5A;text-transform:uppercase">Output</span><span style="font-size:11.5px;font-weight:600;color:#D8D8D8;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ outputSummary }}</span></div>
+            <a href="{{ createHref }}" style="display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 15px;border-radius:4px;border:.5px solid rgba(240,240,240,0.25);background:#EDEDED;color:#101012;font-family:inherit;font-size:11.5px;font-weight:600;cursor:pointer;flex-shrink:0" style-hover="background:#FFFFFF">{{ createLabel }}<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></a>
+          </div>
+        </div>
+
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:8px">
+          <div style="position:relative;flex:1;min-height:270px;border:.5px solid rgba(255,255,255,0.08);border-radius:6px;background:radial-gradient(90% 90% at 50% 40%, #141619 0%, #0A0B0C 100%);overflow:hidden;box-shadow:inset 0 1px 0 rgba(255,255,255,0.03)">
+            <sc-if value="{{ isDome }}" hint-placeholder-val="{{ true }}">
+            <svg viewBox="0 0 320 280" preserveAspectRatio="xMidYMid meet" style="position:absolute;inset:0;width:100%;height:100%">
+              <circle cx="160" cy="140" r="110" fill="#060606" stroke="rgba(255,255,255,0.13)" stroke-width="1"></circle>
+              <circle cx="160" cy="140" r="82" fill="none" stroke="rgba(255,255,255,0.045)" stroke-width="1"></circle>
+              <circle cx="160" cy="140" r="55" fill="none" stroke="rgba(255,255,255,0.045)" stroke-width="1"></circle>
+              <circle cx="160" cy="140" r="27" fill="none" stroke="rgba(255,255,255,0.045)" stroke-width="1"></circle>
+              <path d="M50 140H270M160 30V250" stroke="rgba(255,255,255,0.045)" stroke-width="1"></path>
+              <sc-if value="{{ covWide }}" hint-placeholder-val="{{ false }}"><circle cx="160" cy="140" r="{{ covRing }}" fill="none" stroke="rgba(224,149,75,0.5)" stroke-width="1" stroke-dasharray="4 4"></circle></sc-if>
+              <text x="160" y="122" text-anchor="middle" fill="#565656" font-size="13" letter-spacing="4" font-weight="500" font-family="Geist,sans-serif">IMMERSIVE</text>
+              <circle cx="124" cy="158" r="19" fill="#363636"></circle>
+              <path d="M194 132 A48 48 0 0 1 212 166" fill="none" stroke="#424242" stroke-width="7" stroke-linecap="round"></path>
+            </svg>
+            </sc-if>
+            <sc-if value="{{ isFlat }}" hint-placeholder-val="{{ false }}">
+            <svg viewBox="0 0 400 280" preserveAspectRatio="xMidYMid meet" style="position:absolute;inset:0;width:100%;height:100%">
+              <rect x="{{ flatX }}" y="{{ flatY }}" width="{{ flatW }}" height="{{ flatH }}" fill="#060606" stroke="rgba(255,255,255,0.16)" stroke-width="1"></rect>
+              <text x="200" y="140" text-anchor="middle" dominant-baseline="middle" fill="#565656" font-size="16" letter-spacing="5" font-weight="500" font-family="Geist,sans-serif">IMMERSIVE</text>
+            </svg>
+            </sc-if>
+            <sc-if value="{{ isRoom }}" hint-placeholder-val="{{ false }}">
+            <svg viewBox="0 0 340 280" preserveAspectRatio="xMidYMid meet" style="position:absolute;inset:0;width:100%;height:100%">
+              <sc-if value="{{ roomFloorOn }}" hint-placeholder-val="{{ true }}"><polygon points="95,80 245,80 245,200 95,200" fill="rgba(150,170,195,0.06)"></polygon></sc-if>
+              <sc-if value="{{ eBack }}" hint-placeholder-val="{{ true }}"><line x1="95" y1="80" x2="245" y2="80" stroke="#E6A15A" stroke-width="3"></line></sc-if>
+              <sc-if value="{{ eRight }}" hint-placeholder-val="{{ true }}"><line x1="245" y1="80" x2="245" y2="200" stroke="#6FCF97" stroke-width="3"></line></sc-if>
+              <sc-if value="{{ eFront }}" hint-placeholder-val="{{ true }}"><line x1="95" y1="200" x2="245" y2="200" stroke="#5AA9E6" stroke-width="3"></line></sc-if>
+              <sc-if value="{{ eLeft }}" hint-placeholder-val="{{ true }}"><line x1="95" y1="80" x2="95" y2="200" stroke="#C98BE0" stroke-width="3"></line></sc-if>
+              <ellipse cx="170" cy="140" rx="9" ry="4.5" fill="none" stroke="rgba(216,216,216,0.55)" stroke-width="1.3"></ellipse>
+              <circle cx="170" cy="140" r="2" fill="rgba(216,216,216,0.85)"></circle>
+            </svg>
+            </sc-if>
+            <div style="position:absolute;left:12px;bottom:11px;display:flex;align-items:center;gap:8px">
+              <span style="font-size:10px;font-weight:600;letter-spacing:0.02em;color:#B8B8B8;font-variant-numeric:tabular-nums">{{ previewLabel }}</span>
+              <span style="font-size:10px;color:#5A5A5A">{{ previewCaption }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- recents (secondary) -->
+      <div style="margin-top:22px;padding-top:14px;border-top:.5px solid rgba(255,255,255,0.06)">
+        <div style="display:flex;align-items:center;gap:9px;margin-bottom:9px">
+          <span style="font-size:10px;font-weight:600;letter-spacing:0.14em;color:#6A6A6A;text-transform:uppercase">Recent</span>
+          <div style="flex:1"></div>
+          <a href="#" style="font-size:10.5px;color:#6A6A6A" style-hover="color:#B8B8B8">Browse all</a>
+        </div>
+        <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:2px">
+          <sc-for list="{{ recents }}" as="r" hint-placeholder-count="5">
+            <a href="{{ r.href }}" style="flex:0 0 auto;display:flex;align-items:center;gap:9px;width:198px;padding:7px 9px;border:.5px solid rgba(255,255,255,0.07);border-radius:4px;background:#111214;cursor:pointer" style-hover="border-color:rgba(255,255,255,0.16);background:#15161A">
+              <span style="width:34px;height:22px;flex-shrink:0;border-radius:2px;display:grid;place-items:center;background:{{ r.thumbBg }}"><span style="font-size:8px;font-weight:600;letter-spacing:0.08em;color:{{ r.glyphColor }}">{{ r.glyph }}</span></span>
+              <span style="flex:1;min-width:0"><span style="display:block;font-size:11px;font-weight:500;color:#D8D8D8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.name }}</span><span style="display:block;font-size:9.5px;color:#6A6A6A;margin-top:1px;font-variant-numeric:tabular-nums">{{ r.meta }} · {{ r.when }}</span></span>
+            </a>
+          </sc-for>
+        </div>
+      </div>
+
+      <div style="flex:1;min-height:14px"></div>
+      <!-- footer -->
+      <div style="height:42px;flex-shrink:0;display:flex;align-items:center;gap:9px;border-top:.5px solid rgba(255,255,255,0.06)">
+        <img src="assets/alma-logo.png" alt="Alma Digital Studio" style="height:17px;width:auto;object-fit:contain;opacity:0.7"/>
+        <span style="font-size:10.5px;color:#7A7A7A">Created by <span style="color:#A8A8A8;font-weight:500">Alma Digital Studio</span> · 2026</span>
+        <div style="flex:1"></div>
+        <span style="font-size:10.5px;color:#4E4E4E">All rights reserved</span>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { ptype:'dome', domeRes:4096, domeCov:180, roomWalls:4, roomFloor:true, flatPreset:'1920×1080', fps:60 };
+  renderVals(){
+    const S=this.state;
+    const TYPES=[
+      {k:'dome', name:'Dome', href:'Editor Domo - Rev 1.dc.html', icon:'M3 17a9 9 0 0 1 18 0 M2 17h20 M12 8v9'},
+      {k:'flat', name:'2D', href:'Editor 2D Flat - Rev 1.dc.html', icon:'M3 5h18v14H3z M3 15l5-4 4 3 3-2 6 5'},
+      {k:'room', name:'360 Room', href:'Editor 360 - Rev 1.dc.html', icon:'M12 3l8 4.5v9L12 21l-8-4.5v-9z M12 3v18 M4 7.5l8 4.5 8-4.5'},
+    ];
+    const typeTabs = TYPES.map(t=>({ ...t, onSel:()=>this.setState({ptype:t.k}), sty: S.ptype===t.k ? 'background:#2A2C30;color:#F0F0F0;box-shadow:0 1px 2px rgba(0,0,0,0.4)' : 'background:transparent;color:#8A8A8A' }));
+    const seg=(opts,cur,setter)=>opts.map(o=>{ const v=(o&&typeof o==='object')?o.v:o; const lab=(o&&typeof o==='object')?o.label:String(o); return { label:lab, active:cur===v, sty: cur===v?'background:#EDEDED;color:#141414':'background:transparent;color:#8A8A8A', onSel:()=>setter(v) }; });
+    const setK=(k)=>(v)=>this.setState({[k]:v});
+    const fpsField={ isSeg:true, isToggle:false, label:'Frame rate', unit:'fps', opts:seg([24,25,30,48,50,60], S.fps, setK('fps')) };
+    let fields=[], propNote='', outputSummary='', previewLabel='', previewCaption='';
+    if(S.ptype==='dome'){
+      fields=[
+        { isSeg:true, label:'Resolution', opts:seg([2048,3072,4096,6144,8192], S.domeRes, setK('domeRes')) },
+        { isSeg:true, label:'Coverage', opts:seg([{v:180,label:'180°'},{v:200,label:'200°'},{v:210,label:'210°'},{v:220,label:'220°'}], S.domeCov, setK('domeCov')) },
+        fpsField,
+      ];
+      propNote='Fulldome fisheye master. 180° is a full hemisphere; wider domes pull the horizon inward.';
+      outputSummary=S.domeRes+'² · '+S.domeCov+'° · '+S.fps+'p';
+      previewLabel=S.domeRes+' × '+S.domeRes; previewCaption='fisheye · '+S.domeCov+'°';
+    } else if(S.ptype==='flat'){
+      const RES={ '1920×1080':[1920,1080], '3840×2160':[3840,2160], '1080×1920':[1080,1920], '1080×1080':[1080,1080], 'custom':[1920,1080] };
+      fields=[
+        { isSeg:true, label:'Preset', opts:seg([{v:'1920×1080',label:'1080p'},{v:'3840×2160',label:'4K'},{v:'1080×1920',label:'9:16'},{v:'1080×1080',label:'1:1'},{v:'custom',label:'Custom'}], S.flatPreset, setK('flatPreset')) },
+        fpsField,
+      ];
+      propNote='Flat rectangular canvas for screens, LED walls and social — no dome warp.';
+      const wh=RES[S.flatPreset]||[1920,1080];
+      outputSummary=wh[0]+' × '+wh[1]+' · '+S.fps+'p';
+      previewLabel=wh[0]+' × '+wh[1]; previewCaption='flat canvas';
+      const bw=300, bh=200, ar=wh[0]/wh[1]; let w=bw, h=bw/ar; if(h>bh){ h=bh; w=bh*ar; }
+      this._flat={w:Math.round(w),h:Math.round(h)};
+    } else {
+      fields=[
+        { isSeg:true, label:'Walls', opts:seg([2,3,4], S.roomWalls, setK('roomWalls')) },
+        { isToggle:true, label:'Floor', note:'Add a floor screen', track: S.roomFloor?'background:#4A8D6F':'background:#3A3A3A', knob: S.roomFloor?'left:13px':'left:2px', onToggle:()=>this.setState(s=>({roomFloor:!s.roomFloor})) },
+        fpsField,
+      ];
+      propNote='Assemble a room from wall screens laid out as a 2D strip; the 3D view reconstructs the space.';
+      outputSummary=S.roomWalls+' walls'+(S.roomFloor?' + floor':'')+' · '+S.fps+'p';
+      previewLabel=S.roomWalls+' × 3840²'+(S.roomFloor?' + floor':''); previewCaption='top-down plan';
+    }
+    const isDome=S.ptype==='dome', isFlat=S.ptype==='flat', isRoom=S.ptype==='room';
+    const covWide=S.domeCov>180; const covRing=Math.round(110*(180/S.domeCov));
+    const flat=this._flat||{w:300,h:169}; const flatX=Math.round(200-flat.w/2), flatY=Math.round(140-flat.h/2);
+    const eBack=S.roomWalls>=2, eLeft=S.roomWalls>=2, eRight=S.roomWalls>=3, eFront=S.roomWalls>=4;
+    const cur=TYPES.find(t=>t.k===S.ptype);
+    const recents=[
+      {name:'Immersive Dome · Show 01', meta:'4096² · 60p', when:'2h ago', glyph:'DOME', glyphColor:'#A8924C', thumbBg:'radial-gradient(circle at 50% 42%, #2A2A22 0%, #141414 70%)', href:'Editor Domo - Rev 1.dc.html'},
+      {name:'Planetarium Intro', meta:'4096² · 60p', when:'Yesterday', glyph:'DOME', glyphColor:'#8A8D5A', thumbBg:'radial-gradient(circle at 50% 42%, #22261F 0%, #141414 70%)', href:'Editor Domo - Rev 1.dc.html'},
+      {name:'Lobby LED Loop', meta:'3840×2160', when:'2 days ago', glyph:'2D', glyphColor:'#6BA6C9', thumbBg:'linear-gradient(135deg, #1B2530 0%, #131313 70%)', href:'Editor 2D Flat - Rev 1.dc.html'},
+      {name:'Vertical Teaser', meta:'1080×1920', when:'4 days ago', glyph:'2D', glyphColor:'#C9A86B', thumbBg:'linear-gradient(135deg, #2A2318 0%, #131313 70%)', href:'Editor 2D Flat - Rev 1.dc.html'},
+      {name:'Immersive Room 360', meta:'4 walls + floor', when:'Last week', glyph:'360', glyphColor:'#5A8D7E', thumbBg:'linear-gradient(135deg, #17251F 0%, #131313 70%)', href:'Editor 360 - Rev 1.dc.html'},
+    ];
+    return { typeTabs, fields, propNote, outputSummary, previewLabel, previewCaption,
+      isDome, isFlat, isRoom, covWide, covRing, flatX, flatY, flatW:flat.w, flatH:flat.h,
+      eBack, eLeft, eRight, eFront, roomFloorOn:S.roomFloor,
+      createHref: cur.href, createLabel:'Create '+cur.name, recents };
+  }
+}
+</script>
+</body>
+</html>

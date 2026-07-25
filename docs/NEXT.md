@@ -4,6 +4,16 @@
 > en `COMPONENTS.md` + una entrada en `PLAN.md` en el mismo commit, como manda el ritual de `/commit`).
 > Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: 2026-07-23.
 
+## 🎨 Rediseño "Rev 1" — EN CURSO (spec: `REDISEÑO-UI.md` · decisión: ADR-0008)
+- [x] Etapas **0-5**: tokens · componentes · shell · inspector (Source/Playback, sin Master Grade) · transport
+      (secuencias en la barra del play, well Simple/Auto/Grid/Fit) · timeline (pistas unificadas, chips de
+      automatización, V-zoom, fade en esquinas). _(R148)_
+- [ ] **Auditoría por CDP a 1920×1080** de las etapas 2-5 contra §1-§6 del spec (siguiente paso inmediato).
+- [ ] Residuales anotados: `#mediaSearch` sin entrada de usuario (Ctrl+F es no-op) · Master Grade sin forma de
+      editarse/resetearse · tooltip de `Fit` promete "(H·W)" y sólo ajusta el horizontal · barra del visor 2D↔3D
+      puede empujar ~30-50px.
+- [ ] Etapa **6 · Launcher** y **7 · variantes por formato** (360 / 2D).
+
 ## Arranque (wins rápidos) 🟢
 - [x] **[T5] Mute visual** — pista silenciada → sus clips a opacidad **alta** (`.muted`, `.82`, sin trama → claramente
       visibles, no ocultos) + chapa de altavoz-mute (`.mutebadge`, signo de forma → daltonismo). `.off` (disabled) sigue
@@ -49,7 +59,8 @@
 - [x] **Grade máster de secuencia** (idea propia) — **COMPLETO (R139/R140/R141).** Grado global sobre el composite final
       por post-pass `applyMasterGrade` (shader `_MG`): **numérico + ruedas lift/gamma/gain + LUT + curvas**, en
       preview/export/NDI/Spout, por-secuencia (persistido). Reusa toda la cadena de clip vía `bindClipLUT(_masterClip,_MGu)`
-      (refactor `L` de R138). UI viva en la sección **Master Grade** del inspector (`renderMasterGrade`/`#insMaster`).
+      (refactor `L` de R138). ⚠️ **UI ARCHIVADA en R148** (el diseño "Rev 1" no tiene Master Grade): el motor sigue vivo y
+      los grados guardados en `.isp` se siguen aplicando, pero ya no hay forma de editarlos — ver `_backup/deprecated/master-grade-ui.js`.
       Verificado por CDP en cada fase.
 - [x] **[D7] Onboarding** — **HECHO (R145).** Primera apertura (flag `dspOnboardV1` ausente) → salta el landing, arma un
       **proyecto-demo domo** con formas de referencia (título + elipse/rect/línea en pistas V1–V4, `buildDemoProject`) y

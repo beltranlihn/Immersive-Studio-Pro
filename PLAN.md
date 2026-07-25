@@ -1,5 +1,68 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 148 — Rediseño "Rev 1" (Claude Design): etapas 0-5 (tokens · shell · inspector · transport · timeline)
+
+Recreación de la UI **calcada** al handoff de Claude Design (`scratchpad/redesign/design_handoff_immersive_studio/`,
+prototipo React que **no se porta** sino que se recrea en `index.html`+`app.js`). El spec maestro vive en
+**`REDISEÑO-UI.md`** (§0 reglas globales · §1 top bar · §2 media · §3 visor · §4 inspector · §5 transport · §6 timeline
+· §7 status), con las refs `RevDomo:NNN` al prototipo. Regla transversal de Beltrán: **lo que no está en el diseño se
+saca** — y por la política del proyecto (ADR-0007) **se archiva, no se borra**.
+
+**Tokens y componentes base (§0).** Nuevos `--well-deep`, `--toggle-on` (verde `#4A8D6F`), `--react-blue` y el
+**sistema de color por parámetro** (`--p-az/--p-el/--p-size/--p-rot/--p-op/--p-exp/--p-sat`): el mismo hue en el fader,
+el diamante de keyframe y la curva de automatización. `--danger` a `#E06C6C`. Componentes nuevos: `.well` (segmentado
+hundido 22px con botones de 16), `.crbtn` (botón de "crear"), `.ddbtn` (disparador de dropdown). Toggle switch
+rediseñado a **26×15 con knob de 11px y ON verde**. Ítems de menú a 26px. **Sin MAYÚSCULAS shouty**: fuera
+`text-transform:uppercase` de `.sechead .t`, `.fxsec`, `.cwlab`, `.grphead2`, `.mpsub`, `.rs-sec`, `.rs-hdr`.
+
+**§1 Top bar.** Fuera los botones sueltos New / Open / Save / Export (viven en el menú File); queda nombre de proyecto +
+chip de formato + `?`. El wiring se conserva **blindado** (`if($('#saveBtn')){…}`) para que atajos y menú sigan.
+
+**§2 Panel Media.** Well **List/Grid** (`#mediaViewSeg`) en el header; fila de filtros como well + **dropdown Sort**
+(`#mediaSortBtn`, `MEDIA_SORTS` name/date/type) que **reemplaza** el segmentado Group None/Folder/Type; **Create row**
+con `Import` primario + Text · Shape · Compose · Adjust, cuyos labels colapsan a icono por *container-query*.
+El buscador visible y el botón "New folder" salen de la vista (nodos ocultos para no romper wiring).
+
+**§3 Barra del visor.** Overlays Grid/Safe/Outline/Horizon/Alpha pasan a **icon-only** con tooltip; los cuatro botones
+sueltos Full performance · Viewer window · NDI · Spout se consolidan en un **dropdown Output** (`#outputBtn`) con punto
+pulsante mientras NDI/Spout emiten (`refreshOutputInd`).
+
+**§4 Inspector.** Tabs Inspector / Reactive FX dentro de un well. **Dos secciones nuevas**, que recogen filas que antes
+estaban sueltas: **Source** (`#sourceRows`: Fulldome src · Equirect 360° + Tilt · Fisheye + Amount — sólo domo) y
+**Playback** (`#playbackRows`: Loop, reverse/ping-pong y un **Speed por-clip** nuevo, `c.speed`, sólo para media con
+tiempo). Ambas cabeceras se ocultan cuando la sección queda vacía (clips flat no tienen proyección; las imágenes fijas
+no tienen loop). Ojo: `#sourceRows`/`#playbackRows` son destinos de `appendChild` y `buildRows` sólo
+limpia tf/fx/color → hay que vaciarlos en cada render o las filas se acumulan. Los faders se pintan en el hue del
+parámetro (`--pc` = `autoColor(p)`), igual que su diamante.
+**Poda:** la sección **Master Grade** completa (`renderMasterGrade` + `#insMaster`) se archiva en
+`_backup/deprecated/master-grade-ui.js` — el diseño no la tiene y el grado se edita por clip en **Color**. **Sólo la
+UI**: el motor (`state.seqGrade`, `masterGradeOn`, `applyMasterGrade`, `_masterClip`, persistencia `saveActiveSeq`→
+`s.grade`) sigue vivo, así que los grados guardados en `.isp` existentes se siguen aplicando.
+
+**§5 Transport = donde viven las secuencias.** `#seqTabs` se **mueve del timeline a la barra del play** (zona
+izquierda, estilo well compacto con scroll horizontal y tope del 36% del ancho). A la derecha, well de edición
+`#tlEditSeg` con **Simple · Auto · Grid · Fit**: `Grid` (`#tlGridBtn`) muestra/oculta las líneas de grilla
+(`state.tl.gridOn`, default on → proyectos viejos sin cambio) y `Fit` (`#fitAllBtn`→`fitAll()`) encaja toda la
+duración en el ancho visible. `Auto` es el `#curvesBtn` de siempre; `Snap` queda fuera del well.
+
+**§6 Timeline.** Cambio estructural: **vídeo y audio unificados en UNA sola columna** (`#tracks`/`#laneHeaders`, audio
+al final). Se acabó el módulo de audio sticky: `#audioZone`/`#audioHeadZone` se vacían y ocultan en cada render y
+desaparece la barra colapsable "AUDIO". Consecuencia buscada: **las pistas de audio se comportan como las de vídeo** —
+`laneH` chequea `collapsed` ANTES que `kind==='audio'` y clampa `l.h||AUDIO_LANE_H` a [MIN,MAX], y el grip de resize se
+cablea para todas las pistas (antes, sólo vídeo). Además: chooser de automatización de la cabecera rediseñado como **2
+chips** (Effect-type + Parameter con swatch 6×6 del color del parámetro); **fade = cuadraditos** en las esquinas
+superiores del clip (no círculos); **V-zoom lateral** (`#tlVZoom`/`renderVZoom`, columna de 12px a la derecha) que
+escala la altura de TODAS las pistas de una; cabecera de pista **152→168px** (los chips truncaban); `.rulerpad` con
+`flex-shrink:0` para conservar sus 22px ahora que quedó vacía (si no, headers y lanes se desalinean 9px).
+
+**Deuda abierta anotada (entra a la auditoría):** (1) `#mediaSearch` quedó `display:none` → **Ctrl+F es un no-op**, la
+búsqueda no tiene entrada de usuario; (2) Master Grade queda dormido y sin forma de resetearse; (3) el tooltip de `Fit`
+promete "(H·W)" pero `fitAll()` sólo ajusta el horizontal; (4) residual §3: el grupo de cámara 3D todavía puede empujar
+la barra del visor ~30-50px al cambiar 2D↔3D. Etapas 6 (launcher) y 7 (variantes 360/2D) sin empezar.
+
+**Nota de higiene:** `app.js` se había reescrito con finales de línea LF (el repo lo guarda en CRLF), lo que inflaba el
+diff a ~14.500 líneas de ruido. Se normalizó a CRLF antes de commitear → el diff real es de ~200 líneas.
+
 ## ROUND 147 — Arranque limpio: sin flash del editor (splash → destino)
 
 Dos flashes del editor durante el boot, confirmados frame-a-frame extrayendo cuadros del video del usuario con ffmpeg

@@ -58,7 +58,8 @@
 | Clip DOM (`.clip`) | Nodo renderizado por clip | app.js · loop de renderTimeline · `.clip` | ✅ | [T5],[T2] |
 | Header de pista (`.lanehdr`) | Header + operaciones de lane | app.js · renderTimeline · `.lanehdr` | ✅ | [L1],[U1] |
 | Reorden de lanes | Arrastrar header para reordenar | app.js · `startLaneDrag` | ✅ | — |
-| Módulo de audio anclado | Banda de audio sticky al fondo | app.js · renderTimeline · #audioZone | ✅ | [L2] |
+| ~~Módulo de audio anclado~~ | **RETIRADO R148** — audio unificado en la columna principal (#tracks/#laneHeaders), al final | app.js · renderTimeline · #audioZone/#audioHeadZone (vaciados) | 🗑️ | Rev1 §6 |
+| V-zoom vertical | Barra lateral 12px: arrastrar escala la altura de TODAS las pistas | app.js · `renderVZoom` · #tlVZoom | ✅ | Rev1 §6 |
 | Gesto de mover | Move/copy de clip con ghost | app.js · `onTLMove`/`onTLUp` | ✅ | — |
 | Trim contextual | ripple/roll/slip/slide (T) | app.js · `trimZone`/`applyTrim` | ✅ | [T2] |
 | Trim por handle | `.hd.l`/`.hd.r` resize | app.js · `trimItem` / drag.trimL/R | ✅ | [T2] |
@@ -70,7 +71,8 @@
 | Modo simple-clip | Agarre Premiere vs Ableton | app.js · `toggleSimpleClips` | ✅ | — |
 | Regla & playhead | Scrub + arrastre de locator | app.js · #ruler pointerdown / `positionPlayhead` | ✅ | — |
 | Marcadores / locators | Marcadores temporales con nombre | app.js · `addMarker`/`jumpMarker` | ✅ | — |
-| Pestañas de secuencia | Barra de secuencias abiertas (drag para reordenar) | app.js · `renderSeqBar`/`startSeqTabDrag` · #seqTabs | ✅ | — |
+| Pestañas de secuencia | Barra de secuencias abiertas (drag para reordenar) — **movida al transport** (R148) | app.js · `renderSeqBar`/`startSeqTabDrag` · #seqTabs (dentro de `.transport`) | ✅ | Rev1 §5 |
+| Well de edición del transport | Simple · Auto · Grid · Fit | app.js · `toggleSimpleClips`/`toggleCurves`/`fitAll` · #tlEditSeg (#simpleClipBtn/#curvesBtn/#tlGridBtn/#fitAllBtn) | ✅ | Rev1 §5 |
 | Menú contextual de clip | Acciones clic-derecho sobre clip | app.js · #tracks contextmenu | ✅ | [T1] |
 
 ### 4 · Automatización, keyframes & modulación → [detalle](#4--automatización-keyframes--modulación-detalle)
@@ -83,9 +85,9 @@
 | `setKf` / clearKf | Escribir/mergear/borrar keyframes | app.js · `setKf` | ✅ | — |
 | `evalR` | Base+motion+mod en tiempo de render | app.js · `evalR` | ✅ | [L7] |
 | `manualEdit` | Regla AE (editar valor → keyframe) | app.js · `manualEdit` | ✅ | [A2]/[D1] |
-| Toggle modo automatización | inlineCurves → body.automode | app.js · `toggleCurves`/`syncAutoUI` · #curvesBtn | ✅ | [A1] |
+| Toggle modo automatización | inlineCurves → body.automode | app.js · `toggleCurves`/`syncAutoUI` · #curvesBtn (dentro de #tlEditSeg) | ✅ | [A1] |
 | Param del lane (track) | Un overlay por pista | app.js · `laneAutoP`/`openAuto`/`showAutomation` | ⚠️ | [A5]/[L3]/[L4] |
-| Choosers device+param | Dropdowns Transform/Effects/fx | app.js · `autoDuo`/`autoDuoText` | ✅ | — |
+| Choosers device+param | 2 chips (Effect-type + Parameter con swatch de color) en la cabecera de pista | app.js · `autoDuo`/`autoDuoText` · `.autoduo.txt .achip` | ✅ | Rev1 §6 |
 | Canvas de automatización | Canvas ventaneado por clip | app.js · `windowAutoCv`/`drawAutoCurve` | ✅ | — |
 | Puntos (add/move/delete) | Gestos sobre el canvas | app.js · `bindAutoCurve` (`inv`/`nearKf`) | ✅ | [L6] |
 | Ops de selección auto | select/nudge/tri-modo/taper | app.js · `nudgeAutoSel`/`autoSelApply`/`taperSel` | ✅ | R95 |
@@ -125,9 +127,9 @@
 | Ruedas Lift/Gamma/Gain | Grado primario estilo DaVinci | app.js · `wheelRGB`/`bindClipGrade` | ✅ | R130 |
 | Curvas de tono | Curvas luma+RGB → LUT 256×1 | app.js · `buildCurveData`/`clipCurveTex`/`bindClipCurve` | ✅ | R132 |
 | Grado en PFD/PEQ | Fulldome/equirect ya reciben ruedas/curvas/LUT (paridad con FSW) | app.js · `bindClipLUT(c,LFD/LEQ)` en draw PFD/PEQ | ✅ | R138 (gap cerrado) |
-| Grado máster de secuencia | Grado global sobre el composite (numérico + ruedas + curvas + LUT; preview/export/NDI/Spout) | app.js · `applyMasterGrade`/`_MG` · `renderMasterGrade`/#insMaster | ✅ | R139/R140/R141 (completo) |
+| Grado máster de secuencia | Motor VIVO (numérico + ruedas + curvas + LUT; preview/export/NDI/Spout). **UI ARCHIVADA R148** — el diseño no tiene "Master Grade"; el grado se edita por clip en la sección Color | app.js · `applyMasterGrade`/`_MG`/`state.seqGrade` · UI en `_backup/deprecated/master-grade-ui.js` | ✅ motor · 🗄️ UI | Rev1 §4 |
 | `renderInspector` | Reconstruye + sincroniza el inspector | app.js · `renderInspector`/`refreshInspector` | ✅ | [I1]/[I2] |
-| 4 secciones colapsables | Transform/Clip/Color/Motion | app.js · `applySecCollapse` · #colorRows | ✅ | [I1]/[I2] |
+| 6 secciones colapsables | Transform/Clip/**Source**/**Playback**/Color/Motion | app.js · `applySecCollapse` · #fxRows/#sourceRows/#playbackRows/#colorRows/#motionFx | ✅ | Rev1 §4 |
 | Filas de parámetro | Fader + diamante + arco de mod | app.js · `buildRows`/`startValDrag` · `.prow` | ✅ | [A1] |
 | Máscara dropdown + PNG | Máscara shape/PNG + tamaño | app.js · `MASK_IDX` · #maskSel | ✅ | — |
 | Máscaras pen-tool | Multi máscara por puntos, invert/feather | app.js · `buildPenMaskUI`/`rasterizePenMasks` | ✅ | [I3] |
@@ -169,14 +171,18 @@
 | DSP bridge | API segura `window.dsp` renderer↔main | preload.js · (~L48) | ✅ | — |
 | Wrapper NDI | `dsp-ndi-send` salida+entrada | preload.js · `ndiApi` (~L8) | ✅ | — |
 | Wrapper Spout | `dsp-spout-send` share GPU local | preload.js · `spoutApi` (~L40) | ✅ | [V3] |
-| Salida NDI/Spout | Broadcast del máster de domo limpio | app.js · `startNDI`/`startSpout` (~L1028) | ✅ | — |
+| Salida NDI/Spout | Broadcast del máster de domo limpio | app.js · `startNDI`/`startSpout` (~L1028) · desde #outputBtn | ✅ | — |
+| Dropdown Output | Consolida Full performance · Viewer window · NDI · Spout (4 botones sueltos → 1 menú, punto pulsante si emite) | app.js · `refreshOutputInd` + wiring `#outputBtn`→`openMenu` (~L5769-5770) | ✅ | Rev1 §3 |
 | Entrada NDI | NDI en vivo como clip de media | app.js · `addNdiInput`/`makeNdiMedia` (~L1089) | ✅ | [V3] |
 | `renderMedia` | Reconstruye el panel de media | app.js · `renderMedia` (~L1628) · #mediaList | ✅ | [M1],[M2] |
 | media item/tile | Fila/tile + badges + wiring | app.js · `makeMediaItem`/`makeMediaTile` (~L1698) | ✅ | [M3],[M4] |
 | Selección de media | Single/range/toggle multi-select | app.js · `selectMedia` (~L1774) | ✅ | [M2] |
 | Import | Archivos/drag/carpetas/secuencias | app.js · `importFiles`/`importDropped` (~L1264) | ✅ | [M5] |
-| Carpetas | Árbol de carpetas anidadas + colores | app.js · `drawFolder` (~L1663) · #newFolderBtn | ✅ | [M1] |
-| Búsqueda de media | Filtro de texto con debounce | app.js · (~L5500) · #mediaSearch | ✅ | — |
+| Carpetas | Árbol de carpetas anidadas + colores | app.js · `drawFolder` (~L1663) · #newFolderBtn (**oculto R148**: clic-derecho en Media) | ✅ | [M1] |
+| Búsqueda de media | Filtro de texto con debounce | app.js · (~L5500) · #mediaSearch (**input oculto R148**: solo Ctrl+F) | ✅ | — |
+| Orden de media (Sort) | Dropdown Name/Date/Type — reemplaza el segmentado Group None/Folder/Type | app.js · `MEDIA_SORTS`/`mediaSortLabel` (~L5673) · `state.mediaSort` · #mediaSortBtn | ✅ | Rev1 §2 |
+| Vista List/Grid | Well de 2 botones en el header del panel | app.js · #mediaViewSeg (`state.mediaView`) | ✅ | Rev1 §2 |
+| Create row | Import (primario) + Text/Shape/Compose/Adjust; labels colapsan a icono (container-query) | index.html `.crrow`/`.crbtn` · #importBtn/#textBtn/#shapeBtn/#ringBtn/#adjLayerBtn | ✅ | Rev1 §2 |
 | Serialización | serProject/serMedia/serClip (v4) | app.js · `serProject` (~L5230) | ✅ | — |
 | `saveProject` | Escritura atómica `.isp` + `.bak` | app.js · `saveProject` (~L5231) | ✅ | — |
 | open/load | Abrir + reconstruir estado | app.js · `loadProject`/`openProjectPath` (~L5296) | ✅ | — |
@@ -189,8 +195,8 @@
 | Diálogos estilados | appPrompt/appAlert/appConfirm | app.js · (~L2042-2064) | ✅ | — |
 | Paneles collapse/resize | Rails + gutters + workspace | app.js · `setPaneCollapsed` (~L5533) | ✅ | — |
 | i18n | T/applyLang/setLang | app.js · `applyLang` (~L6256) | ✅ | — |
-| Perf mode | Visor a ventana completa | app.js · `setPerfMode` (~L5613) · #perfBtn | ✅ | [V2] |
-| Ventana solo-visor | Pop-out que sigue al editor (2D/3D); domo con cámara orbit propia | app.js · `openViewerWindow`/`renderViewer` | ✅ | — |
+| Perf mode | Visor a ventana completa | app.js · `setPerfMode` (~L5613) · desde #outputBtn (**#perfBtn retirado R148**) | ✅ | [V2] |
+| Ventana solo-visor | Pop-out que sigue al editor (2D/3D); domo con cámara orbit propia | app.js · `openViewerWindow`/`renderViewer` · desde #outputBtn (**#popoutBtn retirado R148**) | ✅ | — |
 
 ---
 
@@ -199,6 +205,9 @@
 - **🗄️ Automatización legacy — ARCHIVADO (R137).** Las funciones muertas (`_autoOff` override/re-enable + perform-and-bake `recWrite`/`bakeRecorded` + `#autoRecBtn`) se sacaron del software y viven en `_backup/deprecated/20260722-automation-override-and-perform-bake.js` (recuperables). Verificado por CDP: motor de automatización intacto. **Barrido menor HECHO (R137):** removidos los reads no-op de `_autoOff` en sepAuto, returnToDefault, `drawAutoCurve` (var `off`), fxKfToggle y borrado de fx — solo queda `_autoOff` en un comentario (app.js L463). Curva renderiza OK (verificado por píxel).
 - **✅ Sub-lanes apiladas — LIMPIADO (R143).** Confirmado código muerto (mapeo arch-explorer): el render de sub-carriles apilados `appendAutoLanes` ya estaba neutralizado por `[A5]` (`return;` de cabeza), así que `lane._auto`/`lane._autoH` + `addAutoLane(At)` + `laneAutoH` y la lista legacy de clip `c._auto` (`closeAuto` + copia en `sepAuto` + `returnToDefault` + filtro en fx-delete) no dirigían nada. Archivado en `_backup/deprecated/20260723-automation-sublanes-and-clip-auto.js` y quitado. Único modelo vigente: `lane._autoP` (una superposición por pista vía `laneAutoP`/`attachClipAuto` + chooser de cabecera). Data vieja en `.isp` (lanes[]._auto) queda ignorada (sin migración necesaria). Verificado por CDP.
 - **✅ Gap de grado en fulldome/equirect — CERRADO (R138).** Las rutas PFD/PEQ ahora llaman `bindClipLUT(c,LFD/LEQ)` (que encadena grade+curve) y los shaders FSFD/FSEQ aplican ruedas/curvas/LUT igual que FSW. Las tres funciones bind aceptan un struct de ubicaciones `L` (default `LW`). LUT en unit 2, curva en unit 3 (libres en PFD/PEQ). Identidad por defecto → clips existentes sin cambio. Verificado: ambos shaders compilan+linkan en WebGL2 real.
+- **🗄️ Master Grade UI — ARCHIVADA (R148).** Sacada por la regla de poda del rediseño ("lo que no está en el diseño se saca"). El **motor sigue vivo** (`state.seqGrade`/`applyMasterGrade`) y los grados guardados en `.isp` existentes se siguen aplicando, pero **ya no hay forma de editarlos ni de resetearlos desde la UI**. Decidir con Beltrán: (a) dejarlo dormido, (b) migrar `state.seqGrade` a la sección Color de la secuencia, o (c) archivar también el motor. Archivo: `_backup/deprecated/master-grade-ui.js`.
+- **⚠️ Búsqueda de media sin entrada (R148).** El input `#mediaSearch` quedó `display:none` y **Ctrl+F ahora es un no-op** (enfoca un nodo oculto). El filtro (`state.mediaQuery` en `renderMedia`) sigue funcionando si se setea por código. Falta darle un punto de entrada real o archivarlo.
+- **⚠️ Tooltip de `Fit` promete de más (R148).** `#fitAllBtn` dice "Fit all clips & tracks to the timeline view (H·W)" pero `fitAll()` sólo ajusta el eje horizontal (`pxPerSec`); la altura de pistas no se toca (para eso está el V-zoom). Corregir el tooltip o implementar el ajuste vertical.
 - **🚧 [D2] cola de export = snapshot congelado** — la cola actual muta el `state` vivo; falta el "snapshot congelado al enviar" que pide [D2].
 - **🚧 ClipDecoder streaming** — apagado por defecto (`state.view.wcDecode`), pendiente de mover a worker.
 - **Colisión de nombres de tickets** — códigos viejos del PLAN (T2/T3/T4/T5 del motor de reproducción, R18) NO son los mismos que los de CORRECCIONES-V2 (T2 trim micro-snap, T4 faders 3D, etc.). Ojo al enlazar.
@@ -452,7 +461,7 @@ separate subsystem — only cross-references appear here.
 - **Location:** app.js · `renderTimeline()` (L1876–1993) · DOM: `#tracks`, `#laneHeaders`, `#audioHeadZone`, `#ruler`, `#trackHdr .rulerpad`
 - **State owned (reads):** `state.tl.pxPerSec`, `state.tl.audioCollapsed`, `state.tl.tcMode/bpm/sig`, `state.lanes`, `state.clips`, `state.selIds/selId/selLane/selGroupId`, `state.markers`, `state.inlineCurves`; writes `state.tl._w`.
 - **Key symbols:** `neededSec()`, `gridSec()`, `laneH(li)`, `lanesTopDown()`, `drawRuler()`, `positionPlayhead()`, `attachClipAuto()`, `appendAutoLanes()` (other subsystem), `redrawAudioWaves()`, `reconcileVinst()`, `migrateArAuto()`.
-- **Invariants / gotchas:** Manual binding — nothing auto-renders; every state mutation must call this or `scheduleTimeline()`. Full rebuild costs ~100ms at 300 clips → trim/move drags avoid it via `positionClips()`. Header column (`#trackHdr`) is given a bottom `marginBottom = hsb` so it matches `#tlscroll` height and the sticky audio module pins identically (L1989). `_hasVideo`/`_hasAudio` gate the VIDEO label (rulerpad corner) and the AUDIO collapse bar.
+- **Invariants / gotchas:** Manual binding — nothing auto-renders; every state mutation must call this or `scheduleTimeline()`. Full rebuild costs ~100ms at 300 clips → trim/move drags avoid it via `positionClips()`. Header column (`#trackHdr`) is given a bottom `marginBottom = hsb` so it matches `#tlscroll` height. **[R148 · Rev1] Video and audio lanes are UNIFIED in the same column** (`#tracks`/`#laneHeaders`, audio rows last/at the bottom): no sticky `#audioZone`, no "AUDIO" collapse bar, no VIDEO label in the rulerpad corner — `#audioZone`/`#audioHeadZone` are emptied and hidden each render. Also calls `renderVZoom()` at the end (wrapped in try — the V-zoom DOM may be absent).
 - **Status:** ✅
 - **Roadmap:** underlies [T2]–[T5], [L1]–[L7]
 
@@ -467,19 +476,19 @@ separate subsystem — only cross-references appear here.
 
 ## Timeline DOM skeleton (index.html)
 - **Purpose:** Static markup for the whole timeline region: transport bar, sequence tabs, tool rail, track-header column, scroller with ruler/tracks/playhead/snapline.
-- **Location:** index.html · `.transport` (L784–810), `.timeline` (L813–835); `#seqTabs` (L815), `#toolRail` (L817–824), `#trackHdr`>`.rulerpad`+`#laneHeaders`+`#audioHeadZone` (L825), `#tlscroll` (L826) > `#ruler`(canvas `#rulerCv`, `#clipExtent`, `#phTri`) + `#workArea` + `#timeSel` + `#tracks` + `#playhead` + `#snapline`. CSS: `.tlscroll`(L408), `.trackhdr`(L302).
+- **Location:** index.html · `.transport` (holds `#seqTabs` since R148), `.timeline`; `#toolRail`, `#trackHdr`>`.rulerpad`+`#laneHeaders`+`#audioHeadZone`, `#tlscroll` > `#ruler`(canvas `#rulerCv`, `#clipExtent`, `#phTri`) + `#workArea` + `#timeSel` + `#tracks` + `#playhead` + `#snapline`, `#tlVZoom`>`#tlVZoomTrack`>`#tlVZoomThumb` (R148). CSS: `.tlscroll`, `.trackhdr`, `.tlvzoom`.
 - **State owned:** —
-- **Key symbols:** `#tracks` (clip rows host + sticky `.audiozone`), `#trackHdr` scrolls natively in sync with `#tlscroll`.
-- **Invariants / gotchas:** Audio rows live inside a sticky `#audioZone` div appended last inside `#tracks` (so `#tracks .lane` still matches them). `#trackHdr` is `flex-direction:column` so `#audioHeadZone` (`margin-top:auto`) pins to the bottom in lockstep with the clip column ([L2]). `.trackhdr` width is fixed 152px.
+- **Key symbols:** `#tracks` (clip rows host), `#trackHdr` scrolls natively in sync with `#tlscroll`.
+- **Invariants / gotchas:** **[R148 · Rev1]** `#seqTabs` moved OUT of `.timeline` into `.transport` (design §5: sequences live on the play bar). `#tlVZoom` is a 12px column to the RIGHT of `#tlscroll` inside `.tlmain`. `.trackhdr` width is 168px (was 152 — the automation chips truncated). `.trackhdr .rulerpad` needs `flex-shrink:0` to keep its 22px now that it is empty, otherwise headers/lanes misalign by 9px. `#audioZone`/`#audioHeadZone` survive as empty/hidden nodes only (audio is a normal lane in the unified column).
 - **Status:** ✅
 - **Roadmap:** —
 
 ## Transport bar
 - **Purpose:** Playback + edit controls above the timeline: mark in/out, play, go start/end, automation REC, follow-playhead, timecode readout, TC/Frames toggle, loop, locator prev/add/next, Snap, Simple-clip, automation (curves) toggle, zoom in/out.
-- **Location:** index.html `.transport` (L784–810). Handlers: `#tlZoomIn/#tlZoomOut` (L5647–5648), `#prevMk/#addMk/#nextMk` (L5646), `#snapBtn`→`toggleSnap()` (L2346), `#simpleClipBtn`→`toggleSimpleClips()` (L2350).
-- **State owned:** `state.tl.pxPerSec`, `state.tl.snap`, `state.tl.simpleClips`, `state.loop`
-- **Key symbols:** `#markIn/#markOut`, `#playBtn`, `#autoRecBtn`, `#followBtn`, `#tc/#bbt`, `#tcModeSeg`, `#loopBtn`, `#curvesBtn` (automation toggle, key A), `#gridReadout` (removed per [U6]).
-- **Invariants / gotchas:** Zoom buttons clamp `pxPerSec` to [0.1, 600]. `#curvesBtn` toggles `state.inlineCurves` (automation subsystem).
+- **Location:** index.html `.transport`. Handlers: `#tlZoomIn/#tlZoomOut`, `#prevMk/#addMk/#nextMk`, `#snapBtn`→`toggleSnap()` (L2346), `#simpleClipBtn`→`toggleSimpleClips()` (L2350), `#tlGridBtn` (~L5822), `#fitAllBtn`→`fitAll()` (~L5820).
+- **State owned:** `state.tl.pxPerSec`, `state.tl.snap`, `state.tl.simpleClips`, `state.tl.gridOn`, `state.loop`
+- **Key symbols:** `#seqTabs` (sequences, LEFT zone since R148), `#markIn/#markOut`, `#playBtn`, `#followBtn`, `#tc/#bbt`, `#tcModeSeg`, `#loopBtn`; edit well `#tlEditSeg` = `#simpleClipBtn` (Simple) · `#curvesBtn` (Auto, key A) · `#tlGridBtn` (Grid) · `#fitAllBtn` (Fit); `#snapBtn` sits outside the well.
+- **Invariants / gotchas:** Zoom buttons clamp `pxPerSec` to [TL_PPS_MIN, TL_PPS_MAX]. `#curvesBtn` toggles `state.inlineCurves` (automation subsystem). **[R148 · Rev1]** design §5 layout = 3 zones: sequences (left) · transport (centre) · Simple/Auto/Grid/Fit + zoom (right). `state.tl.gridOn===false` hides the timeline grid lines (default = on, so old projects are unchanged); `fitAll()` fits the whole duration to the visible width and resets scroll.
 - **Status:** ✅
 - **Roadmap:** [U1] (minimalist labels: Snap→"S" etc.), [U6] frames button removal
 
@@ -511,11 +520,11 @@ separate subsystem — only cross-references appear here.
 - **Roadmap:** [T2] frame-snap trim
 
 ## Track header (.lanehdr) & lane operations
-- **Purpose:** The 152px-wide row header for each lane (colour bar, tag/name, collapse chevron, mute/solo, resize grip); hosts drag-to-reorder, rename, context menu, and (in automation mode) the device/param choosers.
+- **Purpose:** The 168px-wide row header for each lane (colour bar, tag/name, collapse chevron, mute/solo, resize grip); hosts drag-to-reorder, rename, context menu, and (in automation mode) the device/param choosers.
 - **Location:** app.js · header build in `renderTimeline` (L1941–1969). Ops: `addLane()` (L2024), `removeLane()` (L2036), `duplicateLane()` (L2163), `renameLane()` (L2152), `startLaneDrag()` (L2173), `trackCreateItems()` (L2032), `defLanes()` (L4916).
 - **State owned:** `state.lanes[]` (each: `{id,name,tag,kind,color?,mute?,solo?,collapsed?,h?,_autoP?}`), `state.selLane`
-- **Key symbols:** classes `.lanehdr .sel .collapsed .aud`; buttons `[data-m=collapse|mute|solo]`, `.laneres [data-m=resize]`. `laneH(li)` (L109). Constants `LANE_DEF_H=82, LANE_MIN_H=34, LANE_MAX_H=260, LANE_COLLAPSED_H=20` (L107), `AUDIO_LANE_H=41` (L108, fixed), `TRACK_COLORS` (L30). `lanesTopDown()` display order.
-- **Invariants / gotchas:** Selecting a track deselects the clip (mutual exclusion, [R93]). Video lanes grow upward; audio grows DOWNWARD (module displays audio index-descending). Per-lane resize is VIDEO-ONLY — audio is fixed half-height. Resize handler mutates `lane.h` clamped to [MIN,MAX] and calls `scheduleTimeline()` (must not move the view — [L1]). `removeLane` keeps ≥1 video and ≥1 audio lane.
+- **Key symbols:** classes `.lanehdr .sel .collapsed .aud`; buttons `[data-m=collapse|mute|solo]`, `.laneres [data-m=resize]`. `laneH(li)` (L109). Constants `LANE_DEF_H=82, LANE_MIN_H=34, LANE_MAX_H=260, LANE_COLLAPSED_H=20` (L107), `AUDIO_LANE_H=41` (L108, now the audio DEFAULT height, not a fixed one), `TRACK_COLORS` (L30). `lanesTopDown()` display order.
+- **Invariants / gotchas:** Selecting a track deselects the clip (mutual exclusion, [R93]). Video lanes grow upward; audio grows DOWNWARD. **[R148 · Rev1] audio lanes are resizable too** — `laneH` clamps `l.h||AUDIO_LANE_H` to [MIN,MAX] exactly like video, and the resize grip is wired for every lane (was video-only). `collapsed` is checked BEFORE `kind==='audio'`, so an audio lane can also collapse. Resize handler mutates `lane.h` and calls `scheduleTimeline()` (must not move the view — [L1]). `removeLane` keeps ≥1 video and ≥1 audio lane. Header width is 168px (R148).
 - **Status:** ✅
 - **Roadmap:** [L1] resize-view glitch, [U1] VIDEO/AUDIO same grey-bar style
 
@@ -528,14 +537,24 @@ separate subsystem — only cross-references appear here.
 - **Status:** ✅
 - **Roadmap:** —
 
-## Pinned audio module (#audioZone / #audioHeadZone)
-- **Purpose:** Premiere-style bottom-pinned audio band: audio lane rows live in a sticky `.audiozone` at the bottom of `#tracks`; the AUDIO bar tops it and toggles collapse of the whole module.
+## 🗑️ Pinned audio module (#audioZone / #audioHeadZone) — RETIRADO R148
+> **[R148 · Rev1] No longer in use.** The design has ONE unified track column: audio lanes render inline in `#tracks`/`#laneHeaders` like any other lane (last, at the bottom), resizable and collapsible. `renderTimeline` empties and hides `#audioZone`/`#audioHeadZone` every pass; the "AUDIO" collapse bar is gone. `state.tl.audioCollapsed` / the wheel-scroll sync below are dormant. Kept documented because the DOM nodes and the wheel handlers still exist.
+
+- **Purpose (legacy):** Premiere-style bottom-pinned audio band: audio lane rows live in a sticky `.audiozone` at the bottom of `#tracks`; the AUDIO bar tops it and toggles collapse of the whole module.
 - **Location:** app.js · audio-zone assembly in `renderTimeline` (L1892–1904, 1971–1976). Scroll sync: `audioZoneScrollBy()` (L2566), wheel handlers (L2567–2575).
 - **State owned:** `state.tl.audioCollapsed`, `state.tl._audioScroll`
 - **Key symbols:** `.audiozone`, `.audiozone.hdr` (`#audioHeadZone`), `.trackdivider.collapsible` (AUDIO bar), `.audiozone.covers` (top shadow when video hidden behind).
 - **Invariants / gotchas:** Module is auto-height (exactly as tall as its tracks; no drag-resize, no internal scroll — [R110]). Appended LAST inside `#tracks` after all video rows so it pins. Wheel over audio never moves the video area; Alt-wheel resizes only that section's tracks (`wheelResizeLanes`). Move ghosts for audio clips must be appended to the audiozone (its own offsetParent) — L2420.
+- **Status:** 🗑️ retirado (R148) — nodos y handlers presentes pero inertes
+- **Roadmap:** [L2] cerrado por el rediseño (la columna unificada elimina el problema)
+
+## V-zoom lateral (#tlVZoom) — renderVZoom
+- **Purpose:** 12px column to the right of the clip area (design §6). Dragging the thumb scales the height of ALL lanes at once; the thumb size/position reflect the current average track height.
+- **Location:** app.js · `renderVZoom()` (~L5809), called at the end of `renderTimeline` (wrapped in try). DOM `#tlVZoom`>`#tlVZoomTrack`>`#tlVZoomThumb` (index.html, inside `.tlmain`). CSS `.tlvzoom`/`.tlvztrack`/`.tlvzthumb`.
+- **State/data:** writes `lane.h` on every lane (clamped to [LANE_MIN_H, LANE_MAX_H]).
+- **Invariants / gotchas:** it is a SCALE, not a per-lane resize — the per-lane grip (`.laneres [data-m=resize]`) still exists and now works on audio lanes too. Collapsed lanes keep `LANE_COLLAPSED_H` (`laneH` checks `collapsed` first).
 - **Status:** ✅
-- **Roadmap:** [L2] minimizable audio anchored at bottom (glitch with few video tracks)
+- **Roadmap:** Rev1 §6
 
 ## Move gesture — onTLMove / onTLUp / ghosts
 - **Purpose:** Ableton-style clip move: original stays put, a translucent ghost shows the destination, applied on pointerup. Supports multi-select (relative lane shift), lane retargeting (single), Alt-drag copy, and edge-snapping on both clip edges.
@@ -639,7 +658,7 @@ separate subsystem — only cross-references appear here.
 
 ## Sequence tabs (#seqTabs) — renderSeqBar
 - **Purpose:** Premiere-style tabs for open sequences/nests; click to switch, dblclick rename, right-click options, ✕ to close, ＋ to create, **drag to reorder** ([R3]).
-- **Location:** app.js · `renderSeqBar()` (L5221–5229), `startSeqTabDrag()` (before `renderSeqBar`), `switchSeq()` (L4936), `renameSequence()` (L4943). DOM `#seqTabs` (index.html L815).
+- **Location:** app.js · `renderSeqBar()` (L5221–5229), `startSeqTabDrag()` (before `renderSeqBar`), `switchSeq()` (L4936), `renameSequence()` (L4943). DOM `#seqTabs` — **[R148 · Rev1] moved into `.transport`** (left zone of the play bar, design §5); styled as a compact well by `.transport .seqtabs/.seqtab` (max-width 36%, horizontal scroll, no scrollbar).
 - **State owned:** `state.openSeqs[]`, `state.activeSeqId`
 - **Key symbols:** `.seqtab .on`, `.seqlab`, `.seqx`, `.seqadd`; `newSequenceDialog`, `closeSeqTab`, `openSeqSettings`, `startSeqTabDrag`, flag `_seqDragged`.
 - **Invariants / gotchas:** Sequences = media `kind:'nest'`; switching saves the active seq (`saveActiveSeq`) then loads the target into `state.clips/lanes`. [R3] `startSeqTabDrag` (pointerdown, 5px threshold, horizontal analog of `startLaneDrag`) reorders `openSeqs`; a real drag sets `_seqDragged` so the trailing click doesn't ALSO `switchSeq`. Order persists (serialized in `serProject`).
@@ -1106,8 +1125,10 @@ Subsystem map of `app.js` — verified line numbers (app.js = 6992 lines). Two h
 - **Status:** ✅ (gap closed R138)
 - **Roadmap:** —
 
-## Sequence master grade (R139 phase 1 + R140 phase 2a)
-- **Purpose:** A per-sequence GLOBAL grade over the FINAL composite (on top of per-clip grading). Done: numeric (exp/con/sat/temp/tint) + lift/gamma/gain wheels + master LUT, in preview + export + NDI + Spout. **Phase 2b pending:** master curves UI (engine already supports it).
+## Sequence master grade (R139/R140/R141) — 🗄️ UI ARCHIVADA en R148
+> **[R148 · Rev1] The UI was removed** (design has no "Master Grade"; grading lives in the per-clip Color section). Archived verbatim in `_backup/deprecated/master-grade-ui.js` — `renderMasterGrade()` + `#insMaster`/`MASTER_PARAMS`/`MASTER_WHEELS` + master curves editor. **The ENGINE stays live and untouched**: `state.seqGrade`, `masterGradeOn()`, `applyMasterGrade()`, `_masterClip`, and `saveActiveSeq`→`s.grade` persistence. With no UI, `state.seqGrade` keeps its identity defaults → the grade is dormant (zero cost), and grades stored in existing `.isp` projects still apply. To restore editing, re-mount an `#insMaster` host and call `renderMasterGrade()` from `renderInspector()`.
+
+- **Purpose:** A per-sequence GLOBAL grade over the FINAL composite (on top of per-clip grading): numeric (exp/con/sat/temp/tint) + lift/gamma/gain wheels + curves + master LUT, in preview + export + NDI + Spout.
 - **Location:** app.js · shader `_MGFS`/prog `_MG` + `applyMasterGrade(inTex,size)`/`masterGradeOn()`/`_mgTarget`/`_masterClip` (near `applyBlackKey`) · preview injection in `render()` · export injection in `renderExportFrame` (grades `_exTex` before the PB blit) · NDI `ndiTick`/Spout tick (grade the FBO tex, read from `_mgRT.fbo`) · UI `renderMasterGrade()` + `#insMaster`.
 - **State/data:** `state.seqGrade={exposure,contrast,saturation,temperature,tint, cgLift,cgGamma,cgGain, lut,lutMix, curves}` (per-sequence). Persisted: `saveActiveSeq`→`s.grade`, `loadSeqIntoState`→`state.seqGrade` (identity numeric defaults via `Object.assign`, extra keys ride along), `serMedia`→`grade`, restored by loadProject's `{...md}` spread. Master LUT paths reloaded by `preloadLUTs` (extended to scan seq grades).
 - **Key symbols:** `_MGFS` = same chain as FSW (numeric → LGG → curves → LUT; no mask/blur/glow; alpha preserved). `_MGu` uses the SAME field names as the `L` uniform struct, and `_masterClip={props:state.seqGrade}` is a stand-in clip, so `applyMasterGrade` reuses `bindClipLUT/Grade/Curve` (the R138 `L` refactor). `applyMasterGrade` is a no-op when `masterGradeOn()` is false (identity → zero cost). `renderMasterGrade` (built by `renderInspector`, always visible, independent of the `selClip`-bound clip color UI): `MASTER_PARAMS` sliders + `MASTER_WHEELS` (fresh handlers on `state.seqGrade`) + LUT row (reuses `loadLUT`/`_lutReg`).
@@ -1489,7 +1510,7 @@ Bootstrap constants (app.js): `HAS_WC` (~L1259) = WebCodecs + Mp4Muxer present; 
 
 ## NDI / Spout OUTPUT wiring (renderer)
 - **Purpose:** Broadcasts the clean fulldome master (square 1:1, no grid/overlays) at 2048 or 4096; composites into an offscreen FBO, reads pixels, sends with flipY.
-- **Location:** app.js · NDI `startNDI` (L1028), `ndiTick` (L1019), `ensureNdiFBO` (L1011), `stopNDI` (L1034), `ndiMenu` (L1035), `ndiAvailable` (L1010). Spout `startSpout` (L1064), `spoutTick` (L1055), `stopSpout` (L1070), `spoutMenu` (L1071), `spoutAvailable` (L1046). Buttons `#ndiBtn`/`#spoutBtn` wired L5615-5616 (hidden when addon absent).
+- **Location:** app.js · NDI `startNDI` (L1028), `ndiTick` (L1019), `ensureNdiFBO` (L1011), `stopNDI` (L1034), `ndiMenu` (L1035), `ndiAvailable` (L1010). Spout `startSpout` (L1064), `spoutTick` (L1055), `stopSpout` (L1070), `spoutMenu` (L1071), `spoutAvailable` (L1046). **[R148 · Rev1]** the standalone `#ndiBtn`/`#spoutBtn` buttons were removed — both are now entries of the **Output dropdown** (`#outputBtn`, ~L5770, alongside Full performance and Viewer window); `refreshOutputInd()` (~L5769) lights `#outputBtn.on` with a pulsing dot while either is broadcasting.
 - **State/data:** `_ndiOn,_ndiRes,_ndiFps,_ndiTimer,_ndiFBO,_ndiTex,_ndiBuf` (L1009); Spout equivalents (L1045).
 - **Key symbols:** ticks on `setInterval` at fps; `composite(playhead,res,true)` opaque surround; `DSP.ndi.send(buf,res,res,true)`.
 - **Invariants / gotchas:** always the dome master regardless of `state.view.mode` (saves/restores `_drawFlat`,`_compAspect`). 4096 forced to 30fps.
@@ -1553,7 +1574,8 @@ Bootstrap constants (app.js): `HAS_WC` (~L1259) = WebCodecs + Mp4Muxer present; 
 
 ## Folders (state.folders)
 - **Purpose:** Nested media folders (Adobe-like tree + grid navigation), inline create/rename, drag-to-file, per-folder color.
-- **Location:** app.js · tree render inside `renderMedia` (`drawFolder`, L1663); `#newFolderBtn` (L5528), `newFolderIn`, `renameFolder` (L5530)/`renameFolderInline`, `deleteFolder` (L5531), `moveFolder`, `showFolders` (L5527), `startFolderDrag`. `#groupSeg` toggle L5523.
+- **Location:** app.js · tree render inside `renderMedia` (`drawFolder`, L1663); `#newFolderBtn`, `newFolderIn`, `renameFolder`/`renameFolderInline`, `deleteFolder`, `moveFolder`, `showFolders`, `startFolderDrag`. `#groupSeg` toggle still wired.
+- **[R148 · Rev1]:** `#newFolderBtn` and `#groupSeg` are **no longer visible** — the design's Media panel has no "New folder" button and replaces group-by with the Sort dropdown. Both survive as hidden nodes so their wiring (context menu → New folder; `state.mediaGroupBy`) keeps working without `if(el)` guards everywhere.
 - **State/data:** `state.folders[]` (path strings, FSEP-joined), `state.folderColors{}`, `state.mediaFolder`, `state.selFolder`, `state.collapsedGroups`.
 - **Invariants / gotchas:** deleting a folder keeps its media (unfiled). Colors are edited inline in the context menu swatch row.
 - **Status:** ✅
@@ -1563,8 +1585,8 @@ Bootstrap constants (app.js): `HAS_WC` (~L1259) = WebCodecs + Mp4Muxer present; 
 - **Purpose:** Live text filter of the media panel (`#mediaSearch`, debounced 150ms).
 - **Location:** app.js L5500-5504; DOM: `#mediaSearch`, `#mediaSearchClr`.
 - **State/data:** `state.mediaQuery` (consumed in `renderMedia` L1632).
-- **Invariants / gotchas:** the filter existed in renderMedia before the input did (R92-T5 P1). Esc clears + blurs.
-- **Status:** ✅
+- **Invariants / gotchas:** the filter existed in renderMedia before the input did (R92-T5 P1). Esc clears + blurs. **[R148 · Rev1]** the visible search box was removed from the panel (design §2); `#mediaSearch` survives as a `display:none` input and `#mediaSearchClr` no longer exists (wiring is `if(sc)`-guarded, so nothing throws). ⚠️ **Consequence: the search is currently UNREACHABLE** — Ctrl+F (L5870) focuses a `display:none` input, which is a no-op. Pending decision: give it a real entry point (popover / overlay) or archive `state.mediaQuery` too.
+- **Status:** ⚠️ motor vivo, sin entrada de usuario
 - **Roadmap:** —
 
 ---
@@ -1666,7 +1688,7 @@ Bootstrap constants (app.js): `HAS_WC` (~L1259) = WebCodecs + Mp4Muxer present; 
 
 ## Top bar (title / format chip)
 - **Purpose:** Project title with dirty marker + mode prefix, and the clickable format chip (dims·fps·codec) that opens sequence settings.
-- **Location:** app.js · `projTitle()` (L4902), `updFmtChip()` (L5196). DOM: `#projTitle` (index.html L639), `#fmtChip` (L640, click→`openSeqSettings` L5617). Top-bar buttons `#newBtn/#openBtn/#saveBtn/#saveMenuBtn/#exportBtn/#helpBtn` (index.html L644-650).
+- **Location:** app.js · `projTitle()` (L4902), `updFmtChip()` (L5196). DOM: `#projTitle`, `#fmtChip` (click→`openSeqSettings`), `#helpBtn`. **[R148 · Rev1]** the loose top-bar buttons `#newBtn/#openBtn/#saveBtn/#saveMenuBtn/#exportBtn` were removed (design §1: they live in the File menu); their wiring is kept but blindado with `if($('#saveBtn'))`-style guards, so the keyboard shortcuts and the File menu keep working.
 - **Key symbols:** `projTitle` also pushes native title + `DSP.setUiState({dirty,lang})` for the close guard. `updFmtChip` shows `Room·`/coverage suffixes.
 - **Invariants / gotchas:** `fmtChip._codec` transiently overrides the codec suffix during the export dialog; restored on close.
 - **Status:** ✅
@@ -1699,14 +1721,14 @@ Bootstrap constants (app.js): `HAS_WC` (~L1259) = WebCodecs + Mp4Muxer present; 
 
 ## Perf mode (Full Performance)
 - **Purpose:** Viewer takes over the whole window (editor stays in DOM, covered); Esc exits.
-- **Location:** app.js · `setPerfMode(on)` (L5613), wiring L5614. DOM: `#perfBtn` (index.html L735), `#perfExit` (L745), `body.perfmode`.
+- **Location:** app.js · `setPerfMode(on)` (L5613). DOM: `#perfExit`, `body.perfmode`. **[R148 · Rev1]** `#perfBtn` removed — entered from the **Output** dropdown (`#outputBtn`).
 - **Invariants / gotchas:** `[V2]` done.
 - **Status:** ✅
 - **Roadmap:** —
 
 ## Viewer-only window (pop-out, follows editor 2D/3D)
 - **Purpose:** A movable/resizable second-screen output window that **mirrors the editor's mode** ([V1]): 3D dome (own independent orbit camera), 2D flat, or the 2D fisheye disc.
-- **Location:** app.js · `openViewerWindow()` (L961-982), `renderViewer(srcTex)` (L984), `closeViewerGL` (L983). Driven from the main render loop (L955). `#popoutBtn`→`openViewerWindow` (L5611). Main-process window handler `frameName==='domeViewer'` (main.js L65).
+- **Location:** app.js · `openViewerWindow()` (L961-982), `renderViewer(srcTex)` (L984), `closeViewerGL` (L983). Driven from the main render loop (L955). **[R148 · Rev1]** `#popoutBtn` removed — opened from the **Output** dropdown (`#outputBtn`). Main-process window handler `frameName==='domeViewer'` (main.js L65).
 - **State/data:** `_viewerWin`, `_viewerCtx`, `_viewerCam{yaw,pitch,dist,fov}`, `_viewerGrid`, offscreen FBO `_vFBO/_vTex/_vDepth`.
 - **Key symbols:** `window.open('about:blank','domeViewer',...)`; renders into an FBO (capped 1280), reads back, draws flipped (WebGL bottom-up). Own grid toggle button (only meaningful in 3D).
 - **Invariants / gotchas:** [V1] `renderViewer` branches on `_vDome3D=(view.mode==='3d' && !_drawFlat && !_roomWrap)` → dome via `P3`+`_viewerCam`, else a CLEAN 2D blit via `PB` (`pan=0,zoom=1` — no editor pan/zoom; flat = aspect-fit rect, dome-2D = centred fisheye disc). Room-3D falls to the flat strip (its 2D form) — replicating room-3D with an independent cam is out of scope. The 3D orbit camera stays independent of the main viewport; backgroundThrottling:false keeps it smooth while unfocused.

@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<style>
+@font-face{font-family:'Geist';font-style:normal;font-weight:400;font-display:swap;src:url('assets/fonts/geist-400.woff2') format('woff2');}
+@font-face{font-family:'Geist';font-style:normal;font-weight:500;font-display:swap;src:url('assets/fonts/geist-500.woff2') format('woff2');}
+@font-face{font-family:'Geist';font-style:normal;font-weight:600;font-display:swap;src:url('assets/fonts/geist-600.woff2') format('woff2');}
+html,body{margin:0;height:100%;overflow:hidden;}
+body{background:#111111;font-family:'Geist',system-ui,sans-serif;-webkit-font-smoothing:antialiased;user-select:none;}
+a{color:#B8B8B8;} a:hover{color:#E0E0E0;}
+::-webkit-scrollbar{width:9px;height:9px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-corner{background:transparent;}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.14);border-radius:2px;border:2px solid transparent;background-clip:padding-box;}
+::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,0.22);}
+[data-seqscroll]::-webkit-scrollbar{height:0;width:0;}
+[data-tlscroll]::-webkit-scrollbar{height:0;width:0;}
+</style>
+</helmet>
+<div style="display:flex;flex-direction:column;height:100vh;width:100vw;background:#111111;color:#E0E0E0;font-size:11px;letter-spacing:-0.003em;position:relative">
+
+  <!-- ===== TOP BAR (28px — mismo alto que todas las barras) ===== -->
+  <div style="height:28px;flex-shrink:0;display:flex;align-items:center;gap:8px;padding:0 8px;background:#1B1B1B;border-bottom:.5px solid rgba(255,255,255,0.09)">
+    <span style="width:6px;height:6px;border-radius:50%;background:#B8B8B8;flex-shrink:0"></span>
+    <div style="display:flex;align-items:center;gap:2px">
+      <button style="height:22px;padding:0 8px;border:none;border-radius:3px;background:transparent;color:#B8B8B8;font-family:inherit;font-size:11px;font-weight:500;cursor:pointer" style-hover="background:#303030;color:#E0E0E0">File</button>
+      <button style="height:22px;padding:0 8px;border:none;border-radius:3px;background:transparent;color:#B8B8B8;font-family:inherit;font-size:11px;font-weight:500;cursor:pointer" style-hover="background:#303030;color:#E0E0E0">Edit</button>
+      <button style="height:22px;padding:0 8px;border:none;border-radius:3px;background:transparent;color:#B8B8B8;font-family:inherit;font-size:11px;font-weight:500;cursor:pointer" style-hover="background:#303030;color:#E0E0E0">Window</button>
+    </div>
+    <div style="flex:1"></div>
+    <span style="font-size:11px;font-weight:600;letter-spacing:-0.008em;color:#B8B8B8;white-space:nowrap">Immersive Room 360 · Show 01</span>
+    <span style="font-size:11px;font-variant-numeric:tabular-nums;color:#6D6D6D;cursor:pointer" style-hover="color:#B8B8B8" title="Sequence settings">3840×1920 · 60p · equirect</span>
+    <button style="width:22px;height:22px;display:grid;place-items:center;border:none;border-radius:3px;background:transparent;color:#B8B8B8;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer" style-hover="background:#303030;color:#E0E0E0" title="All commands · F1">?</button>
+  </div>
+
+  <!-- ===== MID ROW ===== -->
+  <div style="flex:1;min-height:0;display:flex;background:#111111{{ tallMR }}">
+
+    <!-- MEDIA -->
+    <sc-if value="{{ mediaOpen }}" hint-placeholder-val="{{ true }}">
+    <aside style="width:{{ mediaW }}px;flex-shrink:0;display:flex;flex-direction:column;background:#1B1B1B;border-right:.5px solid rgba(255,255,255,0.09)" data-screen-label="Media panel">
+      <div style="height:28px;flex-shrink:0;display:flex;align-items:center;gap:8px;padding:0 8px;background:#111111;border-bottom:.5px solid rgba(0,0,0,0.45)">
+        <span style="color:#8C8C8C;display:flex"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3 7h6l2 2h10v9H3z"></path></svg></span>
+        <span style="font-size:11px;font-weight:600;letter-spacing:-0.008em;color:#B8B8B8">Media</span>
+        <span style="font-variant-numeric:tabular-nums;font-size:11px;font-weight:500;color:#8C8C8C;background:#1B1B1B;padding:1px 5px;border-radius:2px">{{ mediaCount }}</span>
+        <div style="flex:1"></div>
+        <div style="display:inline-flex;align-items:stretch;gap:2px;padding:2px;box-sizing:border-box;height:22px;background:#262626;border:.5px solid rgba(255,255,255,0.1);border-radius:3px;flex-shrink:0">
+          <button onClick="{{ setMvList }}" style="display:grid;place-items:center;height:16px;width:22px;border:none;border-radius:2px;cursor:pointer;{{ mvList }}" title="List view"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 6h14M5 12h14M5 18h14"></path></svg></button>
+          <button onClick="{{ setMvGrid }}" style="display:grid;place-items:center;height:16px;width:22px;border:none;border-radius:2px;cursor:pointer;{{ mvGrid }}" title="Grid view"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4" width="7" height="7" rx="1"></rect><rect x="13" y="4" width="7" height="7" rx="1"></rect><rect x="4" y="13" width="7" height="7" rx="1"></rect><rect x="13" y="13" width="7" height="7" rx="1"></rect></svg></button>
+        </div>
+        <button onClick="{{ onMediaHide }}" style="width:22px;height:22px;display:grid;place-items:center;border:none;border-radius:3px;background:transparent;color:#B8B8B8;cursor:pointer" style-hover="background:#303030;color:#E0E0E0" title="Hide panel"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M9 4v16"></path></svg></button>
+      </div>
+      <div style="height:28px;flex-shrink:0;display:flex;align-items:center;gap:8px;padding:0 8px;border-bottom:.5px solid rgba(255,255,255,0.05)">
+        <div style="display:inline-flex;align-items:stretch;gap:2px;padding:2px;box-sizing:border-box;height:22px;background:#262626;border:.5px solid rgba(255,255,255,0.1);border-radius:3px;flex-shrink:0">
+          <button onClick="{{ setFAll }}" style="display:grid;place-items:center;height:16px;padding:0 8px;font-family:inherit;font-size:10px;font-weight:600;border:none;border-radius:2px;cursor:pointer;{{ fAll }}" title="All">All</button>
+          <button onClick="{{ setFVid }}" style="display:grid;place-items:center;height:16px;padding:0 7px;border:none;border-radius:2px;cursor:pointer;{{ fVid }}" style-hover="color:#E0E0E0" title="Video"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="6" width="13" height="12" rx="2"></rect><path d="M16 10l5-3v10l-5-3z"></path></svg></button>
+          <button onClick="{{ setFImg }}" style="display:grid;place-items:center;height:16px;padding:0 7px;border:none;border-radius:2px;cursor:pointer;{{ fImg }}" style-hover="color:#E0E0E0" title="Image"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><circle cx="9" cy="10" r="2"></circle><path d="M3 17l5-4 4 3 3-2 6 5"></path></svg></button>
+          <button onClick="{{ setFAud }}" style="display:grid;place-items:center;height:16px;padding:0 7px;border:none;border-radius:2px;cursor:pointer;{{ fAud }}" style-hover="color:#E0E0E0" title="Audio"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9z"></path><path d="M16 8a5 5 0 0 1 0 8"></path></svg></button>
+        </div>
+        <div style="flex:1"></div>
+        <button onClick="{{ openSort }}" style="display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px;border-radius:3px;border:.5px solid rgba(255,255,255,0.09);background:#262626;color:#B8B8B8;font-family:inherit;font-size:10px;font-weight:600;cursor:pointer;flex-shrink:0" style-hover="background:#303030;color:#E0E0E0" title="Sort media"><span>{{ mediaSort }}</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v16M7 20l-3-3M7 4l3 3M13 7h8M13 12h5M13 17h2"></path></svg><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg></button>
+      </div>
+      <div style="height:28px;flex-shrink:0;display:flex;align-items:center;gap:4px;padding:0 8px;border-bottom:.5px solid rgba(255,255,255,0.05)">
+        <button style="display:inline-flex;align-items:center;gap:5px;height:16px;padding:0 7px;border-radius:3px;border:.5px solid rgba(255,255,255,0.2);background:#4A4A4A;color:#E0E0E0;font-family:inherit;font-size:10px;font-weight:600;cursor:pointer" style-hover="background:#565656;color:#FFFFFF" title="Import media"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg><span style="{{ createLbl }}">Import</span></button>
+        <button style="display:inline-flex;align-items:center;gap:5px;height:16px;padding:0 7px;border-radius:3px;border:.5px solid rgba(255,255,255,0.09);background:#262626;color:#B8B8B8;font-family:inherit;font-size:10px;font-weight:600;cursor:pointer" style-hover="background:#303030;color:#E0E0E0" title="Add text / title"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 6h14"></path><path d="M12 6v13"></path></svg><span style="{{ createLbl }}">Text</span></button>
+        <button style="display:inline-flex;align-items:center;gap:5px;height:16px;padding:0 7px;border-radius:3px;border:.5px solid rgba(255,255,255,0.09);background:#262626;color:#B8B8B8;font-family:inherit;font-size:10px;font-weight:600;cursor:pointer" style-hover="background:#303030;color:#E0E0E0" title="Add shape"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="7" width="16" height="10" rx="1.5"></rect></svg><span style="{{ createLbl }}">Shape</span></button>
+        <button style="display:inline-flex;align-items:center;gap:5px;height:16px;padding:0 7px;border-radius:3px;border:.5px solid rgba(255,255,255,0.09);background:#262626;color:#B8B8B8;font-family:inherit;font-size:10px;font-weight:600;cursor:pointer" style-hover="background:#303030;color:#E0E0E0" title="Create composition (ring / grid / random)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"></circle><circle cx="12" cy="4.5" r="1.6" fill="currentColor"></circle><circle cx="19.5" cy="12" r="1.6" fill="currentColor"></circle><circle cx="12" cy="19.5" r="1.6" fill="currentColor"></circle><circle cx="4.5" cy="12" r="1.6" fill="currentColor"></circle></svg><span style="{{ createLbl }}">Compose</span></button>
+        <button style="display:inline-flex;align-items:center;gap:5px;height:16px;padding:0 7px;border-radius:3px;border:.5px solid rgba(255,255,255,0.09);background:#262626;color:#B8B8B8;font-family:inherit;font-size:10px;font-weight:600;cursor:pointer" style-hover="background:#303030;color:#E0E0E0" title="Adjustment layer"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3l8 4.5-8 4.5-8-4.5z"></path><path d="M4 12l8 4.5 8-4.5"></path></svg><span style="{{ createLbl }}">Adjust</span></button>
+      </div>
+      <div style="flex:1;min-height:0;overflow-y:auto;padding:6px 6px 12px">
+        <sc-if value="{{ mediaList }}" hint-placeholder-val="{{ true }}">
+        <sc-for list="{{ folders }}" as="fo" hint-placeholder-count="3">
+          <div style="display:flex;align-items:center;gap:8px;padding:5px 7px;margin-bottom:1px;border-radius:3px;cursor:pointer" style-hover="background:rgba(255,255,255,0.04)">
+            <span style="color:#8C8C8C;display:flex;flex-shrink:0"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg></span>
+            <span style="color:#B8B8B8;display:flex;flex-shrink:0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3 7h6l2 2h10v9H3z"></path></svg></span>
+            <span style="flex:1;min-width:0;font-size:11px;font-weight:500;color:#E0E0E0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ fo.name }}</span>
+            <span style="font-variant-numeric:tabular-nums;font-size:10px;font-weight:500;color:#8C8C8C;background:#262626;padding:1px 5px;border-radius:2px">{{ fo.n }}</span>
+          </div>
+        </sc-for>
+        <sc-for list="{{ mediaItems }}" as="mi" hint-placeholder-count="5">
+          <div onClick="{{ mi.onSel }}" onContextMenu="{{ mi.onCtx }}" style="display:flex;align-items:center;gap:8px;padding:5px 7px;margin-bottom:1px;border-radius:3px;cursor:grab;{{ mi.rowSty }}" style-hover="background:rgba(255,255,255,0.04)">
+            <div style="width:50px;height:30px;flex-shrink:0;border-radius:2px;border:.5px solid rgba(255,255,255,0.09);background:#262626;display:grid;place-items:center;position:relative;overflow:hidden">
+              <span style="font-size:9px;font-weight:600;letter-spacing:0.08em;color:{{ mi.thumbColor }}">{{ mi.badge }}</span>
+            </div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:11px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#E0E0E0">{{ mi.name }}</div>
+              <div style="font-variant-numeric:tabular-nums;font-size:10px;color:#8C8C8C;text-transform:uppercase;letter-spacing:0.06em;margin-top:1px">{{ mi.meta }}</div>
+            </div>
+            <span style="width:7px;height:7px;border-radius:50%;flex-shrink:0;background:{{ mi.dot }}"></span>
+          </div>
+        </sc-for>
+        </sc-if>
+        <sc-if value="{{ mediaGridV }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          <sc-for list="{{ folders }}" as="fo" hint-placeholder-count="3">
+            <div style="width:calc(50% - 4px);padding:3px;border-radius:3px;cursor:pointer;box-sizing:border-box" style-hover="background:rgba(255,255,255,0.04)">
+              <div style="width:100%;aspect-ratio:16/10;border-radius:2px;border:.5px solid rgba(255,255,255,0.09);background:#222222;display:grid;place-items:center;color:#B8B8B8"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M3 7h6l2 2h10v9H3z"></path></svg></div>
+              <div style="display:flex;align-items:center;gap:5px;padding:4px 2px 1px">
+                <span style="flex:1;min-width:0;font-size:11px;font-weight:500;color:#E0E0E0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ fo.name }}</span>
+                <span style="font-variant-numeric:tabular-nums;font-size:10px;color:#8C8C8C">{{ fo.n }}</span>
+              </div>
+            </div>
+          </sc-for>
+          <sc-for list="{{ mediaItems }}" as="mi" hint-placeholder-count="6">
+            <div onClick="{{ mi.onSel }}" onContextMenu="{{ mi.onCtx }}" style="width:calc(50% - 4px);padding:3px;border-radius:3px;cursor:grab;box-sizing:border-box;{{ mi.rowSty }}" style-hover="background:rgba(255,255,255,0.04)">
+              <div style="width:100%;aspect-ratio:16/10;border-radius:2px;border:.5px solid rgba(255,255,255,0.09);background:#262626;display:grid;place-items:center;position:relative;overflow:hidden"><span style="font-size:12px;font-weight:600;letter-spacing:0.08em;color:{{ mi.thumbColor }}">{{ mi.badge }}</span></div>
+              <div style="display:flex;align-items:center;gap:5px;padding:4px 2px 1px">
+                <span style="width:6px;height:6px;border-radius:50%;flex-shrink:0;background:{{ mi.dot }}"></span>
+                <span style="flex:1;min-width:0;font-size:11px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#E0E0E0">{{ mi.name }}</span>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+        </sc-if>
+      </div>
+    </aside>
+    </sc-if>
+    <sc-if value="{{ mediaClosed }}" hint-placeholder-val="{{ false }}">
+      <button onClick="{{ onMediaShow }}" style="width:26px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:8px;padding:10px 0;background:#1B1B1B;border:none;border-right:.5px solid rgba(255,255,255,0.09);color:#8C8C8C;cursor:pointer;font-family:inherit" style-hover="color:#E0E0E0;background:#262626" title="Expand media panel">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M9 4v16"></path></svg>
+        <span style="writing-mode:vertical-rl;font-size:10px;font-weight:600;letter-spacing:0.1em">MEDIA</span>
+      </button>
+    </sc-if>
+    <sc-if value="{{ mediaOpen }}" hint-placeholder-val="{{ true }}"><div onPointerDown="{{ onGutL }}" style="width:5px;flex-shrink:0;cursor:col-resize;background:transparent;margin:0 -2.5px;z-index:8" style-hover="background:rgba(255,255,255,0.18)"></div></sc-if>
+
+    <!-- VIEWPORT -->
+    <main style="flex:1;min-width:0;display:flex;flex-direction:column;background:#111111;position:relative;overflow:hidden" data-screen-label="Viewport">
+      <div style="height:28px;flex-shrink:0;display:flex;align-items:center;gap:8px;padding:0 8px;background:#1B1B1B;border-bottom:.5px solid rgba(0,0,0,0.35);overflow:hidden">
+        <div style="display:inline-flex;align-items:stretch;gap:2px;padding:2px;box-sizing:border-box;height:22px;background:#262626;border:.5px solid rgba(255,255,255,0.1);border-radius:3px;flex-shrink:0">
+          <button onClick="{{ setV2d }}" style="display:inline-flex;align-items:center;gap:6px;height:16px;padding:0 10px;font-family:inherit;font-size:10px;font-weight:600;border:none;cursor:pointer;white-space:nowrap;{{ v2d }}" title="Canvas (2D)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M3 15l5-4 4 3 3-2 6 5"></path></svg><span style="{{ vmLbl }}">Canvas</span></button>
+          <button onClick="{{ setV3d }}" style="display:inline-flex;align-items:center;gap:6px;height:16px;padding:0 10px;font-family:inherit;font-size:10px;font-weight:600;border:none;border-radius:2px;cursor:pointer;white-space:nowrap;{{ v3d }}" title="3D room"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"></path><path d="M12 3v18M4 7.5l8 4.5 8-4.5"></path></svg><span style="{{ vmLbl }}">3D</span></button>
+        </div>
+        <sc-if value="{{ dispInline }}" hint-placeholder-val="{{ true }}">
+        <div style="width:.5px;height:16px;background:rgba(255,255,255,0.08);flex-shrink:0"></div>
+        <div style="display:inline-flex;align-items:stretch;gap:2px;padding:2px;box-sizing:border-box;height:22px;background:#262626;border:.5px solid rgba(255,255,255,0.1);border-radius:3px;flex-shrink:0">
+          <button onClick="{{ togGrid }}" style="display:inline-flex;align-items:center;justify-content:center;gap:5px;height:16px;padding:0 8px;border:none;cursor:pointer;font-family:inherit;font-size:10px;font-weight:600;{{ dGrid }}" title="Grid overlay"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M3 9h18M3 15h18M9 3v18M15 3v18"></path></svg><span style="{{ vpLbl }}">Grid</span></button>
+          <button onClick="{{ togOut }}" style="display:inline-flex;align-items:center;justify-content:center;gap:5px;height:16px;padding:0 8px;border:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:10px;font-weight:600;{{ dOut }}" title="Clip outlines"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg><span style="{{ vpLbl }}">Outline</span></button>
+          <button onClick="{{ togHor }}" style="display:inline-flex;align-items:center;justify-content:center;gap:5px;height:16px;padding:0 8px;border:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:10px;font-weight:600;{{ dHor }}" title="Fade content near the 360 seam"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" style="transform:translateY(2px)"><path d="M3.5 13a8.5 8.5 0 0 1 17 0"></path><path d="M2 13h20"></path></svg><span style="{{ vpLbl }}">Seam</span></button>
+          <button onClick="{{ togAlpha }}" style="display:inline-flex;align-items:center;justify-content:center;gap:5px;height:16px;padding:0 8px;border:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:10px;font-weight:600;{{ dAlpha }}" title="Checkerboard background (alpha)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M3 12h18M12 3v18"></path></svg><span style="{{ vpLbl }}">Alpha</span></button>
+        </div></sc-if>
+        <sc-if value="{{ qpInline }}" hint-placeholder-val="{{ true }}"><div style="width:.5px;height:16px;background:rgba(255,255,255,0.08);flex-shrink:0"></div>
+        <div style="display:inline-flex;align-items:stretch;gap:2px;padding:2px;box-sizing:border-box;height:22px;background:#262626;border:.5px solid rgba(255,255,255,0.1);border-radius:3px;flex-shrink:0" title="Preview quality">
+          <button onClick="{{ setQ1 }}" style="display:grid;place-items:center;height:16px;padding:0 9px;border:none;cursor:pointer;font-family:inherit;font-size:10px;font-weight:600;{{ q1 }}">Full</button>
+          <button onClick="{{ setQH }}" style="display:grid;place-items:center;height:16px;padding:0 9px;border:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:10px;font-weight:600;{{ qH }}">½</button>
+          <button onClick="{{ setQQ }}" style="display:grid;place-items:center;height:16px;padding:0 9px;border:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:10px;font-weight:600;{{ qQ }}">¼</button>
+        </div></sc-if>
+        <sc-if value="{{ is3d }}" hint-placeholder-val="{{ false }}"><div style="width:.5px;height:16px;background:rgba(255,255,255,0.08);flex-shrink:0"></div>
+        <div style="display:inline-flex;align-items:stretch;gap:2px;padding:2px;box-sizing:border-box;height:22px;background:#262626;border:.5px solid rgba(255,255,255,0.1);border-radius:3px;flex-shrink:0" title="3D view mode">
+          <button onClick="{{ setThreeOrbit }}" style="display:inline-flex;align-items:center;gap:5px;height:16px;padding:0 8px;border:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:10px;font-weight:600;{{ threeOrbit }}" title="Orbit the dome"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="12" rx="9" ry="4"></ellipse><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"></circle></svg>Orbit</button>
+          <button onClick="{{ setThreeSpec }}" style="display:inline-flex;align-items:center;gap:5px;height:16px;padding:0 8px;border:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:10px;font-weight:600;{{ threeSpec }}" title="Viewer — stand inside the dome"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"></path><circle cx="12" cy="12" r="2.5"></circle></svg>Viewer</button>
+        </div></sc-if>
+        <div style="flex:1;min-width:0"></div>
+        <sc-if value="{{ fovShow }}" hint-placeholder-val="{{ false }}"><div style="display:inline-flex;align-items:stretch;gap:2px;padding:2px;box-sizing:border-box;height:22px;background:#262626;border:.5px solid rgba(255,255,255,0.1);border-radius:3px;flex-shrink:0" title="Viewer camera">
+          <div style="display:inline-flex;align-items:center;gap:6px;height:16px;padding:0 8px;border-radius:2px">
+            <span style="font-size:10px;font-weight:600;letter-spacing:0.08em;color:#8C8C8C">FOV</span>
+            <div style="width:44px;height:3px;border-radius:2px;background:#111111;box-shadow:inset 0 1px 2px rgba(0,0,0,0.55);position:relative"><i style="position:absolute;left:0;top:0;bottom:0;width:33%;background:#B8B8B8;border-radius:2px"></i></div>
+            <span style="font-size:10px;font-weight:600;color:#E0E0E0;font-variant-numeric:tabular-nums;min-width:22px;text-align:right">60°</span>
+          </div>
+        </div></sc-if>
+        <div style="display:inline-flex;align-items:stretch;gap:2px;padding:2px;box-sizing:border-box;height:22px;background:#262626;border:.5px solid rgba(255,255,255,0.1);border-radius:3px;flex-shrink:0">
+          <button onClick="{{ togProxy }}" style="display:inline-flex;align-items:center;gap:5px;height:16px;padding:0 9px;border:none;cursor:pointer;font-family:inherit;font-size:10px;font-weight:600;{{ pOn }}" title="Viewport uses proxies (faster)"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M13 2L5 13h6l-1 9 9-12h-7z"></path></svg> Proxy</button>
+        </div>
+        <sc-if value="{{ swapSepOn }}" hint-placeholder-val="{{ true }}"><div style="width:.5px;height:16px;background:rgba(255,255,255,0.08);flex-shrink:0"></div></sc-if>
+        <div style="display:inline-flex;align-items:stretch;gap:2px;padding:2px;box-sizing:border-box;height:22px;background:#262626;border:.5px solid rgba(255,255,255,0.1);border-radius:3px;flex-shrink:0">
+          <button style="width:24px;display:grid;place-items:center;height:16px;border:none;border-radius:2px;background:transparent;color:#B8B8B8;cursor:pointer" style-hover="background:#303030;color:#E0E0E0" title="Zoom out"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M8 11h6M20 20l-3.5-3.5"></path></svg></button>
+          <button style="width:42px;display:grid;place-items:center;height:16px;border:none;border-radius:2px;background:transparent;color:#B8B8B8;cursor:pointer;font-family:inherit;font-size:10px;font-variant-numeric:tabular-nums" style-hover="background:#303030;color:#E0E0E0" title="Reset zoom">100%</button>
+          <button style="width:24px;display:grid;place-items:center;height:16px;border:none;border-radius:2px;background:transparent;color:#B8B8B8;cursor:pointer" style-hover="background:#303030;color:#E0E0E0" title="Zoom in"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M11 8v6M8 11h6M20 20l-3.5-3.5"></path></svg></button>
+        </div>
+        <sc-if value="{{ outOn }}" hint-placeholder-val="{{ true }}"><div style="width:.5px;height:16px;background:rgba(255,255,255,0.08);flex-shrink:0"></div>
+        <div style="display:inline-flex;align-items:stretch;gap:2px;padding:2px;box-sizing:border-box;height:22px;background:#262626;border:.5px solid rgba(255,255,255,0.1);border-radius:3px;flex-shrink:0">
+          <button onClick="{{ openOut }}" style="display:inline-flex;align-items:center;gap:5px;height:16px;padding:0 8px;border:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:10px;font-weight:600;{{ outSty }}" title="Output — Perform · Pop out · NDI · Spout"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"></circle><path d="M8.5 8.5a5 5 0 0 0 0 7"></path><path d="M15.5 8.5a5 5 0 0 1 0 7"></path><path d="M6 6a9 9 0 0 0 0 12"></path><path d="M18 6a9 9 0 0 1 0 12"></path></svg>Output<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg></button>
+        </div></sc-if>
+        <sc-if value="{{ moreBtnOn }}" hint-placeholder-val="{{ false }}"><button onClick="{{ togMore }}" style="width:28px;height:22px;display:grid;place-items:center;border:.5px solid rgba(255,255,255,0.1);border-radius:3px;flex-shrink:0;cursor:pointer;font-family:inherit;font-size:12px;font-weight:600;letter-spacing:1px;{{ moreSty }}" title="More viewport controls">…</button></sc-if>
+      </div>
+      <sc-if value="{{ outMenuOpen }}" hint-placeholder-val="{{ false }}">
+      </sc-if>
+      <sc-if value="{{ moreDrop }}" hint-placeholder-val="{{ false }}">
+      <div style="position:absolute;top:31px;right:8px;z-index:40;width:236px;display:flex;flex-direction:column;gap:10px;padding:10px;background:#1B1B1B;border:.5px solid rgba(255,255,255,0.14);border-radius:2px;box-shadow:0 12px 34px rgba(0,0,0,0.55)">
+        <sc-if value="{{ dispHidden }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;flex-direction:column;gap:5px">
+          <span style="font-size:10px;font-weight:600;letter-spacing:0.1em;color:#6D6D6D">OVERLAYS</span>
+          <div style="display:flex;flex-wrap:wrap;gap:4px">
+            <button onClick="{{ togGrid }}" style="height:22px;padding:0 9px;border:.5px solid rgba(255,255,255,0.1);border-radius:3px;cursor:pointer;font-family:inherit;font-size:10px;font-weight:600;{{ dGrid }}">Grid</button>
+            <button onClick="{{ togSafe }}" style="height:22px;padding:0 9px;border:.5px solid rgba(255,255,255,0.1);border-radius:3px;cursor:pointer;font-family:inherit;font-size:10px;font-weight:600;{{ dSafe }}">Safe</button>
+            <button onClick="{{ togOut }}" style="height:22px;padding:0 9px;border:.5px solid rgba(255,255,255,0.1);border-radius:3px;cursor:pointer;font-family:inherit;font-size:10px;font-weight:600;{{ dOut }}">Outline</button>
+            <button onClick="{{ togHor }}" style="height:22px;padding:0 9px;border:.5px solid rgba(255,255,255,0.1);border-radius:3px;cursor:pointer;font-family:inherit;font-size:10px;font-weight:600;{{ dHor }}">Horizon</button>
+            <button onClick="{{ togAlpha }}" style="height:22px;padding:0 9px;border:.5px solid rgba(255,255,255,0.1);border-radius:3px;cursor:pointer;font-family:inherit;font-size:10px;font-weight:600;{{ dAlpha }}">Alpha</button>
+          </div>
+        </div>
+        </sc-if>
+        <sc-if value="{{ qpHidden }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;flex-direction:column;gap:5px">
+          <span style="font-size:10px;font-weight:600;letter-spacing:0.1em;color:#6D6D6D">QUALITY</span>
+          <div style="display:flex;flex-wrap:wrap;gap:4px">
+            <button onClick="{{ setQ1 }}" style="height:22px;padding:0 9px;border:.5px solid rgba(255,255,255,0.1);border-radius:3px;cursor:pointer;font-family:inherit;font-size:10px;font-weight:600;{{ q1 }}">Full</button>
+            <button onClick="{{ setQH }}" style="height:22px;padding:0 9px;border:.5px solid rgba(255,255,255,0.1);border-radius:3px;cursor:pointer;font-family:inherit;font-size:10px;font-weight:600;{{ qH }}">½</button>
+            <button onClick="{{ setQQ }}" style="height:22px;padding:0 9px;border:.5px solid rgba(255,255,255,0.1);border-radius:3px;cursor:pointer;font-family:inherit;font-size:10px;font-weight:600;{{ qQ }}">¼</button>
+            <button onClick="{{ togProxy }}" style="height:22px;padding:0 9px;border:.5px solid rgba(255,255,255,0.1);border-radius:3px;cursor:pointer;font-family:inherit;font-size:10px;font-weight:600;{{ pOn }}">Proxy</button>
+          </div>
+        </div>
+        </sc-if>
+        <sc-if value="{{ outHidden }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;flex-direction:column;gap:5px">
+          <span style="font-size:10px;font-weight:600;letter-spacing:0.1em;color:#6D6D6D">OUTPUT</span>
+          <div style="display:flex;flex-wrap:wrap;gap:4px">
+            <button style="height:22px;padding:0 9px;border:.5px solid rgba(255,255,255,0.1);border-radius:3px;cursor:pointer;font-family:inherit;font-size:11px;font-weight:500;background:#262626;color:#B8B8B8" style-hover="background:#303030;color:#E0E0E0" title="Full performance — hide the editor (Esc to exit)">Perform</button>
+            <button style="height:22px;padding:0 9px;border:.5px solid rgba(255,255,255,0.1);border-radius:3px;cursor:pointer;font-family:inherit;font-size:11px;font-weight:500;background:#262626;color:#B8B8B8" style-hover="background:#303030;color:#E0E0E0" title="Viewer-only window">Pop out</button>
+            <button style="height:22px;padding:0 9px;border:.5px solid rgba(255,255,255,0.1);border-radius:3px;cursor:pointer;font-family:inherit;font-size:11px;font-weight:500;background:#262626;color:#B8B8B8" style-hover="background:#303030;color:#E0E0E0" title="NDI output">NDI</button>
+            <button style="height:22px;padding:0 9px;border:.5px solid rgba(255,255,255,0.1);border-radius:3px;cursor:pointer;font-family:inherit;font-size:11px;font-weight:500;background:#262626;color:#B8B8B8" style-hover="background:#303030;color:#E0E0E0" title="Spout output">Spout</button>
+          </div>
+        </div>
+        </sc-if>
+        <sc-if value="{{ azelHidden }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;align-items:center;gap:12px;padding-top:8px;border-top:.5px solid rgba(255,255,255,0.06)">
+          <span style="font-size:10px;font-weight:600;letter-spacing:0.08em;color:#8C8C8C;font-variant-numeric:tabular-nums">YAW <span style="color:#E0E0E0">0°</span></span>
+          <span style="font-size:10px;font-weight:600;letter-spacing:0.08em;color:#8C8C8C;font-variant-numeric:tabular-nums">PITCH <span style="color:#E0E0E0">0°</span></span>
+        </div>
+        </sc-if>
+      </div>
+      </sc-if>
+      <div style="flex:1;min-height:0;position:relative;overflow:hidden;background:#000000">
+        <svg viewBox="0 0 800 400" preserveAspectRatio="xMidYMid meet" style="position:absolute;inset:0;width:100%;height:100%">
+          <rect x="0.5" y="0.5" width="799" height="399" fill="#080808" stroke="rgba(255,255,255,0.11)" stroke-width="1"></rect>
+          <sc-if value="{{ gridOn }}" hint-placeholder-val="{{ true }}">
+          <g>
+            <path d="M100 0V400M200 0V400M300 0V400M400 0V400M500 0V400M600 0V400M700 0V400" stroke="rgba(255,255,255,0.05)" stroke-width="1"></path>
+            <path d="M0 100H800M0 300H800" stroke="rgba(255,255,255,0.05)" stroke-width="1"></path>
+            <path d="M0 200H800" stroke="rgba(255,255,255,0.11)" stroke-width="1"></path>
+            <text x="9" y="196" fill="#6D6D6D" font-size="11" letter-spacing="2" font-family="Geist,sans-serif">HORIZON</text>
+            <text x="400" y="16" text-anchor="middle" fill="#6D6D6D" font-size="11" letter-spacing="2" font-family="Geist,sans-serif">ZENITH</text>
+            <text x="400" y="392" text-anchor="middle" fill="#6D6D6D" font-size="11" letter-spacing="2" font-family="Geist,sans-serif">NADIR</text>
+            <text x="12" y="386" fill="#4A4A4A" font-size="10" letter-spacing="2" font-family="Geist,sans-serif">−180°</text>
+            <text x="788" y="386" text-anchor="end" fill="#4A4A4A" font-size="10" letter-spacing="2" font-family="Geist,sans-serif">+180°</text>
+          </g>
+          </sc-if>
+          <text x="400" y="150" text-anchor="middle" fill="#5A5A5A" font-size="30" letter-spacing="7" font-weight="500" font-family="Geist,sans-serif">IMMERSIVE</text>
+          <circle cx="250" cy="232" r="46" fill="#3E3E3E"></circle>
+          <path d="M470 178 A120 120 0 0 1 520 262" fill="none" stroke="#4A4A4A" stroke-width="16" stroke-linecap="round"></path>
+          <path d="M300 250 L470 240 L500 330 L280 340 Z" fill="#454545" stroke="#DDDDDD" stroke-width="1.5" stroke-dasharray="5 4"></path>
+          <sc-if value="{{ safeOn }}" hint-placeholder-val="{{ false }}"><rect x="40" y="40" width="720" height="320" fill="none" stroke="rgba(79,195,232,0.35)" stroke-width="1" stroke-dasharray="6 5"></rect></sc-if>
+        </svg>
+      </div>
+    </main>
+
+    <!-- INSPECTOR -->
+    <sc-if value="{{ inspOpen }}" hint-placeholder-val="{{ true }}"><div onPointerDown="{{ onGutR }}" style="width:5px;flex-shrink:0;cursor:col-resize;background:transparent;margin:0 -2.5px;z-index:8" style-hover="background:rgba(255,255,255,0.18)"></div></sc-if>
+    <sc-if value="{{ inspOpen }}" hint-placeholder-val="{{ true }}">
+    <aside style="width:{{ inspW }}px;flex-shrink:0;display:flex;flex-direction:column;background:#1B1B1B;border-left:.5px solid rgba(255,255,255,0.09){{ inspPos }}" data-screen-label="Inspector">
+      <div style="height:28px;flex-shrink:0;display:flex;align-items:center;gap:4px;padding:0 8px;background:#111111;border-bottom:.5px solid rgba(0,0,0,0.45)">
+        <div style="display:inline-flex;align-items:stretch;gap:2px;padding:2px;box-sizing:border-box;height:22px;background:#262626;border:.5px solid rgba(255,255,255,0.1);border-radius:3px">
+          <button onClick="{{ setTabInsp }}" style="display:inline-flex;align-items:center;gap:5px;height:16px;padding:0 8px;border:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:10px;font-weight:600;{{ tabInsp }}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M15 4v16"></path></svg>Inspector</button>
+          <button onClick="{{ setTabReact }}" style="display:inline-flex;align-items:center;gap:5px;height:16px;padding:0 8px;border:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:10px;font-weight:600;{{ tabReact }}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 17C7 17 8 7 12 7s5 10 9 10"></path></svg>Reactive FX</button>
+        </div>
+        <div style="flex:1"></div>
+        <button onClick="{{ togInspFull }}" style="width:22px;height:22px;display:grid;place-items:center;border:none;border-radius:3px;cursor:pointer;{{ inspFullS }}" style-hover="background:#303030;color:#E0E0E0" title="Barra a altura completa (encoge el timeline)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M14 4v16"></path></svg></button>
+        <button onClick="{{ onInspHide }}" style="width:22px;height:22px;display:grid;place-items:center;border:none;border-radius:3px;background:transparent;color:#B8B8B8;cursor:pointer" style-hover="background:#303030;color:#E0E0E0" title="Collapse panel"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M9 4v16"></path></svg></button>
+      </div>
+      <div style="flex:1;min-height:0;overflow-y:auto">
+        <sc-if value="{{ inspTabInsp }}" hint-placeholder-val="{{ true }}">
+        <div style="height:4px;width:100%;background:#8A8D5A;cursor:pointer" title="Clip / track color"></div>
+        <div style="display:flex;align-items:center;gap:12px;padding:10px 12px">
+          <div style="width:44px;height:28px;border-radius:2px;border:.5px solid rgba(255,255,255,0.14);background:#262626;display:grid;place-items:center"><span style="width:20px;height:14px;background:#4A4A4A;border-radius:1px"></span></div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:600;letter-spacing:-0.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#E0E0E0">Shape</div>
+            <div style="font-variant-numeric:tabular-nums;font-size:10px;letter-spacing:0.04em;color:#B8B8B8;margin-top:2px;text-transform:uppercase">Shape · 512×512 · V3</div>
+          </div>
+        </div>
+        <button onClick="{{ togTf }}" style="width:100%;display:flex;align-items:center;gap:6px;height:24px;padding:0 12px;border:none;background:transparent;cursor:pointer;font-family:inherit" style-hover="background:rgba(255,255,255,0.03)">
+          <span style="color:#6D6D6D;display:flex;{{ chTf }}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg></span>
+          <span style="font-size:11px;font-weight:600;letter-spacing:-0.005em;color:#E0E0E0">Transform</span>
+          <span style="flex:1;height:.5px;background:rgba(255,255,255,0.09)"></span>
+        </button>
+        <sc-if value="{{ tfOpen }}" hint-placeholder-val="{{ true }}">
+          <div style="padding-bottom:4px">
+            <sc-for list="{{ tfRows }}" as="r" hint-placeholder-count="5">
+              <div style="display:flex;align-items:center;gap:8px;padding:0 12px;min-height:24px;border-bottom:.5px solid rgba(255,255,255,0.04)">
+                <span style="width:60px;flex-shrink:0;font-size:11px;color:#B8B8B8">{{ r.lab }}</span>
+                <div style="flex:1;height:3px;border-radius:2px;background:#111111;box-shadow:inset 0 1px 2px rgba(0,0,0,0.55);position:relative;overflow:hidden;cursor:ew-resize"><i style="position:absolute;left:0;top:0;bottom:0;background:{{ r.c }};width:{{ r.pct }}%"></i></div>
+                <span style="min-width:46px;display:flex;justify-content:flex-end;align-items:baseline;gap:2px;height:16px;padding:0 5px;border-radius:2px;background:#111111;border:.5px solid rgba(255,255,255,0.06);cursor:ew-resize"><span style="font-variant-numeric:tabular-nums;font-size:11px;color:#E0E0E0">{{ r.val }}</span><span style="font-size:10px;color:#8C8C8C">{{ r.u }}</span></span>
+                <button style="width:20px;height:20px;flex-shrink:0;display:grid;place-items:center;border:none;background:transparent;cursor:pointer;color:#6D6D6D" style-hover="color:#E0E0E0" title="Keyframe"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="{{ r.c }}" stroke-width="1.8"><path d="M12 5l7 7-7 7-7-7z"></path></svg></button>
+              </div>
+            </sc-for>
+            <div style="padding:6px 12px"><button style="display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 9px;font-family:inherit;font-size:11px;font-weight:500;border-radius:3px;cursor:pointer;border:.5px solid rgba(255,255,255,0.09);background:#262626;color:#B8B8B8" style-hover="background:#303030;color:#E0E0E0"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 3v18"></path><path d="M8 7l-4 5 4 5"></path><path d="M16 7l4 5-4 5"></path></svg> Mirror</button></div>
+          </div>
+        </sc-if>
+        <button onClick="{{ togClipS }}" style="width:100%;display:flex;align-items:center;gap:6px;height:24px;padding:0 12px;border:none;background:transparent;cursor:pointer;font-family:inherit" style-hover="background:rgba(255,255,255,0.03)">
+          <span style="color:#6D6D6D;display:flex;{{ chClip }}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg></span>
+          <span style="font-size:11px;font-weight:600;letter-spacing:-0.005em;color:#E0E0E0">Clip</span>
+          <span style="flex:1;height:.5px;background:rgba(255,255,255,0.09)"></span>
+        </button>
+        <sc-if value="{{ clipSOpen }}" hint-placeholder-val="{{ false }}">
+          <div style="padding:2px 12px 8px;display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;align-items:center;gap:8px"><span style="width:60px;font-size:11px;color:#B8B8B8">Blend</span><select style="flex:1;height:20px;padding:0 7px;border-radius:3px;border:.5px solid rgba(255,255,255,0.15);background:#262626;color:#E0E0E0;font-family:inherit;font-size:11px"><option>Normal</option><option>Add</option><option>Screen</option><option>Multiply</option></select></div>
+            <div style="display:flex;align-items:center;gap:8px"><span style="width:60px;font-size:11px;color:#B8B8B8">Speed</span><span style="min-width:46px;display:inline-flex;justify-content:flex-end;align-items:baseline;gap:2px;height:16px;padding:0 5px;border-radius:2px;background:#111111;border:.5px solid rgba(255,255,255,0.06)"><span style="font-variant-numeric:tabular-nums;font-size:11px;color:#E0E0E0">100</span><span style="font-size:10px;color:#8C8C8C">%</span></span></div>
+          </div>
+        </sc-if>
+        <button onClick="{{ togSource }}" style="width:100%;display:flex;align-items:center;gap:6px;height:24px;padding:0 12px;border:none;background:transparent;cursor:pointer;font-family:inherit" style-hover="background:rgba(255,255,255,0.03)">
+          <span style="color:#6D6D6D;display:flex;{{ chSource }}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg></span>
+          <span style="font-size:11px;font-weight:600;letter-spacing:-0.005em;color:#E0E0E0">Source</span>
+          <span style="flex:1;height:.5px;background:rgba(255,255,255,0.09)"></span>
+        </button>
+        <sc-if value="{{ sourceOpen }}" hint-placeholder-val="{{ true }}">
+          <div style="padding:2px 12px 8px;display:flex;flex-direction:column;gap:7px">
+            <div style="display:flex;align-items:center;gap:8px"><span style="width:60px;flex-shrink:0;font-size:11px;color:#B8B8B8">Projection</span><button onClick="{{ openProj }}" style="flex:1;display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 7px;border-radius:3px;border:.5px solid rgba(255,255,255,0.15);background:#262626;color:#E0E0E0;font-family:inherit;font-size:11px;cursor:pointer" style-hover="background:#303030"><span style="flex:1;min-width:0;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ projLabel }}</span><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg></button></div>
+            <div style="display:flex;align-items:center;gap:8px;min-height:18px"><span style="width:60px;flex-shrink:0;font-size:11px;color:#B8B8B8">Mirror</span><span style="flex:1;font-size:11px;color:#8C8C8C">Flip horizontal</span><button onClick="{{ togMirror }}" style="width:26px;height:15px;border-radius:8px;border:none;cursor:pointer;position:relative;flex-shrink:0;{{ mirrorTrack }}"><span style="position:absolute;top:2px;width:11px;height:11px;border-radius:50%;background:#E0E0E0;transition:left .12s;{{ mirrorKnob }}"></span></button></div>
+            <div style="display:flex;align-items:center;gap:8px;min-height:18px"><span style="width:60px;flex-shrink:0;font-size:11px;color:#B8B8B8">Fisheye</span><span style="flex:1;font-size:11px;color:#8C8C8C">Warp flat → fisheye</span><button onClick="{{ togFisheye }}" style="width:26px;height:15px;border-radius:8px;border:none;cursor:pointer;position:relative;flex-shrink:0;{{ fishTrack }}"><span style="position:absolute;top:2px;width:11px;height:11px;border-radius:50%;background:#E0E0E0;transition:left .12s;{{ fishKnob }}"></span></button></div>
+            <sc-if value="{{ fisheyeOn }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:center;gap:8px"><span style="width:60px;flex-shrink:0;font-size:11px;color:#8C8C8C">Amount</span><div style="flex:1;height:3px;border-radius:2px;background:#111111;box-shadow:inset 0 1px 2px rgba(0,0,0,0.55);position:relative;overflow:hidden;cursor:ew-resize"><i style="position:absolute;left:0;top:0;bottom:0;background:#8C8C8C;width:{{ fisheyeAmt }}%"></i></div><span style="min-width:40px;display:flex;justify-content:flex-end;align-items:baseline;gap:2px;height:16px;padding:0 5px;border-radius:2px;background:#111111;border:.5px solid rgba(255,255,255,0.06)"><span style="font-variant-numeric:tabular-nums;font-size:11px;color:#E0E0E0">{{ fisheyeAmt }}</span><span style="font-size:10px;color:#8C8C8C">%</span></span></div>
+            </sc-if>
+            <sc-if value="{{ isEquirect }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:center;gap:8px"><span style="width:60px;flex-shrink:0;font-size:11px;color:#8C8C8C">Tilt</span><div style="flex:1;height:3px;border-radius:2px;background:#111111;box-shadow:inset 0 1px 2px rgba(0,0,0,0.55);position:relative;overflow:hidden;cursor:ew-resize"><i style="position:absolute;left:0;top:0;bottom:0;background:#8C8C8C;width:50%"></i></div><span style="min-width:40px;display:flex;justify-content:flex-end;align-items:baseline;gap:2px;height:16px;padding:0 5px;border-radius:2px;background:#111111;border:.5px solid rgba(255,255,255,0.06)"><span style="font-variant-numeric:tabular-nums;font-size:11px;color:#E0E0E0">{{ eqTilt }}</span><span style="font-size:10px;color:#8C8C8C">°</span></span></div>
+            </sc-if>
+          </div>
+        </sc-if>
+        <button onClick="{{ togPlayback }}" style="width:100%;display:flex;align-items:center;gap:6px;height:24px;padding:0 12px;border:none;background:transparent;cursor:pointer;font-family:inherit" style-hover="background:rgba(255,255,255,0.03)">
+          <span style="color:#6D6D6D;display:flex;{{ chPlayback }}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg></span>
+          <span style="font-size:11px;font-weight:600;letter-spacing:-0.005em;color:#E0E0E0">Playback</span>
+          <span style="flex:1;height:.5px;background:rgba(255,255,255,0.09)"></span>
+        </button>
+        <sc-if value="{{ playbackOpen }}" hint-placeholder-val="{{ true }}">
+          <div style="padding:2px 12px 8px;display:flex;flex-direction:column;gap:7px">
+            <div style="display:flex;align-items:center;gap:8px;min-height:18px"><span style="width:60px;flex-shrink:0;font-size:11px;color:#B8B8B8">Loop</span><span style="flex:1;font-size:11px;color:#8C8C8C">Extend to repeat</span><button onClick="{{ togLoop }}" style="width:26px;height:15px;border-radius:8px;border:none;cursor:pointer;position:relative;flex-shrink:0;{{ loopTrack }}"><span style="position:absolute;top:2px;width:11px;height:11px;border-radius:50%;background:#E0E0E0;transition:left .12s;{{ loopKnob }}"></span></button></div>
+            <sc-if value="{{ loopOn }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:center;gap:8px;min-height:18px"><span style="width:60px;flex-shrink:0;font-size:11px;color:#8C8C8C">Reverse</span><span style="flex:1;font-size:11px;color:#8C8C8C">Ping-pong (fwd → back)</span><button onClick="{{ togLoopRev }}" style="width:26px;height:15px;border-radius:8px;border:none;cursor:pointer;position:relative;flex-shrink:0;{{ revTrack }}"><span style="position:absolute;top:2px;width:11px;height:11px;border-radius:50%;background:#E0E0E0;transition:left .12s;{{ revKnob }}"></span></button></div>
+            </sc-if>
+            <div style="display:flex;align-items:center;gap:8px"><span style="width:60px;flex-shrink:0;font-size:11px;color:#B8B8B8">Speed</span><div style="flex:1;height:3px;border-radius:2px;background:#111111;box-shadow:inset 0 1px 2px rgba(0,0,0,0.55);position:relative;overflow:hidden;cursor:ew-resize"><i style="position:absolute;left:0;top:0;bottom:0;background:#8C8C8C;width:50%"></i></div><span style="min-width:46px;display:flex;justify-content:flex-end;align-items:baseline;gap:2px;height:16px;padding:0 5px;border-radius:2px;background:#111111;border:.5px solid rgba(255,255,255,0.06)"><span style="font-variant-numeric:tabular-nums;font-size:11px;color:#E0E0E0">100</span><span style="font-size:10px;color:#8C8C8C">%</span></span></div>
+          </div>
+        </sc-if>
+        <button onClick="{{ togColor }}" style="width:100%;display:flex;align-items:center;gap:6px;height:24px;padding:0 12px;border:none;background:transparent;cursor:pointer;font-family:inherit" style-hover="background:rgba(255,255,255,0.03)">
+          <span style="color:#6D6D6D;display:flex;{{ chColor }}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg></span>
+          <span style="font-size:11px;font-weight:600;letter-spacing:-0.005em;color:#E0E0E0">Color</span>
+          <span style="flex:1;height:.5px;background:rgba(255,255,255,0.09)"></span>
+        </button>
+        <sc-if value="{{ colorOpen }}" hint-placeholder-val="{{ true }}">
+          <div style="padding-bottom:8px">
+            <sc-for list="{{ colorRows }}" as="r" hint-placeholder-count="5">
+              <div style="display:flex;align-items:center;gap:8px;padding:0 12px;min-height:24px;border-bottom:.5px solid rgba(255,255,255,0.04)">
+                <span style="width:60px;flex-shrink:0;font-size:11px;color:#B8B8B8">{{ r.lab }}</span>
+                <div style="flex:1;height:3px;border-radius:2px;background:#111111;box-shadow:inset 0 1px 2px rgba(0,0,0,0.55);position:relative;overflow:hidden;cursor:ew-resize"><i style="position:absolute;left:0;top:0;bottom:0;background:{{ r.c }};width:{{ r.pct }}%"></i></div>
+                <span style="min-width:46px;display:flex;justify-content:flex-end;align-items:baseline;gap:2px;height:16px;padding:0 5px;border-radius:2px;background:#111111;border:.5px solid rgba(255,255,255,0.06);cursor:ew-resize"><span style="font-variant-numeric:tabular-nums;font-size:11px;color:#E0E0E0">{{ r.val }}</span><span style="font-size:10px;color:#8C8C8C">{{ r.u }}</span></span>
+                <button style="width:20px;height:20px;flex-shrink:0;display:grid;place-items:center;border:none;background:transparent;cursor:pointer;color:#6D6D6D" style-hover="color:#E0E0E0" title="Keyframe"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="{{ r.c }}" stroke-width="1.8"><path d="M12 5l7 7-7 7-7-7z"></path></svg></button>
+              </div>
+            </sc-for>
+            <div style="display:flex;gap:8px;justify-content:space-between;padding:10px 12px 4px">
+              <sc-for list="{{ colorWheels }}" as="w" hint-placeholder-count="3">
+              <div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1">
+                <div onPointerDown="{{ w.onDrag }}" style="position:relative;width:56px;height:56px;border-radius:50%;cursor:crosshair;border:.5px solid rgba(255,255,255,0.16);background:radial-gradient(circle at 50% 50%, rgba(122,126,132,0.92) 0%, rgba(122,126,132,0.22) 40%, transparent 68%), conic-gradient(from 0deg, #ff4d4d, #b64dff, #4d7bff, #4dffff, #4dff7b, #e8ff4d, #ff4d4d)">
+                  <span style="position:absolute;left:50%;top:50%;width:3px;height:3px;border-radius:50%;background:rgba(255,255,255,0.35);transform:translate(-50%,-50%);pointer-events:none"></span>
+                  <span style="position:absolute;left:50%;top:50%;width:10px;height:10px;border-radius:50%;background:#F5F5F5;border:1px solid rgba(0,0,0,0.55);box-shadow:0 1px 3px rgba(0,0,0,0.6);transform:translate(calc(-50% + {{ w.px }}px), calc(-50% + {{ w.py }}px));pointer-events:none"></span>
+                </div>
+                <span style="font-size:10px;letter-spacing:0.08em;color:#8C8C8C">{{ w.label }}</span>
+              </div>
+              </sc-for>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding:4px 12px">
+              <span style="width:60px;font-size:11px;color:#B8B8B8">LUT</span>
+              <button style="flex:1;height:20px;border-radius:3px;border:.5px solid rgba(255,255,255,0.09);background:#262626;color:#B8B8B8;font-family:inherit;font-size:11px;cursor:pointer" style-hover="background:#303030;color:#E0E0E0">Load…</button>
+              <button style="height:20px;padding:0 9px;border-radius:3px;border:.5px solid rgba(255,255,255,0.09);background:#262626;color:#B8B8B8;font-family:inherit;font-size:11px;cursor:pointer" style-hover="background:#303030;color:#E0E0E0">Reset</button>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px;padding:6px 12px 4px">
+              <button style="height:18px;padding:0 9px;font-family:inherit;font-size:10px;font-weight:600;border:.5px solid rgba(255,255,255,0.2);border-radius:3px;background:#4A4A4A;color:#E0E0E0;cursor:pointer">Luma</button>
+              <button style="height:18px;padding:0 9px;font-family:inherit;font-size:10px;font-weight:600;border:.5px solid rgba(255,255,255,0.12);border-radius:3px;background:#262626;color:#8C8C8C;cursor:pointer" style-hover="color:#E06A6A">R</button>
+              <button style="height:18px;padding:0 9px;font-family:inherit;font-size:10px;font-weight:600;border:.5px solid rgba(255,255,255,0.12);border-radius:3px;background:#262626;color:#8C8C8C;cursor:pointer" style-hover="color:#5FC77E">G</button>
+              <button style="height:18px;padding:0 9px;font-family:inherit;font-size:10px;font-weight:600;border:.5px solid rgba(255,255,255,0.12);border-radius:3px;background:#262626;color:#8C8C8C;cursor:pointer" style-hover="color:#5B8DEF">B</button>
+            </div>
+            <div style="padding:0 12px">
+              <svg viewBox="0 0 260 120" style="width:100%;height:120px;display:block;background:#111111;border:.5px solid rgba(255,255,255,0.12);border-radius:3px;cursor:crosshair">
+                <path d="M65 0V120M130 0V120M195 0V120M0 30H260M0 60H260M0 90H260" stroke="rgba(255,255,255,0.05)" stroke-width="1"></path>
+                <path d="M0 120L260 0" stroke="#FFFFFF" stroke-width="1.4" fill="none"></path>
+                <circle cx="0" cy="120" r="3" fill="#FFFFFF"></circle><circle cx="260" cy="0" r="3" fill="#FFFFFF"></circle>
+              </svg>
+            </div>
+          </div>
+        </sc-if>
+        <button onClick="{{ togMotion }}" style="width:100%;display:flex;align-items:center;gap:6px;height:24px;padding:0 12px;border:none;background:transparent;cursor:pointer;font-family:inherit" style-hover="background:rgba(255,255,255,0.03)">
+          <span style="color:#6D6D6D;display:flex;{{ chMotion }}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg></span>
+          <span style="font-size:11px;font-weight:600;letter-spacing:-0.005em;color:#E0E0E0">Motion</span>
+          <span style="flex:1;height:.5px;background:rgba(255,255,255,0.09)"></span>
+        </button>
+        <sc-if value="{{ motionOpen }}" hint-placeholder-val="{{ false }}">
+          <div style="padding:4px 12px 10px">
+            <div style="display:flex;flex-wrap:wrap;gap:4px;padding-bottom:8px">
+              <sc-for list="{{ motionPresets }}" as="p" hint-placeholder-count="8">
+                <button onClick="{{ p.onAdd }}" style="display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 8px;border-radius:3px;border:.5px solid rgba(255,255,255,0.1);background:#262626;color:#B8B8B8;font-family:inherit;font-size:10px;font-weight:600;cursor:pointer" style-hover="background:#303030;color:#E0E0E0" title="Add motion"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>{{ p.label }}</button>
+              </sc-for>
+            </div>
+            <sc-for list="{{ motionList }}" as="m" hint-placeholder-count="2">
+              <div style="margin-bottom:6px;border:.5px solid rgba(255,255,255,0.1);border-radius:3px;background:#111111;overflow:hidden">
+                <div style="display:flex;align-items:center;gap:6px;padding:4px 7px;background:#1B1B1B">
+                  <span style="color:#565C66;display:flex;cursor:grab"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="9" cy="6" r="1.4"></circle><circle cx="15" cy="6" r="1.4"></circle><circle cx="9" cy="12" r="1.4"></circle><circle cx="15" cy="12" r="1.4"></circle><circle cx="9" cy="18" r="1.4"></circle><circle cx="15" cy="18" r="1.4"></circle></svg></span>
+                  <span style="flex:1;min-width:0;font-size:11px;font-weight:600;color:#E0E0E0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ m.label }} <span style="color:#8C8C8C;font-weight:500">{{ m.param }}</span></span>
+                  <button onClick="{{ m.onMode }}" style="display:inline-flex;align-items:center;gap:4px;height:16px;padding:0 6px;border-radius:2px;border:.5px solid rgba(255,255,255,0.12);background:#262626;color:#B8B8B8;font-family:inherit;font-size:10px;font-weight:600;cursor:pointer" style-hover="background:#303030;color:#E0E0E0">{{ m.mode }}<svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg></button>
+                  <button onClick="{{ m.onRemove }}" style="width:16px;height:16px;display:grid;place-items:center;padding:0;border:none;border-radius:2px;background:transparent;color:#6D6D6D;cursor:pointer" style-hover="color:#E06C6C" title="Remove"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;padding:5px 8px">
+                  <span style="width:44px;flex-shrink:0;font-size:11px;color:#B8B8B8">Speed</span>
+                  <div style="flex:1;height:3px;border-radius:2px;background:#0A0A0A;box-shadow:inset 0 1px 2px rgba(0,0,0,0.55);position:relative;overflow:hidden;cursor:ew-resize"><i style="position:absolute;left:0;top:0;bottom:0;background:#8C8C8C;width:{{ m.speedPct }}%"></i></div>
+                  <span style="min-width:34px;display:flex;justify-content:flex-end;align-items:baseline;height:16px;padding:0 5px;border-radius:2px;background:#0A0A0A;border:.5px solid rgba(255,255,255,0.06)"><span style="font-variant-numeric:tabular-nums;font-size:11px;color:#E0E0E0">{{ m.speed }}</span></span>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+        </sc-if>
+        <sc-if value="{{ inspTabReact }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;align-items:center;gap:12px;padding:10px 12px">
+          <div style="width:44px;height:28px;border-radius:2px;border:.5px solid rgba(255,255,255,0.14);background:#262626;display:grid;place-items:center;color:#8C8C8C"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 17C7 17 8 7 12 7s5 10 9 10"></path></svg></div>
+          <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;letter-spacing:-0.01em;color:#E0E0E0">Reactive FX</div><div style="font-size:11px;color:#8C8C8C;margin-top:2px">Shape · audio-reactive chain</div></div>
+        </div>
+        <button onClick="{{ togRxAudio }}" style="width:100%;display:flex;align-items:center;gap:6px;height:24px;padding:0 12px;border:none;background:transparent;cursor:pointer;font-family:inherit" style-hover="background:rgba(255,255,255,0.03)">
+          <span style="color:#6D6D6D;display:flex;{{ chRxAudio }}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg></span>
+          <span style="font-size:11px;font-weight:600;letter-spacing:-0.005em;color:#E0E0E0">Audio Engine</span>
+          <span style="flex:1;height:.5px;background:rgba(255,255,255,0.09)"></span>
+        </button>
+        <sc-if value="{{ rxAudioOpen }}" hint-placeholder-val="{{ true }}">
+        <div style="padding:2px 12px 6px;display:flex;flex-direction:column;gap:6px">
+          <div style="display:flex;align-items:center;gap:8px"><span style="width:60px;flex-shrink:0;font-size:11px;color:#B8B8B8">Source</span><button onClick="{{ openSrc }}" style="flex:1;display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 7px;border-radius:3px;border:.5px solid rgba(255,255,255,0.15);background:#262626;color:#E0E0E0;font-family:inherit;font-size:11px;cursor:pointer" style-hover="background:#303030"><span style="flex:1;min-width:0;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ rxSource }}</span><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg></button></div>
+          <svg viewBox="0 0 120 62" preserveAspectRatio="none" style="width:100%;height:56px;display:block;border-radius:3px;background:#111111;border:.5px solid rgba(255,255,255,0.08)"><sc-for list="{{ arBands }}" as="b" hint-placeholder-count="12"><rect x="{{ b.x }}" y="{{ b.y }}" width="6" height="{{ b.h }}" rx="1" fill="#7FB2E8"></rect></sc-for></svg>
+          <sc-for list="{{ arRows }}" as="ar" hint-placeholder-count="4">
+            <div style="display:flex;align-items:center;gap:8px;min-height:20px">
+              <span style="width:60px;flex-shrink:0;font-size:11px;color:#B8B8B8">{{ ar.lab }}</span>
+              <div style="flex:1;height:3px;border-radius:2px;background:#111111;box-shadow:inset 0 1px 2px rgba(0,0,0,0.55);position:relative;overflow:hidden;cursor:ew-resize"><i style="position:absolute;left:0;top:0;bottom:0;background:#7FB2E8;width:{{ ar.pct }}%"></i></div>
+              <span style="min-width:46px;display:flex;justify-content:flex-end;align-items:baseline;gap:2px;height:16px;padding:0 5px;border-radius:2px;background:#111111;border:.5px solid rgba(255,255,255,0.06)"><span style="font-variant-numeric:tabular-nums;font-size:11px;color:#E0E0E0">{{ ar.val }}</span><span style="font-size:10px;color:#8C8C8C">{{ ar.u }}</span></span>
+            </div>
+          </sc-for>
+        </div>
+        </sc-if>
+        <button onClick="{{ togRxChain }}" style="width:100%;display:flex;align-items:center;gap:6px;height:24px;padding:0 12px;border:none;background:transparent;cursor:pointer;font-family:inherit" style-hover="background:rgba(255,255,255,0.03)">
+          <span style="color:#6D6D6D;display:flex;{{ chRxChain }}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg></span>
+          <span style="font-size:11px;font-weight:600;letter-spacing:-0.005em;color:#E0E0E0">Effects Chain</span>
+          <span style="flex:1;height:.5px;background:rgba(255,255,255,0.09)"></span>
+        </button>
+        <sc-if value="{{ rxChainOpen }}" hint-placeholder-val="{{ true }}">
+        <sc-for list="{{ fxCards }}" as="fc" hint-placeholder-count="2">
+          <div style="margin:4px 10px 6px;border:.5px solid rgba(255,255,255,0.1);border-radius:3px;background:#111111;overflow:hidden">
+            <div style="display:flex;align-items:center;gap:5px;padding:4px 6px;background:#1B1B1B">
+              <span style="color:#565C66;display:flex;cursor:grab"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="9" cy="6" r="1.4"></circle><circle cx="15" cy="6" r="1.4"></circle><circle cx="9" cy="12" r="1.4"></circle><circle cx="15" cy="12" r="1.4"></circle><circle cx="9" cy="18" r="1.4"></circle><circle cx="15" cy="18" r="1.4"></circle></svg></span>
+              <button style="width:16px;height:16px;display:grid;place-items:center;padding:0;border:none;border-radius:2px;background:transparent;color:#C9CDD3;cursor:pointer" title="Bypass"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 3v9"></path><path d="M6.5 7a8 8 0 1 0 11 0"></path></svg></button>
+              <span style="flex:1;min-width:0;font-size:11px;font-weight:600;color:#E0E0E0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ fc.name }}</span>
+              <span style="flex-shrink:0;font-size:10px;color:{{ fc.color }}">◆</span>
+              <i style="width:26px;height:4px;border-radius:2px;background:#262626;overflow:hidden;position:relative;flex-shrink:0"><b style="position:absolute;left:0;top:0;bottom:0;width:{{ fc.sig }}%;background:{{ fc.color }}"></b></i>
+              <button style="width:16px;height:16px;display:grid;place-items:center;padding:0;border:none;border-radius:2px;background:transparent;color:#6D6D6D;cursor:pointer"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg></button>
+              <button style="width:16px;height:16px;display:grid;place-items:center;padding:0;border:none;border-radius:2px;background:transparent;color:#6D6D6D;cursor:pointer" title="Remove"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 7h14M9 7V5h6v2M6 7l1 13h10l1-13"></path></svg></button>
+            </div>
+            <div style="padding:6px 0 4px">
+              <sc-for list="{{ fc.params }}" as="p" hint-placeholder-count="3">
+                <div style="display:flex;align-items:center;gap:8px;padding:0 10px;min-height:22px">
+                  <span style="width:60px;flex-shrink:0;font-size:11px;color:#B8B8B8">{{ p.lab }}</span>
+                  <div style="flex:1;height:3px;border-radius:2px;background:#0A0A0A;box-shadow:inset 0 1px 2px rgba(0,0,0,0.55);position:relative;overflow:hidden;cursor:ew-resize"><i style="position:absolute;left:0;top:0;bottom:0;background:{{ p.c }};width:{{ p.pct }}%"></i></div>
+                  <span style="min-width:44px;display:flex;justify-content:flex-end;align-items:baseline;gap:2px;height:16px;padding:0 5px;border-radius:2px;background:#0A0A0A;border:.5px solid rgba(255,255,255,0.06)"><span style="font-variant-numeric:tabular-nums;font-size:11px;color:#E0E0E0">{{ p.val }}</span><span style="font-size:10px;color:#8C8C8C">{{ p.u }}</span></span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-for>
+        </sc-if>
+        <div style="padding:6px 12px 4px"><button style="width:100%;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:24px;font-family:inherit;font-size:11px;font-weight:500;border-radius:3px;cursor:pointer;border:.5px solid rgba(255,255,255,0.2);background:#4A4A4A;color:#E0E0E0" style-hover="background:#565656;color:#FFFFFF"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg> Add Effect</button></div>
+        <div style="padding:0 12px 14px"><button style="width:100%;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:24px;font-family:inherit;font-size:11px;font-weight:500;border-radius:3px;cursor:pointer;border:.5px solid rgba(255,255,255,0.09);background:#262626;color:#B8B8B8" style-hover="background:#303030;color:#E0E0E0"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3l8 4.5-8 4.5-8-4.5z"></path><path d="M4 12l8 4.5 8-4.5"></path></svg> Add Adjustment Layer</button></div>
+        </sc-if>
+      </div>
+    </aside>
+    </sc-if>
+    <sc-if value="{{ inspClosed }}" hint-placeholder-val="{{ false }}">
+      <button onClick="{{ onInspShow }}" style="width:26px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:8px;padding:10px 0;background:#1B1B1B;border:none;border-radius:2px;color:#8C8C8C;cursor:pointer;font-family:inherit{{ railPos }}" style-hover="color:#E0E0E0;background:#262626" title="Expand inspector">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M15 4v16"></path></svg>
+        <span style="writing-mode:vertical-rl;font-size:10px;font-weight:600;letter-spacing:0.1em">INSPECTOR</span>
+      </button>
+    </sc-if>
+  </div>
+
+  <!-- ===== TRANSPORT (28px) ===== -->
+  <div style="height:28px;flex-shrink:0;display:flex;align-items:center;gap:8px;padding:0 8px;background:#242424;border-top:1px solid rgba(0,0,0,0.55);border-bottom:1px solid rgba(0,0,0,0.55);box-shadow:inset 0 1px 0 rgba(255,255,255,0.05){{ tallMR }}" data-screen-label="Transport">
+    <div style="flex:1;min-width:0;display:flex;align-items:center;gap:6px">
+      <div style="display:inline-flex;align-items:stretch;gap:2px;padding:2px;height:22px;box-sizing:border-box;background:#262626;border:.5px solid rgba(255,255,255,0.1);border-radius:3px;flex-shrink:0">
+        <span style="display:inline-flex;align-items:center;gap:6px;height:16px;padding:0 8px;border-radius:2px;background:#4A4A4A;color:#E0E0E0;font-size:11px;font-weight:500">Sequence 1</span>
+      </div>
+      <button style="width:22px;height:22px;display:grid;place-items:center;border:none;border-radius:3px;background:transparent;color:#8C8C8C;cursor:pointer;flex-shrink:0" style-hover="background:#262626;color:#E0E0E0" title="New sequence"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg></button>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;min-width:0">
+      <button style="width:22px;height:22px;display:grid;place-items:center;border:none;border-radius:3px;background:transparent;color:#B8B8B8;cursor:pointer" style-hover="background:#262626;color:#E0E0E0" title="Mark In · I"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 4H5v16h4"></path><path d="M15 5v14" stroke-width="2.6"></path></svg></button>
+      <button style="width:22px;height:22px;display:grid;place-items:center;border:none;border-radius:3px;background:transparent;color:#B8B8B8;cursor:pointer" style-hover="background:#262626;color:#E0E0E0" title="Go to start · Home"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M6 5v14M18 5l-9 7 9 7z"></path></svg></button>
+      <button onClick="{{ togPlay }}" style="width:30px;height:22px;display:grid;place-items:center;border:.5px solid rgba(255,255,255,0.12);border-radius:3px;background:#262626;color:#E0E0E0;cursor:pointer;margin:0 2px" style-hover="background:#303030" title="Play / Pause · Space">
+        <sc-if value="{{ notPlaying }}" hint-placeholder-val="{{ true }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M7 5l12 7-12 7z"></path></svg></sc-if>
+        <sc-if value="{{ playing }}" hint-placeholder-val="{{ false }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="7" y="5" width="3.5" height="14"></rect><rect x="13.5" y="5" width="3.5" height="14"></rect></svg></sc-if>
+      </button>
+      <button style="width:22px;height:22px;display:grid;place-items:center;border:none;border-radius:3px;background:transparent;color:#B8B8B8;cursor:pointer" style-hover="background:#262626;color:#E0E0E0" title="Go to end · End"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M18 5v14M6 5l9 7-9 7z"></path></svg></button>
+      <button style="width:22px;height:22px;display:grid;place-items:center;border:none;border-radius:3px;background:transparent;color:#B8B8B8;cursor:pointer" style-hover="background:#262626;color:#E0E0E0" title="Mark Out · O"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 4h4v16h-4"></path><path d="M9 5v14" stroke-width="2.6"></path></svg></button>
+      <div style="display:flex;align-items:center;justify-content:center;gap:8px;height:22px;padding:0 11px;border-radius:3px;background:#111111;border:.5px solid rgba(255,255,255,0.06);box-shadow:inset 0 1px 3px rgba(0,0,0,0.5)">
+        <span style="font-size:12.5px;font-weight:500;color:#E0E0E0;letter-spacing:0.02em;min-width:66px;text-align:center;font-variant-numeric:tabular-nums">{{ tc }}</span>
+        <span style="width:.5px;height:14px;background:rgba(255,255,255,0.08)"></span>
+        <span style="font-size:11px;color:#B8B8B8;min-width:58px;text-align:right;font-variant-numeric:tabular-nums">{{ frames }}</span>
+      </div>
+      <sc-if value="{{ tcSegOn }}" hint-placeholder-val="{{ true }}"><div style="display:inline-flex;gap:2px;padding:2px;height:22px;box-sizing:border-box;background:#262626;border:.5px solid rgba(255,255,255,0.1);border-radius:3px">
+        <button onClick="{{ setTcTC }}" style="height:16px;padding:0 8px;font-family:inherit;font-size:10px;font-weight:600;border:none;border-radius:2px;cursor:pointer;{{ tcTC }}">TC</button>
+        <button onClick="{{ setTcFR }}" style="height:16px;padding:0 8px;font-family:inherit;font-size:10px;font-weight:600;border:none;border-radius:2px;cursor:pointer;{{ tcFR }}">Frames</button>
+      </div></sc-if>
+      <sc-if value="{{ mkOn }}" hint-placeholder-val="{{ true }}"><button style="width:22px;height:22px;display:grid;place-items:center;border:none;border-radius:3px;background:transparent;color:#B8B8B8;cursor:pointer" style-hover="background:#262626;color:#E0E0E0" title="Loop selection · Ctrl+L"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9a8 8 0 0 1 13-3l3 3"></path><path d="M20 5v4h-4"></path><path d="M20 15a8 8 0 0 1-13 3l-3-3"></path><path d="M4 19v-4h4"></path></svg></button>
+      <button style="width:22px;height:22px;display:grid;place-items:center;border:none;border-radius:3px;background:transparent;color:#B8B8B8;cursor:pointer" style-hover="background:#262626;color:#E0E0E0" title="Add locator · L"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M6 3v18"></path><path d="M6 4h11l-2.5 3.5L17 11H6"></path></svg></button></sc-if>
+    </div>
+    <div style="flex:1;min-width:0;display:flex;align-items:center;justify-content:flex-end;gap:8px">
+    <div style="display:inline-flex;gap:2px;padding:2px;height:22px;box-sizing:border-box;background:#262626;border:.5px solid rgba(255,255,255,0.1);border-radius:3px;flex-shrink:0">
+      <button onClick="{{ togSimple }}" style="display:inline-flex;align-items:center;gap:5px;height:16px;padding:0 8px;border:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:10px;font-weight:600;{{ simpleS }}" title="Simple clips (Premiere-style grab)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="6" width="18" height="12" rx="2"></rect><path d="M3 10h18"></path></svg><span style="{{ editLbl }}">Simple</span></button>
+      <button onClick="{{ togCurves }}" style="display:inline-flex;align-items:center;gap:5px;height:16px;padding:0 8px;border:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:10px;font-weight:600;{{ curvesS }}" title="Show automation · A"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 17C7 17 8 7 12 7s5 10 9 10"></path></svg><span style="{{ editLbl }}">Auto</span></button>
+      <button onClick="{{ togTlGrid }}" style="display:inline-flex;align-items:center;gap:5px;height:16px;padding:0 8px;border:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:10px;font-weight:600;{{ tlGridS }}" title="Grid — show timeline grid lines"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M3 9h18M3 15h18M9 3v18M15 3v18"></path></svg><span style="{{ editLbl }}">Grid</span></button>
+      <button onClick="{{ fitAll }}" style="display:inline-flex;align-items:center;gap:5px;height:16px;padding:0 8px;border:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:10px;font-weight:600;background:transparent;color:#B8B8B8" style-hover="background:#4A4A4A;color:#E0E0E0" title="Fit all clips & tracks to the timeline view (H·W)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"></path></svg><span style="{{ editLbl }}">Fit</span></button>
+    </div>
+    <div style="display:inline-flex;align-items:stretch;gap:2px;padding:2px;box-sizing:border-box;height:22px;border:.5px solid rgba(255,255,255,0.09);border-radius:3px;background:#1B1B1B;flex-shrink:0">
+      <button style="width:24px;display:grid;place-items:center;height:16px;border:none;border-radius:2px;background:transparent;color:#B8B8B8;cursor:pointer" style-hover="background:#303030;color:#E0E0E0" title="Zoom out timeline"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M8 11h6M20 20l-3.5-3.5"></path></svg></button>
+      <button style="width:24px;display:grid;place-items:center;height:16px;border:none;border-radius:2px;background:transparent;color:#B8B8B8;cursor:pointer" style-hover="background:#303030;color:#E0E0E0" title="Zoom in timeline"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M11 8v6M8 11h6M20 20l-3.5-3.5"></path></svg></button>
+    </div>
+    </div>
+  </div>
+
+  <!-- ===== TIMELINE ===== -->
+  <div style="flex-shrink:0;height:{{ tlH }}px;display:flex;flex-direction:column;background:#111111;position:relative{{ tallMR }}" data-screen-label="Timeline">
+    <div onPointerDown="{{ onTlRes }}" style="position:absolute;top:-2px;left:0;right:0;height:5px;cursor:row-resize;background:transparent;z-index:9" style-hover="background:rgba(255,255,255,0.2)" title="Drag to resize the timeline"></div>
+    <div style="flex:1;min-height:0;display:flex;overflow:hidden;border-top:.5px solid rgba(255,255,255,0.07)">
+      <!-- tool rail -->
+      <div style="width:34px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 0;background:#1B1B1B;border-right:.5px solid rgba(0,0,0,0.4)">
+        <button onClick="{{ setToolSel }}" style="width:24px;height:24px;display:grid;place-items:center;border:none;border-radius:3px;cursor:pointer;{{ tSel }}" title="Select (V)"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M5 3l6 16 2.5-6L20 11z"></path></svg></button>
+        <button onClick="{{ setToolTrack }}" style="width:24px;height:24px;display:grid;place-items:center;border:none;border-radius:3px;cursor:pointer;{{ tTrack }}" title="Track Select Forward"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 6l6 6-6 6"></path></svg></button>
+        <button onClick="{{ setToolHand }}" style="width:24px;height:24px;display:grid;place-items:center;border:none;border-radius:3px;cursor:pointer;{{ tHand }}" title="Hand / Pan (H)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 11V6a1.5 1.5 0 0 1 3 0v4M11 10V5a1.5 1.5 0 0 1 3 0v5M14 10V6.5a1.5 1.5 0 0 1 3 0V13a7 7 0 0 1-7 7 6 6 0 0 1-5-3l-2.5-4a1.6 1.6 0 0 1 2.6-1.8L8 13"></path></svg></button>
+        <button onClick="{{ setToolTrim }}" style="width:24px;height:24px;display:grid;place-items:center;border:none;border-radius:3px;cursor:pointer;{{ tTrim }}" title="Trim (T)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 4v16M16 4v16"></path><path d="M3 12h4M17 12h4"></path></svg></button>
+        <button onClick="{{ setToolRazor }}" style="width:24px;height:24px;display:grid;place-items:center;border:none;border-radius:3px;cursor:pointer;{{ tRazor }}" title="Razor (B)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="7" cy="17" r="3"></circle><path d="M9 15L20 4"></path><path d="M11 13l3 3"></path></svg></button>
+        <button onClick="{{ setToolZoom }}" style="width:24px;height:24px;display:grid;place-items:center;border:none;border-radius:3px;cursor:pointer;{{ tZoom }}" title="Zoom (Z)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M11 8v6M8 11h6M20 20l-3.5-3.5"></path></svg></button>
+      </div>
+      <!-- track headers -->
+      <div style="width:{{ hdrW }}px;flex-shrink:0;display:flex;flex-direction:column;background:#1B1B1B;border-right:.5px solid rgba(0,0,0,0.4);overflow:hidden">
+        <div style="height:24px;flex-shrink:0;border-bottom:.5px solid rgba(0,0,0,0.4)"></div>
+        <div ref="{{ hdrRef }}" onScroll="{{ onHdrScroll }}" data-tlscroll="1" style="flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;scrollbar-width:none">
+        <sc-for list="{{ tracks }}" as="tr" hint-placeholder-count="4">
+          <div onContextMenu="{{ tr.onCtx }}" onPointerDown="{{ tr.onGrab }}" ref="{{ tr.hRef }}" style="position:relative;height:{{ tr.h }}px;flex-shrink:0;display:flex;flex-direction:column;justify-content:center;gap:6px;padding:4px 8px 4px 10px;border-bottom:.5px solid rgba(255,255,255,0.05);cursor:grab;box-sizing:border-box;overflow:hidden;{{ tr.dragSty }}" style-hover="background:rgba(255,255,255,0.03)">
+            <span style="position:absolute;left:0;top:0;bottom:0;width:3px;background:{{ tr.c }}"></span>
+            <div style="display:flex;align-items:center;gap:8px;min-width:0">
+              <span style="color:#6D6D6D;display:flex;flex-shrink:0"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg></span>
+              <span style="font-variant-numeric:tabular-nums;font-size:11px;font-weight:600;color:#8C8C8C;flex-shrink:0">{{ tr.tag }}</span>
+              <span style="flex:1;font-size:11px;font-weight:500;color:#B8B8B8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">{{ tr.name }}</span>
+              <button onClick="{{ tr.onM }}" style="width:20px;height:18px;display:grid;place-items:center;padding:0;line-height:1;border:.5px solid rgba(255,255,255,0.1);border-radius:3px;font-family:inherit;font-size:10px;font-weight:500;cursor:pointer;flex-shrink:0;{{ tr.mSty }}" title="Mute">M</button>
+            </div>
+            <sc-if value="{{ tr.tierEffects }}" hint-placeholder-val="{{ true }}"><sc-if value="{{ curvesOn }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:center;gap:6px;min-width:0">
+                <span onClick="{{ tr.onCat }}" data-nograb="1" style="display:inline-flex;align-items:center;gap:5px;flex:1;min-width:0;height:18px;padding:0 7px;border-radius:3px;cursor:pointer;font-size:10px;font-weight:600;background:#1B1B1B;border:.5px solid rgba(255,255,255,0.08);color:#B8B8B8" title="Effect type">
+                  <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ tr.catLabel }}</span>
+                  <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M6 9l6 6 6-6"></path></svg>
+                </span>
+                <span onClick="{{ tr.onParam }}" data-nograb="1" style="display:inline-flex;align-items:center;gap:5px;flex:1;min-width:0;height:18px;padding:0 7px;border-radius:3px;cursor:pointer;font-size:10px;font-weight:600;{{ tr.paramChipSty }}" title="Parameter">
+                  <span style="width:6px;height:6px;border-radius:1px;flex-shrink:0;background:{{ tr.paramColor }}"></span>
+                  <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ tr.paramLabel }}</span>
+                  <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M6 9l6 6 6-6"></path></svg>
+                </span>
+              </div>
+            </sc-if></sc-if>
+            <div onPointerDown="{{ tr.onResize }}" data-resize="1" style="position:absolute;left:0;right:0;bottom:-2px;height:5px;cursor:row-resize;z-index:6" style-hover="background:rgba(255,255,255,0.14)"></div>
+          </div>
+        </sc-for>
+        <div onClick="{{ togAud }}" onContextMenu="{{ audCtx }}" style="position:relative;height:{{ audH }}px;flex-shrink:0;display:flex;align-items:center;gap:8px;padding:0 7px 0 10px;border-bottom:.5px solid rgba(255,255,255,0.05);box-sizing:border-box;cursor:pointer" style-hover="background:rgba(255,255,255,0.03)">
+          <span style="position:absolute;left:0;top:0;bottom:0;width:3px;background:#5A8D7E"></span>
+          <span style="color:#6D6D6D;display:flex;flex-shrink:0;{{ audCh }}"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg></span>
+          <span style="font-variant-numeric:tabular-nums;font-size:11px;font-weight:600;color:#8C8C8C;flex-shrink:0">A1</span>
+          <span style="flex:1;font-size:11px;font-weight:500;color:#B8B8B8;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Audio 1</span>
+          <button onClick="{{ stop }}" style="width:20px;height:18px;display:grid;place-items:center;padding:0;line-height:1;border:.5px solid rgba(255,255,255,0.1);border-radius:3px;font-family:inherit;font-size:10px;font-weight:500;cursor:pointer;background:#262626;color:#6D6D6D;flex-shrink:0" style-hover="color:#E0E0E0" title="Mute">M</button>
+          <sc-if value="{{ audResizable }}" hint-placeholder-val="{{ true }}"><div onPointerDown="{{ onAudResize }}" onClick="{{ stop }}" style="position:absolute;left:0;right:0;top:-2px;height:5px;cursor:row-resize;z-index:6" style-hover="background:rgba(255,255,255,0.14)"></div></sc-if>
+        </div>
+      </div>
+      </div>
+      <!-- tracks -->
+      <div onClick="{{ rulerClick }}" onContextMenu="{{ timelineCtx }}" onWheel="{{ onWheelH }}" style="flex:1;min-width:0;position:relative;overflow:hidden;cursor:text">
+        <sc-if value="{{ tlGridOn }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;top:24px;left:0;right:0;bottom:0;pointer-events:none;z-index:1;background-image:repeating-linear-gradient(90deg,rgba(255,255,255,0.07) 0 1px,transparent 1px 80px)"></div></sc-if>
+        <div style="height:24px;background:#1B1B1B;border-bottom:.5px solid rgba(0,0,0,0.4);position:relative;overflow:hidden;background-image:repeating-linear-gradient(90deg,rgba(255,255,255,0.06) 0 1px,transparent 1px 16px);background-position:0 bottom;background-size:100% 6px;background-repeat:repeat-x">
+          <sc-for list="{{ ticks }}" as="tk" hint-placeholder-count="12">
+            <span style="position:absolute;left:{{ tk.x }}px;top:4px;font-size:10px;color:#8C8C8C;font-variant-numeric:tabular-nums;padding-left:4px;border-left:1px solid rgba(255,255,255,0.14)">{{ tk.t }}</span>
+          </sc-for>
+        </div>
+        <div ref="{{ laneRef }}" onScroll="{{ onLaneScroll }}" data-tlscroll="1" style="display:flex;flex-direction:column;height:calc(100% - 24px);overflow-y:auto;overflow-x:hidden;scrollbar-width:none">
+          <sc-for list="{{ tracks }}" as="tr" hint-placeholder-count="4">
+            <div ref="{{ tr.lRef }}" style="position:relative;height:{{ tr.h }}px;flex-shrink:0;border-bottom:.5px solid rgba(255,255,255,0.05);box-sizing:border-box;{{ tr.laneBg }}">
+              <sc-for list="{{ tr.clips }}" as="cl" hint-placeholder-count="1">
+                <div onClick="{{ cl.onSel }}" onContextMenu="{{ cl.onCtx }}" style="position:absolute;top:4px;bottom:5px;left:{{ cl.x }}px;width:{{ cl.w }}px;border-radius:2px;overflow:hidden;cursor:grab;background:rgba(0,0,0,0.3);box-sizing:border-box;{{ cl.sty }}">
+                  <div style="position:absolute;inset:0;background:{{ cl.fill }};opacity:0.30"></div>
+                  <sc-if value="{{ cl.isVideo }}" hint-placeholder-val="{{ true }}">
+                  <sc-if value="{{ normalView }}" hint-placeholder-val="{{ true }}">
+                  <div style="position:absolute;top:16px;left:0;width:56px;bottom:0;background:#0A0A0A;overflow:hidden;border-right:.5px solid rgba(0,0,0,0.45)">
+                    <div style="position:absolute;inset:0;display:grid;place-items:center;color:rgba(255,255,255,0.13)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"></rect><circle cx="8.5" cy="10" r="1.6"></circle><path d="M4 17l5-4 4 3 3-2 4 3"></path></svg></div>
+                  </div>
+                  <span style="position:absolute;top:5px;left:2px;width:6px;height:6px;border-radius:1px;background:rgba(255,255,255,0.35);z-index:6;cursor:ew-resize" title="Fade in — drag from the top corner"></span>
+                  <span style="position:absolute;top:5px;right:2px;width:6px;height:6px;border-radius:1px;background:rgba(255,255,255,0.35);z-index:6;cursor:ew-resize" title="Fade out — drag from the top corner"></span>
+                  </sc-if>
+                  <sc-if value="{{ curvesOn }}" hint-placeholder-val="{{ false }}">
+                  <div style="position:absolute;top:16px;left:0;right:0;bottom:0;z-index:2;pointer-events:none">
+                    <svg viewBox="0 0 100 40" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%"><line x1="0" y1="20" x2="100" y2="20" stroke="rgba(255,255,255,0.06)" stroke-width="1" vector-effect="non-scaling-stroke"></line><polygon points="0,30 25,12 50,22 75,6 100,18 100,40 0,40" fill="{{ tr.armedColor }}" fill-opacity="0.16"></polygon><polyline points="0,30 25,12 50,22 75,6 100,18" fill="none" stroke="{{ tr.armedColor }}" stroke-width="1.6" vector-effect="non-scaling-stroke"></polyline></svg>
+                    <span style="position:absolute;left:0%;top:75%;width:5px;height:5px;background:{{ tr.armedColor }};transform:translate(-50%,-50%) rotate(45deg);pointer-events:auto;cursor:context-menu" onContextMenu="{{ tr.kfCtx }}"></span>
+                    <span style="position:absolute;left:25%;top:30%;width:5px;height:5px;background:{{ tr.armedColor }};transform:translate(-50%,-50%) rotate(45deg);pointer-events:auto;cursor:context-menu" onContextMenu="{{ tr.kfCtx }}"></span>
+                    <span style="position:absolute;left:50%;top:55%;width:5px;height:5px;background:{{ tr.armedColor }};transform:translate(-50%,-50%) rotate(45deg);pointer-events:auto;cursor:context-menu" onContextMenu="{{ tr.kfCtx }}"></span>
+                    <span style="position:absolute;left:75%;top:15%;width:5px;height:5px;background:{{ tr.armedColor }};transform:translate(-50%,-50%) rotate(45deg);pointer-events:auto;cursor:context-menu" onContextMenu="{{ tr.kfCtx }}"></span>
+                    <span style="position:absolute;left:100%;top:45%;width:5px;height:5px;background:{{ tr.armedColor }};transform:translate(-50%,-50%) rotate(45deg);pointer-events:auto;cursor:context-menu" onContextMenu="{{ tr.kfCtx }}"></span>
+                  </div>
+                  </sc-if>
+                  </sc-if>
+                  <sc-if value="{{ cl.wave }}" hint-placeholder-val="{{ false }}">
+                  <svg viewBox="0 0 512 22" preserveAspectRatio="none" style="position:absolute;left:0;right:0;top:16px;bottom:2px;width:100%;height:auto;z-index:2;pointer-events:none"><path d="M0 11 L16 5 32 15 48 8 64 16 80 4 96 14 112 7 128 17 144 6 160 13 176 5 192 15 208 9 224 16 240 4 256 12 272 6 288 16 304 8 320 14 336 5 352 15 368 7 384 13 400 6 416 16 432 9 448 14 464 5 480 12 496 8 512 11" fill="none" stroke="{{ cl.c }}" stroke-width="1"></path></svg>
+                  </sc-if>
+                  <div style="position:absolute;left:0;right:0;top:0;height:16px;line-height:16px;padding:0 7px;font-size:11px;font-weight:600;color:#E0E0E0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:#262626;border-bottom:.5px solid rgba(0,0,0,0.25);z-index:4">{{ cl.name }} <sc-if value="{{ cl.isVideo }}" hint-placeholder-val="{{ true }}"><sc-if value="{{ proxyOn }}" hint-placeholder-val="{{ true }}"><span style="color:#8C8C8C;font-weight:500">Proxy</span></sc-if></sc-if></div>
+                  <span style="position:absolute;left:0;top:0;bottom:0;width:3px;background:{{ cl.c }}"></span>
+                </div>
+              </sc-for>
+            </div>
+          </sc-for>
+        </div>
+        <div style="position:absolute;top:16px;bottom:0;left:{{ phPx }}px;width:2px;background:#E0E0E0;z-index:6;pointer-events:none"></div>
+        <div style="position:absolute;top:15px;left:{{ phPx }}px;width:11px;height:9px;background:#E0E0E0;transform:translateX(-4.5px);z-index:6;pointer-events:none;clip-path:polygon(0 0,100% 0,100% 55%,50% 100%,0 55%);border-radius:1px 1px 0 0"></div>
+      </div>
+      <div style="width:12px;flex-shrink:0;background:#111111;position:relative;border-left:.5px solid rgba(0,0,0,0.4)">
+        <div style="position:absolute;left:3.5px;top:27px;bottom:6px;width:5px;background:#161616;border-radius:2px">
+          <div style="position:absolute;left:0;top:6%;height:46%;width:5px;background:rgba(255,255,255,0.10);border-radius:2px;cursor:grab" style-hover="background:rgba(255,255,255,0.18)" onPointerDown="{{ onVZoom }}" title="Drag to zoom track height">
+            <span style="position:absolute;left:50%;top:-1px;width:7px;height:7px;transform:translateX(-50%);border-radius:50%;background:rgba(184,184,184,0.7);cursor:ns-resize" style-hover="background:#E0E0E0"></span>
+            <span style="position:absolute;left:50%;bottom:-1px;width:7px;height:7px;transform:translateX(-50%);border-radius:50%;background:rgba(184,184,184,0.7);cursor:ns-resize" style-hover="background:#E0E0E0"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- zoom scrollbar -->
+    <div style="height:12px;flex-shrink:0;background:#111111;position:relative;border-top:.5px solid rgba(0,0,0,0.4)">
+      <div style="position:absolute;top:3.5px;left:186px;right:8px;height:5px;background:#161616;border-radius:2px">
+        <div style="position:absolute;top:0;left:6%;width:46%;height:5px;background:rgba(255,255,255,0.10);border-radius:2px;cursor:grab" style-hover="background:rgba(255,255,255,0.18)">
+          <span style="position:absolute;top:50%;left:-1px;width:7px;height:7px;transform:translateY(-50%);border-radius:50%;background:rgba(184,184,184,0.7);cursor:ew-resize" style-hover="background:#E0E0E0"></span>
+          <span style="position:absolute;top:50%;right:-1px;width:7px;height:7px;transform:translateY(-50%);border-radius:50%;background:rgba(184,184,184,0.7);cursor:ew-resize" style-hover="background:#E0E0E0"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== STATUS (22px) ===== -->
+  <div style="height:22px;flex-shrink:0;display:flex;align-items:center;gap:12px;padding:0 10px;background:#1B1B1B;border-top:.5px solid rgba(255,255,255,0.07);font-size:10.5px;color:#8C8C8C" data-screen-label="Status bar">
+    <span>Ready</span>
+    <span style="color:#6D6D6D">Select (V) — click a clip to select · drag its title to move</span>
+    <div style="flex:1"></div>
+    <span style="font-variant-numeric:tabular-nums;color:#8C8C8C">CPU 2% · RAM 410 MB · GPU 8%</span>
+    <span>1 clip selected</span>
+    <span style="color:#8C8C8C">WebGL · WebCodecs</span>
+  </div>
+
+  <!-- ===== LEGEND (revisión) ===== -->
+  <sc-if value="{{ annOn }}" hint-placeholder-val="{{ true }}">
+    <div style="position:fixed;right:14px;bottom:56px;width:330px;max-height:46vh;overflow-y:auto;background:#1B1B1B;border:.5px solid rgba(255,255,255,0.16);border-radius:4px;box-shadow:0 8px 26px rgba(0,0,0,0.6);z-index:60" data-screen-label="Notas de revisión">
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:.5px solid rgba(255,255,255,0.08)">
+        <span style="width:7px;height:7px;border-radius:50%;background:#4FC3E8"></span>
+        <span style="font-size:11px;font-weight:600;color:#E0E0E0">Rev 1 — arreglos de diagramación</span>
+        <div style="flex:1"></div>
+        <button onClick="{{ closeAnn }}" style="width:18px;height:18px;display:grid;place-items:center;border:none;background:transparent;color:#8C8C8C;cursor:pointer;font-family:inherit" style-hover="color:#E0E0E0">✕</button>
+      </div>
+      <sc-for list="{{ fixes }}" as="fx" hint-placeholder-count="8">
+        <div style="display:flex;gap:8px;padding:7px 10px;border-bottom:.5px solid rgba(255,255,255,0.05)">
+          <span style="width:16px;height:16px;flex-shrink:0;display:grid;place-items:center;border-radius:50%;background:rgba(79,195,232,0.15);color:#4FC3E8;font-size:10px;font-weight:600">{{ fx.n }}</span>
+          <div style="min-width:0"><div style="font-size:11px;font-weight:600;color:#E0E0E0">{{ fx.zone }}</div><div style="font-size:10.5px;line-height:1.45;color:#B8B8B8;margin-top:1px">{{ fx.txt }}</div></div>
+        </div>
+      </sc-for>
+      <div style="padding:7px 10px;font-size:10px;color:#6D6D6D">Se puede ocultar esta tarjeta desde Tweaks.</div>
+    </div>
+  </sc-if>
+  <sc-if value="{{ menuOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeMenu }}" onContextMenu="{{ closeMenu }}" style="position:fixed;inset:0;z-index:90"></div>
+    <div style="position:fixed;left:{{ menuX }}px;top:{{ menuY }}px;z-index:91;min-width:184px;padding:4px;background:#1B1B1B;border:.5px solid rgba(255,255,255,0.14);border-radius:2px;box-shadow:0 12px 34px rgba(0,0,0,0.55)">
+      <sc-for list="{{ menuItems }}" as="mi" hint-placeholder-count="4">
+        <sc-if value="{{ mi.sep }}" hint-placeholder-val="{{ false }}"><div style="height:.5px;background:rgba(255,255,255,0.08);margin:4px 2px"></div></sc-if>
+        <sc-if value="{{ mi.isItem }}" hint-placeholder-val="{{ true }}">
+        <button onClick="{{ mi.onClick }}" style="display:flex;align-items:center;gap:9px;width:100%;text-align:left;height:26px;padding:0 9px;border:none;border-radius:2px;background:transparent;color:{{ mi.color }};cursor:pointer;font-family:inherit;font-size:11px" style-hover="background:#303030">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;{{ mi.icoDisp }}"><path d="{{ mi.iconPath }}"></path></svg>
+          <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ mi.label }}</span>
+          <span style="color:#6D6D6D;font-size:11px;font-variant-numeric:tabular-nums;{{ mi.keyDisp }}">{{ mi.keyLabel }}</span>
+        </button>
+        </sc-if>
+      </sc-for>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;annotations&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Revisión&quot;},&quot;vpLabels&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;icons&quot;,&quot;labels&quot;],&quot;default&quot;:&quot;icons&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Revisión&quot;},&quot;trackHdrW&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;min&quot;:152,&quot;max&quot;:240,&quot;step&quot;:4,&quot;default&quot;:168,&quot;unit&quot;:&quot;px&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Timeline&quot;}}">
+class Component extends DCLogic {
+  hdrCol = React.createRef(); laneCol = React.createRef();
+  rowRefs = {};
+  flipBefore(){ this._flipPrev={}; for(const k in this.rowRefs){ const el=this.rowRefs[k]; if(el)this._flipPrev[k]=el.getBoundingClientRect().top; } this._doFlip=true; }
+  componentDidUpdate(){ if(!this._doFlip)return; this._doFlip=false; const prev=this._flipPrev||{}; for(const k in this.rowRefs){ const el=this.rowRefs[k]; if(!el||prev[k]==null)continue; const dy=prev[k]-el.getBoundingClientRect().top; if(dy){ el.style.transition='none'; el.style.transform='translateY('+dy+'px)'; requestAnimationFrame(()=>{ el.style.transition='transform .2s cubic-bezier(.2,.7,.3,1)'; el.style.transform=''; }); } } }
+  state = { mediaOpen:true, inspOpen:true, inspTab:'insp', tool:'select', view:'2d',
+    disp:{grid:true,safe:false,outline:false,horizon:false,alpha:false},
+    q:'1', proxy:true, tcm:'tc', snap:true, simple:true, curves:false, tlGrid:false, playing:false,
+    three:'orbit',
+    mediaW:288, inspW:304, tlH:300, mediaGrid:false, trackH:{v4:57,v3:57,v2:57,v1:57,a1:44}, cat:{v4:'Clip',v3:'Clip',v2:'Clip',v1:'Clip'}, armed:{v4:'opacity',v3:'opacity',v2:'opacity',v1:'opacity'}, phX:352, selClip:'v3c', selMedia:'m4', seqs:['Sequence 1','Sequence 2','Sequence 3','Sequence 4','Sequence 5'], seqActive:0,
+    muted:{}, solo:{}, audCol:false, audioH:44, tlZoom:1, trackOrder:['v4','v3','v2','v1','a1'], dragId:null, menu:null, rxSource:'Ambient.wav', mediaFilter:'all', mediaSort:'Name', clipSrc:{proj:'Equirect',mirror:false,fisheye:false,fisheyeAmt:60,eqTilt:0,loop:false,loopRev:false}, motions:[{id:1,key:'orbit',label:'Orbit',param:'Azimuth',mode:'Loop',speed:24},{id:2,key:'pulse',label:'Pulse',param:'Size',mode:'Wave',speed:40}], wheels:{lift:{x:0,y:0},gamma:{x:0,y:0},gain:{x:0,y:0}}, secs:{master:false,tf:true,clip:false,source:true,playback:true,color:true,motion:false,rxAudio:true,rxChain:true}, annClosed:false, winW:(typeof window!=='undefined'?window.innerWidth:1440), moreOpen:false, cam:'orbit', inspFull:false, outMenu:false };
+  dragAxis(key, dir, min, max, vertical){
+    return (e)=>{ e.preventDefault();
+      const s0 = vertical ? e.clientY : e.clientX, w0 = this.state[key];
+      document.body.style.cursor = vertical ? 'row-resize' : 'col-resize'; document.body.style.userSelect='none';
+      const mv = (ev)=>{ const d = (vertical ? ev.clientY : ev.clientX) - s0;
+        this.setState({[key]: Math.max(min, Math.min(max, w0 + dir*d))}); };
+      const up = ()=>{ document.body.style.cursor=''; document.body.style.userSelect=''; window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up); };
+      window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); };
+  }
+  componentDidMount(){ this._onR=()=>this.setState({winW:window.innerWidth}); window.addEventListener('resize',this._onR); }
+  componentWillUnmount(){ window.removeEventListener('resize',this._onR); }
+  renderVals(){
+    const S = this.state;
+    const on = (b)=> b ? 'background:#4A4A4A;color:#E0E0E0' : 'background:transparent;color:#B8B8B8';
+    const onDim = (b)=> b ? 'background:#4A4A4A;color:#E0E0E0' : 'background:transparent;color:#8C8C8C';
+    const set = (o)=>()=>this.setState(o);
+    const openMenu=(x,y,items)=>{ const W=(typeof window!=='undefined'?window.innerWidth:1440), H=(typeof window!=='undefined'?window.innerHeight:900); const est=Math.min(items.length,16)*27+10; this.setState({menu:{x:Math.max(6,Math.min(x,W-196)), y:Math.max(6,Math.min(y,H-est-6)), items}}); };
+    const closeMenu=()=>this.setState({menu:null});
+    const mkItems=(defs)=>defs.map(d=> d==='sep' ? {sep:true,isItem:false} : ({ sep:false, isItem:true, label:d.label, keyLabel:d.key||'', keyDisp:d.key?'':'display:none', iconPath:d.ico||'M0 0', icoDisp:d.ico?'':'display:none', color:d.danger?'#E06C6C':(d.on?'#E0E0E0':'#B8B8B8'), onClick:(e)=>{ if(e&&e.stopPropagation)e.stopPropagation(); this.setState({menu:null}); if(d.fn)d.fn(); } }));
+    const ddOpen=(items)=>(e)=>{ e.preventDefault(); e.stopPropagation(); const r=e.currentTarget.getBoundingClientRect(); openMenu(r.left, r.bottom+4, mkItems(typeof items==='function'?items():items)); };
+    const ctxOpen=(items)=>(e)=>{ e.preventDefault(); e.stopPropagation(); openMenu(e.clientX, e.clientY, mkItems(typeof items==='function'?items():items)); };
+    const noop=()=>{};
+    const outItems=[{label:'Perform',ico:'M3 5h18v12H3Z M9 20h6 M12 17v3',fn:noop},{label:'Pop out',ico:'M13 4h7v7 M20 4l-9 9 M5 8v11h11v-6',fn:noop},{label:'NDI',ico:'M4 12a8 8 0 0 1 16 0 M7.5 12a4.5 4.5 0 0 1 9 0',fn:noop},{label:'Spout',ico:'M7 13a2.5 2.5 0 1 1 0-5 M17 7.5a2.5 2.5 0 1 1 0-5 M17 21a2.5 2.5 0 1 1 0-5 M9.2 11l5.6-3 M9.2 13l5.6 3',fn:noop}];
+    const srcItems=()=>['Ambient.wav','Kick Bus.wav','None'].map(n=>({label:n,on:this.state.rxSource===n,fn:()=>this.setState({rxSource:n})}));
+    const togD = (k)=>()=>this.setState(s=>({disp:{...s.disp,[k]:!s.disp[k]}}));
+    const togSec = (k)=>()=>this.setState(s=>({secs:{...s.secs,[k]:!s.secs[k]}}));
+    const chev = (o)=> o ? 'transform:rotate(0deg)' : 'transform:rotate(-90deg)';
+    const t = S.phX/80, ss = Math.floor(t%60), mm = Math.floor(t/60);
+    const p2 = (n)=>String(n).padStart(2,'0');
+    const tc = '00:'+p2(mm)+':'+p2(ss), frames = (Math.round(t*60))+'f';
+    const Z = S.tlZoom||1;
+    const trackDefs = [
+      {id:'v4',tag:'V4',name:'Video 4',c:'#8A8D5A',kind:'video',clips:[{id:'v4c',x:256,w:432,name:'Shape',c:'#8A8D5A',fill:'#8A8D5A'}]},
+      {id:'v3',tag:'V3',name:'Video 3',c:'#8A8D5A',kind:'video',clips:[{id:'v3c',x:224,w:504,name:'Shape',c:'#8A8D5A',fill:'#8A8D5A'}]},
+      {id:'v2',tag:'V2',name:'Video 2',c:'#8A8D5A',kind:'video',clips:[{id:'v2c',x:184,w:568,name:'Shape',c:'#8A8D5A',fill:'#8A8D5A'}]},
+      {id:'v1',tag:'V1',name:'Video 1',c:'#A8924C',kind:'video',clips:[{id:'v1c',x:184,w:600,name:'IMMERSIVE',c:'#A8924C',fill:'#A8924C'}]},
+      {id:'a1',tag:'A1',name:'Audio 1',c:'#5A8D7E',kind:'audio',clips:[{id:'a1c',x:184,w:512,name:'Ambient.wav',c:'#5A8D7E',fill:'#5A8D7E',wave:true}]},
+    ];
+    const maxTl = 24 + trackDefs.reduce((a,td)=>a+(S.trackH[td.id]??57),0) + 15;
+    const PARAMS = { scale:{label:'Scale',color:'#E0645C'}, rot:{label:'Rotation',color:'#C58BD0'}, opacity:{label:'Opacity',color:'#7FB2E8'}, blur:{label:'Blur',color:'#4FB3C9'}, exposure:{label:'Exposure',color:'#E8C84B'}, saturation:{label:'Saturation',color:'#D06FB0'} };
+    const CATS = { Transform:['scale','rot'], Clip:['opacity','blur'], Color:['exposure','saturation'] };
+    const CATNAMES = ['Transform','Clip','Color'];
+    const catOf = id => S.cat[id]||'Clip';
+    const paramOf = id => { const c=catOf(id); let p=S.armed[id]||'opacity'; if(CATS[c].indexOf(p)<0)p=CATS[c][0]; return p; };
+    const pcolOf = id => PARAMS[paramOf(id)].color;
+    const defsById={}; trackDefs.forEach(d=>defsById[d.id]=d);
+    const orderedDefs = (S.trackOrder||trackDefs.map(d=>d.id)).map(id=>defsById[id]).filter(Boolean);
+    const tracks = orderedDefs.map((td,i)=>({ ...td, isAudio: td.kind==='audio',
+      hRef:(el)=>{this.rowRefs['h'+td.id]=el;}, lRef:(el)=>{this.rowRefs['l'+td.id]=el;},
+      dragSty: S.dragId===td.id ? 'opacity:0.9;box-shadow:0 8px 20px rgba(0,0,0,0.55);z-index:20;position:relative' : '',
+      onGrab:(e)=>{ if(e.target.closest('button')||e.target.closest('[data-resize]')||e.target.closest('[data-nograb]'))return; const cont=this.hdrCol.current; if(!cont)return; const idOf=td.id; let moved=false; const y0=e.clientY;
+        const mv=(ev)=>{ if(!moved){ if(Math.abs(ev.clientY-y0)<4)return; moved=true; document.body.style.cursor='grabbing'; document.body.style.userSelect='none'; } const order=[...this.state.trackOrder]; const from=order.indexOf(idOf); const rect=cont.getBoundingClientRect(); const y=ev.clientY-rect.top+cont.scrollTop; let acc=0,target=order.length-1; for(let k=0;k<order.length;k++){ const hh=(this.state.trackH[order[k]]??57); if(y<acc+hh/2){target=k;break;} acc+=hh; } if(target!==from){ this.flipBefore(); order.splice(from,1); order.splice(target,0,idOf); this.setState({trackOrder:order,dragId:idOf}); } else if(this.state.dragId!==idOf){ this.setState({dragId:idOf}); } };
+        const up=()=>{ this.setState({dragId:null}); document.body.style.cursor=''; document.body.style.userSelect=''; window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up); }; window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); },
+      laneBg: i%2 ? 'background:rgba(255,255,255,0.02)' : '',
+      armedColor: pcolOf(td.id), catLabel: catOf(td.id), paramLabel: PARAMS[paramOf(td.id)].label, paramColor: pcolOf(td.id),
+      paramChipSty: 'background:#262626;border:.5px solid '+pcolOf(td.id)+';color:#E0E0E0',
+      onCatCycle: ()=>{ const c=catOf(td.id); const nc=CATNAMES[(CATNAMES.indexOf(c)+1)%CATNAMES.length]; this.setState(s=>({cat:{...s.cat,[td.id]:nc}, armed:{...s.armed,[td.id]:CATS[nc][0]}})); },
+      onParamCycle: ()=>{ const c=catOf(td.id); const list=CATS[c]; const p=paramOf(td.id); this.setState(s=>({armed:{...s.armed,[td.id]:list[(list.indexOf(p)+1)%list.length]}})); },
+      h: S.trackH[td.id] ?? 57, tierEffects: (td.kind!=='audio') && ((S.trackH[td.id] ?? 57) >= 52),
+      onResize: (e)=>{ e.preventDefault(); e.stopPropagation(); document.body.style.cursor='row-resize'; document.body.style.userSelect='none'; const y0=e.clientY, h0=(S.trackH[td.id]??57); const mv=(ev)=>{ const nh=Math.max(26,Math.min(120,h0+(ev.clientY-y0))); this.setState(s=>({trackH:{...s.trackH,[td.id]:nh}})); }; const up=()=>{document.body.style.cursor='';document.body.style.userSelect='';window.removeEventListener('pointermove',mv);window.removeEventListener('pointerup',up);}; window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); },
+      mSty: S.muted[td.id] ? 'background:#4A4A4A;color:#E0E0E0' : 'background:#262626;color:#6D6D6D',
+      sSty: S.solo[td.id] ? 'background:#B8B8B8;color:#111111' : 'background:#262626;color:#6D6D6D',
+      onM: ()=>this.setState(s=>({muted:{...s.muted,[td.id]:!s.muted[td.id]}})),
+      onCat: ddOpen(()=>CATNAMES.map(nm=>({label:nm,on:nm===catOf(td.id),fn:()=>this.setState(s=>({cat:{...s.cat,[td.id]:nm},armed:{...s.armed,[td.id]:CATS[nm][0]}}))}))),
+      onParam: ddOpen(()=>CATS[catOf(td.id)].map(k=>({label:PARAMS[k].label,on:paramOf(td.id)===k,fn:()=>this.setState(s=>({armed:{...s.armed,[td.id]:k}}))}))),
+      onCtx: ctxOpen(td.kind==='audio' ? [{label:'Rename track',key:'Ctrl+R',ico:'M4 20h16 M14 4l4 4 M14 4L5 13v4h4L18 8',fn:noop},{label:'Set track color\u2026',ico:'M12 3a9 9 0 1 0 0 18 3 3 0 0 0 0-6 3 3 0 0 1 0-6 3 3 0 0 0 0-6Z',fn:noop},'sep',{label:'Add audio track',ico:'M4 10v4h3l4 3V7l-4 3z M16 9a4 4 0 0 1 0 6',fn:noop},{label:'Duplicate track',ico:'M9 9h11v11H9Z M5 15V4h11',fn:noop},'sep',{label:'Delete track',key:'\u232b',danger:true,ico:'M5 7h14 M9 7V5h6v2 M6 7l1 13h10l1-13',fn:noop}] : [{label:'Rename track',key:'Ctrl+R',ico:'M4 20h16 M14 4l4 4 M14 4L5 13v4h4L18 8',fn:noop},{label:'Set track color\u2026',ico:'M12 3a9 9 0 1 0 0 18 3 3 0 0 0 0-6 3 3 0 0 1 0-6 3 3 0 0 0 0-6Z',fn:noop},'sep',{label:'Add video track',ico:'M4 6h12v12H4Z M16 9l4-2v10l-4-2',fn:noop},{label:'Duplicate track',ico:'M9 9h11v11H9Z M5 15V4h11',fn:noop},'sep',{label:'Delete track',key:'\u232b',danger:true,ico:'M5 7h14 M9 7V5h6v2 M6 7l1 13h10l1-13',fn:noop}]),
+      kfCtx: ctxOpen([{label:'Remove keyframe',ico:'M5 7h14 M9 7V5h6v2 M6 7l1 13h10l1-13',danger:true,fn:noop},{label:'Reset to default',ico:'M4 4v6h6 M4 10a8 8 0 1 1-1 4',fn:noop},'sep',{label:'Linear',ico:'M4 20L20 4',on:true,fn:noop},{label:'Hold',ico:'M4 16h8V8h8',fn:noop},{label:'Smooth',ico:'M4 18C10 18 10 6 20 6',fn:noop}]),
+      onS: ()=>this.setState(s=>({solo:{...s.solo,[td.id]:!s.solo[td.id]}})),
+      clips: td.clips.map(c=>({ ...c, x:Math.round(c.x*Z), w:Math.round(c.w*Z), isVideo:!c.wave,
+        sty: S.selClip===c.id ? 'border:1.5px solid #E0E0E0;box-shadow:0 0 0 1px rgba(224,224,224,0.7)' : 'border:1px solid rgba(255,255,255,0.10)',
+        onSel: (e)=>{ e.stopPropagation(); this.setState({selClip:c.id}); },
+        onCtx: ctxOpen([{label:'Rename',key:'Ctrl+R',ico:'M4 20h16 M14 4l4 4 M14 4L5 13v4h4L18 8',fn:noop},{label:'Duplicate',key:'Ctrl+D',ico:'M9 9h11v11H9Z M5 15V4h11',fn:noop},{label:'Copy',key:'Ctrl+C',ico:'M9 9h11v11H9Z M5 15V4h11',fn:noop},'sep',{label:'Add fade',ico:'M4 18L20 6 M4 18h16',fn:noop},{label:'Speed\u2026',ico:'M12 8v4l3 2 M4 12a8 8 0 1 1 16 0 8 8 0 0 1-16 0Z',fn:noop},'sep',{label:'Delete',key:'\u232b',danger:true,ico:'M5 7h14 M9 7V5h6v2 M6 7l1 13h10l1-13',fn:noop}]) })),
+    }));
+    const mediaDefs = [
+      {id:'m1',name:'Sequence 1',meta:'Sequence · 4096² · 60p',badge:'SEQ',type:'seq',thumbColor:'#B8B8B8',dot:'#4A4A4A'},
+      {id:'v1',name:'Dome_Master.mp4',meta:'Video · 4096² · 60p',badge:'MP4',type:'video',thumbColor:'#6BA6C9',dot:'#6BA6C9'},
+      {id:'v2',name:'Nebula_Pan.mov',meta:'Video · 4096² · 30p',badge:'MOV',type:'video',thumbColor:'#6BA6C9',dot:'#6BA6C9'},
+      {id:'i1',name:'Starfield.png',meta:'Image · 8192×4096',badge:'PNG',type:'image',thumbColor:'#C9A86B',dot:'#C9A86B'},
+      {id:'m2',name:'IMMERSIVE',meta:'Text · 966×308',badge:'T',type:'image',thumbColor:'#A8924C',dot:'#A8924C'},
+      {id:'a1',name:'Ambient.wav',meta:'Audio · 48kHz · 2ch',badge:'WAV',type:'audio',thumbColor:'#5A8D7E',dot:'#5A8D7E'},
+      {id:'m3',name:'Shape 1',meta:'Shape · 512×512',badge:'◼',type:'shape',thumbColor:'#8A8D5A',dot:'#8A8D5A'},
+      {id:'m4',name:'Shape 2',meta:'Shape · 512×512',badge:'●',type:'shape',thumbColor:'#8A8D5A',dot:'#8A8D5A'},
+      {id:'m5',name:'Shape 3',meta:'Shape · 512×512',badge:'▬',type:'shape',thumbColor:'#8A8D5A',dot:'#8A8D5A'},
+    ];
+    let mlist = mediaDefs.filter(m=> S.mediaFilter==='all' ? true : m.type===S.mediaFilter);
+    if(S.mediaSort==='Name') mlist=[...mlist].sort((a,b)=>a.name.localeCompare(b.name));
+    else if(S.mediaSort==='Type') mlist=[...mlist].sort((a,b)=>a.type.localeCompare(b.type)||a.name.localeCompare(b.name));
+    const sortItems=()=>['Name','Type','Newest','Duration'].map(n=>({label:n,on:S.mediaSort===n,fn:()=>this.setState({mediaSort:n})}));
+    const mediaItems = mlist.map(m=>({ ...m,
+      rowSty: S.selMedia===m.id ? 'background:rgba(201,205,211,0.14);box-shadow:inset 0 0 0 1px rgba(201,205,211,0.55)' : '',
+      onSel: ()=>this.setState({selMedia:m.id}), onCtx: ctxOpen([{label:'Open',ico:'M5 5h6l2 2h6v10H5Z',fn:noop},{label:'Rename',key:'Ctrl+R',ico:'M4 20h16 M14 4l4 4 M14 4L5 13v4h4L18 8',fn:noop},{label:'Reveal in folder',ico:'M3 7h6l2 2h10v9H3Z',fn:noop},'sep',{label:'Delete',key:'\u232b',danger:true,ico:'M5 7h14 M9 7V5h6v2 M6 7l1 13h10l1-13',fn:noop}]) }));
+    const ticks = Array.from({length:40},(_,i)=>({x:Math.round(i*80*Z), t:'00:'+p2(Math.floor(i/60))+':'+p2(i%60)}));
+    const ROWCOL={Azimuth:'#E0954B',Elevation:'#D8C24B',Yaw:'#E0954B',Pitch:'#D8C24B',Size:'#E0645C',Rotation:'#C58BD0',Opacity:'#7FB2E8',Exposure:'#E8C84B',Contrast:'#B0C4DE',Saturation:'#D06FB0',Temp:'#E08A4B',Tint:'#B08AD0'};
+    const row = (lab,pct,val,u)=>({lab,pct,val,u,c:ROWCOL[lab]||'#8C8C8C'});
+    const tfRows = [row('Yaw',50,'0.0','°'),row('Pitch',64,'0.0','°'),row('Size',42,'42.0','%'),row('Rotation',50,'0.0','°'),row('Opacity',100,'100','%')];
+    const colorRows = [row('Exposure',50,'0.00',''),row('Contrast',50,'0',''),row('Saturation',50,'0',''),row('Temp',50,'0',''),row('Tint',50,'0','')];
+    const masterRows = [row('Exposure',50,'0.00',''),row('Contrast',50,'0',''),row('Saturation',50,'0','')];
+    const centerW = S.winW - (S.mediaOpen?S.mediaW:26) - (S.inspOpen?S.inspW:26) - 10;    const seqSty=(a)=> a ? 'background:#4A4A4A;border:.5px solid rgba(255,255,255,0.16);color:#E0E0E0' : 'background:#262626;border:.5px solid rgba(255,255,255,0.1);color:#8C8C8C';
+    const sequences = S.seqs.map((n,i)=>({ name:n, sty:seqSty(i===S.seqActive), onSel:()=>this.setState({seqActive:i}), onClose:(e)=>{ e.stopPropagation(); this.setState(s=>{ const ns=s.seqs.filter((_,j)=>j!==i); const nn=ns.length?ns:['Sequence 1']; return {seqs:nn, seqActive:Math.max(0,Math.min(s.seqActive,nn.length-1))}; }); } }));
+    const newSeq = ()=>this.setState(s=>({seqs:[...s.seqs,'Sequence '+(s.seqs.length+1)], seqActive:s.seqs.length}));
+    const wheelDrag=(key)=>(e)=>{ e.preventDefault(); e.stopPropagation(); const el=e.currentTarget; const rect=el.getBoundingClientRect(); const cx=rect.left+rect.width/2, cy=rect.top+rect.height/2, R=22; const clamp=(x,y)=>{ const d=Math.hypot(x,y); return d>R?{x:x*R/d,y:y*R/d}:{x,y}; }; const mv=(ev)=>{ const p=clamp(ev.clientX-cx, ev.clientY-cy); this.setState(s=>({wheels:{...s.wheels,[key]:p}})); }; const up=()=>{ window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up); }; window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); mv(e); };
+    const wheelReset=(key)=>()=>this.setState(s=>({wheels:{...s.wheels,[key]:{x:0,y:0}}}));
+    const colorWheels=[{key:'lift',label:'LIFT'},{key:'gamma',label:'GAMMA'},{key:'gain',label:'GAIN'}].map(w=>({ ...w, px:((S.wheels&&S.wheels[w.key])||{}).x||0, py:((S.wheels&&S.wheels[w.key])||{}).y||0, onDrag:wheelDrag(w.key), onReset:wheelReset(w.key) }));
+    const arBands=[8,18,32,46,60,44,52,38,28,20,12,7].map((h,i)=>({h, x:i*9.7+4, y:62-h}));
+    const arRows=[{lab:'Gain',pct:53,val:'160',u:'%'},{lab:'Gate',pct:15,val:'12',u:'%'},{lab:'Attack',pct:18,val:'20',u:'ms'},{lab:'Release',pct:30,val:'180',u:'ms'}];
+    const FXPCOL={Intensity:'#E0645C',Attack:'#E0954B',Release:'#D8C24B',Curve:'#C58BD0',Angle:'#4FB3C9',Threshold:'#7FB2E8',Mix:'#D06FB0'};
+    const fxPar=(lab,pct,val,u)=>({lab,pct,val,u,c:FXPCOL[lab]||'#8C8C8C'});
+    const fxCards=[{name:'Glow', color:'#E8C84B', sig:62, params:[fxPar('Intensity',64,'64','%'),fxPar('Attack',20,'40','ms'),fxPar('Release',40,'220','ms'),fxPar('Curve',50,'50','')]},{name:'Directional Blur', color:'#4FB3C9', sig:30, params:[fxPar('Intensity',34,'34','%'),fxPar('Angle',25,'45','°')]}];
+    const fixes = [
+      {n:1,zone:'Ritmo vertical único',txt:'Todas las barras miden 28px (antes 26/28/30 mezcladas); todos los controles 22px (antes 16/18/20/22). Regla: barra 28 = control 22 + 3px de aire por lado.'},
+      {n:2,zone:'Escala tipográfica cerrada',txt:'3 tamaños: 11px base · 10px etiquetas en MAYÚSCULA (AZ/EL, secciones, VIDEO/AUDIO) · 12.5px timecode. Antes convivían 8.5–13px.'},
+      {n:3,zone:'Grilla de espaciado 4/8/12',txt:'Padding horizontal de todas las barras y paneles: 8px; filas de inspector: 12px; gaps solo 4/6/8. Un solo radio de esquina: 3px.'},
+      {n:4,zone:'Barra del visor (Premiere)',txt:'Toggles de overlay agrupados en un segmented icon-only con tooltip. Con poco ancho la barra colapsa por PRIORIDAD: primero caen AZ·EL y las etiquetas de modo, luego calidad/proxy y overlays pasan al menú "…" de la derecha. Nada se corta.'},
+      {n:5,zone:'Header de pista 168px (Premiere)',txt:'Antes 152px: los dropdowns de automatización truncaban. M/S en columna fija alineada a la derecha, mismo 18px, paso de 24.'},
+      {n:6,zone:'Media: fila CREATE (Unreal)',txt:'Import/Text/Shape/Compose/Adjust salen del header a una fila propia — el header queda solo con vista y colapso. Con el panel angosto (<340px) los botones pasan a icono+tooltip; al ensancharlo recuperan la etiqueta.'},
+      {n:7,zone:'Timecode como en Ableton',txt:'Reloj centrado en el transporte por flujo flex (margin:auto — no puede solapar con los grupos laterales), tabular-nums, caja hundida (s0). Con poco ancho, TC/Frames y loop/locator colapsan y Snap/Simple/Automation pasan a icono.'},
+      {n:8,zone:'Inspector a paso de 24px',txt:'Cabeceras de sección 24px con chevron rotatorio consistente; filas de parámetro min 24px (SC 2.5.8 AA); etiqueta 60px fija para que faders y cajas de valor queden en columna.'},
+    ];
+    return {
+      mediaOpen:S.mediaOpen, mediaClosed:!S.mediaOpen, inspOpen:S.inspOpen, inspClosed:!S.inspOpen,
+      mediaW:S.mediaW, inspW: S.inspW, tlH:Math.min(S.tlH, maxTl), phX:S.phX, tc, frames,
+      togInspFull:()=>this.setState(s=>({inspFull:!s.inspFull})), inspFullS:S.inspFull?'background:#4A4A4A;color:#E0E0E0':'background:transparent;color:#B8B8B8',
+      inspPos: (S.inspFull && S.inspOpen) ? ';position:absolute;top:28px;bottom:22px;right:0;z-index:30' : '', tallMR: S.inspFull ? (';margin-right:'+(S.inspOpen?S.inspW:26)+'px') : '',
+      railPos: S.inspFull ? ';position:absolute;top:28px;bottom:22px;right:0;z-index:30' : '',
+      hdrW: this.props.trackHdrW ?? 168,
+      vmLbl: centerW>=980?'':'display:none',
+      dispInline: centerW>=620, dispHidden: centerW<620,
+      qpInline: centerW>=800, qpHidden: centerW<800,
+      azelOn: centerW>=980, azelHidden: centerW<980,
+      outOn: centerW>=440, outHidden: centerW<440,
+      outMenuOpen: S.outMenu && centerW>=440, togOutMenu:()=>this.setState(s=>({outMenu:!s.outMenu})), outSty:S.outMenu?'background:#4A4A4A;color:#E0E0E0':'background:transparent;color:#B8B8B8',
+      moreBtnOn: centerW<980, moreDrop: S.moreOpen && centerW<980,
+      togMore: ()=>this.setState(s=>({moreOpen:!s.moreOpen})),
+      moreSty: S.moreOpen?'background:#4A4A4A;color:#E0E0E0':'background:#262626;color:#B8B8B8',
+      createLbl: S.mediaW<340?'display:none':'',
+      tcSegOn: S.winW>=1080, mkOn: S.winW>=1080,
+      editLbl: S.winW>=1080?'':'display:none',
+      vpLbl: (this.props.vpLabels ?? 'icons')==='labels' ? '' : 'display:none',
+      annOn: (this.props.annotations ?? true) && !S.annClosed,
+      closeAnn: set({annClosed:true}),
+      onMediaHide: set({mediaOpen:false}), onMediaShow: set({mediaOpen:true}),
+      mvList:on(!S.mediaGrid), mvGrid:on(S.mediaGrid), setMvList:set({mediaGrid:false}), setMvGrid:set({mediaGrid:true}), mediaList:!S.mediaGrid, mediaGridV:S.mediaGrid,
+      folders:[{name:'Footage',n:12},{name:'Shapes',n:5},{name:'Renders',n:3}],
+      onInspHide: set({inspOpen:false}), onInspShow: set({inspOpen:true}),
+      onGutL: this.dragAxis('mediaW',1,200,420,false),
+      onGutR: this.dragAxis('inspW',-1,230,440,false),
+      onTlRes: this.dragAxis('tlH',-1,180,maxTl,true),
+      onVZoom: (e)=>{ e.preventDefault(); document.body.style.cursor='ns-resize'; document.body.style.userSelect='none'; const y0=e.clientY, base={...this.state.trackH}; const mv=(ev)=>{ const d=ev.clientY-y0; const t={}; for(const k in base) t[k]=Math.max(26,Math.min(120,base[k]+d)); this.setState({trackH:t}); }; const up=()=>{document.body.style.cursor='';document.body.style.userSelect='';window.removeEventListener('pointermove',mv);window.removeEventListener('pointerup',up);}; window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); },
+      audH:S.audCol?24:S.audioH, audResizable:!S.audCol,
+      onAudResize:(e)=>{ e.preventDefault(); e.stopPropagation(); document.body.style.cursor='row-resize'; document.body.style.userSelect='none'; const y0=e.clientY, h0=this.state.audioH; const mv=(ev)=>{ const nh=Math.max(30,Math.min(120,h0-(ev.clientY-y0))); this.setState({audioH:nh}); }; const up=()=>{document.body.style.cursor='';document.body.style.userSelect='';window.removeEventListener('pointermove',mv);window.removeEventListener('pointerup',up);}; window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); },
+      audCtx: ctxOpen([{label:'Rename track',key:'Ctrl+R',ico:'M4 20h16 M14 4l4 4 M14 4L5 13v4h4L18 8',fn:noop},{label:'Set track color\u2026',ico:'M12 3a9 9 0 1 0 0 18 3 3 0 0 0 0-6 3 3 0 0 1 0-6 3 3 0 0 0 0-6Z',fn:noop},'sep',{label:'Add audio track',ico:'M4 10v4h3l4 3V7l-4 3z M16 9a4 4 0 0 1 0 6',fn:noop},{label:'Duplicate track',ico:'M9 9h11v11H9Z M5 15V4h11',fn:noop},'sep',{label:'Delete track',key:'\u232b',danger:true,ico:'M5 7h14 M9 7V5h6v2 M6 7l1 13h10l1-13',fn:noop}]),
+      rulerClick: (e)=>{ const r=e.currentTarget.getBoundingClientRect(); this.setState({phX:Math.max(0,(e.clientX-r.left)/(this.state.tlZoom||1))}); },
+      phPx:Math.round(S.phX*Z), audX:Math.round(184*Z), audW:Math.round(512*Z),
+      audClipSty: S.selClip==='a1c' ? 'border:1.5px solid #E0E0E0;box-shadow:0 0 0 1px rgba(224,224,224,0.7)' : 'border:1px solid rgba(255,255,255,0.10)',
+      onAudClip:(e)=>{ e.stopPropagation(); this.setState({selClip:'a1c'}); },
+      audClipCtx: ctxOpen([{label:'Rename',key:'Ctrl+R',ico:'M4 20h16 M14 4l4 4 M14 4L5 13v4h4L18 8',fn:noop},{label:'Duplicate',key:'Ctrl+D',ico:'M9 9h11v11H9Z M5 15V4h11',fn:noop},{label:'Copy',key:'Ctrl+C',ico:'M9 9h11v11H9Z M5 15V4h11',fn:noop},'sep',{label:'Detach audio',ico:'M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z M9 18V6l12-2v10',fn:noop},'sep',{label:'Delete',key:'\u232b',danger:true,ico:'M5 7h14 M9 7V5h6v2 M6 7l1 13h10l1-13',fn:noop}]),
+      hdrRef:this.hdrCol, laneRef:this.laneCol,
+      onLaneScroll:(e)=>{ const t=e.target.scrollTop; if(this.hdrCol.current&&this.hdrCol.current.scrollTop!==t)this.hdrCol.current.scrollTop=t; },
+      onHdrScroll:(e)=>{ const t=e.target.scrollTop; if(this.laneCol.current&&this.laneCol.current.scrollTop!==t)this.laneCol.current.scrollTop=t; },
+      timelineCtx: ctxOpen([{label:'Add marker',ico:'M6 3h12l-2 6 2 6H6Z M6 3v18',fn:noop},'sep',{label:'Set work area in',ico:'M8 4v16 M8 12h12',fn:noop},{label:'Set work area out',ico:'M16 4v16 M4 12h12',fn:noop},{label:'Clear work area',ico:'M6 6l12 12 M18 6L6 18',fn:noop},'sep',{label:'Add video track',ico:'M4 6h12v12H4Z M16 9l4-2v10l-4-2',fn:noop}]),
+      v2d:on(S.view==='2d'), v3d:on(S.view==='3d'), setV2d:set({view:'2d'}), setV3d:set({view:'3d'}),
+      is3d:S.view==='3d', threeOrbit:on(S.three==='orbit'), threeSpec:on(S.three==='spec'), setThreeOrbit:set({three:'orbit'}), setThreeSpec:set({three:'spec'}),
+      azelShow: centerW>=980 && S.view!=='3d', distShow: centerW>=980 && S.view==='3d' && S.three==='orbit', fovShow: S.view==='3d' && S.three==='spec', swapSepOn: centerW>=980,
+      dGrid:onDim(S.disp.grid), dSafe:onDim(S.disp.safe), dOut:onDim(S.disp.outline), dHor:onDim(S.disp.horizon), dAlpha:onDim(S.disp.alpha),
+      togGrid:togD('grid'), togSafe:togD('safe'), togOut:togD('outline'), togHor:togD('horizon'), togAlpha:togD('alpha'),
+      gridOn:S.disp.grid, safeOn:S.disp.safe,
+      q1:on(S.q==='1'), qH:on(S.q==='h'), qQ:on(S.q==='q'), setQ1:set({q:'1'}), setQH:set({q:'h'}), setQQ:set({q:'q'}),
+      pOn:on(S.proxy), proxyOn:S.proxy, togProxy:()=>this.setState(s=>({proxy:!s.proxy})),
+      fAll:S.mediaFilter==='all'?'background:#4A4A4A;color:#E0E0E0':'background:transparent;color:#B8B8B8', fVid:S.mediaFilter==='video'?'background:#4A4A4A;color:#E0E0E0':'background:transparent;color:#8C8C8C', fImg:S.mediaFilter==='image'?'background:#4A4A4A;color:#E0E0E0':'background:transparent;color:#8C8C8C', fAud:S.mediaFilter==='audio'?'background:#4A4A4A;color:#E0E0E0':'background:transparent;color:#8C8C8C',
+      setFAll:set({mediaFilter:'all'}), setFVid:set({mediaFilter:'video'}), setFImg:set({mediaFilter:'image'}), setFAud:set({mediaFilter:'audio'}),
+      openSort:ddOpen(sortItems), mediaSort:S.mediaSort, mediaCount:mediaItems.length,
+      tSel:on(S.tool==='select')+(S.tool==='select'?'':';color:#8C8C8C'), tTrack:onDim(S.tool==='track'), tHand:onDim(S.tool==='hand'), tTrim:onDim(S.tool==='trim'), tRazor:onDim(S.tool==='razor'), tZoom:onDim(S.tool==='zoom'),
+      setToolSel:set({tool:'select'}), setToolTrack:set({tool:'track'}), setToolHand:set({tool:'hand'}), setToolTrim:set({tool:'trim'}), setToolRazor:set({tool:'razor'}), setToolZoom:set({tool:'zoom'}),
+      tcTC:on(S.tcm==='tc'), tcFR:on(S.tcm==='fr'), setTcTC:set({tcm:'tc'}), setTcFR:set({tcm:'fr'}),
+      snapS:on(S.snap), togSnap:()=>this.setState(s=>({snap:!s.snap})),
+      simpleS:on(S.simple), togSimple:()=>this.setState(s=>({simple:!s.simple})),
+      curvesS:on(S.curves), togCurves:()=>this.setState(s=>({curves:!s.curves})), curvesOn:S.curves,
+      tlGridS:on(S.tlGrid), togTlGrid:()=>this.setState(s=>({tlGrid:!s.tlGrid})), tlGridOn:S.tlGrid, normalView:!S.curves,
+      fitAll: ()=>{ const nV=trackDefs.length||1; const avail=this.state.tlH-24-44-15; const h=Math.max(26,Math.min(120,Math.floor(avail/nV))); const t={}; trackDefs.forEach(td=>t[td.id]=h); let maxEnd=696; trackDefs.forEach(td=>td.clips.forEach(c=>{ if(c.x+c.w>maxEnd)maxEnd=c.x+c.w; })); const laneW=(this.laneCol.current?this.laneCol.current.clientWidth:900); const z=Math.max(0.15,Math.min(4,(laneW-24)/maxEnd)); this.setState({trackH:t, tlZoom:z}); },
+      onWheelH: (e)=>{ if(!e.altKey)return; try{e.preventDefault();}catch(_){} const d=e.deltaY<0?6:-6; this.setState(s=>{ const t={...s.trackH}; for(const k in t) t[k]=Math.max(26,Math.min(120,(t[k]||57)+d)); return {trackH:t, audioH:Math.max(30,Math.min(120,(s.audioH||44)+d))}; }); },
+      playing:S.playing, notPlaying:!S.playing, togPlay:()=>this.setState(s=>({playing:!s.playing})),
+      tabInsp: S.inspTab==='insp' ? 'background:#4A4A4A;color:#E0E0E0' : 'background:transparent;color:#8C8C8C',
+      tabReact: S.inspTab==='react' ? 'background:#4A4A4A;color:#E0E0E0' : 'background:transparent;color:#8C8C8C',
+      setTabInsp:set({inspTab:'insp'}), setTabReact:set({inspTab:'react'}),
+      inspTabInsp: S.inspTab==='insp', inspTabReact: S.inspTab==='react', arRows, arBands, fxCards,
+      masterOpen:S.secs.master, tfOpen:S.secs.tf, clipSOpen:S.secs.clip, colorOpen:S.secs.color, motionOpen:S.secs.motion,
+      sourceOpen:S.secs.source, chSource:chev(S.secs.source), togSource:togSec('source'),
+      playbackOpen:S.secs.playback, chPlayback:chev(S.secs.playback), togPlayback:togSec('playback'),
+      projLabel:S.clipSrc.proj, isEquirect:S.clipSrc.proj==='Equirect', eqTilt:S.clipSrc.eqTilt,
+      openProj: ddOpen(()=>['Patch','Dome tile','Fulldome','Equirect'].map(n=>({label:n,on:S.clipSrc.proj===n,fn:()=>this.setState(s=>({clipSrc:{...s.clipSrc,proj:n}}))}))),
+      mirrorOn:S.clipSrc.mirror, mirrorTrack:S.clipSrc.mirror?'background:#4A8D6F':'background:#3A3A3A', mirrorKnob:S.clipSrc.mirror?'left:13px':'left:2px', togMirror:()=>this.setState(s=>({clipSrc:{...s.clipSrc,mirror:!s.clipSrc.mirror}})),
+      fisheyeOn:S.clipSrc.fisheye, fishTrack:S.clipSrc.fisheye?'background:#4A8D6F':'background:#3A3A3A', fishKnob:S.clipSrc.fisheye?'left:13px':'left:2px', togFisheye:()=>this.setState(s=>({clipSrc:{...s.clipSrc,fisheye:!s.clipSrc.fisheye}})), fisheyeAmt:S.clipSrc.fisheyeAmt,
+      loopOn:S.clipSrc.loop, loopTrack:S.clipSrc.loop?'background:#4A8D6F':'background:#3A3A3A', loopKnob:S.clipSrc.loop?'left:13px':'left:2px', togLoop:()=>this.setState(s=>({clipSrc:{...s.clipSrc,loop:!s.clipSrc.loop}})),
+      loopRevOn:S.clipSrc.loopRev, revTrack:S.clipSrc.loopRev?'background:#4A8D6F':'background:#3A3A3A', revKnob:S.clipSrc.loopRev?'left:13px':'left:2px', togLoopRev:()=>this.setState(s=>({clipSrc:{...s.clipSrc,loopRev:!s.clipSrc.loopRev}})),
+      rxAudioOpen:S.secs.rxAudio, rxChainOpen:S.secs.rxChain, chRxAudio:chev(S.secs.rxAudio), chRxChain:chev(S.secs.rxChain), togRxAudio:togSec('rxAudio'), togRxChain:togSec('rxChain'),
+      audOpen:!S.audCol, audCh:chev(!S.audCol), togAud:()=>this.setState(s=>({audCol:!s.audCol})), stop:(e)=>{e.stopPropagation();},
+      chMaster:chev(S.secs.master), chTf:chev(S.secs.tf), chClip:chev(S.secs.clip), chColor:chev(S.secs.color), chMotion:chev(S.secs.motion),
+      togMaster:togSec('master'), togTf:togSec('tf'), togClipS:togSec('clip'), togColor:togSec('color'), togMotion:togSec('motion'),
+      motionPresets: [{k:'spin',label:'Spin',param:'Spin',mode:'Loop',speed:30},{k:'orbit',label:'Orbit',param:'Azimuth',mode:'Loop',speed:24},{k:'bob',label:'Bob',param:'Elevation',mode:'Wave',speed:15},{k:'scroll',label:'Scroll',param:'Elevation',mode:'Loop',speed:20},{k:'sway',label:'Sway',param:'Azimuth',mode:'Wave',speed:10},{k:'pulse',label:'Pulse',param:'Size',mode:'Wave',speed:40},{k:'wobble',label:'Wobble',param:'Roll',mode:'Wave',speed:35},{k:'flicker',label:'Flicker',param:'Opacity',mode:'Wave',speed:90}].map(p=>({ ...p, onAdd:()=>this.setState(s=>({motions:[...s.motions,{id:Date.now()+Math.random(),key:p.k,label:p.label,param:p.param,mode:p.mode,speed:p.speed}]})) })),
+      motionList: S.motions.map(m=>({ ...m, speedPct:Math.max(4,Math.min(100,m.speed)), onRemove:()=>this.setState(s=>({motions:s.motions.filter(x=>x.id!==m.id)})), onMode: ddOpen(()=>['Loop','Wave'].map(md=>({label:md,on:m.mode===md,fn:()=>this.setState(s=>({motions:s.motions.map(x=>x.id===m.id?{...x,mode:md}:x)}))}))) })),
+      hasMotion: S.motions.length>0,
+      tracks, mediaItems, ticks, tfRows, colorRows, masterRows, fixes, sequences, newSeq, colorWheels,
+      menuOpen:!!S.menu, menuX:S.menu?S.menu.x:0, menuY:S.menu?S.menu.y:0, menuItems:S.menu?S.menu.items:[], closeMenu,
+      openOut:ddOpen(outItems), openSrc:ddOpen(srcItems), rxSource:S.rxSource,
+    };
+  }
+}
+</script>
+</body>
+</html>

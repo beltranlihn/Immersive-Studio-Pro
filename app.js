@@ -106,7 +106,7 @@ const lanesTopDown = ()=>{ const rev=state.lanes.map((l,i)=>i).reverse();
 /* per-lane height + collapse (Ableton-style resizable/collapsible tracks) */
 const LANE_DEF_H=82, LANE_MIN_H=34, LANE_MAX_H=260, LANE_COLLAPSED_H=20; // 82 → 4 video tracks fill the default 368px timeline exactly (track area 328 = 354 tlscroll − 26 ruler)
 const AUDIO_LANE_H=Math.round(LANE_DEF_H/2); // [R110] audio tracks are a FIXED half-height (not resizable, not per-lane collapsible) — the module is exactly as tall as its tracks
-function laneH(li){ const l=state.lanes[li]; if(!l)return LANE_DEF_H; if(l.kind==='audio')return AUDIO_LANE_H; if(l.collapsed)return LANE_COLLAPSED_H; return Math.max(LANE_MIN_H,Math.min(LANE_MAX_H,l.h||LANE_DEF_H)); }
+function laneH(li){ const l=state.lanes[li]; if(!l)return LANE_DEF_H; if(l.collapsed)return LANE_COLLAPSED_H; if(l.kind==='audio')return Math.max(LANE_MIN_H,Math.min(LANE_MAX_H,l.h||AUDIO_LANE_H)); return Math.max(LANE_MIN_H,Math.min(LANE_MAX_H,l.h||LANE_DEF_H)); } // [REDISEÑO Rev1] audio redimensionable (default AUDIO_LANE_H) para comportarse como las pistas de vídeo
 function duration(){ let d=2; for(const c of state.clips) d=Math.max(d,c.start+c.dur); return d; }
 function frameSnap(t){ const f=state.fps||30; return Math.max(0,Math.round(t*f)/f); } /* [T7] quantize a time to the project frame grid */
 const TL_PPS_MIN=0.1, TL_PPS_MAX=2400; // [T2] timeline zoom range. Max raised 600→2400 so a frame is 40–80px wide at 24–30fps → the per-frame trim snap is clearly visible
@@ -1056,9 +1056,9 @@ function startNDI(res){ if(!ndiAvailable()){ appAlert(T('The NDI runtime is not 
   _ndiRes=res; _ndiFps=(res>=4096)?30:Math.max(1,Math.min(60,Math.round(state.fps||30)));
   if(!DSP.ndi.start('Immersive Studio Pro — Master', _ndiFps*1000, 1000)){ flashStatus(T('NDI output failed to start','No se pudo iniciar la salida NDI'),'err'); return; } // [R94-UT3·U-21]
   _ndiOn=true; ensureNdiFBO(res); clearInterval(_ndiTimer); _ndiTimer=setInterval(ndiTick,Math.max(8,Math.round(1000/_ndiFps)));
-  const b=$('#ndiBtn'); if(b)b.classList.add('on');
+  const b=$('#ndiBtn'); if(b)b.classList.add('on'); try{refreshOutputInd();}catch(e){}
   flashStatus(T('NDI output ON · ','Salida NDI activa · ')+res+'×'+res+' · '+_ndiFps+'fps'); }
-function stopNDI(){ _ndiOn=false; clearInterval(_ndiTimer); _ndiTimer=0; try{DSP.ndi.stop();}catch(e){} _closeNdiGL(); const b=$('#ndiBtn'); if(b)b.classList.remove('on'); flashStatus(T('NDI output off','Salida NDI desactivada')); }
+function stopNDI(){ _ndiOn=false; clearInterval(_ndiTimer); _ndiTimer=0; try{DSP.ndi.stop();}catch(e){} _closeNdiGL(); const b=$('#ndiBtn'); if(b)b.classList.remove('on'); try{refreshOutputInd();}catch(e){} flashStatus(T('NDI output off','Salida NDI desactivada')); }
 function ndiMenu(x,y){ if(!IS_ELEC||!DSP.ndi){ appAlert(T('NDI output is only available in the desktop app.','La salida NDI solo está disponible en la app de escritorio.')); return; }
   if(!ndiAvailable()){ appConfirm(T('The free NDI runtime is not installed. It is required to broadcast NDI. Open the download page?','El runtime gratuito de NDI no está instalado. Es necesario para transmitir por NDI. ¿Abrir la página de descarga?'),ok=>{ if(ok){ try{ const u=DSP.ndi.runtimeUrl(); window.open(u,'_blank'); }catch(e){} } }); return; }
   const ck=r=>(_ndiOn&&_ndiRes===r)?'  ✓':''; const items=[
@@ -1093,9 +1093,9 @@ function startSpout(res){ if(!spoutAvailable()){ appAlert(T('Spout output is not
   _spoutRes=res; _spoutFps=(res>=4096)?30:Math.max(1,Math.min(60,Math.round(state.fps||30)));
   if(!DSP.spout.start('Immersive Studio Pro — Master')){ flashStatus(T('Spout output failed to start','No se pudo iniciar la salida Spout'),'err'); return; }
   _spoutOn=true; ensureSpoutFBO(res); clearInterval(_spoutTimer); _spoutTimer=setInterval(spoutTick,Math.max(8,Math.round(1000/_spoutFps)));
-  const b=$('#spoutBtn'); if(b)b.classList.add('on');
+  const b=$('#spoutBtn'); if(b)b.classList.add('on'); try{refreshOutputInd();}catch(e){}
   flashStatus(T('Spout output ON · ','Salida Spout activa · ')+res+'×'+res+' · '+_spoutFps+'fps'); }
-function stopSpout(){ _spoutOn=false; clearInterval(_spoutTimer); _spoutTimer=0; try{DSP.spout.stop();}catch(e){} _closeSpoutGL(); const b=$('#spoutBtn'); if(b)b.classList.remove('on'); flashStatus(T('Spout output off','Salida Spout desactivada')); }
+function stopSpout(){ _spoutOn=false; clearInterval(_spoutTimer); _spoutTimer=0; try{DSP.spout.stop();}catch(e){} _closeSpoutGL(); const b=$('#spoutBtn'); if(b)b.classList.remove('on'); try{refreshOutputInd();}catch(e){} flashStatus(T('Spout output off','Salida Spout desactivada')); }
 function spoutMenu(x,y){ if(!IS_ELEC||!DSP.spout){ appAlert(T('Spout output is only available in the desktop app.','La salida Spout solo está disponible en la app de escritorio.')); return; }
   const ck=r=>(_spoutOn&&_spoutRes===r)?'  ✓':''; const items=[
     {label:T('Dome master 1:1 · 2048 × 2048','Máster Domo 1:1 · 2048 × 2048')+ck(2048),ico:'ndi',fn:()=>{ (_spoutOn&&_spoutRes===2048)?stopSpout():startSpout(2048); }},
@@ -1658,6 +1658,10 @@ function renderMedia(){
   const list=$('#mediaList'); list.innerHTML='';
   $('#mediaCount').textContent=state.media.length;
   let items=state.media.filter(m=>(state.mediaFilter==='all'||m.kind===state.mediaFilter)&&(!state.mediaQuery||m.name.toLowerCase().includes(state.mediaQuery.toLowerCase())));
+  { const so=state.mediaSort||'name'; // [REDISEÑO Rev1] orden por el Sort dropdown (name/date/type)
+    if(so==='name')items.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+    else if(so==='type')items.sort((a,b)=>((a.kind||'')+'~'+(a.name||'')).localeCompare((b.kind||'')+'~'+(b.name||'')));
+    else if(so==='date')items.sort((a,b)=>(b.id||0)-(a.id||0)); }
   if(!state.media.length){ list.innerHTML='<div class="drop" id="dropZone">'+T('Drag <b>videos / images / audio</b><br>or click to import','Arrastra <b>vídeos / imágenes / audio</b><br>o haz clic para importar')+'</div>';
     $('#dropZone').onclick=()=>$('#fileInput').click(); wireDrop($('#dropZone')); return; }
   if(!items.length){ list.innerHTML='<div style="padding:34px 16px;color:var(--ink-dim);text-align:center;font-size:11px;">'+T('No matching media.','No hay medios coincidentes.')+'</div>'; return; }
@@ -1910,26 +1914,21 @@ function renderTimeline(){ reconcileVinst(); // free private decoders of clips t
   { const g=gridSec(), gp=g*pps; let majMul; if(state.tl.tcMode==='bars'){ const barLen=(60/state.tl.bpm)*state.tl.sig; majMul=Math.max(1,Math.round(barLen/g)); } else { majMul=g<1?Math.max(1,Math.round(1/g)):5; }
     const gpMaj=gp*majMul; const layers=[`repeating-linear-gradient(90deg, rgba(255,255,255,0.075) 0 1px, transparent 1px ${gpMaj.toFixed(2)}px)`];
     if(gp>=6) layers.push(`repeating-linear-gradient(90deg, rgba(255,255,255,0.03) 0 1px, transparent 1px ${gp.toFixed(2)}px)`);
-    tracks.style.backgroundImage=layers.join(','); tracks.style.backgroundPosition='0 0'; tracks.style.backgroundRepeat='repeat'; tracks.style.width=W+'px'; } // explicit width so the grid background spans the whole content, not just the viewport
+    tracks.style.backgroundImage=(state.tl.gridOn===false)?'none':layers.join(','); tracks.style.backgroundPosition='0 0'; tracks.style.backgroundRepeat='repeat'; tracks.style.width=W+'px'; } // [Rev1] Grid toggle: gridOn===false oculta las líneas; explicit width so the grid spans the whole content
   const grl=$('#gridReadout'); if(grl)grl.textContent=(state.tl.gridFixed?'▦ ':'◇ ')+gridLabel();
   // lanes
   tracks.innerHTML=''; heads.innerHTML='';
   // [R92-T9] Premiere-style: audio lives in a PINNED module at the bottom. Its rows go in #audioZone (a sticky child
   // of #tracks → still matched by "#tracks .lane" so hit-testing/waves are unchanged) and its headers in the
   // sticky #audioHeadZone. Video scrolls behind. The AUDIO bar on top of the module is the collapse toggle (R110).
-  const audioHeads=$('#audioHeadZone'); if(audioHeads)audioHeads.innerHTML='';
-  const audioZone=document.createElement('div'); audioZone.className='audiozone'; audioZone.style.width=W+'px';
-  const _order=lanesTopDown(); let _hasAudio=false, _hasVideo=false;
+  const audioHeads=$('#audioHeadZone'); if(audioHeads){ audioHeads.innerHTML=''; audioHeads.style.display='none'; } // [REDISEÑO Rev1] audio unificado en la columna principal → zona sticky de audio en desuso
+  // [REDISEÑO Rev1] vídeo y audio UNIFICADOS en la misma columna (#tracks/#laneHeaders); audio al final (abajo)
+  const _o0=lanesTopDown(); const _order=[..._o0.filter(li=>state.lanes[li].kind!=='audio'),..._o0.filter(li=>state.lanes[li].kind==='audio')]; let _hasAudio=false, _hasVideo=false;
   for(const li of _order){
     const lane=state.lanes[li]; const LH=laneH(li); const collapsed=!!lane.collapsed;
-    const _isAud=lane.kind==='audio'; const rowT=_isAud?audioZone:tracks; const hdrT=_isAud?(audioHeads||heads):heads;
+    const _isAud=lane.kind==='audio'; const rowT=tracks; const hdrT=heads;
     if(!_isAud&&!_hasVideo){ _hasVideo=true; } // [R110b] VIDEO label goes in the existing ruler-pad corner (set after the loop) — NOT a separate band
-    if(_isAud&&!_hasAudio){ _hasAudio=true; // [R110] the AUDIO bar tops the module and TOGGLES its collapse (no longer a drag-resize grip; the module is auto-sized to its tracks)
-      const _col=!!state.tl.audioCollapsed; const _chev='<span class="dvchev">'+(_col?'▸':'▾')+'</span>';
-      const toggle=()=>{ state.tl.audioCollapsed=!state.tl.audioCollapsed; renderTimeline(); markDirty(); };
-      const dvR=document.createElement('div'); dvR.className='trackdivider collapsible'; dvR.style.width=W+'px'; dvR.addEventListener('click',toggle); audioZone.appendChild(dvR);
-      if(audioHeads){ const dvH=document.createElement('div'); dvH.className='trackdivider hdr collapsible'; dvH.innerHTML=_chev+'<span class="dvlab">'+T('Audio','Audio')+'</span>'; dvH.addEventListener('click',toggle); audioHeads.appendChild(dvH); } }
-    if(_isAud&&state.tl.audioCollapsed)continue; // [R110] collapsed: only the bar shows, audio rows hidden
+    if(_isAud&&!_hasAudio){ _hasAudio=true; } // [REDISEÑO Rev1] sin barra "Audio" colapsable — audio es una pista normal en la columna unificada
     const row=document.createElement('div'); row.className='lane'+(collapsed?' collapsed':''); row.style.height=LH+'px'; row.style.width=W+'px'; row.dataset.lane=li;
     for(const c of state.clips.filter(c=>c.lane===li)){
       const m=mediaById(c.mediaId); const cd=document.createElement('div'); cd.className='clip'+(state.selIds.includes(c.id)?' sel':'')+((c.groupId!=null&&c.groupId===state.selGroupId)?' gsel':'')+((!m||(m.missing&&!m._loading))?' offline':''); cd.dataset.clip=c.id; // [M4] media deleted/missing → red offline clip
@@ -1983,7 +1982,7 @@ function renderTimeline(){ reconcileVinst(); // free private decoders of clips t
     hd.querySelector('[data-m=mute]').onclick=()=>{pushUndo();lane.mute=!lane.mute;renderTimeline();render();reschedAudio();};
     hd.querySelector('[data-m=solo]').onclick=()=>{pushUndo();lane.solo=!lane.solo;renderTimeline();render();reschedAudio();};
     hd.querySelector('[data-m=collapse]').onclick=ev=>{ev.stopPropagation();pushUndo();lane.collapsed=!lane.collapsed;renderTimeline();};
-    if(!_isAud){ const rz=hd.querySelector('[data-m=resize]'); rz.addEventListener('pointerdown',ev=>{ ev.preventDefault(); ev.stopPropagation(); pushUndo(); if(lane.collapsed)lane.collapsed=false; const h0=laneH(li),y0=ev.clientY;
+    { const rz=hd.querySelector('[data-m=resize]'); rz.addEventListener('pointerdown',ev=>{ ev.preventDefault(); ev.stopPropagation(); pushUndo(); if(lane.collapsed)lane.collapsed=false; const h0=laneH(li),y0=ev.clientY; /* [REDISEÑO Rev1] audio también redimensionable (antes: solo vídeo) */
       const mv=e2=>{ lane.h=Math.max(LANE_MIN_H,Math.min(LANE_MAX_H,h0+(e2.clientY-y0))); scheduleTimeline(); };
       const up=()=>{ window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up); renderTimeline(); }; window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); }); } // [R110] audio tracks are fixed-height → no per-lane resize
     hd.oncontextmenu=ev=>{ev.preventDefault();openMenu(ev.clientX,ev.clientY,[{label:T('Rename track','Cambiar nombre de pista'),key:'⌘R',fn:()=>renameLane(li)},{label:T('Set track color…','Elegir color de pista…'),fn:()=>openLaneColorPopup(li,ev.clientX,ev.clientY)},...trackCreateItems(lane.kind),{label:T('Duplicate track','Duplicar pista'),fn:()=>duplicateLane(li)},'sep',{label:T('Delete track','Eliminar pista'),danger:true,fn:()=>removeLane(li)}]);};
@@ -1998,13 +1997,8 @@ function renderTimeline(){ reconcileVinst(); // free private decoders of clips t
     hdrT.appendChild(hd);
     // [R143] appendAutoLanes (sub-carriles apilados) archivado — el modelo vigente es la sola superposición por pista (attachClipAuto)
   }
-  if(_hasAudio)tracks.appendChild(audioZone); // [R92-T9] pin the audio module at the bottom (sticky) — appended last, after all video rows
-  if(_hasAudio){ // [R110] the module is EXACTLY as tall as its tracks (auto height, no drag-resize, no internal scroll); the AUDIO bar collapses it
-    audioZone.style.height='auto'; audioZone.style.overflowY='visible';
-    if(audioHeads){ audioHeads.style.height='auto'; audioHeads.style.overflowY='visible'; }
-    { const sc=$('#tlscroll'); audioZone.classList.toggle('covers', !!sc&&sc.scrollHeight>sc.clientHeight+1); } } // [R94-UT2·U-01] top shadow on the module signals video rows are hidden behind it
-  if(audioHeads)audioHeads.style.display=_hasAudio?'':'none';
-  { const rp=$('#trackHdr .rulerpad'); if(rp)rp.innerHTML=_hasVideo?'<span class="dvlab">'+T('Video','Vídeo')+'</span>':''; } // [R110b] VIDEO label lives in the ruler-pad corner (the empty space above the track headers), matching the AUDIO bar's label style
+  // [REDISEÑO Rev1] audio ya no es un módulo sticky aparte — se renderiza inline en #tracks/#laneHeaders como una pista más
+  { const rp=$('#trackHdr .rulerpad'); if(rp)rp.innerHTML=''; } // [Rev1] esquina de cabeceras vacía (el diseño no lleva etiqueta "VIDEO")
   // [R94f] the empty-timeline hint was removed per request (no in-canvas instructions — the Media panel's drop-zone already says it)
   // (no "+ track" buttons — create a track via Ctrl+T or right-click → Create track)
   // marker dashed lines across tracks
@@ -2021,6 +2015,7 @@ function renderTimeline(){ reconcileVinst(); // free private decoders of clips t
   positionPlayhead(); const dt=$('#durTc'); if(dt)dt.textContent=TC(duration());
   renderWork(); renderClipExtent(); renderTimeSel(); applyToolCursor(); updEnable(); redrawAudioWaves(); // draw the visible slice of every audio waveform at screen resolution
   renderZoomBar(); // [T3] keep the custom zoom-scrollbar thumb sized to the current zoom/content
+  try{ renderVZoom(); }catch(e){} // [Rev1] V-zoom lateral (altura de pistas) — definido más abajo (hoisted); try por si falta el DOM
 }
 /* lanes */
 /* [R93] selecting a CLIP deselects the track (mutual exclusion — Ctrl+T/Ctrl+D are contextual). Cheap: also strips the
@@ -2207,7 +2202,7 @@ function tourSteps(demo){ return [
   {sel:'#stage',  title:T('The viewport','El visor'), body:T('Your dome, 2D or 360-room composite renders here live. Drag a shape to reposition it, or scrub the timeline.','Tu composición domo, 2D o sala 360 se renderiza aquí en vivo. Arrastra una forma para recolocarla, o desplaza la línea de tiempo.')},
   {sel:'.timeline',title:T('The timeline','La línea de tiempo'), body:demo?T('Clips stack on tracks over time. This demo already holds a few reference shapes on separate tracks.','Los clips se apilan en pistas a lo largo del tiempo. Esta demo ya trae varias formas de referencia en pistas separadas.'):T('Clips stack on tracks over time — arrange your media here.','Los clips se apilan en pistas a lo largo del tiempo — organiza tus medios aquí.')},
   {sel:'#inspPane',title:T('The inspector','El inspector'), body:T('Select a clip to shape its position, look, animation and audio-reactive FX right here.','Selecciona un clip para ajustar su posición, aspecto, animación y FX reactivos al audio aquí mismo.')},
-  {sel:'#exportBtn',title:T('Export','Exportar'), body:T('When your piece is ready, render it to a video file or an image sequence.','Cuando tu obra esté lista, renderízala a un vídeo o a una secuencia de imágenes.')} ]; }
+  {sel:'#menubar',title:T('Export','Exportar'), body:T('When your piece is ready, render it to a video file or an image sequence from the File menu.','Cuando tu obra esté lista, renderízala a un vídeo o a una secuencia de imágenes desde el menú File.')} ]; }
 function startTour(demo){ if(document.getElementById('tourOv'))return; const steps=tourSteps(demo); let i=0;
   const ov=document.createElement('div'); ov.id='tourOv'; ov.style.cssText='position:fixed;inset:0;z-index:45;'; // transparent catcher: blocks stray clicks on the app mid-tour; the dim comes from the hole's box-shadow. z-45 = above app chrome but BELOW .overlay dialogs (z-50) so a close-confirm stays clickable
   const hole=document.createElement('div'); hole.style.cssText='position:fixed;border-radius:8px;pointer-events:none;box-shadow:0 0 0 9999px rgba(11,12,14,0.74);outline:1.5px solid rgba(201,205,211,0.55);'+(state.prefs.reducedMotion?'':'transition:all .25s cubic-bezier(.4,0,.2,1);');
@@ -2841,69 +2836,14 @@ const FX=[['opacity','Opacity','%',0,100],['blur','Blur','px',0,20],['feather','
 const FX_COLOR_KEYS=new Set(['exposure','contrast','saturation','temperature','tint','glow','chroma']); // [I2] these FX rows go to the Color section; the rest (opacity/blur/feather/crop) stay in Clip
 const PLABELS={az:['Azimuth','Azimut'],el:['Elevation','Elevación'],size:['Size','Tamaño'],rot:['Rotation','Rotación'],x:['Pos X','Pos X'],y:['Pos Y','Pos Y'],scale:['Scale','Escala'],opacity:['Opacity','Opacidad'],blur:['Blur','Desenfoque'],feather:['Feather','Desvanecer'],crop:['Crop','Recortar'],exposure:['Exposure','Exposición'],contrast:['Contrast','Contraste'],saturation:['Saturation','Saturación'],temperature:['Temp','Temp'],tint:['Tint','Tinte'],glow:['Glow','Brillo'],chroma:['Chroma','Cromática']};
 const propLabel=p=>{const m=PLABELS[p];return m?T(m[0],m[1]):p;};
-/* [master grade] the sequence-level global grade UI — a compact, always-visible section at the top of the inspector.
-   Independent of the selClip-bound clip color UI: reads/writes state.seqGrade and re-renders live. Phase 1: numeric. */
-let _masterOpen=true;
-const MASTER_PARAMS=[['exposure','Exposure','Exposición'],['contrast','Contrast','Contraste'],['saturation','Saturation','Saturación'],['temperature','Temp','Temperatura'],['tint','Tint','Tinte']];
-function seqGradeObj(){ if(!state.seqGrade)state.seqGrade={exposure:0,contrast:0,saturation:0,temperature:0,tint:0}; return state.seqGrade; }
-const MASTER_WHEELS=[['cgLift','Lift'],['cgGamma','Gamma'],['cgGain','Gain']];
-function renderMasterGrade(){ const host=$('#insMaster'); if(!host)return; const g=seqGradeObj(); const on=masterGradeOn();
-  const rows=MASTER_PARAMS.map(([k,en,es])=>`<div class="prow mgrow"><span class="lab">${T(en,es)}</span><input type="range" class="mgr" data-k="${k}" min="-100" max="100" value="${Math.round(g[k]||0)}" style="flex:1;height:18px;accent-color:var(--ink-3);"><span class="num mgv" data-k="${k}">${Math.round(g[k]||0)}</span></div>`).join('');
-  const wheels=`<div class="prow mgrow" style="align-items:flex-start;"><span class="kf" style="cursor:default;visibility:hidden;"></span><div class="cwrap" style="flex:1;min-width:0;">`+
-    MASTER_WHEELS.map(([k,lab])=>`<div class="cwcol" data-k="${k}"><div class="cwheel" data-k="${k}" title="${T('Drag = color balance · double-click = reset','Arrastrar = balance de color · doble clic = reiniciar')}"><span class="cwh"></span></div><input type="range" class="cwm" data-k="${k}" min="-100" max="100" value="0" title="${T('Luminance','Luminancia')}"><span class="cwlab">${lab}</span></div>`).join('')+`</div></div>`;
-  const rec=(g.lut)?_lutReg.get(g.lut):null;
-  const lut=`<div class="prow mgrow"><span class="lab">LUT</span><div style="flex:1;display:flex;align-items:center;gap:6px;min-width:0;"><button class="mbtn" id="mgLutLoad" style="height:18px;padding:0 8px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${g.lut?(rec?rec.name:'LUT').slice(0,16):T('Load…','Cargar…')}</button>${g.lut?`<input type="range" id="mgLutMix" min="0" max="100" value="${g.lutMix==null?100:g.lutMix}" style="flex:1;min-width:36px;"><span class="tnum" id="mgLutMixV" style="width:30px;color:var(--ink-dim);text-align:right;">${g.lutMix==null?100:g.lutMix}%</span><button class="mbtn" id="mgLutClear" title="${T('Remove LUT','Quitar LUT')}" style="height:18px;padding:0 7px;">✕</button>`:''}</div></div>`;
-  const curves=`<div class="prow mgrow" style="align-items:flex-start;"><span class="kf" style="cursor:default;visibility:hidden;"></span><div style="flex:1;min-width:0;">
-      <div style="display:flex;gap:3px;align-items:center;margin-bottom:4px;"><button class="ctab mgctab on" data-ch="l">${T('Luma','Luma')}</button><button class="ctab mgctab" data-ch="r">R</button><button class="ctab mgctab" data-ch="g">G</button><button class="ctab mgctab" data-ch="b">B</button><div style="flex:1;"></div><button class="mbtn" id="mgCurveReset" style="height:16px;padding:0 7px;" title="${T('Reset this channel','Reiniciar este canal')}">${T('Reset','Reiniciar')}</button></div>
-      <canvas class="curvecv mgcurvecv" title="${T('Click = add point · drag = move · double-click = remove','Clic = añadir punto · arrastrar = mover · doble clic = quitar')}"></canvas></div></div>`;
-  host.innerHTML=`<button class="sechead" id="secMaster"><span style="color:var(--ink-dim);display:flex;transform:rotate(${_masterOpen?0:-90}deg);">${ICO('chevDown')}</span><span class="t">${T('Master Grade','Grado máster')}</span><span class="ln"></span>${on?'<span class="mgdot" title="'+T('Active','Activo')+'"></span>':''}<button class="mbtn" id="mgReset" title="${T('Reset the whole-sequence grade','Reiniciar el grado de toda la secuencia')}" style="height:15px;padding:0 6px;margin-left:6px;${on?'':'opacity:.45;'}">${T('Reset','Reiniciar')}</button></button>
-    <div id="masterRows" style="padding-bottom:5px;${_masterOpen?'':'display:none;'}">${rows}${wheels}${lut}${curves}</div>`;
-  const head=host.querySelector('#secMaster'); if(head)head.onclick=e=>{ if(e.target.closest('#mgReset'))return; _masterOpen=!_masterOpen; renderMasterGrade(); };
-  const rst=host.querySelector('#mgReset'); if(rst)rst.onclick=e=>{ e.stopPropagation(); if(!masterGradeOn())return; pushUndo(); state.seqGrade={exposure:0,contrast:0,saturation:0,temperature:0,tint:0}; markCurveDirty(_masterClip); render(); markDirty(); renderMasterGrade(); flashStatus(T('Master grade reset','Grado máster reiniciado')); };
-  // wheels (lift/gamma/gain) — fresh handlers on state.seqGrade (the clip wheel UI is selClip-bound)
-  host.querySelectorAll('.cwcol').forEach(col=>{ const k=col.dataset.k, wheel=col.querySelector('.cwheel'), hnd=col.querySelector('.cwh'), master=col.querySelector('.cwm');
-    const cur=()=>{ const a=g[k]; return a?[a[0]||0,a[1]||0,a[2]||0]:[0,0,0]; };
-    const place=()=>{ const [x,y,mm]=cur(); hnd.style.left=(50+x*46)+'%'; hnd.style.top=(50-y*46)+'%'; master.value=Math.round(mm*100); }; place();
-    let drag=false; const setXY=(px,py)=>{ const r=wheel.getBoundingClientRect(); let x=(px-r.left)/r.width*2-1, y=-((py-r.top)/r.height*2-1); const d=Math.hypot(x,y); if(d>1){x/=d;y/=d;} const a=cur(); g[k]=[x,y,a[2]]; place(); render(); };
-    wheel.onpointerdown=e=>{ e.preventDefault(); pushUndo(); drag=true; try{wheel.setPointerCapture(e.pointerId);}catch(_){} setXY(e.clientX,e.clientY); };
-    wheel.onpointermove=e=>{ if(drag)setXY(e.clientX,e.clientY); };
-    wheel.onpointerup=()=>{ if(drag){ drag=false; markDirty(); renderMasterGrade(); } };
-    wheel.ondblclick=()=>{ pushUndo(); g[k]=[0,0,0]; place(); render(); markDirty(); renderMasterGrade(); };
-    master.onpointerdown=()=>pushUndo();
-    master.oninput=e=>{ const a=cur(); g[k]=[a[0],a[1],(+e.target.value)/100]; render(); };
-    master.onchange=()=>{ markDirty(); renderMasterGrade(); }; });
-  // master LUT (.cube) — reuses loadLUT/_lutReg like clips
-  const ll=host.querySelector('#mgLutLoad'); if(ll)ll.onclick=async()=>{ if(!(IS_ELEC&&DSP.pickFile)){ flashStatus(T('LUT loading needs the desktop app','Cargar LUT necesita la app de escritorio'),'err'); return; }
-    const p=await DSP.pickFile({name:'Cube LUT',extensions:['cube'],title:T('Load master LUT (.cube)','Cargar LUT máster (.cube)')}); if(!p)return; const r2=await loadLUT(p); if(!r2){ flashStatus(T('Not a valid 3D .cube LUT','No es una LUT .cube 3D válida'),'err'); return; }
-    pushUndo(); g.lut=p; if(g.lutMix==null)g.lutMix=100; render(); markDirty(); renderMasterGrade(); flashStatus('LUT: '+r2.name); };
-  const lm=host.querySelector('#mgLutMix'); if(lm){ lm.onpointerdown=()=>pushUndo(); lm.oninput=e=>{ g.lutMix=+e.target.value; const v=host.querySelector('#mgLutMixV'); if(v)v.textContent=g.lutMix+'%'; render(); }; lm.onchange=()=>markDirty(); }
-  const lc=host.querySelector('#mgLutClear'); if(lc)lc.onclick=()=>{ pushUndo(); g.lut=null; render(); markDirty(); renderMasterGrade(); };
-  // master curves (luma + R/G/B) — fresh editor on state.seqGrade.curves; the texture cache lives on _masterClip
-  { const cvv=host.querySelector('.mgcurvecv'); const PAD=6, COL={l:'#E8EAED',r:'#E06A6A',g:'#5FC77E',b:'#5B8DEF'}; let mch='l';
-    const ens=()=>{ if(!g.curves)g.curves={}; for(const k of ['l','r','g','b'])if(!g.curves[k])g.curves[k]=[[0,0],[1,1]]; return g.curves; };
-    const pts=()=>{ ens(); return g.curves[mch]; };
-    const bake=()=>{ markCurveDirty(_masterClip); render(); }; // curveIsIdentity() keeps it a no-op when flat
-    const draw=()=>{ if(!cvv)return; const W=cvv.clientWidth||248,H=cvv.clientHeight||120,dpr=Math.min(window.devicePixelRatio||1,2); cvv.width=Math.round(W*dpr);cvv.height=Math.round(H*dpr); const x=cvv.getContext('2d'); x.setTransform(dpr,0,0,dpr,0,0); x.clearRect(0,0,W,H);
-      const iw=W-2*PAD, ih=H-2*PAD, X=v=>PAD+v*iw, Y=v=>PAD+(1-v)*ih;
-      x.strokeStyle='rgba(255,255,255,0.06)';x.lineWidth=1;x.beginPath();for(let i=0;i<=4;i++){const gx=PAD+iw*i/4,gy=PAD+ih*i/4;x.moveTo(gx,PAD);x.lineTo(gx,PAD+ih);x.moveTo(PAD,gy);x.lineTo(PAD+iw,gy);}x.stroke();
-      x.strokeStyle='rgba(255,255,255,0.13)';x.beginPath();x.moveTo(X(0),Y(0));x.lineTo(X(1),Y(1));x.stroke();
-      const P=(g.curves&&g.curves[mch])||[[0,0],[1,1]], col=COL[mch]; x.strokeStyle=col;x.lineWidth=1.5;x.beginPath();for(let i=0;i<=96;i++){const t=i/96,yy=evalCurve(P,t);i?x.lineTo(X(t),Y(yy)):x.moveTo(X(t),Y(yy));}x.stroke();
-      x.fillStyle=col;for(const p of P){x.beginPath();x.arc(X(p[0]),Y(p[1]),3.5,0,7);x.fill();x.lineWidth=1;x.strokeStyle='#0a0a0a';x.stroke();} };
-    const toC=ev=>{ const r=cvv.getBoundingClientRect(),iw=r.width-2*PAD,ih=r.height-2*PAD; return [Math.max(0,Math.min(1,(ev.clientX-r.left-PAD)/iw)),Math.max(0,Math.min(1,1-(ev.clientY-r.top-PAD)/ih))]; };
-    const hit=ev=>{ const r=cvv.getBoundingClientRect(),iw=r.width-2*PAD,ih=r.height-2*PAD,P=pts(); for(let i=0;i<P.length;i++){const px=PAD+P[i][0]*iw,py=PAD+(1-P[i][1])*ih;if(Math.hypot(ev.clientX-r.left-px,ev.clientY-r.top-py)<9)return i;}return -1; };
-    let drag=-1; const ap=ev=>{ if(drag<0)return; const P=pts(); let [nx,ny]=toC(ev); if(drag===0)nx=0;else if(drag===P.length-1)nx=1;else nx=Math.max(P[drag-1][0]+0.001,Math.min(P[drag+1][0]-0.001,nx)); P[drag]=[nx,ny]; bake(); draw(); };
-    if(cvv){ cvv.onpointerdown=ev=>{ ev.preventDefault(); ens(); const P=pts(); let i=hit(ev); pushUndo(); if(i<0){const c2=toC(ev);const np=[c2[0],c2[1]];P.push(np);P.sort((a,b)=>a[0]-b[0]);i=P.indexOf(np);} drag=i; try{cvv.setPointerCapture(ev.pointerId);}catch(_){} ap(ev); };
-      cvv.onpointermove=ev=>{ if(drag>=0)ap(ev); };
-      cvv.onpointerup=()=>{ if(drag>=0){ drag=-1; markDirty(); renderMasterGrade(); } }; // rebuild to refresh the active dot
-      cvv.ondblclick=ev=>{ const P=pts(),i=hit(ev); if(i>0&&i<P.length-1){ pushUndo(); P.splice(i,1); bake(); draw(); markDirty(); } };
-      requestAnimationFrame(draw); }
-    host.querySelectorAll('.mgctab').forEach(b=>b.onclick=()=>{ mch=b.dataset.ch; host.querySelectorAll('.mgctab').forEach(z=>z.classList.toggle('on',z===b)); draw(); });
-    const cr=host.querySelector('#mgCurveReset'); if(cr)cr.onclick=()=>{ pushUndo(); ens(); g.curves[mch]=[[0,0],[1,1]]; bake(); draw(); markDirty(); renderMasterGrade(); }; }
-  host.querySelectorAll('.mgr').forEach(r=>{ const k=r.dataset.k;
-    r.onpointerdown=()=>pushUndo();
-    r.oninput=e=>{ g[k]=+e.target.value; const v=host.querySelector('.mgv[data-k="'+k+'"]'); if(v)v.textContent=Math.round(+e.target.value); render(); }; // grade is applied post-cache → a plain render() re-grades live, no raInvalidate
-    r.onchange=()=>{ markDirty(); renderMasterGrade(); }; }); } // re-render on release to refresh the active dot / Reset state
-function renderInspector(){ try{ renderMasterGrade(); }catch(e){} try{ _renderInspectorMain(); }catch(e){ console.error('inspector',e); } try{ renderReactivePanel(); }catch(e){} applyInspTab(); }
+/* [DEPRECATED · Rev1 redesign 2026-07-25] The always-visible "Master Grade" inspector UI was removed — the design
+   has no Master Grade section (per-clip grading lives in the Color section). The whole UI builder
+   (renderMasterGrade + _masterOpen/MASTER_PARAMS/MASTER_WHEELS/seqGradeObj) is archived in
+   _backup/deprecated/master-grade-ui.js. The GRADE LOGIC stays live and unchanged: state.seqGrade (L85),
+   masterGradeOn()/applyMasterGrade()/_masterClip (~L6812+), export bake (~L4389), per-seq persistence (~L5098).
+   With no editing UI, state.seqGrade rests at its all-0 defaults → identity (no visible change). To restore the
+   editor, re-add an #insMaster host and call renderMasterGrade() from renderInspector(). */
+function renderInspector(){ try{ _renderInspectorMain(); }catch(e){ console.error('inspector',e); } try{ renderReactivePanel(); }catch(e){} applyInspTab(); }
 function _renderInspectorMain(){
   const g=state.selGroupId!=null?groupById(state.selGroupId):null;
   if(g){ $('#insEmpty').style.display='none'; $('#insCtl').style.display='none'; $('#insGroup').style.display='block'; renderGroupInspector(g); return; }
@@ -2919,7 +2859,7 @@ function _renderInspectorMain(){
     if(gg) $('#grpChip').onclick=()=>selectGroup(gg.id); }
   // Adjustment layer: no source media / no transform — just opacity (wet/dry) + a pointer to the Reactive FX tab
   if(c.adjust){ $('#selMeta').textContent=T('Adjustment layer','Capa de ajuste');
-    ['#secTf','#mirrorWrap','#tfRows','#secColor','#colorRows','#secMotion','#motionRows'].forEach(s=>{const el=$(s);if(el)el.style.display='none';});
+    ['#secTf','#mirrorWrap','#tfRows','#secSource','#sourceRows','#secPlayback','#playbackRows','#secColor','#colorRows','#secMotion','#motionRows'].forEach(s=>{const el=$(s);if(el)el.style.display='none';});
     ['#secFx','#fxRows'].forEach(s=>{const el=$(s);if(el)el.style.display='';}); const ia0=$('#insAudio'); if(ia0)ia0.style.display='none';
     { const sf=$('#secFx'); if(sf){const tt=sf.querySelector('.t'); if(tt)tt.textContent=T('Adjustment Layer','Capa de ajuste');} }
     $('#fxRows').innerHTML=''; buildRows('#fxRows',[['opacity','Opacity','%',0,100]],c);
@@ -2927,15 +2867,16 @@ function _renderInspectorMain(){
     refreshInspector(); return; }
   // Audio clips get a dedicated Volume/Fade panel — the dome Transform/Effects don't apply to sound
   const isAud=!!(m&&m.kind==='audio')||isAudioClip(c);
-  { const d=isAud?'none':''; ['#secTf','#mirrorWrap','#secFx','#tfRows','#fxRows','#secColor','#colorRows','#secMotion','#motionRows'].forEach(s=>{const el=$(s);if(el)el.style.display=d;}); const ia=$('#insAudio'); if(ia)ia.style.display=isAud?'block':'none'; }
+  { const d=isAud?'none':''; ['#secTf','#mirrorWrap','#secFx','#tfRows','#fxRows','#secSource','#sourceRows','#secPlayback','#playbackRows','#secColor','#colorRows','#secMotion','#motionRows'].forEach(s=>{const el=$(s);if(el)el.style.display=d;}); const ia=$('#insAudio'); if(ia)ia.style.display=isAud?'block':'none'; }
   if(isAud){ $('#tfRows').innerHTML=''; $('#fxRows').innerHTML=''; buildAudioInspector(c,m); return; }
   $('#mirrorBtn').classList.toggle('on',c.props.mirror);
   { const st=$('#secTf'); if(st){ const tt=st.querySelector('.t'); if(tt)tt.textContent=isFlat()?T('Transform','Transformación'):T('Dome · Transform','Domo · Transformación'); } }
-  { const sf=$('#secFx'); if(sf){ const tt=sf.querySelector('.t'); if(tt)tt.textContent=T('Clip','Clip'); } const sc=$('#secColor'); if(sc){ const tt=sc.querySelector('.t'); if(tt)tt.textContent=T('Color','Color'); } const sm=$('#secMotion'); if(sm){ const tt=sm.querySelector('.t'); if(tt)tt.textContent=T('Motion','Movimiento'); } } // [I2] section titles (secFx reused as the Clip section; Color/Motion are new)
+  { const sf=$('#secFx'); if(sf){ const tt=sf.querySelector('.t'); if(tt)tt.textContent=T('Clip','Clip'); } const sc=$('#secColor'); if(sc){ const tt=sc.querySelector('.t'); if(tt)tt.textContent=T('Color','Color'); } const sm=$('#secMotion'); if(sm){ const tt=sm.querySelector('.t'); if(tt)tt.textContent=T('Motion','Movimiento'); } const ss=$('#secSource'); if(ss){ const tt=ss.querySelector('.t'); if(tt)tt.textContent=T('Source','Fuente'); } const sp=$('#secPlayback'); if(sp){ const tt=sp.querySelector('.t'); if(tt)tt.textContent=T('Playback','Reproducción'); } } // [I2/Rev1] section titles (secFx reused as the Clip section; Source/Playback/Color/Motion)
   buildRows('#tfRows', isFlat()?TF_FLAT:TF, c);
   { const fxAll=(!isFlat()&&c.props.fulldome)?FX.filter(f=>['opacity','feather','exposure','contrast','saturation','temperature','tint'].includes(f[0])):FX; // fulldome path (PFD) supports opacity + grade + mask/feather
     buildRows('#fxRows', fxAll.filter(f=>!FX_COLOR_KEYS.has(f[0])), c);   // [I2] Clip section: opacity/blur/feather/crop + (below) mask/blend/loop/keys
     buildRows('#colorRows', fxAll.filter(f=>FX_COLOR_KEYS.has(f[0])), c); } // [I2] Color section: exposure/contrast/saturation/temp/tint/glow/chroma + (below) LUT
+  $('#sourceRows').innerHTML=''; $('#playbackRows').innerHTML=''; // [Rev1] these are appendChild targets (buildRows only clears tf/fx/color) — clear each render or rows accumulate
   // 360-room "Mask to wall": the clip is only visible inside the chosen wall(s) — multi-select
   if(isRoom()&&!c.adjust){ const room=activeSeq()&&activeSeq().room; if(room&&room.walls){ const host=$('#tfRows'); const cur=c.props.maskWalls||[];
     const row=document.createElement('div'); row.className='prow'; row.style.cssText='flex-direction:column;align-items:stretch;gap:6px;margin-top:2px;';
@@ -3021,25 +2962,25 @@ function _renderInspectorMain(){
   if(!isFlat()){ const fdrow=document.createElement('div'); fdrow.className='prow';
     fdrow.innerHTML=`<span class="kf" style="cursor:default;"></span><span class="lab">${T('Fulldome src','Fuente fulldome')}</span>
       <label style="display:flex;align-items:center;gap:6px;flex:1;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="fdToggle" ${c.props.fulldome?'checked':''}> ${T('Map 1:1 to dome (no warp)','Mapear 1:1 al domo (sin warp)')}</label>`;
-    $('#fxRows').appendChild(fdrow);
+    $('#sourceRows').appendChild(fdrow); // [Rev1] Source section
     fdrow.querySelector('#fdToggle').onchange=e=>{const cc=selClip();if(cc){pushUndo();cc.props.fulldome=e.target.checked; if(e.target.checked)cc.props.equirect=false; if(_raOn)raInvalidate();render();renderInspector();}};
     // [F7] Equirect 360° source: the clip is a 2:1 panorama → mapped onto the dome. Azimuth (Transform) = camera yaw; Tilt = pitch. Mutually exclusive with Fulldome src.
     const eqrow=document.createElement('div'); eqrow.className='prow';
     eqrow.innerHTML=`<span class="kf" style="cursor:default;"></span><span class="lab">${T('Equirect 360°','Equirect 360°')}</span>
       <label style="display:flex;align-items:center;gap:6px;flex:1;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="eqToggle" ${c.props.equirect?'checked':''}> ${T('Map panorama to dome (Azimuth = camera yaw)','Mapear panorama al domo (Azimut = giro de cámara)')}</label>`;
-    $('#fxRows').appendChild(eqrow);
+    $('#sourceRows').appendChild(eqrow); // [Rev1] Source section
     eqrow.querySelector('#eqToggle').onchange=e=>{const cc=selClip();if(cc){pushUndo();cc.props.equirect=e.target.checked; if(e.target.checked)cc.props.fulldome=false; if(_raOn)raInvalidate();render();renderInspector();}};
     if(c.props.equirect){ const eprow=document.createElement('div'); eprow.className='prow';
       eprow.innerHTML=`<span class="kf" style="cursor:default;visibility:hidden;"></span><span class="lab" style="font-size:11px;color:var(--ink-2);">${T('Tilt','Inclinación')}</span>
         <input type="range" id="eqPitch" min="-90" max="90" value="${Math.round(c.props.eqPitch||0)}" style="flex:1;height:20px;"><span class="tnum" id="eqPitchV" style="width:40px;text-align:right;color:var(--ink-dim);">${Math.round(c.props.eqPitch||0)}°</span>`;
-      $('#fxRows').appendChild(eprow);
+      $('#sourceRows').appendChild(eprow); // [Rev1] Source section
       const pr=eprow.querySelector('#eqPitch'); pr.onpointerdown=()=>pushUndo(); pr.oninput=e=>{ const cc=selClip(); if(!cc)return; cc.props.eqPitch=+e.target.value; eprow.querySelector('#eqPitchV').textContent=(+e.target.value)+'°'; if(_raOn)raInvalidate(); render(); }; pr.onchange=()=>markDirty(); }
     // Fisheye pre-warp (R83) — for FLAT clips that lack the fisheye curvature a dome master needs
     const fhrow=document.createElement('div'); fhrow.className='prow';
     fhrow.innerHTML=`<span class="kf" style="cursor:default;"></span><span class="lab">${T('Fisheye','Ojo de pez')}</span>
       <label style="display:flex;align-items:center;gap:6px;flex:1;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="fhToggle" ${c.props.fisheye?'checked':''}> ${T('Warp flat → fisheye','Deformar plano → ojo de pez')}</label>
       <input type="number" id="fhAmt" value="${c.props.fisheyeAmt!=null?c.props.fisheyeAmt:60}" min="0" max="100" title="${T('Amount','Cantidad')}" style="width:46px;height:18px;background:var(--s2);border:.5px solid rgba(255,255,255,0.12);border-radius:2px;color:var(--ink);text-align:center;${c.props.fisheye?'':'opacity:.4;'}">`;
-    $('#fxRows').appendChild(fhrow);
+    $('#sourceRows').appendChild(fhrow); // [Rev1] Source section
     fhrow.querySelector('#fhToggle').onchange=e=>{const cc=selClip();if(cc){pushUndo();cc.props.fisheye=e.target.checked;const inp=fhrow.querySelector('#fhAmt');if(inp)inp.style.opacity=e.target.checked?'1':'.4';if(_raOn)raInvalidate();render();}};
     fhrow.querySelector('#fhAmt').onchange=e=>{const cc=selClip();if(cc){pushUndo();cc.props.fisheyeAmt=Math.max(0,Math.min(100,+e.target.value||0));if(_raOn)raInvalidate();render();}}; }
   // R130 · lift/gamma/gain color wheels (primary grade) — any visual clip. Drag the handle = color balance; slider = luminance master; double-click = reset.
@@ -3119,13 +3060,21 @@ function _renderInspectorMain(){
   if(m && (m.kind==='video'||m.kind==='audio'||isSeqMedia(m))){ const lrow=document.createElement('div'); lrow.className='prow';
     lrow.innerHTML=`<span class="kf" style="cursor:default;"></span><span class="lab">${T('Loop','Loop')}</span>
       <label style="display:flex;align-items:center;gap:6px;flex:1;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="loopToggle" ${c.loop?'checked':''}> ${T('Loopable (extend the clip to repeat)','Loopeable (extiende el clip para repetir)')}</label>`;
-    $('#fxRows').appendChild(lrow);
+    $('#playbackRows').appendChild(lrow); // [Rev1] Playback section
     lrow.querySelector('#loopToggle').onchange=()=>{const cc=selClip();if(cc)toggleLoop(cc);};
     if(c.loop && m.kind!=='audio'){ const lr=document.createElement('div'); lr.className='prow'; // R88: ping-pong reverse (video / sequence)
       lr.innerHTML=`<span class="kf" style="cursor:default;visibility:hidden;"></span><span class="lab" style="font-size:11px;color:var(--ink-2);">${T('Reverse','Inverso')}</span>
         <label style="display:flex;align-items:center;gap:6px;flex:1;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="loopRevToggle" ${c.loopRev?'checked':''}> ${T('Ping-pong (fwd → back → fwd)','Ping-pong (ida → vuelta → ida)')}</label>`;
-      $('#fxRows').appendChild(lr);
+      $('#playbackRows').appendChild(lr); // [Rev1] Playback section
       lr.querySelector('#loopRevToggle').onchange=()=>{const cc=selClip();if(cc)toggleLoopReverse(cc);}; } }
+  // [REDISEÑO Rev1] Playback · Speed — per-clip playback rate (c.speed, default 1); time-based media only (video/audio/sequence)
+  if(m && (m.kind==='video'||m.kind==='audio'||isSeqMedia(m))){ const sp=document.createElement('div'); sp.className='prow'; const spct=Math.round((c.speed||1)*100);
+    sp.innerHTML=`<span class="kf" style="cursor:default;visibility:hidden;"></span><span class="lab">${T('Speed','Velocidad')}</span>
+      <input type="range" id="spRange" min="25" max="400" step="5" value="${spct}" title="${T('Playback speed','Velocidad de reproducción')}" style="flex:1;height:20px;"><span class="tnum" id="spV" style="width:44px;text-align:right;color:var(--ink-dim);">${spct}%</span>`;
+    $('#playbackRows').appendChild(sp);
+    const spr=sp.querySelector('#spRange'); spr.onpointerdown=()=>pushUndo();
+    spr.oninput=e=>{ const cc=selClip(); if(!cc)return; cc.speed=Math.max(0.05,(+e.target.value)/100); const v=sp.querySelector('#spV'); if(v)v.textContent=Math.round(cc.speed*100)+'%'; if(_raOn)raInvalidate(); render(); };
+    spr.onchange=()=>{ const cc=selClip(); if(cc){ renderTimeline(); reschedAudio(); markDirty(); } }; }
   // Remove black (luma key) — any VISUAL clip: keys out the black background into real transparency (R85)
   if(m && m.kind!=='audio'){ const kr=document.createElement('div'); kr.className='prow';
     kr.innerHTML=`<span class="kf" style="cursor:default;"></span><span class="lab">${T('Remove black','Quitar negro')}</span>
@@ -3205,6 +3154,9 @@ function _renderInspectorMain(){
     $('#motionRows').appendChild(fxb); renderMotionFx(c); // scoped fill + wire (edits re-render only #motionFx, not the whole inspector)
   }
   applySecCollapse(); // [I1] Transform expanded, Clip/Color/Motion collapsed by default (persisted in state.insCol)
+  // [Rev1] hide Source/Playback headers when they have no applicable controls (flat clips lack projection; stills lack loop)
+  { const sr=$('#sourceRows'), sh=$('#secSource'); if(sr&&sh){ const e=!sr.children.length; sh.style.display=e?'none':''; if(e)sr.style.display='none'; }
+    const pr=$('#playbackRows'), ph=$('#secPlayback'); if(pr&&ph){ const e=!pr.children.length; ph.style.display=e?'none':''; if(e)pr.style.display='none'; } }
   refreshInspector();
 }
 /* draw a real (max-abs envelope) waveform, amplitude scaled by the clip volume */
@@ -3330,6 +3282,7 @@ function fadeDrag(box,key){ box.addEventListener('pointerdown',e=>{e.preventDefa
 function buildRows(sel,defs,c){ const host=$(sel); host.innerHTML='';
   for(const [p,label,unit,mn,mx] of defs){
     const row=document.createElement('div'); row.className='prow'+(hasKf(c,p)?' auto':''); // .auto = param already automated → brighter label (Ableton-style)
+    row.style.setProperty('--pc', autoColor(p)); // [REDISEÑO Rev1] hue del parámetro → fader fill + diamante (mismo color que la curva del timeline)
     row.innerHTML=`<span class="lab">${propLabel(p)}</span>
       <div class="field" data-p="${p}"><div class="track"><i style="width:0%"></i></div><div class="modarc"></div><div class="box"><span class="num">0</span><span class="u">${unit}</span></div></div>
       <button class="modb" data-p="${p}" title="${T('Modulation — LFO · audio · dome space','Modulación — LFO · audio · espacio del domo')}">${ICO('react',11)}</button>
@@ -3466,7 +3419,7 @@ function autoDuoText(li,cur,onPick){ const wrap=document.createElement('div'); w
   const isT=isFxtKey(cur); const q=isT?cur.split(':'):null;
   const dev=isT?T(FXBY[q[1]].label[0],FXBY[q[1]].label[1]):(XFORM_P.some(d=>d[0]===cur)?T('Transform','Transformar'):T('Effects','Efectos'));
   const par=isT?fxParamLabel(q[1],q[2]):propLabel(cur);
-  wrap.innerHTML=`<span class="adev-t">${dev}</span><span class="apar-t">${par}</span>`;
+  wrap.innerHTML=`<span class="achip acat"><span class="alab">${dev}</span>${ICO('chevDown',8)}</span><span class="achip apac"><span class="asw2" style="background:${autoColor(cur)}"></span><span class="alab">${par}</span>${ICO('chevDown',8)}</span>`; // [REDISEÑO Rev1] 2 chips (Effect-type + Parameter con swatch)
   wrap.addEventListener('pointerdown',e=>{ e.stopPropagation(); const live=autoDuo(li,cur,onPick); wrap.replaceWith(live); const s=live.querySelector('.apar'); if(s){try{s.focus();}catch(_){}} });
   return wrap; }
 function fxParamLabel(ty,k){ const def=FXBY[ty]; if(!def)return k; if(k==='int')return T('Intensity','Intensidad'); if(k==='amt')return T('Reactivity','Reactividad'); const pd=(def.params||[]).find(x=>x.k===k); return pd?T(pd.label[0],pd.label[1]):k; }
@@ -5712,11 +5665,16 @@ $('#mediaList').addEventListener('contextmenu',e=>{ if(e.target.closest('.mitem'
   items.push('sep',{label:T('New folder','Nueva carpeta'),ico:'folder',fn:()=>$('#newFolderBtn').click()});
   openMenu(e.clientX,e.clientY,items); });
 $('#filtSeg').querySelectorAll('button').forEach(b=>b.onclick=()=>{state.mediaFilter=b.dataset.f;$('#filtSeg').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));renderMedia();});
-$('#groupSeg').querySelectorAll('button').forEach(b=>b.onclick=()=>{state.mediaGroupBy=b.dataset.g;$('#groupSeg').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));renderMedia();});
-if($('#mediaViewBtn'))$('#mediaViewBtn').onclick=()=>{ state.mediaView=(state.mediaView==='grid')?'list':'grid'; $('#mediaViewBtn').classList.toggle('on',state.mediaView==='grid'); flashStatus(state.mediaView==='grid'?T('Media: grid view','Medios: vista de cuadrícula'):T('Media: list view','Medios: vista de lista')); renderMedia(); }; // R89c: both views navigate folders (dblclick) and SHARE state.mediaFolder — switching views keeps you in the same folder
+{ const gseg=$('#groupSeg'); if(gseg)gseg.querySelectorAll('button').forEach(b=>b.onclick=()=>{state.mediaGroupBy=b.dataset.g;gseg.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));renderMedia();}); } // [REDISEÑO Rev1] group-by retirado del UI (reemplazado por Sort); guardar
+// [REDISEÑO Rev1] well List/Grid en el header
+{ const mvs=$('#mediaViewSeg'); if(mvs)mvs.querySelectorAll('button').forEach(b=>b.onclick=()=>{ state.mediaView=b.dataset.mv; mvs.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); renderMedia(); }); }
+// [REDISEÑO Rev1] Sort dropdown (reemplaza None/Folder/Type): ordena la lista de medios
+const MEDIA_SORTS=[['name',['Name','Nombre']],['date',['Date added','Fecha']],['type',['Type','Tipo']]];
+function mediaSortLabel(){ const s=(MEDIA_SORTS.find(x=>x[0]===(state.mediaSort||'name'))||MEDIA_SORTS[0])[1]; return T(s[0],s[1]); }
+{ const sb=$('#mediaSortBtn'); if(sb)sb.onclick=e=>{ const r=sb.getBoundingClientRect(); openMenu(r.left, r.bottom+4, MEDIA_SORTS.map(s=>({label:T(s[1][0],s[1][1])+((state.mediaSort||'name')===s[0]?'   ✓':''), fn:()=>{ state.mediaSort=s[0]; const l=$('#mediaSortLbl'); if(l)l.textContent=mediaSortLabel(); renderMedia(); markDirty(); }}))); }; }
 $('#ringBtn').onclick=()=>openCompose('ring'); // openCompose itself rejects with the "Import images or videos first" flash when the library is empty
 if($('#adjLayerBtn'))$('#adjLayerBtn').onclick=()=>{ if($('#adjLayerBtn').classList.contains('dis')){ flashStatus(T('Import images or videos first.','Primero importa imágenes o vídeos.'),'err'); return; } createAdjustMedia(); }; // sidebar (Media panel): create a draggable Adjustment media item (R87) — the reactive panel's "Add Adjustment Layer" still drops one straight onto the timeline · [R94-UT3·U-12] .dis keeps pointer-events for the tooltip, so guard the click
-function showFolders(){ state.mediaGroupBy='folder'; $('#groupSeg').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x.dataset.g==='folder')); }
+function showFolders(){ state.mediaGroupBy='folder'; const gseg=$('#groupSeg'); if(gseg)gseg.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x.dataset.g==='folder')); }
 $('#newFolderBtn').onclick=()=>newFolderIn(state.mediaView==='grid'?state.mediaFolder:(state.selFolder||state.mediaFolder||null)); // R89c: create INSIDE where you are — browsed folder (grid/list navigation) or selected folder (tree), like Adobe
 { const ml=$('#mediaList'); if(ml)ml.addEventListener('pointerdown',e=>{ if(e.button!==0)return; if(e.target.closest('.mitem,.mtile,.folderhdr,.foldertile,.backtile,.grphead2,.drop,input,[contenteditable="true"]'))return; if(selectedMediaIds().length||state.selFolder)clearMediaSel(); }); } // [M2] click empty Media space → deselect
 function renameFolder(f){ appPrompt(T('Folder name:','Nombre de la carpeta:'),folderName(f),n=>{ n=sanitizeFolderName(n); if(!n||n===folderName(f))return; const np=joinFolder(folderParent(f),n); if(folderExists(np)){ flashStatus(T('A folder with that name already exists','Ya existe una carpeta con ese nombre')); return; } pushUndo(); _reprefixFolders(f,np); renderMedia(); markDirty(); }); }
@@ -5758,9 +5716,9 @@ function applySecCollapse(){ const st=insColState(); document.querySelectorAll('
 function wireSecHeads(){ document.querySelectorAll('#insCtl .sechead[data-sec]').forEach(h=>{ if(h._wired)return; h._wired=true; h.onclick=()=>{ const st=insColState(); st[h.dataset.sec]=!st[h.dataset.sec]; applySecCollapse(); }; }); }
 wireSecHeads();
 function openSaveMenu(x,y){ openMenu(x,y,[{label:T('Save','Guardar'),key:'⌘S',ico:'save',fn:()=>saveProject()},{label:T('Save As… (new file)','Guardar como… (archivo nuevo)'),key:'⇧⌘S',fn:()=>saveProject(true)},{label:T('Save incremental (_vNN)','Guardar incremental (_vNN)'),fn:saveIncremental}]); }
-$('#saveBtn').onclick=()=>saveProject(); $('#saveBtn').oncontextmenu=e=>{ e.preventDefault(); openSaveMenu(e.clientX,e.clientY); }; // right-click the Save button → Save As / incremental
+if($('#saveBtn')){ $('#saveBtn').onclick=()=>saveProject(); $('#saveBtn').oncontextmenu=e=>{ e.preventDefault(); openSaveMenu(e.clientX,e.clientY); }; } // [REDISEÑO Rev1] Save/Export/New/Open removidos del top bar → File menu; guardar el wiring
 if($('#saveMenuBtn'))$('#saveMenuBtn').onclick=e=>{ const r=e.currentTarget.getBoundingClientRect(); openSaveMenu(r.left, r.bottom+4); }; // visible caret → Save As… / incremental (R87)
-$('#exportBtn').onclick=openExport; if($('#newBtn'))$('#newBtn').onclick=newProject; if($('#openBtn'))$('#openBtn').onclick=()=>openProject();
+if($('#exportBtn'))$('#exportBtn').onclick=openExport; if($('#newBtn'))$('#newBtn').onclick=newProject; if($('#openBtn'))$('#openBtn').onclick=()=>openProject();
 if($('#statXBtn'))$('#statXBtn').onclick=()=>exCancelActive(); // [R94-UT3·U-02c] cancel the running export from the status bar, modal closed or not
 if($('#undoBtn'))$('#undoBtn').onclick=()=>undo(); if($('#redoBtn'))$('#redoBtn').onclick=()=>redo(); // [U-07] visible undo/redo affordance in the top bar (same path as Ctrl+Z / Ctrl+Shift+Z)
 if($('#helpBtn'))$('#helpBtn').onclick=()=>openPalette(); // [U-08] "?" opens the command palette (all commands + shortcuts)
@@ -5807,6 +5765,14 @@ function setPerfMode(on){ on=!!on; document.body.classList.toggle('perfmode',on)
 { const pb=$('#perfBtn'); if(pb)pb.onclick=()=>setPerfMode(!document.body.classList.contains('perfmode')); const pe=$('#perfExit'); if(pe)pe.onclick=()=>setPerfMode(false); }
 if($('#ndiBtn')){ const nb=$('#ndiBtn'); nb.onclick=e=>{ const r=nb.getBoundingClientRect(); ndiMenu(r.left, r.bottom+4); }; if(!(IS_ELEC&&window.dsp&&window.dsp.ndi))nb.style.display='none'; } // NDI is desktop-only
 if($('#spoutBtn')){ const sb=$('#spoutBtn'); sb.onclick=e=>{ const r=sb.getBoundingClientRect(); spoutMenu(r.left, r.bottom+4); }; if(!(IS_ELEC&&window.dsp&&window.dsp.spout))sb.style.display='none'; } // Spout is Windows desktop-only
+/* [REDISEÑO Rev1] Output dropdown — consolida Full performance · Viewer window · NDI · Spout en un solo menú */
+function refreshOutputInd(){ const o=$('#outputBtn'); if(o)o.classList.toggle('on', _ndiOn||_spoutOn); } // punto pulsante cuando NDI/Spout emite
+{ const ob=$('#outputBtn'); if(ob)ob.onclick=e=>{ const r=ob.getBoundingClientRect(); const x=r.left, y=r.bottom+4;
+  const items=[ {label:T('Full performance','Rendimiento total'),ico:'tallpanel',fn:()=>setPerfMode(true)},
+                {label:T('Viewer-only window','Ventana solo-visor'),ico:'popout',fn:openViewerWindow} ];
+  if(IS_ELEC&&window.dsp&&window.dsp.ndi)   items.push('sep',{label:T('NDI output…','Salida NDI…')+(_ndiOn?'   ●':''),ico:'ndi',fn:()=>ndiMenu(x,y)});
+  if(IS_ELEC&&window.dsp&&window.dsp.spout) items.push({label:T('Spout output…','Salida Spout…')+(_spoutOn?'   ●':''),ico:'ndi',fn:()=>spoutMenu(x,y)});
+  openMenu(x,y,items); }; }
 if($('#fmtChip'))$('#fmtChip').onclick=openSeqSettings; // click the format chip → re-configure the active sequence (dome coverage)
 
 /* transport */
@@ -5837,6 +5803,23 @@ function deleteSel(){ const ids=(state.selIds&&state.selIds.length)?state.selIds
   for(const c of state.clips)if(ids.includes(c.id)&&c.maskTex){try{gl.deleteTexture(c.maskTex);}catch(e){}}
   state.clips=state.clips.filter(x=>!ids.includes(x.id)); state.selId=null; state.selIds=[]; renderTimeline();renderInspector();render();updStatus(); reschedAudio(); }
 $('#prevMk').onclick=()=>jumpMarker(-1); $('#addMk').onclick=addMarker; $('#nextMk').onclick=()=>jumpMarker(1);
+/* [REDISEÑO Rev1] V-zoom lateral (diseño §6): el thumb refleja la altura media de pista y arrastrarlo la escala
+   (abajo = más altas, igual que el handle de resize por-pista). Reutiliza lane.h + los topes LANE_MIN_H/MAX_H. */
+function _laneDefH(l){ return l.h || (l.kind==='audio'?AUDIO_LANE_H:LANE_DEF_H); }
+function renderVZoom(){ const th=$('#tlVZoomThumb'), tr=$('#tlVZoomTrack'); if(!th||!tr)return;
+  const ls=state.lanes.filter(l=>!l.collapsed); if(!ls.length){ th.style.display='none'; return; } th.style.display='';
+  const avg=ls.reduce((s,l)=>s+_laneDefH(l),0)/ls.length; const H=tr.clientHeight||100;
+  const f=Math.max(0,Math.min(1,(avg-LANE_MIN_H)/Math.max(1,LANE_MAX_H-LANE_MIN_H)));
+  const thH=Math.max(26,Math.round(H*0.3)); th.style.height=thH+'px'; th.style.top=Math.round((H-thH)*f)+'px'; }
+if($('#tlVZoomThumb'))$('#tlVZoomThumb').addEventListener('pointerdown',ev=>{ ev.preventDefault(); pushUndo();
+  const y0=ev.clientY, base=state.lanes.map(_laneDefH);
+  const mv=e2=>{ const f=Math.max(0.25,Math.min(4,1+(e2.clientY-y0)/160));
+    state.lanes.forEach((l,i)=>{ if(l.collapsed)return; l.h=Math.max(LANE_MIN_H,Math.min(LANE_MAX_H,Math.round(base[i]*f))); }); scheduleTimeline(); };
+  const up=()=>{ window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up); renderTimeline(); markDirty(); };
+  window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); });
+function fitAll(){ const sc=$('#tlscroll'); const vw=(sc&&sc.clientWidth)||800; const d=Math.max(0.5,duration()); state.tl.pxPerSec=Math.max(TL_PPS_MIN,Math.min(TL_PPS_MAX,(vw*0.96)/d)); state.tl._scrollTarget=0; if(sc)sc.scrollLeft=0; renderTimeline(); flashStatus(T('Fit all','Encajar todo')); } // [REDISEÑO Rev1] zoom to fit all content in the timeline view (H·W)
+if($('#fitAllBtn'))$('#fitAllBtn').onclick=fitAll;
+if($('#tlGridBtn')){ const gb=$('#tlGridBtn'); const syncGrid=()=>gb.classList.toggle('on',state.tl.gridOn!==false); syncGrid(); gb.onclick=()=>{ state.tl.gridOn=(state.tl.gridOn===false); syncGrid(); renderTimeline(); }; } // [REDISEÑO Rev1] Grid = show/hide timeline grid lines
 $('#tlZoomIn').onclick=()=>{state.tl.pxPerSec=Math.min(TL_PPS_MAX,state.tl.pxPerSec*1.25);renderTimeline();};
 $('#tlZoomOut').onclick=()=>{state.tl.pxPerSec=Math.max(TL_PPS_MIN,state.tl.pxPerSec*0.8);renderTimeline();};
 /* tools */
@@ -6463,16 +6446,17 @@ function applyLang(){ const L=state.lang; document.documentElement.lang=L;
   ttl('#mediaRail','Expand media panel','Expandir panel de medios'); txt('#mediaRail .rlab','Media','Medios');
   txt('#mediaPane .pantab .ttl','Media','Medios');
   ttl('#newFolderBtn','New folder','Nueva carpeta'); ttl('#importBtn','Import media','Importar medios'); ttl('#textBtn','Add text / title','Añadir texto / título'); ttl('#shapeBtn','Add shape','Añadir forma'); ttl('#hideMedia','Hide panel','Ocultar panel');
+  txt('#importBtn .crlbl','Import','Importar'); txt('#textBtn .crlbl','Text','Texto'); txt('#shapeBtn .crlbl','Shape','Forma'); { const l=$('#mediaSortLbl'); if(l&&typeof mediaSortLabel==='function')l.textContent=mediaSortLabel(); } // [REDISEÑO Rev1] labels (.crlbl span) de la Create row + Sort
   txt('#filtSeg button[data-f="all"]','All','Todos');
   ttl('#filtSeg button[data-f="video"]','Video','Vídeo'); ttl('#filtSeg button[data-f="image"]','Image','Imagen'); ttl('#filtSeg button[data-f="audio"]','Audio','Audio');
   txt('#groupLbl','Group','Agrupar');
   txt('#groupSeg button[data-g="none"]','None','Ninguno'); txt('#groupSeg button[data-g="folder"]','Folder','Carpeta'); txt('#groupSeg button[data-g="type"]','Type','Tipo');
-  tn('#ringBtn','Compose','Componer'); ttl('#ringBtn','Create composition (ring / grid / random)','Crear composición (anillo / cuadrícula / aleatorio)');
-  tn('#adjLayerBtn','Adjust','Ajuste'); ttl('#adjLayerBtn','Create an adjustment layer — its Reactive FX affect everything below it','Crear una capa de ajuste — sus FX reactivos afectan todo lo de debajo');
+  txt('#ringBtn .crlbl','Compose','Componer'); ttl('#ringBtn','Create composition (ring / grid / random)','Crear composición (anillo / cuadrícula / aleatorio)');
+  txt('#adjLayerBtn .crlbl','Adjust','Ajuste'); ttl('#adjLayerBtn','Create an adjustment layer — its Reactive FX affect everything below it','Crear una capa de ajuste — sus FX reactivos afectan todo lo de debajo');
   if(isFlat()){ tn('#viewModeSeg button[data-v="2d"]','2D Master','Máster 2D'); }else{ tn('#viewModeSeg button[data-v="2d"]','Dome Master','Máster de domo'); } // [U-42]
   if(isRoom()){ tn('#viewModeSeg button[data-v="3d"]','3D Room','Sala 3D'); }else{ tn('#viewModeSeg button[data-v="3d"]','3D Preview','Vista 3D'); } // [U-42] respect the per-mode relabel from updModeUI
   tn('#threeModeSeg button[data-m="spec"]','Viewer','Espectador'); tn('#threeModeSeg button[data-m="orbit"]','Orbit','Órbita');
-  tn('#dispSeg button[data-d="grid"]','Grid','Cuadrícula'); tn('#dispSeg button[data-d="safe"]','Safe','Zona segura'); tn('#dispSeg button[data-d="outline"]','Outline','Contorno'); tn('#dispSeg button[data-d="hfade"]','Horizon','Horizonte');
+  ttl('#dispSeg button[data-d="grid"]','Reference grid','Cuadrícula de referencia'); ttl('#dispSeg button[data-d="safe"]','Safe-zone overlay','Zona segura'); ttl('#dispSeg button[data-d="outline"]','Clip outlines','Contornos de clip'); ttl('#dispSeg button[data-d="hfade"]','Fade near the dome horizon','Atenuar cerca del horizonte'); ttl('#dispSeg button[data-d="checker"]','Alpha checkerboard','Tablero de fondo alfa'); // [REDISEÑO Rev1] overlays icon-only → tooltips
   ttl('#qualitySeg','Preview quality (does not affect export)','Calidad de previsualización (no afecta la exportación)');
   ttl('#proxyToggle','Viewport uses proxies (faster). Turn off to preview the original clips.','El visor usa proxies (más rápido). Desactiva para ver los clips originales.');
   ttl('#popoutBtn','Open a viewer-only window — drag it to a second screen','Abrir una ventana solo-visor — arrástrala a una segunda pantalla');
@@ -7248,7 +7232,7 @@ function arDrawSigs(){ const c=selClip(); const els=$$('#arChain .fxsig>b'); if(
   for(const el of els){ const id=+el.parentNode.dataset.fxid; const f=(c&&c.fx||[]).find(x=>x.id===id); el.style.width=(f?Math.round(clamp01(fxModLevel(f))*100):0)+'%'; }
   _arTime=ot; }
 function applyInspTab(){ const r=state.inspTab==='react'; const rv=$('#insReactive'); if(rv)rv.style.display=r?'block':'none'; if(r){ ['#insEmpty','#insGroup','#insCtl'].forEach(s=>{const e=$(s);if(e)e.style.display='none';}); }
-  $$('#inspTabs .instab').forEach(b=>{ const on=(b.dataset.tab==='react')===r; b.classList.toggle('on',on); b.style.opacity=on?'1':'0.5'; b.style.borderBottom=on?'2px solid #E8EAED':'2px solid transparent'; }); }
+  $$('#inspTabs .instab').forEach(b=>{ const on=(b.dataset.tab==='react')===r; b.classList.toggle('on',on); }); } // [REDISEÑO Rev1] estado activo = .well button.on (sin subrayado inline)
 $$('#inspTabs .instab').forEach(b=>{ b.onclick=()=>{ state.inspTab=b.dataset.tab; renderInspector(); if(state.inspTab==='react')arMeterStart(); }; });
 
 /* ===================== INIT ===================== */

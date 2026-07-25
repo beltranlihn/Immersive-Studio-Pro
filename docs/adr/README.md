@@ -13,6 +13,7 @@
 | [0005](adr-0005-formato-isp.md) | Formato de proyecto `.isp` (JSON) | Accepted |
 | [0006](adr-0006-automatizacion-after-effects.md) | Modelo de automatización After Effects | Accepted |
 | [0007](adr-0007-archivar-no-borrar.md) | Código deprecado se archiva, no se borra | Accepted |
+| [0008](adr-0008-rediseno-rev1-regla-de-poda.md) | UI recreada calcada al diseño "Rev 1" + regla de poda | Accepted |
 
 **Cuándo escribir una ADR:** cuando una decisión sea **importante, cara o riesgosa de revertir**. No para cada cambio —
 para las que un desarrollador (o Claude) futuro necesitaría entender el *porqué*.
