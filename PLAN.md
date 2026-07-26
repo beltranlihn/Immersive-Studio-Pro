@@ -1,5 +1,21 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 177 — La barra vertical llega hasta abajo
+
+Ajuste menor de Beltrán: la barra de la derecha del timeline debe llegar hasta la parte de abajo.
+
+Vivía DENTRO de `.tlmain` —la fila de pistas—, así que terminaba justo donde empieza la barra horizontal y
+quedaban 12px muertos en la esquina. Medido antes: la barra iba de 557 a 866 y el panel acababa en 878.
+
+Ahora se ancla al panel (`position:absolute` sobre `.timeline`, de `top:5px` —el asa de redimensionado, para no
+taparla— a `bottom:0`). `.tlmain` reserva su ancho con `padding-right:12px` y la horizontal se aparta con
+`margin-right:12px`, así que la esquina es de la vertical y no se pisan.
+
+Medido después: 557→878, hueco 0. Los puntos siguen redimensionando (57→84px al arrastrar el de abajo) y la barra
+horizontal pasa a 1588px de ancho, los 12 que cede.
+
+Pruebas: funcional 22/22, robustez 15/15, cero errores de consola.
+
 ## ROUND 176 — Tres ajustes y el arranque sin interrupciones
 
 **El arranque, hasta el final.** Beltrán zanjó la duda que quedaba de R175b: el splash se queda SIEMPRE y no se

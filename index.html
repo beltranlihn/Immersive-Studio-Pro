@@ -374,10 +374,10 @@
   .zoomgrp button:hover{background:var(--surface-3);}
 
   /* timeline */
-  .timeline{flex-shrink:0;height:402px;display:flex;flex-direction:column;background:var(--s0);}
+  .timeline{flex-shrink:0;height:402px;display:flex;flex-direction:column;background:var(--s0);position:relative;}/* [R177] relative: la barra vertical se posiciona respecto al panel para llegar hasta abajo */
   .hres{height:5px;flex-shrink:0;cursor:row-resize;background:transparent;z-index:9;}
   .hres:hover{background:rgba(255,255,255,0.2);}
-  .tlmain{flex:1;min-height:0;display:flex;overflow:hidden;}
+  .tlmain{flex:1;min-height:0;display:flex;overflow:hidden;padding-right:12px;}/* [R177] sitio para la barra vertical, ahora absoluta */
   .toolrail{width:34px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 0;background:var(--s1);border-right:.5px solid rgba(0,0,0,0.4);}
   .toolrail button{width:24px;height:24px;display:grid;place-items:center;border:none;border-radius:2px;background:transparent;color:var(--ink-3);cursor:pointer;transition:background .12s,color .12s;}
   .toolrail button:hover{background:var(--surface-3);} .toolrail button.on{background:var(--state-on);color:var(--ink);}
@@ -492,7 +492,10 @@
      thumb, mismos casquetes circulares. Antes convivían dos barras verticales —esta y la nativa de #tlscroll—
      con aspecto y comportamiento distintos; ahora hay una sola y hace lo mismo que la de abajo:
      arrastrar el CUERPO = scroll · arrastrar un CASQUETE = zoom (alto de pistas) anclando el borde opuesto. */
-  .tlvzoom{width:12px;flex-shrink:0;background:var(--s0);position:relative;border-left:.5px solid rgba(0,0,0,0.4);}
+  /* [R177] La barra vertical vivía DENTRO de la fila de pistas, así que moría 12px antes del borde inferior del
+     panel — justo la fila de la barra horizontal. Ahora se ancla al panel y baja hasta el final; el `top:5px`
+     es el asa de redimensionado, para no taparla. La horizontal se aparta esos 12px por la derecha. */
+  .tlvzoom{position:absolute;right:0;top:5px;bottom:0;width:12px;background:var(--s0);border-left:.5px solid rgba(0,0,0,0.4);z-index:3;}
   .tlvztrack{position:absolute;left:3.5px;width:5px;background:#161616;border-radius:2px;}
   .tlvzthumb{position:absolute;left:0;width:5px;min-height:24px;background:rgba(255,255,255,0.10);border-radius:2px;cursor:grab;transition:background .12s;}
   .tlvzthumb:hover{background:rgba(255,255,255,0.22);} .tlvzthumb.drag{cursor:grabbing;background:rgba(255,255,255,0.26);}
@@ -503,7 +506,7 @@
   .tlscroll{flex:1;overflow-x:hidden;overflow-y:auto;position:relative;scrollbar-width:none;}
   .tlscroll::-webkit-scrollbar{width:0;height:0;}
   /* [T3] Premiere-style zoom-scrollbar: a thumb whose body scrolls and whose circular end-caps zoom (drag out = zoom out, in = zoom in), anchored to the opposite edge */
-  .tlzoom{height:12px;flex-shrink:0;background:var(--s0);position:relative;border-top:.5px solid rgba(0,0,0,0.4);}
+  .tlzoom{height:12px;flex-shrink:0;background:var(--s0);position:relative;border-top:.5px solid rgba(0,0,0,0.4);margin-right:12px;}/* [R177] hueco para la vertical, que ahora baja hasta el borde */
   .tlztrack{position:absolute;top:3.5px;height:5px;background:#161616;border-radius:2px;}
   .tlzthumb{position:absolute;top:0;height:5px;min-width:24px;background:rgba(255,255,255,0.10);border-radius:2px;cursor:grab;transition:background .12s;}
   .tlzthumb:hover{background:rgba(255,255,255,0.22);} .tlzthumb.drag{cursor:grabbing;background:rgba(255,255,255,0.26);}
@@ -1104,10 +1107,11 @@
         <div class="playhead" id="playhead" style="left:0;"></div>
         <div class="snapline" id="snapline"></div>
       </div>
-      <!-- [R152] barra vertical única, espejo de la horizontal: cuerpo = scroll · casquetes = alto de pistas -->
-      <div class="tlvzoom" id="tlVZoom"><div class="tlvztrack" id="tlVZoomTrack"><div class="tlvzthumb" id="tlVZoomThumb" title="Drag to scroll · drag the dots to resize every track · Alt+wheel too"><span class="tlvzcap t" data-vcap="t"></span><span class="tlvzcap b" data-vcap="b"></span></div><!-- [R176] los puntos existían en CSS y tenían manejador (startVCapDrag) pero nunca se añadieron aquí: la barra vertical no era el espejo de la horizontal --></div></div>
     </div>
     <div class="tlzoom" id="tlZoomBar"><div class="tlztrack" id="tlZoomTrack"><div class="tlzthumb" id="tlZoomThumb"><span class="tlzcap l" data-cap="l"></span><span class="tlzcap r" data-cap="r"></span></div></div></div>
+
+      <!-- [R152] barra vertical única, espejo de la horizontal: cuerpo = scroll · casquetes = alto de pistas -->
+      <div class="tlvzoom" id="tlVZoom"><div class="tlvztrack" id="tlVZoomTrack"><div class="tlvzthumb" id="tlVZoomThumb" title="Drag to scroll · drag the dots to resize every track · Alt+wheel too"><span class="tlvzcap t" data-vcap="t"></span><span class="tlvzcap b" data-vcap="b"></span></div><!-- [R176] los puntos existían en CSS y tenían manejador (startVCapDrag) pero nunca se añadieron aquí: la barra vertical no era el espejo de la horizontal --></div></div>
   </div>
   </div></div><!-- /stagecol /bodyrow -->
 
