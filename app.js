@@ -5164,6 +5164,7 @@ function renderExportFrame(t,res,ss,wall){ const flat=isFlat(); _drawFlat=flat; 
   gl.finish();
 }
 let cancelExport=false;
+const EX_AUDIO_MS=180000; // 3 min. El plazo existe para distinguir COLGADO de LENTO; 45s no distinguia (1,5GB desde un disco lento tarda mas sin estar roto)
 let _exStage='idle'; // [R183] miga de pan: en qué etapa está runExport. Un export colgado sin barra ni error es indiagnosticable sin esto.
 /* [R183] Plazo para las etapas de audio. Decodificar el audio de los vídeos y mezclar la banda son las dos
    únicas etapas de un export que dependen de material ARBITRARIO del usuario, y ninguna de las dos puede tener
@@ -5171,7 +5172,7 @@ let _exStage='idle'; // [R183] miga de pan: en qué etapa está runExport. Un ex
    colgado para siempre, sin barra, sin error y sin archivo. Vencido el plazo se sigue sin audio, que es un
    resultado degradado pero honesto y visible. */
 function exDeadline(p,ms,tag){ let t; return Promise.race([ Promise.resolve(p).finally(()=>clearTimeout(t)),
-  new Promise((_,rj)=>{ t=setTimeout(()=>rj(new Error('timeout: '+tag)),ms); }) ]); }
+  new Promise((_,rj)=>{ t=setTimeout(()=>{ const e=new Error('timeout: '+tag); e.exTimeout=tag; rj(e); },ms); }) ]); }
 /* suggested H.264 bitrate (Mbps) for a generous ~0.18 bits/pixel — keeps fulldome masters crisp instead of starved */
 function suggestBitrate(res,fps,w,h){ const px=(w&&h)?w*h:res*res; return Math.max(8,Math.min(800,Math.round(px*fps*0.18/1e6))); } // flat passes w,h (rect); dome passes res (square)
 async function pickAvcCodec(w,h,bitrate,fps){
@@ -5267,18 +5268,23 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
     _exStage='audio-decode';
     if(opt.codec!=='still' && !opt.noAudio){ // [R92-T2 C1] decode the audio track of exported VIDEO clips into m._exAudio so it lands in the mix (Chromium's decodeAudioData demuxes MP4/MOV audio). ≤1.5GB source cap: decodeAudioData needs the whole file as one ArrayBuffer. · [R179] noAudio (render-in-place) skips the whole stage — it is the slowest part of a short bake (a 1h source decodes to ~1.4GB of PCM for nothing)
       const vmap=new Map(); (function walk(cs,d){ if(d>6||!cs)return; for(const c of cs){ if(c.disabled)continue; const m=mediaById(c.mediaId); if(!m)continue; if(m.kind==='video'&&m.path&&!vmap.has(m.id))vmap.set(m.id,m); else if(isSeqMedia(m))walk(m.nestClips,d+1); } })(state.clips,0);
-      const skipped=[];
+      const skipped=[], timedOut=[];
       for(const m of vmap.values()){ if(cancelExport)break; if(m._exAudio)continue; try{ const st=await DSP.stat(m.path); if(!st||!st.size)continue;
           if(st.size>15e8){ skipped.push(m.name); continue; }
           if(job&&job.label)job.label(T('Decoding video audio…','Decodificando audio de vídeos…'));
-          const ab=await exDeadline(fetch(DSP.toFileURL(m.path)).then(r=>r.arrayBuffer()),45000,'fetch '+m.name);
-          m._exAudio=await exDeadline(new Promise((res,rej)=>{ const pr=ACTX().decodeAudioData(ab,res,rej); if(pr&&pr.catch)pr.catch(()=>{}); }),45000,'decode '+m.name); } // decodeAudioData atiende los callbacks Y ADEMÁS devuelve una promesa: sin este catch su rechazo salía como excepción no capturada y ensuciaba la consola aunque el error ya estuviera atendido
-        catch(e){} } // no audio track / unsupported → the clip simply stays silent, like before
-      if(skipped.length) flashStatus(T('Video audio skipped (file >1.5GB): ','Audio de vídeo omitido (archivo >1,5GB): ')+skipped.join(', '),'err'); } // [R94-UT3·U-21]
+          const ab=await exDeadline(fetch(DSP.toFileURL(m.path)).then(r=>r.arrayBuffer()),EX_AUDIO_MS,'fetch '+m.name);
+          m._exAudio=await exDeadline(new Promise((res,rej)=>{ const pr=ACTX().decodeAudioData(ab,res,rej); if(pr&&pr.catch)pr.catch(()=>{}); }),EX_AUDIO_MS,'decode '+m.name); } // decodeAudioData atiende los callbacks Y ADEMÁS devuelve una promesa: sin este catch su rechazo salía como excepción no capturada y ensuciaba la consola aunque el error ya estuviera atendido
+        catch(e){ if(e&&e.exTimeout)timedOut.push(m.name); } } // sin pista de audio / códec no soportado → el clip se queda mudo, como siempre. POR PLAZO es distinto: eso es una pérdida que hay que decir.
+      if(skipped.length) flashStatus(T('Video audio skipped (file >1.5GB): ','Audio de vídeo omitido (archivo >1,5GB): ')+skipped.join(', '),'err');
+      if(timedOut.length){ const msg=T('No audio from: ','Sin audio de: ')+timedOut.join(', ')+T(' — the decode timed out. The picture is unaffected.',' — se agotó el plazo de decodificación. La imagen no se ve afectada.');
+        flashStatus(msg,'err'); if(job&&job.warn)job.warn(msg); } } // [R94-UT3·U-21]
     _exStage='audio-mix';
     let audioBuf=null;
-    if(!(opt.codec==='still'||opt.noAudio)){ try{ audioBuf=await exDeadline(exportAudioMix(t0,endT),60000,'audio mix'); }
-      catch(e){ console.warn('export audio',e); flashStatus(T('Audio stage skipped — exporting picture only','Etapa de audio omitida — se exporta sólo imagen'),'err'); } } // a still has no audio; neither has a render-in-place bake (opt.noAudio)
+    if(!(opt.codec==='still'||opt.noAudio)){ try{ audioBuf=await exDeadline(exportAudioMix(t0,endT),EX_AUDIO_MS,'audio mix'); }
+      catch(e){ console.warn('export audio',e);
+        const msg=(e&&e.exTimeout)?T('No audio in this export — the mix timed out. The picture is unaffected.','Este export sale sin audio — se agotó el plazo de la mezcla. La imagen no se ve afectada.')
+                                  :T('No audio in this export — the mix failed. The picture is unaffected.','Este export sale sin audio — falló la mezcla. La imagen no se ve afectada.');
+        flashStatus(msg,'err'); if(job&&job.warn)job.warn(msg); } } // a still has no audio; neither has a render-in-place bake (opt.noAudio)
     if(opt.codec==='still'){ // single high-quality PNG of the current frame, rendered from ORIGINAL media (seekExport→seekMedia useOrig=true), with SSAA
       const t=state.playhead; await seekExport(t); prepNests(state.clips,t,0); renderExportFrame(t,qRes,exportSS(qRes),wall);
       const blob=await new Promise(r=>glc.toBlob(r,'image/png'));
@@ -5931,7 +5937,7 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
   const as=activeSeq()||{}, dome=!isFlat(), room=isRoom();
   const S={ szMode:'match', szPreset:(as.w||4096), szW:(as.w||1920), szH:(dome?(as.w||4096):(as.h||1080)),
             codec:'png', fps:(as.fps||state.fps||60), br:120, brTouched:false, chunks:'auto',
-            roomMode:'strip', floor:true, phase:'idle', pct:0, frame:0, frames:0, t0:0, tPause:0, bytes:0 };
+            roomMode:'strip', floor:true, phase:'idle', pct:0, frame:0, frames:0, t0:0, tPause:0, bytes:0, warns:[] };
   { const L=lastExportGet(); if(L){ if(L.codec)S.codec=L.codec; if(L.fps)S.fps=+L.fps; if(L.br)S.br=+L.br;
       if(L.res){ S.szMode='preset'; S.szPreset=+L.res; } } } // [R102·D-T4] abre con lo último que usaste, no con valores de fábrica
 
@@ -5957,6 +5963,7 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
           <div class="exs-cell"><span class="k">${T('Remaining','Restante')}</span><span class="v" id="exRemain">—</span></div>
           <div class="exs-cell"><span class="k">${T('Written','Escrito')}</span><span class="v" id="exWrote">—</span></div></div>
         <div class="exs-note" id="exNote">${T('Monitor shows the current playhead frame','El monitor muestra el fotograma del cabezal')}</div>
+        <div class="exs-warn" id="exWarn" style="display:none;"></div>
         <div class="exs-acts" id="exActs" style="display:none;">
           <button class="exs-btn" id="exPause">${T('Pause','Pausar')}</button>
           <button class="exs-btn danger" id="exCancel">${T('Cancel','Cancelar')}</button></div>
@@ -6139,7 +6146,8 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
   $$('#exGo').onclick=()=>{ const p=exPx(S), n=exFrames();
     const codec=S.codec, fps=S.fps, br=S.br*1e6, range=exRangeMode();
     const cLbl=HAP_FMT[codec]?HAP_FMT[codec].label:codec.toUpperCase();
-    S.frames=n; S.frame=0; S.bytes=0; S.t0=performance.now(); _exPaused=false; exSetPhase('run');
+    S.frames=n; S.frame=0; S.bytes=0; S.warns=[]; S.t0=performance.now(); _exPaused=false; exSetPhase('run');
+    { const w=$$('#exWarn'); if(w){ w.style.display='none'; w.textContent=''; } } // los avisos son del render EN CURSO, no del anterior
     $$('#exPause').textContent=T('Pause','Pausar');
     const addJob=(extra,labelTxt)=>{ const rec={id:uid(),name:labelTxt,status:'queued',p:0,labelTxt:null,opt:null};
       _exJobs.push(rec);
@@ -6161,6 +6169,10 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
         label:t=>{ rec.labelTxt=t; $$('#exPhase').textContent=t; },
         frame:()=>exDrawMon(),                       // [R179] el mismo enganche que usa el visor del render in place
         wrote:b=>{ S.bytes+=b||0; },
+        /* Un aviso NO es un `flashStatus`: perder el audio de un plano y enterarte al reproducir el máster es
+           el peor final posible. Se queda escrito en el panel hasta que se cierre, y sobrevive al «Terminado». */
+        warn:m=>{ if(!m)return; if(S.warns.indexOf(m)<0)S.warns.push(m);
+          const w=$$('#exWarn'); if(w){ w.style.display='block'; w.textContent='⚠ '+S.warns.join(' · '); } },
         done:cx=>{ rec.status=cx?'cancelled':'done'; if(!cx)rec.p=1;
           _exPaused=false; exSetPhase(cx?'idle':'done');
           if(S.bytes)$$('#exWrote').textContent=fmtBytes(S.bytes); // el muxer vuelca por trozos: al principio no hay bytes y la celda se quedaba en «—» hasta el final
