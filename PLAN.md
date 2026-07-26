@@ -1,5 +1,34 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 178 — El recorrido guiado por formato, y la barra vertical bien
+
+**El recorrido, donde toca.** Beltrán: el tour no debe aparecer antes del landing, sino al abrir por primera vez
+un proyecto domo, 2D o 360 ya configurado — y adaptado a cada uno. El primer arranque se SALTABA el launcher para
+montar una escena de demostración y lanzar el recorrido encima. Ahora `init()` va siempre al launcher y el
+recorrido lo dispara `lchCreate()` al crear el primer proyecto de cada formato, con una bandera por formato.
+
+Los cinco pasos cambian de texto según el tipo: el visor es «el máster fisheye, cada clip en su azimut y
+elevación» en domo, «tu lienzo, clips como rectángulos sin deformación» en 2D y «los muros DESENROLLADOS como una
+tira» en sala; la línea de tiempo cuenta en la sala que un clip puede cruzar la junta y reaparecer al otro lado;
+el inspector nombra azimut/elevación, posición/escala o «enmascarar a muro»; y el export menciona que en la sala
+se puede sacar la tira entera, muro por muro o el piso aparte.
+
+`startOnboarding()` se quedó sin llamantes y va a `_backup/deprecated/`. `buildDemoProject` NO se archiva aunque
+era su única llamante en el programa: la usan todos los arneses de prueba. Es código vivo sólo para las pruebas,
+y queda dicho para que nadie lo tome por muerto.
+
+**La barra vertical, las dos cosas que faltaban.** R177 la llevó hasta abajo pero la dejó arrancando en el borde
+del panel, metiéndose en la franja de la regla y tapando el final del tiempo y del cabezal: ahora empieza en 29px
+(5 del asa + 24 de `RULER_H`) y baja el z-index, porque esa franja es de la regla y el cabezal.
+
+Y **los puntos achicaban pero no agrandaban**: `startVCapDrag` hacía `if(l.collapsed)return`, así que en cuanto
+el gesto plegaba una pista quedaba excluida para siempre y el gesto contrario ya no la recuperaba. Ahora se
+despliega en cuanto el tamaño pedido vuelve a alcanzar el suelo, el mismo criterio que Alt+rueda. Medido:
+57 → plegada → 91.
+
+Pruebas: funcional 22/22, robustez 15/15, recorrido 4/4 (launcher sin tour · domo con texto de domo · sala con
+texto de muros · no se repite), cero errores de consola.
+
 ## ROUND 177 — La barra vertical llega hasta abajo
 
 Ajuste menor de Beltrán: la barra de la derecha del timeline debe llegar hasta la parte de abajo.

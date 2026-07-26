@@ -2710,7 +2710,12 @@ function lchRenderRecents(){ const host=document.getElementById('lchRecents'); i
 
 /* Crear: se delega en las MISMAS funciones que usan los diálogos, así el proyecto sale idéntico venga de donde venga. */
 function lchCreate(){ const S=_lch, name=(S.pname||'').trim();
-  const after=()=>{ if(name){ const as=activeSeq(); if(as){ as.name=name; renderSeqBar(); } projTitle(); } };
+  /* [R178] El recorrido guiado sale AQUÍ: al crear el primer proyecto de cada formato desde el launcher, y no
+     antes del launcher como hacía el arranque de primera vez. Se espera un momento a que el editor esté pintado
+     —el tour recorta agujeros sobre elementos reales y necesita sus medidas—. */
+  const after=()=>{ if(name){ const as=activeSeq(); if(as){ as.name=name; renderSeqBar(); } projTitle(); }
+    const fmt=(S.ptype==='dome')?'dome':(S.ptype==='flat')?'flat':'room';
+    if(!tourHecho(fmt)) setTimeout(()=>{ try{ startTour(fmt); }catch(e){} }, 900); };
   hideLanding();
   if(S.ptype==='dome') newProject('dome',S.domeRes,S.domeRes,S.fps,S.domeCov).then(after,()=>showLanding());
   else if(S.ptype==='flat') newProject('flat',S.flatW,S.flatH,S.fps).then(after,()=>showLanding());
@@ -2726,6 +2731,12 @@ addEventListener('resize',()=>{ if(document.getElementById('landingOv'))lchPaint
 const ONBOARD_KEY='dspOnboardV1';
 function onboardDone(){ try{ return localStorage.getItem(ONBOARD_KEY)==='1'; }catch(e){ return false; } }
 function setOnboardDone(){ try{ localStorage.setItem(ONBOARD_KEY,'1'); }catch(e){} }
+/* [R178] Un recorrido POR FORMATO. Antes había una sola bandera y un solo tour, que además saltaba ANTES del
+   launcher sobre una escena de demostración. Ahora el launcher manda siempre, y el recorrido sale la primera vez
+   que se crea un proyecto de cada tipo —domo, 2D o sala—, contando lo que es propio de ese tipo. */
+const TOUR_KEY=f=>'dspTour_'+f;
+function tourHecho(f){ try{ return localStorage.getItem(TOUR_KEY(f))==='1'; }catch(e){ return false; } }
+function setTourHecho(f){ try{ localStorage.setItem(TOUR_KEY(f),'1'); }catch(e){} }
 /* one reference shape → its own media + a clip placed explicitly (lane/time/dome-position) */
 /* shared tail: register a demo media, drop a clip on a given lane/time, then set its dome position */
 function _demoPlace(m,lane,start,dur,az,el,size){ state.media.push(m); addClip(m,lane,start);
@@ -2754,18 +2765,39 @@ async function buildDemoProject(){ hideLanding();
 /* ---- the coach-mark tour ---- */
 let _tourStop=null;
 /* demo=true → first-run copy that references the demo scene; false (menu relaunch) → generic copy true on any project */
-function tourSteps(demo){ return [
-  {sel:null,      title:T('Welcome to Immersive Studio Pro','Bienvenido a Immersive Studio Pro'), body:demo?T('A quick tour of the essentials. This demo scene is yours to play with — skip any time.','Un recorrido rápido por lo esencial. Esta escena de ejemplo es para experimentar — puedes saltarlo cuando quieras.'):T('A quick tour of the essentials — skip any time.','Un recorrido rápido por lo esencial — puedes saltarlo cuando quieras.')},
-  {sel:'#stage',  title:T('The viewport','El visor'), body:T('Your dome, 2D or 360-room composite renders here live. Drag a shape to reposition it, or scrub the timeline.','Tu composición domo, 2D o sala 360 se renderiza aquí en vivo. Arrastra una forma para recolocarla, o desplaza la línea de tiempo.')},
-  {sel:'.timeline',title:T('The timeline','La línea de tiempo'), body:demo?T('Clips stack on tracks over time. This demo already holds a few reference shapes on separate tracks.','Los clips se apilan en pistas a lo largo del tiempo. Esta demo ya trae varias formas de referencia en pistas separadas.'):T('Clips stack on tracks over time — arrange your media here.','Los clips se apilan en pistas a lo largo del tiempo — organiza tus medios aquí.')},
-  {sel:'#inspPane',title:T('The inspector','El inspector'), body:T('Select a clip to shape its position, look, animation and audio-reactive FX right here.','Selecciona un clip para ajustar su posición, aspecto, animación y FX reactivos al audio aquí mismo.')},
-  {sel:'#menubar',title:T('Export','Exportar'), body:T('When your piece is ready, render it to a video file or an image sequence from the File menu.','Cuando tu obra esté lista, renderízala a un vídeo o a una secuencia de imágenes desde el menú File.')} ]; }
-function startTour(demo){ if(document.getElementById('tourOv'))return; const steps=tourSteps(demo); let i=0;
+/* [R178] Los pasos se adaptan al FORMATO. El visor, la línea de tiempo y el inspector significan cosas distintas
+   en un domo, en un lienzo 2D y en una sala de muros: contarlos igual en los tres era desaprovechar el recorrido.
+   `fmt` es 'dome' | 'flat' | 'room'; sin argumento se cae al texto genérico (lo usa Ventana → Recorrido guiado). */
+function tourSteps(fmt){
+  const dom=fmt==='dome', flat=fmt==='flat', room=fmt==='room';
+  const bienvenida=dom?T('Your fulldome project is ready. A quick tour of what changes when you work on a dome.','Tu proyecto fulldome está listo. Un recorrido rápido por lo que cambia al trabajar en domo.')
+    :flat?T('Your 2D composition is ready. A quick tour of the essentials.','Tu composición 2D está lista. Un recorrido rápido por lo esencial.')
+    :room?T('Your 360 room is ready. A quick tour of how the walls work.','Tu sala 360 está lista. Un recorrido rápido por cómo funcionan los muros.')
+    :T('A quick tour of the essentials — skip any time.','Un recorrido rápido por lo esencial — puedes saltarlo cuando quieras.');
+  const visor=dom?T('The fisheye master renders here. Each clip sits at an azimuth and elevation, warped onto the dome; switch to 3D to stand inside it.','Aquí se renderiza el máster fisheye. Cada clip vive en un azimut y una elevación, deformado sobre el domo; pasa a 3D para meterte dentro.')
+    :flat?T('Your canvas renders here. Clips are rectangles you place by position and scale — no dome warping involved.','Aquí se renderiza tu lienzo. Los clips son rectángulos que colocas por posición y escala — sin deformación de domo.')
+    :room?T('The walls render UNROLLED as one strip. Each wall is a section of it; switch to 3D to see the room assembled around you.','Los muros se renderizan DESENROLLADOS como una sola tira. Cada muro es un tramo; pasa a 3D para ver la sala montada a tu alrededor.')
+    :T('Your composite renders here live.','Tu composición se renderiza aquí en vivo.');
+  const tl=room?T('Clips stack on tracks over time. A clip can cross the seam between two walls: it wraps around and reappears on the other side.','Los clips se apilan en pistas a lo largo del tiempo. Un clip puede cruzar la junta entre dos muros: da la vuelta y reaparece al otro lado.')
+    :T('Clips stack on tracks over time. Drag a clip from anywhere to move it; the edges trim it.','Los clips se apilan en pistas a lo largo del tiempo. Arrastra un clip desde donde quieras para moverlo; por los bordes lo recortas.');
+  const insp=dom?T('Select a clip to set its azimuth, elevation and size on the dome, plus colour, motion and audio-reactive FX.','Selecciona un clip para fijar su azimut, elevación y tamaño sobre el domo, además del color, el movimiento y los FX reactivos.')
+    :flat?T('Select a clip to set its position, scale and rotation on the canvas, plus colour, motion and audio-reactive FX.','Selecciona un clip para fijar su posición, escala y rotación en el lienzo, además del color, el movimiento y los FX reactivos.')
+    :room?T('Select a clip to place it on the strip. "Mask to wall" confines it to the walls you choose.','Selecciona un clip para colocarlo en la tira. «Enmascarar a muro» lo confina a los muros que elijas.')
+    :T('Select a clip to shape its position, look, animation and audio-reactive FX.','Selecciona un clip para ajustar su posición, aspecto, animación y FX reactivos.');
+  const exp=room?T('From the File menu you can export the whole strip, one wall at a time, or the floor on its own.','Desde el menú Archivo puedes exportar la tira entera, muro por muro, o el piso por separado.')
+    :T('When your piece is ready, render it to a video file or an image sequence from the File menu.','Cuando tu obra esté lista, renderízala a un vídeo o a una secuencia de imágenes desde el menú Archivo.');
+  return [
+  {sel:null,       title:T('Welcome to Immersive Studio Pro','Bienvenido a Immersive Studio Pro'), body:bienvenida},
+  {sel:'#stage',   title:T('The viewport','El visor'), body:visor},
+  {sel:'.timeline',title:T('The timeline','La línea de tiempo'), body:tl},
+  {sel:'#inspPane',title:T('The inspector','El inspector'), body:insp},
+  {sel:'#menubar', title:T('Export','Exportar'), body:exp}]; }
+function startTour(fmt){ if(document.getElementById('tourOv'))return; const steps=tourSteps(fmt); let i=0; // [R178] fmt = dome|flat|room (sin él, textos genéricos)
   const ov=document.createElement('div'); ov.id='tourOv'; ov.style.cssText='position:fixed;inset:0;z-index:45;'; // transparent catcher: blocks stray clicks on the app mid-tour; the dim comes from the hole's box-shadow. z-45 = above app chrome but BELOW .overlay dialogs (z-50) so a close-confirm stays clickable
   const hole=document.createElement('div'); hole.style.cssText='position:fixed;border-radius:8px;pointer-events:none;box-shadow:0 0 0 9999px rgba(11,12,14,0.74);outline:1.5px solid rgba(201,205,211,0.55);'+(state.prefs.reducedMotion?'':'transition:all .25s cubic-bezier(.4,0,.2,1);');
   const card=document.createElement('div'); card.style.cssText='position:fixed;width:288px;background:var(--s1);border:.5px solid rgba(255,255,255,0.12);border-radius:9px;padding:15px 16px;box-shadow:0 12px 34px rgba(0,0,0,0.55);pointer-events:auto;';
   ov.appendChild(hole); ov.appendChild(card); document.body.appendChild(ov);
-  const end=()=>{ setOnboardDone(); window.removeEventListener('resize',draw); document.removeEventListener('keydown',onk,true); if(_tourStop===end)_tourStop=null; ov.remove(); };
+  const end=()=>{ setOnboardDone(); if(fmt)setTourHecho(fmt); window.removeEventListener('resize',draw); document.removeEventListener('keydown',onk,true); if(_tourStop===end)_tourStop=null; ov.remove(); };
   _tourStop=end;
   const go=d=>{ i=Math.max(0,Math.min(steps.length-1,i+d)); draw(); };
   function draw(){ const s=steps[i], last=i===steps.length-1;
@@ -2788,10 +2820,9 @@ function startTour(demo){ if(document.getElementById('tourOv'))return; const ste
     card.style.left=cx+'px'; card.style.top=cy+'px'; }
   const onk=e=>{ e.stopPropagation(); if(e.key==='Escape'){e.preventDefault();end();} else if(e.key==='ArrowRight'||e.key==='Enter'){e.preventDefault(); if(i===steps.length-1)end(); else go(1);} else if(e.key==='ArrowLeft'){e.preventDefault();go(-1);} };
   document.addEventListener('keydown',onk,true); window.addEventListener('resize',draw); draw(); }
-/* first-run entry (init routes here); the Help/Window re-launch calls startTour() directly (non-destructive) */
-async function startOnboarding(){ if(_tourStop)_tourStop();
-  try{ await buildDemoProject(); startTour(true); }
-  catch(e){ try{diag('error','onboard','build failed',{err:String((e&&e.message)||e)});}catch(_){} try{showLanding();}catch(_){} } } // never strand the user on a blank editor: fall back to the start screen
+/* [R178] `startOnboarding()` (primer arranque → escena demo + recorrido, saltándose el launcher) ARCHIVADO
+   en _backup/deprecated/20260726-startOnboarding.js. `buildDemoProject` SIGUE viva: la usan los arneses de
+   prueba de scratchpad/ para montar una escena reproducible. */
 
 /* edit a label in place (contenteditable) — Enter commits, Esc cancels, blur commits. Used for clip/track/sequence rename so the edit happens where the text is, not in a floating dialog. */
 function inlineEdit(el,value,commit){ if(!el)return false; try{closeMenu();}catch(e){}
@@ -6729,7 +6760,11 @@ function startVCapDrag(e,side){ e.preventDefault(); e.stopPropagation(); // casq
     /* [R163] Misma regla que Alt+scroll: el suelo depende del modo (en automatización la pista necesita sitio
        para los desplegables de identidad) y por debajo de él la pista se pliega entera en vez de quedarse a
        medias. Antes este camino usaba LANE_MIN_H a pelo y se saltaba el suelo del modo automatización. */
-    state.lanes.forEach((l,i)=>{ if(l.collapsed)return; const suelo=laneFloorH(l); const nh=Math.round(base[i]*f);
+    /* [R178] Una pista PLEGADA tenía que poder volver. El `if(l.collapsed)return` la excluía para siempre: en
+       cuanto el gesto la plegaba, el gesto contrario ya no la recuperaba y la barra sólo sabía achicar. Ahora se
+       despliega en cuanto el tamaño pedido vuelve a alcanzar el suelo — el mismo criterio que Alt+rueda. */
+    state.lanes.forEach((l,i)=>{ const suelo=laneFloorH(l); const nh=Math.round(base[i]*f);
+      if(l.collapsed){ if(nh>=suelo){ l.collapsed=false; l.h=Math.max(suelo,Math.min(LANE_MAX_H,nh)); } return; }
       if(nh<suelo) l.collapsed=true; else l.h=Math.max(suelo,Math.min(LANE_MAX_H,nh)); });
     scheduleTimeline();
     // anclar: el casquete de arriba mantiene fijo el borde INFERIOR del visor y viceversa
@@ -8269,8 +8304,10 @@ function init(){
      aquí ya está puesta. `currentPath` no sirve: se asigna DESPUÉS de leer el archivo, más tarde que esto. */
   const _dest = (_bootEsperandoProyecto || document.getElementById('loadingOv') || currentPath)
     ? Promise.resolve()                                             // ya hay un proyecto abriéndose (doble clic en un .isp)
-    : (onboardDone() ? Promise.resolve(showLanding())               // [D7] arranques posteriores → pantalla de inicio
-                     : startOnboarding());                          //      primer arranque → escena demo + recorrido
+    /* [R178] SIEMPRE el launcher, también la primera vez. Antes el primer arranque se lo saltaba para montar una
+       escena de demostración y lanzar el recorrido encima; ahora se configura el proyecto primero y el recorrido
+       sale ya dentro, adaptado a lo que se acaba de crear (ver lchCreate). */
+    : Promise.resolve(showLanding());
   Promise.resolve(_dest).catch(e=>{ try{diag('error','boot','destination failed',{err:String((e&&e.message)||e)});}catch(_){} })
     .then(bootReveal); // revelar la ventana 16:9 SÓLO con el destino ya pintado
   if(IS_ELEC&&DSP.onConfirmClose){ DSP.onConfirmClose(()=>{ appConfirm(T('You have unsaved changes. Close without saving?','Hay cambios sin guardar. ¿Cerrar sin guardar?'),ok=>{ if(ok&&DSP.forceClose)DSP.forceClose(); },{ok:T('Close without saving','Cerrar sin guardar'),cancel:T('Cancel','Cancelar'),danger:true}); }); } // styled close confirm (replaces the native OS dialog)

@@ -495,7 +495,10 @@
   /* [R177] La barra vertical vivía DENTRO de la fila de pistas, así que moría 12px antes del borde inferior del
      panel — justo la fila de la barra horizontal. Ahora se ancla al panel y baja hasta el final; el `top:5px`
      es el asa de redimensionado, para no taparla. La horizontal se aparta esos 12px por la derecha. */
-  .tlvzoom{position:absolute;right:0;top:5px;bottom:0;width:12px;background:var(--s0);border-left:.5px solid rgba(0,0,0,0.4);z-index:3;}
+  .tlvzoom{position:absolute;right:0;top:29px;bottom:0;width:12px;background:var(--s0);border-left:.5px solid rgba(0,0,0,0.4);z-index:1;}
+  /* [R178] top:29 = 5 del asa de redimensionado + 24 de la REGLA (RULER_H). La barra arrancaba en 5 y se metía
+     en la franja del tiempo, tapando el final de la regla y del cabezal; esa franja es de ellos. El z-index baja
+     a 1 por lo mismo: si alguna vez se solapan, mandan la regla y el cabezal. */
   .tlvztrack{position:absolute;left:3.5px;width:5px;background:#161616;border-radius:2px;}
   .tlvzthumb{position:absolute;left:0;width:5px;min-height:24px;background:rgba(255,255,255,0.10);border-radius:2px;cursor:grab;transition:background .12s;}
   .tlvzthumb:hover{background:rgba(255,255,255,0.22);} .tlvzthumb.drag{cursor:grabbing;background:rgba(255,255,255,0.26);}
