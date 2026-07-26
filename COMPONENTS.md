@@ -222,6 +222,12 @@
 - **Invariants / gotchas:** **el signo de la v.** Las texturas suben con `UNPACK_FLIP_Y_WEBGL=true`, así que `v=0` es el borde INFERIOR del archivo → el cenit debe ser `v = 0.5 + lat/π`, NO `0.5 − lat/π`. Con el signo malo el panorama sale invertido (suelo arriba) y no salta a la vista con contenido abstracto. Los dos sombreadores comparten el criterio: si se toca uno, tocar el otro. La esfera NO se dibuja en modo Viewer (dentro eres el público: sólo existe lo que el domo proyecta) ni escribe profundidad, para que el casquete gane donde se solapan.
 - **Status:** ✅
 
+### Clips enlazados A/V — `link` · `avRole` (app.js, ~L1990)
+- **Purpose:** un vídeo con sonido entra como DOS clips (imagen + audio en la pista de audio más cercana) unidos por `c.link`; se mueven, recortan y borran juntos. Clic derecho → Desenlazar / Enlazar.
+- **Key symbols:** `linkPartner(c)` · `linkedIds(ids)` · `armMediaAudio(m)` (decodifica el audio del vídeo a búfer + picos, tope `LINK_MAX_BYTES`) · `attachLinkedAudio(cv,m)` · `nearestAudioLane(li,start,dur)` → `{lane,creada}` · `unlinkClip` / `linkClips`.
+- **Invariants / gotchas:** **el enlace se apoya en la SELECCIÓN** (en el `pointerdown` del clip: `state.selIds=linkedIds(...)`), y de ahí el arrastre multi-clip, el recorte y el borrado en grupo lo mueven todo sin parchear nada más. `collectAudioEvents` decide por la PISTA (`lane.kind===audio`), NO por `avRole`: al desenlazar se borra el rol y con `avRole` la mitad de audio se quedaba muda. La mitad `avRole===v` se silencia en previsualización (`vinstAudio`) o sonaría dos veces. Copiar/duplicar/pegar produce clips SUELTOS: dos pares con el mismo `link` romperían `linkPartner`. Si el corte no puede partir la pareja, la mitad derecha queda suelta por el mismo motivo.
+- **Status:** ✅
+
 ## Deuda técnica & gaps detectados en el mapeo
 
 - **🗄️ Automatización legacy — ARCHIVADO (R137).** Las funciones muertas (`_autoOff` override/re-enable + perform-and-bake `recWrite`/`bakeRecorded` + `#autoRecBtn`) se sacaron del software y viven en `_backup/deprecated/20260722-automation-override-and-perform-bake.js` (recuperables). Verificado por CDP: motor de automatización intacto. **Barrido menor HECHO (R137):** removidos los reads no-op de `_autoOff` en sepAuto, returnToDefault, `drawAutoCurve` (var `off`), fxKfToggle y borrado de fx — solo queda `_autoOff` en un comentario (app.js L463). Curva renderiza OK (verificado por píxel).

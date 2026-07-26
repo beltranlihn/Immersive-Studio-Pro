@@ -1558,7 +1558,17 @@ function collectAudioEvents(clips,lanes,tlOffset,winA,winB,depth,out,S,pVol,pFiE
   for(const c of clips){ const lane=lanes[c.lane]; if(c.disabled)continue; if(lane&&(lane.mute||(anySolo&&lane.kind==='audio'&&!lane.solo)))continue;
     const m=mediaById(c.mediaId); if(!m)continue; const absStart=tlOffset+c.start*S, absEnd=absStart+c.dur*S;
     const visA=Math.max(winA,absStart), visB=Math.min(winB,absEnd); if(visB<=visA+1e-6)continue;
-    const buf=(m.kind==='audio')?m.buffer:((m.kind==='video'&&m._exAudio)?m._exAudio:null);
+    /* [R170] Con el par A/V el sonido lo lleva SÓLO la mitad de audio: la de vídeo (`avRole==='v'`) queda muda
+       aquí y su `<audio>` de previsualización también se silencia (ver vinstAudio), o se oiría dos veces. Un
+       clip de vídeo SIN enlazar no cambia: sigue aportando su `_exAudio` en el export, como siempre. */
+    if(c.avRole==='v')continue;
+    /* Un medio de VÍDEO aporta sonido por dos vías: `_exAudio` (decodificado del export, como siempre) o, si el
+       clip vive en una PISTA DE AUDIO, el búfer que armMediaAudio dejó al enlazarlo. La condición mira la pista
+       y no `avRole` a propósito: al desenlazar se borra el rol, y con `avRole==='a'` la mitad de audio se
+       quedaba muda justo después de separarla. Se usa `lane` (el de ESTE nivel) y no isAudioClip(), que mira
+       state.lanes y mentiría dentro de un nest. */
+    const enPistaAudio=!!(lane&&lane.kind==='audio');
+    const buf=(m.kind==='audio')?m.buffer:((m.kind==='video')?(m._exAudio||(enPistaAudio?m.buffer:null)||null):null);
     if(buf){ const front=(visA-absStart)/S; const rate=(c.speed||1)/S;
       let fi=Math.max(0,((c.fadeIn||0)-front))*S, fo=(absEnd<=visB+1e-6)?(c.fadeOut||0)*S:0; // [F13] no fade-out when the window cuts the clip's tail (the fade belongs to the REAL end, not the cut)
       if(pFiEnd!=null&&visA<pFiEnd) fi=Math.max(fi,Math.min(visB,pFiEnd)-visA); // parent nest fade-in composed (approximated as one ramp)
@@ -1987,6 +1997,88 @@ function deleteMedia(m){ if(!m)return; if(isSeqMedia(m)){ deleteSequenceMedia(m.
    inspector manda siempre, y al detectarlo se avisa por la barra de estado — nada silencioso. */
 function pareceEquirect(m){ if(!m||!(m.w>0)||!(m.h>0))return false; if(m.kind!=='image'&&m.kind!=='video')return false;
   return m.w>=2048 && Math.abs(m.w/m.h-2)<=0.02; }
+/* ============================================================================================================
+   [R170] CLIPS ENLAZADOS A/V (estilo Premiere). Un vídeo con sonido entra como DOS clips: la imagen en su pista
+   de vídeo y el sonido en la pista de audio más cercana, unidos por `link`. Se mueven, recortan y borran juntos;
+   clic derecho → Desenlazar los separa.
+
+   POR QUÉ ASÍ. El motor ya traía casi todo: arrastre multi-clip con desplazamiento relativo de pista
+   (`drag.items`), audio por clip con volumen y fundidos, forma de onda para cualquier clip que esté en una pista
+   de audio, y `compositeClips` sólo recorre pistas de VÍDEO, así que la mitad de audio nunca se pinta. El enlace
+   se apoya en la SELECCIÓN: seleccionar una mitad selecciona la otra, y toda la maquinaria de mover/recortar/
+   borrar en grupo funciona sin tocarla.
+
+   EL PRECIO, Y POR QUÉ NO SE DISIMULA. En previsualización el sonido de un vídeo sale hoy de un `<audio>`
+   pegado a su instancia de decodificación, no de un búfer. Para que la mitad de audio sea un clip de verdad
+   —con onda, y movible por su cuenta tras desenlazar— hay que decodificar la pista de sonido a un AudioBuffer.
+   Eso cuesta memoria (~1,4 GB por hora de PCM), así que se hace UNA vez, bajo demanda, y sólo por debajo de un
+   tope de tamaño. Si el archivo es enorme o no tiene sonido, NO se crea el par: el vídeo entra como un solo clip
+   y suena como hasta ahora. Preferible a un enlace a medias que engañe.
+   ============================================================================================================ */
+const LINK_MAX_BYTES=1.2e9; // por encima de esto no se decodifica: un solo clip, comportamiento de siempre
+function linkPartner(c){ if(!c||!c.link)return null; return state.clips.find(x=>x!==c&&x.link===c.link)||null; }
+function linkedIds(ids){ const out=new Set(ids); for(const id of ids){ const p=linkPartner(clipById(id)); if(p)out.add(p.id); } return [...out]; }
+/* decodifica el audio de un vídeo a búfer + picos. Idempotente y con guarda de concurrencia. */
+async function armMediaAudio(m){
+  if(!m||m.kind!=='video')return false;
+  if(m.buffer)return true; if(m._noAudio||m._audioBusy)return false;
+  if(!IS_ELEC||!m.path)return false;
+  m._audioBusy=true;
+  try{
+    const st=await DSP.stat(m.path); if(!st||!st.size||st.size>LINK_MAX_BYTES){ m._audioBusy=false; return false; }
+    const ab=await (await fetch(DSP.toFileURL(m.path))).arrayBuffer();
+    const buf=await new Promise((res,rej)=>ACTX().decodeAudioData(ab,res,rej));
+    if(!buf||!buf.length){ m._noAudio=true; m._audioBusy=false; return false; }
+    m.buffer=buf; const wv=await computeWave(buf); m.peaks=wv.peak; m.rms=wv.rms;
+    m._audioBusy=false; return true;
+  }catch(e){ m._noAudio=true; m._audioBusy=false; return false; } // sin pista de audio, o Chromium no la sabe demuxar
+}
+/* la pista de audio MÁS CERCANA a `li`: se prefiere una donde el hueco esté libre; si todas chocan, la más próxima igual */
+/* [R170] Crea la mitad de audio de un clip de vídeo, si el vídeo tiene sonido decodificable. Asíncrono a
+   propósito: el clip de imagen ya está puesto y el usuario puede seguir editando; la mitad de audio aparece
+   cuando el decodificado termina. Si no hay sonido, o el archivo pasa del tope, no ocurre nada — un solo clip. */
+async function attachLinkedAudio(cv,m){
+  if(!cv||!m||m.kind!=='video'||cv.link)return null;
+  if(!(await armMediaAudio(m)))return null;
+  if(!state.clips.includes(cv))return null;            // lo borraron mientras decodificaba
+  /* la pista se pide DESPUÉS de decodificar y con la posición ACTUAL del clip: crear una pista corre todos los
+     índices —incluido el de cv—, y el usuario ha podido mover el clip durante el decodificado */
+  const {lane:la,creada}=nearestAudioLane(cv.lane,cv.start,cv.dur);
+  const id=uid();
+  cv.link=id; cv.avRole='v';
+  const ca={id:uid(),mediaId:m.id,lane:la,start:cv.start,dur:cv.dur,inP:cv.inP||0,name:m.name,color:m.color,
+    fadeIn:0,fadeOut:0,props:{volume:100},kf:{},fx:[],link:id,avRole:'a'};
+  if(cv.speed)ca.speed=cv.speed;
+  state.clips.push(ca);
+  renderTimeline(); renderInspector(); updStatus(); markDirty(); reschedAudio();
+  const tag=(state.lanes[la]&&state.lanes[la].tag)||'A1';
+  flashStatus(creada?T('Audio linked on a new track '+tag+' — right-click to unlink','Audio enlazado en la pista nueva '+tag+' — clic derecho para desenlazar')
+                    :T('Audio linked on '+tag+' — right-click to unlink','Audio enlazado en '+tag+' — clic derecho para desenlazar'));
+  return ca;
+}
+function unlinkClip(c){ const p=linkPartner(c); pushUndo();
+  for(const x of [c,p]) if(x){ delete x.link; delete x.avRole; }
+  /* La mitad de vídeo recupera su sonido propio: sin `avRole` vuelve a sonar por su `<audio>` y a aportar
+     `_exAudio` en el export. Si no se hiciera, quedaría muda para siempre tras desenlazar. */
+  renderTimeline(); renderInspector(); markDirty(); reschedAudio();
+  flashStatus(T('Unlinked','Desenlazados')); }
+function linkClips(v,a){ if(!v||!a||v.link||a.link)return; pushUndo();
+  const id=uid(); v.link=id; v.avRole='v'; a.link=id; a.avRole='a';
+  renderTimeline(); renderInspector(); markDirty(); reschedAudio();
+  flashStatus(T('Linked','Enlazados')); }
+function nearestAudioLane(li,start,dur){
+  const audio=state.lanes.map((l,i)=>i).filter(i=>state.lanes[i].kind==='audio');
+  const libre=audio.filter(i=>!state.clips.some(c=>c.lane===i && start<c.start+c.dur-1e-6 && c.start<start+dur-1e-6));
+  if(libre.length) return {lane:libre.reduce((a,b)=>Math.abs(b-li)<Math.abs(a-li)?b:a), creada:false};
+  /* [R170] Ninguna libre → se CREA una, como hace Premiere: apilar dos audios solapados en la misma pista es
+     peor que añadir una. Va al FONDO (índice 0 desde R155) y hay que correr los índices de todos los clips.
+     Sin pushUndo: esto es la segunda mitad de una acción que ya empujó su estado al añadir el clip de vídeo. */
+  const n=audio.length+1;
+  state.lanes.unshift({id:uid(),name:'Audio '+n,tag:'A'+n,kind:'audio'});
+  for(const c of state.clips) if(c.lane!=null) c.lane++;
+  if(state.selLane!=null) state.selLane++;
+  return {lane:0, creada:true};
+}
 function makeClip(m,lane,start,props,extra){
   return Object.assign({id:uid(),mediaId:m.id,lane,start:Math.max(0,start),dur:m.dur||6,inP:0,name:m.name,color:m.color,
     fadeIn:0,fadeOut:0,props:Object.assign({az:0,el:35,size:55,rot:0,spin:0,mirror:false,opacity:100,blur:0,feather:0,crop:0,mask:'none',blend:'normal',exposure:0,contrast:0,saturation:0,temperature:0,tint:0,glow:0,chroma:0,react:'none',reactAmt:60,fulldome:false,fisheye:false,fisheyeAmt:60,equirect:(!isFlat()&&pareceEquirect(m)),eqPitch:0,/* [F7 fase 2] un 2:1 grande arranca como panorama; sólo en secuencias de domo, donde equirect significa algo */blackKey:false,blackKeyAmt:15,blackKeySoft:30,warp:'patch',secAz:60,secEl:30,volume:100,x:0,y:0,scale:100,lut:null,lutMix:100},props||{}),kf:{},fx:[]}, extra||{});
@@ -2005,6 +2097,7 @@ function addClip(m,lane,start){
   const c=makeClip(m,lane,start);
   state.clips.push(c); state.selId=c.id; state.selIds=[c.id]; state.selGroupId=null; clearMediaSel(); renderTimeline(); renderInspector(); render(); updStatus(); // adding to the timeline hands Delete-priority to the new clip (R86)
   if(c.props&&c.props.equirect) flashStatus(T('2:1 source — treated as a 360° panorama (toggle it in Source)','Fuente 2:1 — se trata como panorama 360° (se cambia en Source)')); // [F7 fase 2] la detección nunca es silenciosa
+  if(m.kind==='video') attachLinkedAudio(c,m); // [R170] si el vídeo trae sonido, su mitad de audio baja sola a la pista más cercana
 }
 const TC=(s)=>{s=Math.max(0,s);const f=state.fps;const tf=Math.round(s*f);const ff=tf%f, ss=Math.floor(tf/f)%60, mm=Math.floor(tf/f/60);return String(mm).padStart(2,'0')+':'+String(ss).padStart(2,'0')+':'+String(ff).padStart(2,'0');};
 function fmtTime(s){ const mode=state.tl.tcMode; if(mode==='frames')return String(Math.round(Math.max(0,s)*state.fps)); if(mode==='bars')return BBT(s); return TC(s); }
@@ -2107,7 +2200,7 @@ function renderTimeline(){ reconcileVinst(); // free private decoders of clips t
       if(c.fadeIn>0||c.fadeOut>0){ const cW=Math.max(14,c.dur*pps), cH=Math.max(8,(LH-8)), topY=2.5, botY=cH-2.5;
         const x1=Math.max(0,Math.min(fiPx,cW)), x2=Math.max(x1,cW-foPx);
         fades+=`<svg class="fadeenv" width="${cW}" height="${cH}" viewBox="0 0 ${cW} ${cH}" preserveAspectRatio="none"><polyline points="0,${c.fadeIn>0?botY:topY} ${x1.toFixed(1)},${topY} ${x2.toFixed(1)},${topY} ${cW},${c.fadeOut>0?botY:topY}"/></svg>`; }
-      const isAud=!!(m&&m.kind==='audio'); const fillBg=c.adjust?'repeating-linear-gradient(45deg,rgba(180,186,193,0.30) 0 9px,rgba(180,186,193,0.10) 9px 18px)':'none'; // [R94b] the stretched-thumbnail fill is gone — Premiere-style HEAD THUMBNAIL instead (below)
+      const isAud=!!(m&&m.kind==='audio')||isAudioClip(c); /* [R170] la mitad de audio de un vídeo enlazado vive en una pista de audio con medio de VÍDEO: sin mirar la pista no recibía .audioclip y se quedaba sin onda */ const fillBg=c.adjust?'repeating-linear-gradient(45deg,rgba(180,186,193,0.30) 0 9px,rgba(180,186,193,0.10) 9px 18px)':'none'; // [R94b] the stretched-thumbnail fill is gone — Premiere-style HEAD THUMBNAIL instead (below)
       let cth=''; if(m&&m.thumb&&!isAud&&!collapsed){ const th=Math.max(8,LH-8-15), tw=Math.round(th*16/9); if(Math.max(14,c.dur*pps)>=tw+24) cth=`<div class="cthumb" style="width:${tw}px;background-image:url(${m.thumb})"></div>`; } // Premiere-style head thumbnail, pinned to the clip's own left edge; hidden in automation mode
       let px2=''; if(m&&m.kind==='video'){ const rdy=!!m.proxyReady,pct=m.proxyPct||0; px2='<div class="cpx" data-mid="'+c.mediaId+'">'+(rdy?'⚡ PROXY':(pct>0?'PROXY '+pct+'%':'ORIGINAL'))+'</div><div class="cpxbar" data-mid="'+c.mediaId+'" style="'+((rdy||pct<=0)?'display:none;':'')+'"><i style="width:'+pct+'%"></i></div>'; }
       const animBadge=hasLiveAnim(c)?`<div class="animbadge" title="${T('Live motion','Movimiento activo')}" style="position:absolute;top:3px;right:5px;width:15px;height:15px;border-radius:50%;background:var(--ink-2);color:#0b0d10;font-size:11px;line-height:15px;text-align:center;pointer-events:none;font-weight:700;z-index:3;">↻</div>`:'';
@@ -2821,6 +2914,10 @@ $('#tracks').addEventListener('pointerdown',e=>{
   if(e.shiftKey){ const i=state.selIds.indexOf(id); if(i>=0)state.selIds.splice(i,1); else state.selIds.push(id); if(!state.selIds.includes(id))state.selId=state.selIds[state.selIds.length-1]||null; else state.selId=id; }
   else if(!state.selIds.includes(id)){ state.selIds=[id]; state.selId=id; }
   else { state.selId=id; }
+  /* [R170] El enlace A/V vive AQUÍ, en la selección: seleccionar una mitad arrastra a la otra a la selección, y
+     desde ahí el arrastre multi-clip, el recorte y el borrado en grupo —que ya existían— la mueven sola. No hay
+     que parchear mover, recortar ni borrar por separado. */
+  state.selIds=linkedIds(state.selIds);
   state.selGroupId=null; laneDesel(); renderInspector(); $$('.clip').forEach(x=>x.classList.toggle('sel',state.selIds.includes(+x.dataset.clip))); updStatus(); ensureClipVisible(c); // [R94-UT2·U-01]
   // [R155] el fade no se toca en modo automatización (el CSS ya los oculta; esta guarda cubre un nodo que quedara
   // de un render anterior, para que no arranque un arrastre invisible encima de la curva)
@@ -2957,7 +3054,7 @@ function showMoveGhosts(d,applied,targetLane,copy){ clearMoveGhosts(); const pps
     g.style.left=(ns*pps)+'px'; g.style.top=(rowEl.offsetTop+4)+'px'; g.style.width=Math.max(14,oc.dur*pps)+'px'; g.style.height=(rowEl.offsetHeight-8)+'px';
     g.innerHTML='<div style="position:absolute;left:0;top:0;right:0;height:15px;line-height:15px;font:600 10px Geist;padding:0 5px;color:'+textOn(oc.color)+';background:'+oc.color+';white-space:nowrap;overflow:hidden;">'+(copy?'＋ ':'')+oc.name+'</div>';
     _gp.appendChild(g); } }
-function duplicateClipAt(c,start,lane){ const n=Object.assign({},c,{id:uid(),start:Math.max(0,start),lane:(lane!=null?lane:c.lane),maskTex:null,_penCv:null,penMasks:c.penMasks?JSON.parse(JSON.stringify(c.penMasks)):undefined,props:Object.assign({},c.props),kf:JSON.parse(JSON.stringify(c.kf||{})),fx:JSON.parse(JSON.stringify(c.fx||[]))});
+function duplicateClipAt(c,start,lane){ const n=Object.assign({},c,{link:undefined,avRole:undefined,/* [R170] la copia nace SUELTA: dos pares con el mismo link romperían linkPartner */id:uid(),start:Math.max(0,start),lane:(lane!=null?lane:c.lane),maskTex:null,_penCv:null,penMasks:c.penMasks?JSON.parse(JSON.stringify(c.penMasks)):undefined,props:Object.assign({},c.props),kf:JSON.parse(JSON.stringify(c.kf||{})),fx:JSON.parse(JSON.stringify(c.fx||[]))});
   sepAuto(n,c);
   if(n.maskData||(n.penMasks&&n.penMasks.length))rebuildMaskTex(n); return n; }
 function onTLMove(e){ if(!drag)return; const c=clipById(drag.id);if(!c)return; const dt=(e.clientX-drag.x0)/state.tl.pxPerSec; let snap=null;
@@ -3043,7 +3140,18 @@ function razorCore(c,tAbs){ if(tAbs<=c.start+0.02||tAbs>=c.start+c.dur-0.02)retu
   const c2={...c,id:uid(),start:tAbs,dur:c.dur-left,inP:c.inP+left*(c.speed||1),maskTex:null,_penCv:null,penMasks:c.penMasks?JSON.parse(JSON.stringify(c.penMasks)):undefined,props:{...c.props},kf:reb(c.kf,left,Infinity,left),fx:JSON.parse(JSON.stringify(c.fx||[])),fadeIn:0}; sepAuto(c2,c); // [R92-T4 F6] inP advances in SOURCE seconds (left×speed)
   if(Array.isArray(c2.anim)) c2.anim=c2.anim.map(aa=>({...aa,wetKf:Array.isArray(aa.wetKf)?aa.wetKf.map(k=>({...k,t:k.t-left})).filter(k=>k.t>=-1e-6):aa.wetKf})); // [R92-T4 F11] right half's wet ramps rebased like kf
   if(c2.maskData||(c2.penMasks&&c2.penMasks.length))rebuildMaskTex(c2); c.kf=reb(c.kf,0,left,0); c.dur=left; c.fadeOut=0; state.clips.push(c2); return c2; } // drop the fades that now land at the cut: left half keeps only its fadeIn, right half only its fadeOut
-function razorClip(c,tAbs){ if(tAbs<=c.start+0.02||tAbs>=c.start+c.dur-0.02)return; pushUndo(); razorCore(c,tAbs); renderTimeline(); render(); reschedAudio(); }
+function razorClip(c,tAbs){ if(tAbs<=c.start+0.02||tAbs>=c.start+c.dur-0.02)return; pushUndo();
+  /* [R170] Cortar una mitad corta la otra por el mismo sitio, y las dos MITADES DERECHAS quedan enlazadas entre
+     sí (las izquierdas se quedan con el enlace original). Sin esto, cortar dejaba el trozo de audio pegado al
+     trozo de vídeo equivocado. */
+  const p=linkPartner(c);
+  const dch=razorCore(c,tAbs);
+  if(dch){ const dchP=p?razorCore(p,tAbs):null;
+    if(dchP){ const nl=uid(); dch.link=nl; dch.avRole=c.avRole; dchP.link=nl; dchP.avRole=p.avRole; }
+    /* si la pareja no se pudo partir (el corte cae en su borde), la mitad derecha se queda SUELTA en vez de
+       compartir enlace con dos clips: tres clips con el mismo `link` harían que linkPartner eligiera al azar */
+    else { delete dch.link; delete dch.avRole; } }
+  renderTimeline(); render(); reschedAudio(); }
 /* Ctrl+E — Ableton-style Split: cut every clip crossing the time-selection boundaries (or the playhead if no range) */
 function splitAtSelection(){ const s=state.tl; const hasRange=s.selA!=null&&s.selB!=null&&Math.abs(s.selB-s.selA)>1e-3; const hasInsert=s.selA!=null&&!hasRange;
   const times=hasRange?[Math.min(s.selA,s.selB),Math.max(s.selA,s.selB)]:(hasInsert?[s.selA]:[state.playhead]); // range → cut both edges; single insert line → cut there; nothing selected → cut at the playhead
@@ -4832,7 +4940,7 @@ function ploop(){ if(!state.playing)return; const now=performance.now(),dt=(now-
         if(Math.abs(vd)>0.6 && _nw-(vi._seekT||0)>800){ vi._seekT=_nw; try{v.currentTime=local;}catch(e){} }
         else { try{v.playbackRate=eff*(1-Math.max(-0.12,Math.min(0.12,vd*0.5)));}catch(e){} }
         if(HAS_RVFC){if(!vi.vf)pumpVFClip(vi);}else{upTex(vi.vtex,v);vi.ready=true;} }
-      const a=vinstAudio(vi,m); const revMute=(c.loop&&c.loopRev); // [R92-T7] ping-pong reverse: the video plays backwards but audio can't → mute preview instead of stuttering (documented limitation)
+      const a=vinstAudio(vi,m); const revMute=(c.loop&&c.loopRev)||c.avRole==='v'; // [R170] avRole v: su sonido lo lleva la mitad de audio enlazada, si no se oiría dos veces // [R92-T7] ping-pong reverse: the video plays backwards but audio can't → mute preview instead of stuttering (documented limitation)
       if(a&&!revMute&&!aelProbeSilent(vi,m,a)){ const g=Math.max(0,Math.min(1,gain==null?1:gain)); a.volume=g; a.muted=(g<=0.001); if(a.muted){ if(!a.paused){try{a.pause();}catch(e){}} } else { if(a.paused)a.play().catch(()=>{}); const ad=a.currentTime-local; if(Math.abs(ad)>0.2){try{a.currentTime=local;}catch(e){}} else {try{a.playbackRate=eff*(1-Math.max(-0.08,Math.min(0.08,ad*0.4)));}catch(e){}} } }
       else if(a&&revMute&&!a.paused){ try{a.pause();}catch(e){} } } // [R92-T2 C1 + T6] audio servo: closes the 150-240ms start drift in ~1s without audible seeking
     for(const [id,vi] of _vinst){ if(!act.has(id)){ if(!ra&&vi.vel&&!vi.vel.paused){ try{vi.vel.pause();}catch(e){} stopVFClip(vi); } if(vi.ael&&!vi.ael.paused){ try{vi.ael.pause();}catch(e){} } } } }
@@ -6724,9 +6832,9 @@ window.addEventListener('beforeunload',e=>{ if(!IS_ELEC&&state.dirty){ e.prevent
 window.addEventListener('keydown',e=>{ if(e.key==='Escape'){ const ovs=document.querySelectorAll('.overlay'); if(!ovs.length)return; const ov=ovs[ovs.length-1]; const cb=ov.querySelector('#exClose, #prefClose, [data-close], .mclose'); if(cb)cb.click(); else ov.remove(); } }); // [U-23] Escape runs the modal's real close handler (fmtChip restore etc.); bare remove() only as fallback
 
 /* ===================== CLIPBOARD / EDIT COMMANDS ===================== */
-function duplicateClip(){ const c=selClip(); if(!c)return; pushUndo(); const n={...c,id:uid(),start:c.start+c.dur,maskTex:null,_penCv:null,penMasks:c.penMasks?JSON.parse(JSON.stringify(c.penMasks)):undefined,groupId:undefined,slot:undefined,props:{...c.props},kf:JSON.parse(JSON.stringify(c.kf||{})),fx:JSON.parse(JSON.stringify(c.fx||[]))}; sepAuto(n,c); if(n.maskData||(n.penMasks&&n.penMasks.length))rebuildMaskTex(n); state.clips.push(n); state.selId=n.id; state.selIds=[n.id]; laneDesel(); renderTimeline();renderInspector();render(); reschedAudio(); }
+function duplicateClip(){ const c=selClip(); if(!c)return; pushUndo(); const n={...c,link:undefined,avRole:undefined,/* [R170] ver duplicateClipAt */id:uid(),start:c.start+c.dur,maskTex:null,_penCv:null,penMasks:c.penMasks?JSON.parse(JSON.stringify(c.penMasks)):undefined,groupId:undefined,slot:undefined,props:{...c.props},kf:JSON.parse(JSON.stringify(c.kf||{})),fx:JSON.parse(JSON.stringify(c.fx||[]))}; sepAuto(n,c); if(n.maskData||(n.penMasks&&n.penMasks.length))rebuildMaskTex(n); state.clips.push(n); state.selId=n.id; state.selIds=[n.id]; laneDesel(); renderTimeline();renderInspector();render(); reschedAudio(); }
 function copyClip(){ const c=selClip(); if(c)state.clipboard=JSON.parse(JSON.stringify(c)); }
-function pasteClip(){ if(!state.clipboard)return; const src=JSON.parse(JSON.stringify(state.clipboard)); const m=mediaById(src.mediaId);
+function pasteClip(){ if(!state.clipboard)return; const src=JSON.parse(JSON.stringify(state.clipboard)); delete src.link; delete src.avRole; /* [R170] lo pegado nace SUELTO (ver duplicateClipAt) */ const m=mediaById(src.mediaId);
   if(!m){ flashStatus(T("Can't paste — the clip's media no longer exists",'No se puede pegar — el medio del clip ya no existe'),'err'); return; } // [R92-T1 F8] clipboard can outlive its media · [R94-UT3·U-21]
   if(isSeqMedia(m)&&(m.id===state.activeSeqId||seqReaches(m.id,state.activeSeqId))){ flashStatus(T("Can't nest a sequence inside itself (would create a loop)",'No se puede anidar una secuencia que crearía un bucle'),'err'); return; } // [R92-T1 F8] same cycle guard as addClip — a pasted loop used to persist into the .isp · [R94-UT3·U-21]
   pushUndo(); const n={...src,id:uid(),start:state.playhead,maskTex:null,groupId:undefined,slot:undefined};
@@ -6877,6 +6985,15 @@ $('#tracks').addEventListener('contextmenu',e=>{ const cd=e.target.closest('.cli
   /* [T1] a `//` comment here used to swallow this whole body → the clip menu never got `id`/preventDefault and broke. */
   e.preventDefault(); const id=+cd.dataset.clip; state.selId=id; if(!state.selIds.includes(id))state.selIds=[id]; laneDesel(); renderInspector(); renderTimeline(); ensureClipVisible(clipById(id)); // select the clip under the cursor (keep an existing multi-selection); re-render first so the fresh row is measured
   openMenu(e.clientX,e.clientY,[ {label:T('Rename','Renombrar'),key:'⌘R',fn:()=>{ state.selIds=[id]; state.selId=id; renameSelection(); }},
+    /* [R170] Enlace A/V: desenlazar si esta mitad tiene pareja; enlazar si hay EXACTAMENTE un clip de vídeo y
+       uno de audio seleccionados y ninguno está ya enlazado (así se rehace un par deshecho, o se ata un audio
+       aparte a una imagen). */
+    ...(()=>{ const c=clipById(id); if(!c)return [];
+      if(c.link) return [{label:T('Unlink audio and video','Desenlazar audio y vídeo'),fn:()=>unlinkClip(c)},'sep'];
+      const sel=state.selIds.map(clipById).filter(Boolean);
+      if(sel.length===2&&!sel.some(x=>x.link)){ const v=sel.find(x=>!isAudioClip(x)), a=sel.find(x=>isAudioClip(x));
+        if(v&&a) return [{label:T('Link audio and video','Enlazar audio y vídeo'),fn:()=>linkClips(v,a)},'sep']; }
+      return []; })(),
     {label:T('Split at playhead','Dividir en el cabezal'),ico:'split',fn:()=>{const c=clipById(id);if(c)razorClip(c,state.playhead);}},
     {label:T('Zoom to clip','Ampliar al clip'),ico:'zoomIn',fn:()=>{const c=clipById(id);if(c)zoomToClip(c);}}, // [T1]
     {label:T('Duplicate','Duplicar'),key:'⌘D',ico:'diamond',fn:duplicateClip}, {label:T('Copy','Copiar'),key:'⌘C',fn:copyClip}, 'sep',

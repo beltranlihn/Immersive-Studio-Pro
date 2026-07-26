@@ -1,5 +1,36 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 170 — Clips enlazados A/V, como Premiere
+
+Petición de Beltrán: arrastrar un vídeo y que su audio baje solo a la pista de audio más cercana, enlazado; que
+al mover uno se mueva el otro; y clic derecho para separarlos.
+
+**Se apoya en la SELECCIÓN, y por eso es corto.** El motor ya traía arrastre multi-clip con desplazamiento
+relativo de pista, recorte y borrado en grupo, audio por clip con volumen y fundidos, onda para cualquier clip
+que esté en pista de audio, y `compositeClips` sólo recorre pistas de VÍDEO —así que la mitad de audio nunca se
+pinta—. Basta con que seleccionar una mitad meta a la otra en la selección: todo lo demás ya funcionaba.
+
+**El precio, y por qué no se disimula.** En previsualización el sonido de un vídeo sale de un `<audio>` pegado a
+su instancia de decodificación, no de un búfer. Para que la mitad de audio sea un clip de verdad —con onda, y
+movible por su cuenta tras desenlazar— hay que decodificar la pista a un AudioBuffer, y eso cuesta memoria
+(~1,4 GB por hora de PCM). Se hace una vez, bajo demanda y bajo un tope de tamaño. Si el archivo es enorme o no
+tiene sonido, NO se crea el par: el vídeo entra como un solo clip y suena como siempre. Preferible a un enlace a
+medias.
+
+**Cuatro cosas que la prueba con vídeo real destapó y hubo que cerrar:**
+- Tras DESENLAZAR, la mitad de audio se quedaba muda: la condición miraba `avRole`, que el desenlace borra.
+  Ahora mira la PISTA, que es lo que no cambia.
+- Con una sola pista de audio, dos vídeos apilaban sus audios solapados en A1. Ahora se crea A2, como Premiere.
+- Copiar, duplicar y pegar heredaban el `link`: dos pares con el mismo id harían que `linkPartner` eligiera al
+  azar. Las copias nacen sueltas. Lo mismo si el corte no puede partir a la pareja.
+- La onda no se dibujaba en la mitad de audio: `isAud` miraba el tipo de MEDIO (vídeo) y no la pista.
+
+Verificado con `Inhaling-exhaling.mp4` real, los seis pasos: soltar → enlaza en A1 · mover → van juntos · sonido
+→ un solo evento, el de la mitad de audio · cortar → dos pares v+a · desenlazar → separados y el audio sigue
+sonando · guardar y reabrir → el enlace sobrevive.
+
+Pruebas: funcional 22/22, robustez 15/15, cero errores de consola.
+
 ## ROUND 169 — [F7 fase 2]: la esfera completa, y los panoramas que salían del revés
 
 **Autodetección 2:1.** Una fuente de 2048px o más de ancho y proporción 2:1 (con un 1% de margen) arranca como
