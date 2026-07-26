@@ -1,5 +1,39 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 165 — Lo que sacó la revisión de código sobre R152-R164
+
+Once hallazgos; **diez reales y uno falso positivo**. Verificados uno a uno antes de tocar nada.
+
+**El grave: "Rehacer la geometría de la sala…" borraba el proyecto entero.** La entrada que se añadió en R155
+al menú Project llamaba a `newRoomProject`, que vacía medios, clips, grupos, marcadores y carpetas y limpia el
+historial. Y `confirmDiscard()` devuelve que sí SIN preguntar cuando el proyecto está guardado — o sea que sobre
+un proyecto recién guardado, pulsar una opción que sólo prometía tocar la geometría se llevaba todo el trabajo
+en silencio. Ahora hay `applyRoomGeometry(cfg)`, que reescribe únicamente muros, tira y piso: los muros conservan
+su `id` cuando conservan su ROL (que es la clave por la que los clips guardan su máscara, así que las máscaras
+siguen valiendo), y si el usuario deja de querer piso se suelta el enlace pero la secuencia NO se borra: se queda
+en Medios con su contenido. La malla 3D se cachea por id de secuencia, que no cambia al editar, así que hay que
+invalidarla a mano (`_roomGeo`/`_roomGeoSeq`). La etiqueta pasa a "Geometría de la sala…".
+
+**Los otros nueve.** Preferencias abría DETRÁS del launcher (overlay a 50 contra el launcher a 300, opaco) → z-index
+320 como el resto de diálogos alcanzables desde la pantalla de inicio. El menú "More" del visor imprimía una lectura
+inventada "AZ 0° · EL 35°" leyendo `state.view.az`/`.el`, que dejaron de existir en R158 → la sección sólo aparece en
+3D. La pista de audio nacía ARRIBA por dos caminos que quedaron sin actualizar tras R155 (el alta automática de
+proyectos antiguos hacía `push`, y `addLane(audio)` caía en `lanes.length` cuando no había ninguna) → `unshift` y 0,
+corriendo los índices de los clips. El piso del launcher iba clavado a 500×400cm / 1920×1080 pasara lo que pasara con
+los muros, mientras el previo lo dibujaba abarcando la huella real: ahora sale de los muros, a su misma densidad de
+píxeles. `drawRuler` seguía con 22 cableado en cuatro sitios frente a `RULER_H=24` — que se creó justo para no tener dos
+fuentes — y `.tracks{min-height:calc(100% - 22px)}` dejaba 2px de desbordamiento permanente que descuadraban el pulgar
+de la barra vertical. Había DOS `hideLanding()` idénticas, con la segunda ganando por hoisting. `applyLang` traducía
+File/Edit/Window pero no Project. Y el `fit()` del launcher escribía `height:100%` en línea, anulando la regla que
+reserva la franja de datos — y encima medía antes de escribirlo, así que la primera pintada salía mal escalada.
+
+**El falso positivo.** Se dijo que los grupos de la barra del visor se recortan en vez de plegarse en "More". Medido a
+1600 / 1200 / 1000 / 860px: a 1200 Overlays y Quality YA están en "More", a 1000 se les une Output, y a 860 entra además
+la escalada por medición. No se pierde ningún control. El bucle de medición es una red de seguridad por debajo de los
+puntos de corte, que es para lo que está.
+
+Pruebas: funcional 22/22, robustez 15/15, iconos 31/31, cero errores de consola.
+
 ## ROUND 164 — Los iconos, uno a uno, contra el handoff
 
 Beltrán señaló que "hay íconos que no están iguales". En vez de mirarlos a ojo, dos herramientas: `icon-diff.mjs`

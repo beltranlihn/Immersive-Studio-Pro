@@ -1887,17 +1887,17 @@ function fmtTime(s){ const mode=state.tl.tcMode; if(mode==='frames')return Strin
 function drawRuler(){ const rc=$('#rulerCv'), sc=$('#tlscroll'); if(!rc||!sc)return;
   const pps=state.tl.pxPerSec, dur=Math.max(0,state.tl._w||0), W=dur*pps, dpr=Math.min(window.devicePixelRatio||1,2);
   const sl=sc.scrollLeft||0, vw=sc.clientWidth||W||1, viewW=Math.max(1,Math.min(W||vw, vw+300));
-  rc.style.position='absolute'; rc.style.top='0'; rc.style.left=sl+'px'; rc.style.width=viewW+'px'; rc.style.height='22px';
-  rc.width=Math.max(1,Math.round(viewW*dpr)); rc.height=Math.round(22*dpr);
-  const rx=rc.getContext('2d'); rx.setTransform(dpr,0,0,dpr,-sl*dpr,0); rx.clearRect(sl,0,viewW,22); rx.font='11px Geist'; rx.textBaseline='middle'; rx.fillStyle=UI.inkDim;
+  rc.style.position='absolute'; rc.style.top='0'; rc.style.left=sl+'px'; rc.style.width=viewW+'px'; rc.style.height=RULER_H+'px';
+  rc.width=Math.max(1,Math.round(viewW*dpr)); rc.height=Math.round(RULER_H*dpr);
+  const rx=rc.getContext('2d'); rx.setTransform(dpr,0,0,dpr,-sl*dpr,0); rx.clearRect(sl,0,viewW,RULER_H); rx.font='11px Geist'; rx.textBaseline='middle'; rx.fillStyle=UI.inkDim;
   const x0=sl-2, x1=sl+viewW+2;
   if(state.tl.tcMode==='bars'){ const spb=60/state.tl.bpm, barLen=spb*state.tl.sig; let bi=barLen; while(bi*pps<46)bi*=2;
-    let bar=1; for(let tt=0; tt<=dur; tt+=barLen,bar++){ const x=tt*pps; if(x>=x0&&x<=x1){ rx.strokeStyle='rgba(255,255,255,0.1)';rx.beginPath();rx.moveTo(x,22);rx.lineTo(x,11);rx.stroke();
+    let bar=1; for(let tt=0; tt<=dur; tt+=barLen,bar++){ const x=tt*pps; if(x>=x0&&x<=x1){ rx.strokeStyle='rgba(255,255,255,0.1)';rx.beginPath();rx.moveTo(x,RULER_H);rx.lineTo(x,11);rx.stroke();
       if(barLen*pps>=46||bar%Math.round(bi/barLen)===1) rx.fillText(bar,x+3,7);
-      if(spb*pps>=22) for(let bt=1;bt<state.tl.sig;bt++){const bx=(tt+bt*spb)*pps; if(bx<x0||bx>x1)continue; rx.strokeStyle='rgba(255,255,255,0.05)';rx.beginPath();rx.moveTo(bx,22);rx.lineTo(bx,16);rx.stroke();} } }
+      if(spb*pps>=22) for(let bt=1;bt<state.tl.sig;bt++){const bx=(tt+bt*spb)*pps; if(bx<x0||bx>x1)continue; rx.strokeStyle='rgba(255,255,255,0.05)';rx.beginPath();rx.moveTo(bx,RULER_H);rx.lineTo(bx,16);rx.stroke();} } }
   } else { let iv=gridSec(); if(iv*pps<7)iv=Math.ceil(7/(iv*pps))*iv; // keep ticks readable even on a very narrow grid
     const startTt=Math.max(0, Math.floor((x0/pps)/iv)*iv);
-    for(let tt=startTt; tt*pps<=x1 && tt<=dur+iv; tt+=iv){ const x=tt*pps; if(x<x0)continue; rx.strokeStyle='rgba(255,255,255,0.07)';rx.beginPath();rx.moveTo(x,22);rx.lineTo(x,14);rx.stroke();
+    for(let tt=startTt; tt*pps<=x1 && tt<=dur+iv; tt+=iv){ const x=tt*pps; if(x<x0)continue; rx.strokeStyle='rgba(255,255,255,0.07)';rx.beginPath();rx.moveTo(x,RULER_H);rx.lineTo(x,14);rx.stroke();
       /* [R162] `ceil`, no `round`: con los ticks a 48px, 66/48=1.375 redondeaba a 1 y etiquetaba TODOS —
          y una etiqueta de timecode («00:00:30») mide ~52px, así que se pisaban unas con otras. */
       if((Math.round(tt/iv))%(Math.max(1,Math.ceil(66/(iv*pps))))===0) rx.fillText(fmtTime(tt),x+3,7); } }
@@ -2084,7 +2084,7 @@ function ensureClipVisible(c){ if(!c)return; const sc=$('#tlscroll'); if(!sc)ret
   else if(rr.bottom>botLim) dy=Math.min(rr.bottom-botLim, rr.top-topLim); // never push the row's top above the ruler
   if(Math.abs(dy)>0.5) sc.scrollTop+=dy; }
 function addLane(kind){ pushUndo(); const n=state.lanes.filter(l=>l.kind===kind).length+1; const nl={id:uid(),name:(kind==='audio'?'Audio ':'Video ')+n,tag:(kind==='audio'?'A':'V')+n,kind};
-  if(kind==='audio'){ let at=state.lanes.findIndex(l=>l.kind==='audio'); if(at<0)at=state.lanes.length; // [R93b] audio grows DOWNWARD: the module displays audio lanes index-descending → the bottom slot is the smallest audio index
+  if(kind==='audio'){ let at=state.lanes.findIndex(l=>l.kind==='audio'); if(at<0)at=0; // [R93b] audio grows DOWNWARD: the module displays audio lanes index-descending → the bottom slot is the smallest audio index · [R165] sin ninguna pista de audio el respaldo era `lanes.length`, que desde R155 es ARRIBA del todo; el fondo es el 0
     state.lanes.splice(at,0,nl); for(const c of state.clips)if(c.lane>=at)c.lane++; if(state.selLane!=null&&state.selLane>=at)state.selLane++; }
   else state.lanes.push(nl); // video grows upward (new track on top), as before
   renderTimeline();
@@ -2251,8 +2251,21 @@ function lchCycleFacing(i){ const order=lchFacings().map(f=>f.n); const cur=_lch
 
 function lchActiveWalls(){ return _lch.walls.slice(0,_lch.roomCount); }
 function lchCfgWalls(){ return lchActiveWalls().map((w,i)=>({role:w.role,order:i+1,wcm:w.wcm,hcm:w.hcm,pxW:w.pxW,pxH:w.pxH})); }
+/* [R165] El piso del launcher iba clavado a 500×400 cm / 1920×1080 px pasara lo que pasara con los muros,
+   mientras el previo lo dibuja abarcando la huella REAL de la sala: lo que se creaba no era lo que se veía.
+   Aquí sale de los muros — ancho = el Front/Back más ancho, fondo = el Left/Right más ancho — y los píxeles a
+   la misma densidad (px por cm) que el muro del que viene cada eje, para que el piso no quede más fino ni más
+   grueso que las paredes que lo rodean. */
+function lchFloorCfg(walls){
+  if(!walls||!walls.length) return {wcm:500,dcm:400,pxW:1920,pxH:1080};
+  const mayor=roles=>{ const q=walls.filter(w=>roles.includes(w.role)); return q.length?q.reduce((a,b)=>a.wcm>=b.wcm?a:b):null; };
+  const A=mayor(['Front','Back'])||walls[0], F=mayor(['Left','Right'])||walls[1]||walls[0];
+  const wcm=Math.max(1,Math.round(A.wcm)), dcm=Math.max(1,Math.round(F.wcm));
+  const dA=A.pxW/Math.max(1,A.wcm), dF=F.pxW/Math.max(1,F.wcm);
+  return { wcm, dcm, pxW:Math.max(16,Math.round(wcm*dA)), pxH:Math.max(16,Math.round(dcm*dF)) };
+}
 
-function hideLanding(){ const o=document.getElementById('landingOv'); if(o){ if(o._stopLogo)o._stopLogo(); o.remove(); } }
+/* [R165] había DOS hideLanding() idénticas; la segunda ganaba por hoisting y dejaba muerta a la primera. */
 function showLanding(){ if(document.getElementById('landingOv'))return;
   _lch=_lch||lchInit();
   const ov=document.createElement('div'); ov.className='overlay lch'; ov.id='landingOv'; ov.style.zIndex='300';
@@ -2412,9 +2425,13 @@ function renderLauncher(){ const ov=document.getElementById('landingOv'); if(!ov
    getBoundingClientRect() devuelve 0 → los canvas se quedaban en su 300×150 por defecto y se veían estirados. */
 function lchPaint(){ requestAnimationFrame(lchPaintNow); }
 function lchPaintNow(){ const ov=document.getElementById('landingOv'); if(!ov||!_lch)return;
+  /* [R165] fit() sólo iguala el BÚFER del lienzo a la caja que ya le dio el CSS. Antes escribía además
+     `style.height='100%'` en línea, y un estilo en línea gana a la hoja: eso anulaba
+     `.lch-pane.hasdata>canvas{bottom:24px;height:auto}`, la regla que reserva la franja de datos. Encima medía
+     ANTES de escribirlo, así que la primera pintada salía escalada para la disposición anterior. */
   const fit=cv=>{ if(!cv)return null; const r=cv.getBoundingClientRect(); if(!r.width||!r.height)return null;
     const dpr=Math.min(2,window.devicePixelRatio||1); cv.width=Math.round(r.width*dpr); cv.height=Math.round(r.height*dpr);
-    cv.style.width='100%'; cv.style.height='100%'; return cv; };
+    return cv; };
   const S=_lch;
   if(S.ptype==='dome'){ const cv=fit(ov.querySelector('#lchCvDome')); if(cv)try{ drawSeqViz(cv,'dome',{cov:S.domeCov}); }catch(e){}
     const c3=fit(ov.querySelector('#lchCvDome3d')); if(c3)try{ drawDomeIso(c3,S.domeCov,LCH_PAL); }catch(e){} }
@@ -2444,7 +2461,7 @@ function lchCreate(){ const S=_lch, name=(S.pname||'').trim();
   hideLanding();
   if(S.ptype==='dome') newProject('dome',S.domeRes,S.domeRes,S.fps,S.domeCov).then(after,()=>showLanding());
   else if(S.ptype==='flat') newProject('flat',S.flatW,S.flatH,S.fps).then(after,()=>showLanding());
-  else { const cfg={ walls:lchCfgWalls(), fps:S.fps, floor:S.roomFloor?{wcm:500,dcm:400,pxW:1920,pxH:1080}:null };
+  else { const muros=lchCfgWalls(); const cfg={ walls:muros, fps:S.fps, floor:S.roomFloor?lchFloorCfg(muros):null }; // [R165] el piso sale de los muros, no de un tamaño fijo
     newRoomProject(cfg).then(after,()=>showLanding()); }
 }
 addEventListener('resize',()=>{ if(document.getElementById('landingOv'))lchPaint(); });
@@ -5409,7 +5426,12 @@ function ensureSequences(){ let seqs=state.media.filter(isSeqMedia);
   loadSeqIntoState(activeSeq()); }
 function saveActiveSeq(){ const s=activeSeq(); if(!s)return; s.nestClips=state.clips; s.nestLanes=state.lanes; s.nestMarkers=state.markers; s.nestGroups=state.groups; s.nestPlayhead=state.playhead; s.nestWorkIn=state.workIn; s.nestWorkOut=state.workOut; s.dur=seqDur(s); } /* [archivado 20260725] s.grade */ // nests render via the per-frame _nestPool (no per-media FBO); serMedia omits transient GL fields
 function loadSeqIntoState(s){ if(!s)return; state.clips=s.nestClips||[]; state.lanes=(s.nestLanes&&s.nestLanes.length?s.nestLanes:defLanes());
-  if(!s.comp && !state.lanes.some(l=>l.kind==='audio')){ const n=state.lanes.filter(l=>l.kind==='audio').length+1; state.lanes.push({id:uid(),name:'Audio '+n,tag:'A'+n,kind:'audio'}); s.nestLanes=state.lanes; } /* [R92-T9] audio module always present on real timelines (old projects get one); compositions (m.comp) stay video-only; no markDirty (idempotent) */
+  if(!s.comp && !state.lanes.some(l=>l.kind==='audio')){ const n=state.lanes.filter(l=>l.kind==='audio').length+1;
+    /* [R165] unshift, no push: desde R155 el índice 0 es el FONDO de la pila, que es donde va el audio.
+       Con push aparecía arriba del todo. Los clips guardan su pista por índice → hay que correrlos uno. */
+    state.lanes.unshift({id:uid(),name:'Audio '+n,tag:'A'+n,kind:'audio'});
+    for(const c of state.clips) if(c.lane!=null) c.lane++;
+    s.nestLanes=state.lanes; } /* [R92-T9] audio module always present on real timelines (old projects get one); compositions (m.comp) stay video-only; no markDirty (idempotent) */
   state.markers=s.nestMarkers||[]; state.groups=s.nestGroups||[]; state.playhead=s.nestPlayhead||0; state.workIn=s.nestWorkIn??null; state.workOut=s.nestWorkOut??null; state.fps=s.fps||state.fps||60; state.seqW=s.w||state.seqW||4096; state.seqH=s.h||state.seqH||4096; state.seqMode=s.mode||'dome'; state.seqCov=s.cov||180; /* [archivado 20260725] state.seqGrade — un s.grade de un .isp viejo se ignora sin romper nada */ state.selId=null; state.selIds=[]; state.selGroupId=null; state.selMarkerId=null; state.autoSel=null; state.hoverAuto=null; state.shapeBox=null; /* [R95·B1] the box holds live keyframe refs — undo/sequence switch replaces those objects, so it must go with them */ _arCache=null; try{raInvalidate();}catch(e){} try{updModeUI();}catch(e){} } // invalidate render-ahead + reactive cache: a cached flat frame / band cache belongs to the previous sequence
 function updModeUI(){ const fl=isFlat(), room=isRoom(); // a 360 room has a real 3D view (assembled walls); plain 2D flat does not
   /* [AUDITORÍA R154] El prototipo rotula estos botones "2D" y "3D" a secas (RevDomo:137-138) y deja el nombre
@@ -5813,6 +5835,44 @@ async function newProject(mode,w,h,fps,cov){ if(!(await confirmDiscard()))return
   clearAllUndo(); currentPath=null; state.dirty=false;
   renderMedia(); renderSeqBar(); renderTimeline(); renderInspector(); render(); updStatus(); projTitle(); updFmtChip(); flashStatus(_fl?T('New 2D project','Nuevo proyecto 2D'):T('New project','Proyecto nuevo')); }
 /* R91: create a 360-room project — a 'room' sequence (walls unwrapped into a strip) + an optional 'flat' floor sequence, linked by room.floorSeqId. */
+/* [R165] Reconfigurar la sala NO es crear un proyecto nuevo. El menú Project llamaba a `newRoomProject`, que
+   vacía medios, clips, grupos, marcadores y carpetas y borra el historial — y `confirmDiscard()` devuelve que sí
+   sin preguntar cuando el proyecto está GUARDADO, así que "Rehacer la geometría de la sala…" se llevaba por
+   delante todo el trabajo en silencio, detrás de una etiqueta que sólo prometía tocar la geometría.
+   Esto reescribe únicamente la geometría. Los muros conservan su `id` cuando conservan su ROL, que es además la
+   clave por la que los clips guardan su máscara (`props.maskWalls` guarda roles), así que las máscaras siguen
+   valiendo. Si el usuario deja de querer piso, se suelta el enlace pero la secuencia del piso NO se borra: se
+   queda en el panel de Medios con su contenido intacto. */
+function applyRoomGeometry(cfg){
+  const wseq=activeSeq(), room=wseq&&wseq.room;
+  if(!room){ flashStatus(T('This sequence is not a room','Esta secuencia no es una sala'),'err'); return; }
+  pushUndo();
+  const idPorRol=new Map((room.walls||[]).map(w=>[w.role,w.id]));
+  const walls=cfg.walls.map(w=>({ id:idPorRol.get(w.role)||uid(), ...w })).sort((a,b)=>a.order-b.order);
+  const stripH=Math.max(16,Math.max(...walls.map(w=>w.pxH)));
+  let x=0; for(const w of walls){ w.x0=Math.round(x); w.x1=Math.round(x)+w.pxW; x=w.x1; }
+  const stripW=Math.max(16,Math.round(x));
+  room.walls=walls;
+  wseq.w=stripW; wseq.h=stripH;
+  if(state.activeSeqId===wseq.id){ state.seqW=stripW; state.seqH=stripH; }
+  const fseq=room.floorSeqId?mediaById(room.floorSeqId):null;
+  if(cfg.floor){
+    if(fseq){ fseq.w=cfg.floor.pxW; fseq.h=cfg.floor.pxH; }
+    else { const nf=newSeqMedia(T('Floor','Piso'),state.fps,cfg.floor.pxW,cfg.floor.pxH,null,null,'flat');
+      nf.roomFloorOf=wseq.id; room.floorSeqId=nf.id; state.media.push(nf);
+      if(state.openSeqs&&!state.openSeqs.includes(nf.id))state.openSeqs.push(nf.id); }
+  } else if(fseq){ room.floorSeqId=null; delete fseq.roomFloorOf;
+    flashStatus(T('Floor detached — its sequence is still in Media','Piso desvinculado — su secuencia sigue en Medios')); }
+  room.floor=cfg.floor||null;
+  const rolesVivos=new Set(walls.map(w=>w.role)); // un clip enmascarado a un muro que ya no existe perdería su máscara
+  for(const c of state.clips){ if(!c.props||!c.props.maskWalls)continue;
+    const q=c.props.maskWalls.filter(r=>rolesVivos.has(r)); if(q.length)c.props.maskWalls=q; else delete c.props.maskWalls; }
+  /* la malla 3D de la sala se cachea por ID DE SECUENCIA (`_roomGeoSeq`), y el id no cambia al editar la
+     geometría → hay que invalidarla a mano o el visor 3D seguiría dibujando los muros viejos */
+  _roomGeo=null; _roomGeoSeq=null; _arCache=null; try{raInvalidate();}catch(e){}
+  resize(); renderTimeline(); renderInspector(); renderMedia(); render(); markDirty(); updStatus();
+  flashStatus(T('Room geometry updated','Geometría de la sala actualizada'));
+}
 async function newRoomProject(cfg){ if(!(await confirmDiscard()))return; if(state.playing)pause(); disposeAllVinst();
   for(const c of state.clips){ try{ if(c.maskTex)gl.deleteTexture(c.maskTex); }catch(e){} }
   try{ closeAllNdi(); }catch(e){} for(const m of state.media) disposeMedia(m); for(const id in (state.mediaTrash||{})) disposeMedia(state.mediaTrash[id]); state.mediaTrash={}; clearFrameCache();
@@ -6216,11 +6276,12 @@ function openVpMore(){ const F=vpFits(); closeMenu();
     [['1','Full'],['0.5','½'],['0.25','¼']].forEach(([q,lab])=>mirror(r,document.querySelector('#qualitySeg button[data-q="'+q+'"]'),lab));
     mirror(r,document.querySelector('#proxyToggle button'),'Proxy'); }
   if(!F.out){ const r=sec('Output'); mirror(r,$('#outputBtn'),'Output…'); }
-  if(!F.readout){ const r=sec(T('Readout','Lectura')); const s=document.createElement('span');
+  /* [R165] La lectura sólo tiene sentido en 3D (FOV/DOLLY o DIST). La rama 2D leía `state.view.az` / `state.view.el`,
+     que dejaron de existir en R158 al quitar la lectura AZ/EL del visor: imprimía un "AZ 0° · EL 35°" inventado. */
+  if(!F.readout && state.view.mode==='3d'){ const r=sec(T('Readout','Lectura')); const s=document.createElement('span');
     s.style.cssText='font-size:10px;color:var(--ink-2);font-variant-numeric:tabular-nums;';
-    const is3=state.view.mode==='3d', spec=state.view.three==='spec', c=state.view.cam;
-    s.textContent=is3?(spec?('FOV '+Math.round(c.fov)+'° · DOLLY '+(+c.back).toFixed(1)):('DIST '+(+c.dist).toFixed(1)))
-                     :('AZ '+Math.round(state.view.az||0)+'° · EL '+Math.round(state.view.el!=null?state.view.el:35)+'°');
+    const spec=state.view.three==='spec', c=state.view.cam;
+    s.textContent=spec?('FOV '+Math.round(c.fov)+'° · DOLLY '+(+c.back).toFixed(1)):('DIST '+(+c.dist).toFixed(1));
     r.appendChild(s); }
   if(!pan.children.length)return;
   document.body.appendChild(pan);
@@ -6554,8 +6615,8 @@ function openAppMenu(which,btn){ const r=btn.getBoundingClientRect(); const x=r.
   else if(which==='project'){ const as=activeSeq(); const mode=(as&&as.mode)||'dome';
     items=[ {label:T('Sequence settings…','Ajustes de secuencia…'),ico:'gear',fn:()=>openSeqSettings()} ];
     if(mode==='dome') items.push({label:T('Dome coverage (FOV)…','Cobertura del domo (FOV)…'),fn:()=>openSeqSettings()});
-    if(mode==='room') items.push({label:T('Rebuild room geometry…','Rehacer la geometría de la sala…'),
-      fn:()=>roomSetupDialog(cfg=>{ hideLanding(); newRoomProject(cfg); })}); // rehace la sala: newRoomProject ya pide confirmación si hay cambios sin guardar
+    if(mode==='room') items.push({label:T('Room geometry…','Geometría de la sala…'),
+      fn:()=>roomSetupDialog(cfg=>{ hideLanding(); applyRoomGeometry(cfg); })}); // [R165] reconfigura; NO crea un proyecto nuevo (ver applyRoomGeometry)
     items.push('sep',
       {label:T('New sequence…','Nueva secuencia…'),ico:'plus',fn:()=>newSequenceDialog()},
       'sep',
@@ -6719,6 +6780,7 @@ function openPalette(){ closeMenu(); let ov=$('#palOv'); if(ov)ov.remove();
 
 /* ===================== PREFERENCES ===================== */
 function openPrefs(){ closeMenu(); const ov=document.createElement('div'); ov.className='overlay'; ov.id='prefOv';
+  ov.style.zIndex='320'; // [R165] el launcher va a 300 y con fondo opaco: sin esto, la rueda dentada de la pantalla de inicio abría Preferencias DETRÁS. Es el mismo 320 que usan los demás diálogos alcanzables desde el launcher.
   const sw=(id,on,label)=>`<div class="frow" style="justify-content:space-between;"><label style="width:auto;">${label}</label><button class="iosw ${on?'on':''}" data-sw="${id}"><i></i></button></div>`;
   ov.innerHTML=`<div class="modal" style="width:380px;"><div class="mh"><span style="color:var(--ink-2);display:flex;">${ICO('gear',16)}</span><span class="t">${T('Preferences','Preferencias')}</span></div><div class="mb">
     <div class="frow" style="justify-content:space-between;"><label style="width:auto;">${T('Language','Idioma')}</label><div class="kindseg" id="prefLang" style="width:auto;flex:0 0 auto;"><button data-l="en" class="${state.lang==='en'?'on':''}" style="flex:0 0 auto;padding:0 14px;">English</button><button data-l="es" class="${state.lang==='es'?'on':''}" style="flex:0 0 auto;padding:0 14px;">Español</button></div></div>
@@ -6989,7 +7051,7 @@ function applyLang(){ const L=state.lang; document.documentElement.lang=L;
   const ttl=(s,en,es)=>{const e=$(s);if(e)e.title=T(en,es);};
   const ph=(s,en,es)=>{const e=$(s);if(e)e.placeholder=T(en,es);};
   const tn=(s,en,es)=>{const e=$(s);if(!e)return;const last=e.lastChild;if(last&&last.nodeType===3)last.textContent=' '+T(en,es);else e.textContent=T(en,es);};
-  tn('#menubar [data-menu=file]','File','Archivo'); tn('#menubar [data-menu=edit]','Edit','Editar'); tn('#menubar [data-menu=window]','Window','Ventana'); // [R135] app menu bar
+  tn('#menubar [data-menu=file]','File','Archivo'); tn('#menubar [data-menu=edit]','Edit','Editar'); tn('#menubar [data-menu=project]','Project','Proyecto'); tn('#menubar [data-menu=window]','Window','Ventana'); // [R135] app menu bar · [R165] Project entró en R155 y se quedó fuera de la traducción
   tn('#newBtn','New','Nuevo'); ttl('#newBtn','New project · Ctrl+N','Nuevo proyecto · Ctrl+N');
   tn('#openBtn','Open','Abrir'); ttl('#openBtn','Open project · Ctrl+O','Abrir proyecto · Ctrl+O');
   tn('#saveBtn','Save','Guardar'); ttl('#saveBtn','Save · Ctrl+S · right-click for Save As','Guardar · Ctrl+S · clic derecho para Guardar como');
