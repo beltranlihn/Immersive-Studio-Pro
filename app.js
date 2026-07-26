@@ -2687,7 +2687,7 @@ function lanesBetweenY(yA,yB){ const lo=Math.min(yA,yB),hi=Math.max(yA,yB); cons
 function startTimeSelect(e,c){ const rect=$('#tracks').getBoundingClientRect(); const xT=ev=>Math.max(0,(ev.clientX-rect.left)/state.tl.pxPerSec); const y0=e.clientY;
   const snap=v=>{ if(!e.altKey){ const sn=applySnap(v,c?c.id:null); if(sn.snap!=null)return sn.val; } return v; };
   let a=snap(xT(e)); state.tl.selA=a; state.tl.selB=a; state.tl.selLanes=c?[c.lane]:lanesBetweenY(y0,y0); renderTimeSel(); let moved=false; // click drops an insert marker; the playhead (thick line) does NOT move — play() starts from here
-  const mv=ev=>{ let b=Math.max(0,(ev.clientX-rect.left)/state.tl.pxPerSec); if(state.tl.snap&&!ev.altKey){const sn=applySnap(b,c?c.id:null); if(sn.snap!=null)b=sn.val;} state.tl.selB=b; const ln=lanesBetweenY(y0,ev.clientY); state.tl.selLanes=ln.length?ln:(c?[c.lane]:state.tl.selLanes); if(Math.abs(b-a)>0.002)moved=true; renderTimeSel(); };
+  const mv=ev=>{ let b=Math.max(0,(ev.clientX-rect.left)/state.tl.pxPerSec); if(!ev.altKey){const sn=applySnap(b,c?c.id:null); if(sn.snap!=null)b=sn.val;} state.tl.selB=b; const ln=lanesBetweenY(y0,ev.clientY); state.tl.selLanes=ln.length?ln:(c?[c.lane]:state.tl.selLanes); if(Math.abs(b-a)>0.002)moved=true; renderTimeSel(); };
   const up=()=>{ window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up);
     if(!moved){ /* pure click = keep a thin insert marker at the click on this one lane (does NOT move the playhead); deselect clips */ state.tl.selA=state.tl.selB=a; state.tl.selLanes=c?[c.lane]:lanesBetweenY(y0,y0); renderTimeSel(); if(c){ state.selIds=[c.id]; state.selId=c.id; laneDesel(); ensureClipVisible(c); /* [R94-UT2·U-01] */ } else { state.selIds=[]; state.selId=null; } state.selGroupId=null; renderInspector(); $$('.clip').forEach(x=>x.classList.toggle('sel',state.selIds.includes(+x.dataset.clip))); updStatus(); }
     else { const lo=Math.min(state.tl.selA,state.tl.selB),hi=Math.max(state.tl.selA,state.tl.selB); const lanes=state.tl.selLanes||[]; const ids=state.clips.filter(x=>lanes.includes(x.lane)&&x.start<hi-1e-4&&x.start+x.dur>lo+1e-4).map(x=>x.id); state.selIds=ids; state.selId=ids[ids.length-1]||null; state.selGroupId=null; if(ids.length)laneDesel(); renderInspector(); $$('.clip').forEach(x=>x.classList.toggle('sel',state.selIds.includes(+x.dataset.clip))); updStatus(); flashStatus(T('Selection ','Selección ')+fmtTime(lo)+' → '+fmtTime(hi)+' · '+lanes.length+(lanes.length===1?T(' track',' pista'):T(' tracks',' pistas'))); } };
@@ -2712,22 +2712,27 @@ function snapTargets(exceptId){ const t=[state.playhead]; for(const c of state.c
 function gridBaseAdaptive(){ if(state.tl.tcMode==='bars')return gridStep(); const pps=state.tl.pxPerSec; const steps=[1/state.fps,2/state.fps,5/state.fps,0.5,1,2,5,10,15,30,60,120,300,600,1200,1800,3600]; return steps.find(s=>s*pps>=15)||3600; } // R82: larger steps for extreme zoom-out (feature-length clips)
 /* effective grid step (seconds): adaptive or fixed, scaled by narrow/widen (Ctrl+1 / Ctrl+2), clamped */
 function gridSec(){ let base=state.tl.gridFixed?(state.tl.gridFixedBase||1):gridBaseAdaptive(); base*=Math.pow(2,-(state.tl.gridDiv||0)); return Math.max(1/((state.fps||30)*4),Math.min(3600,base)); }
-function snapGrid(){ if(state.tl.tcMode==='bars')return gridStep()*Math.pow(2,-(state.tl.gridDiv||0)); return state.tl.snap?gridSec():0; }
+/* [R158] YA NO ES UN SNAP: es sólo el PASO de la cuadrícula, que varios ayudantes usan para cuantizar (flechas
+   sobre keyframes, tamaño de celda de las operaciones de automatización, rango por defecto). El ajuste a la
+   cuadrícula al arrastrar se eliminó — queda el snap entre objetos, como en Premiere. */
+function gridStepSec(){ return state.tl.tcMode==='bars'?gridStep()*Math.pow(2,-(state.tl.gridDiv||0)):gridSec(); }
 function gridLabel(){ const g=gridSec(),fps=state.fps||30; if(state.tl.tcMode==='frames'||g<1){ const f=Math.max(1,Math.round(g*fps)); return f+' '+(f===1?T('frame','fotograma'):T('frames','fotogramas')); } return (g%1===0?g:g.toFixed(2))+' s'; }
 function flashGrid(){ const el=$('#gridReadout'); if(el)el.textContent=(state.tl.gridFixed?'▦ ':'◇ ')+gridLabel(); flashStatus((state.tl.gridFixed?T('Fixed grid: ','Grilla fija: '):T('Adaptive grid: ','Grilla adaptativa: '))+gridLabel()); }
 function gridNarrow(){ state.tl.gridDiv=Math.min(8,(state.tl.gridDiv||0)+1); renderTimeline(); flashGrid(); }
 function gridWiden(){ state.tl.gridDiv=Math.max(-8,(state.tl.gridDiv||0)-1); renderTimeline(); flashGrid(); }
 function gridToggleFixed(){ if(!state.tl.gridFixed){ state.tl.gridFixedBase=gridBaseAdaptive(); state.tl.gridDiv=0; } state.tl.gridFixed=!state.tl.gridFixed; renderTimeline(); flashGrid(); }
-function toggleSnap(){ state.tl.snap=!state.tl.snap; const b=$('#snapBtn'); if(b)b.classList.toggle('on',state.tl.snap); flashStatus((state.tl.snap?T('Snap to Grid on','Ajuste a la cuadrícula activado'):T('Snap to Grid off','Ajuste a la cuadrícula desactivado'))); }
+/* [R158] el conmutador de Snap to Grid se eliminó junto con la función. */
 /* [R94c] Simple clip view (Premiere): drag/select the clip from anywhere on it; the timeline range selection then
    works only OUTSIDE clips (over a clip the gesture grabs the block instead). Off = Ableton model (title band grabs,
    body drags a range). View-only state — persisted with the project, no undo entry. */
 /* [R155] Sólo queda el agarre estilo Premiere (arrastrar el clip desde cualquier punto). La clase se fija una
    vez y para siempre, en vez de borrarla de todas las reglas de CSS que dependen de ella. */
 function syncSimpleUI(){ document.body.classList.add('simpleclips'); applyToolCursor(); }
-function applySnap(val,exceptId){ const px=9/state.tl.pxPerSec; // clip-edge/playhead/marker snapping is ALWAYS on (R80b) — the Snap button gates only the GRID (Alt bypasses everything at the call sites)
+/* [R158] SÓLO snap entre OBJETOS — bordes de clip, playhead y marcadores — como en Premiere. El ajuste a la
+   cuadrícula (y su botón, su atajo y su preferencia) se eliminó: era un segundo imán compitiendo con éste y no
+   aportaba nada que el usuario pidiera. Alt lo saltea todo en los sitios que lo llaman. */
+function applySnap(val,exceptId){ const px=9/state.tl.pxPerSec;
   let best=null,bd=px; for(const tg of snapTargets(exceptId)){const d=Math.abs(tg-val);if(d<bd){bd=d;best=tg;}}
-  const st=snapGrid(); if(st>0){ const g=Math.round(val/st)*st; const d=Math.abs(g-val); if(d<bd){bd=d;best=g;} }
   return best!=null?{val:best,snap:best}:{val,snap:null}; }
 function showSnap(t,free){ const sl=$('#snapline'); if(t==null){sl.style.display='none';return;} sl.style.display='block'; sl.style.left=(t*state.tl.pxPerSec)+'px'; sl.classList.toggle('free',!!free); }
 /* ===================== [R97] CONTEXTUAL TRIM (T) — Resolve's model =====================
@@ -3778,7 +3783,7 @@ function nudgeAutoSel(e){ const a=state.autoSel; const c=a&&clipById(a.cid); con
   const live=[...a.set].filter(k=>ks.includes(k)); if(!live.length){ state.autoSel=null; renderTimeline(); return; }
   const d=paramDef(c,a.p); if(!d)return; const mn=d[3],mx=d[4];
   if(!e.repeat)pushUndo();
-  if(e.key==='ArrowLeft'||e.key==='ArrowRight'){ const st=e.shiftKey?(1/(state.fps||30)):(snapGrid()||gridSec()||(1/(state.fps||30))); const dt=(e.key==='ArrowLeft'?-st:st); for(const k of live)k.t=Math.max(0,Math.min(c.dur,k.t+dt)); ks.sort((x,y)=>x.t-y.t); }
+  if(e.key==='ArrowLeft'||e.key==='ArrowRight'){ const st=e.shiftKey?(1/(state.fps||30)):(gridStepSec()||gridSec()||(1/(state.fps||30))); const dt=(e.key==='ArrowLeft'?-st:st); for(const k of live)k.t=Math.max(0,Math.min(c.dur,k.t+dt)); ks.sort((x,y)=>x.t-y.t); }
   else { const st=(mx-mn)*(e.shiftKey?0.001:0.01); const dv=(e.key==='ArrowDown'?-st:st); for(const k of live)k.v=Math.max(mn,Math.min(mx,k.v+dv)); }
   scheduleTimeline(); refreshInspector(); render(); markDirty(); }
 /* ===================== [R95·B1] SHAPE BOX — Fusion's free-transform box over a breakpoint selection =====================
@@ -4170,7 +4175,7 @@ function bindAutoCurve(cv){
     // [R92-T4] DRAW MODE (D): drag paints the curve — grid-quantized steps (hold), Alt = freehand (linear)
     if(state.tl.draw&&r&&C){ undo(); const paint=ev=>{ const rr=inv(ev); if(!rr||!rr.c)return; const cc=rr.c; const kp=RK(cc); if(!kp)return; cc.kf=cc.kf||{}; const ks=cc.kf[kp]=cc.kf[kp]||[];
         if(ev.altKey){ const tol=0.5/(state.fps||30); const i=ks.findIndex(kq=>Math.abs(kq.t-rr.t)<tol); if(i>=0){ks[i].v=rr.v;ks[i].e='linear';delete ks[i].hOut;delete ks[i].hIn;} else ks.push({t:rr.t,v:rr.v,e:'linear'}); }
-        else { const g=Math.max(0.01,snapGrid()||gridSec()||0.25); const cellA=Math.max(0,Math.floor(rr.absT/g)*g-cc.start); const cellB=Math.min(cc.dur,cellA+g);
+        else { const g=Math.max(0.01,gridStepSec()||gridSec()||0.25); const cellA=Math.max(0,Math.floor(rr.absT/g)*g-cc.start); const cellB=Math.min(cc.dur,cellA+g);
           for(let i=ks.length-1;i>=0;i--)if(ks[i].t>cellA+1e-6&&ks[i].t<cellB-1e-6)ks.splice(i,1);
           const i=ks.findIndex(kq=>Math.abs(kq.t-cellA)<1e-4); if(i>=0){ks[i].v=rr.v;ks[i].e='hold';delete ks[i].hOut;delete ks[i].hIn;} else ks.push({t:cellA,v:rr.v,e:'hold'}); }
         ks.sort((a,b)=>a.t-b.t); commit(); };
@@ -4205,7 +4210,7 @@ function bindAutoCurve(cv){
     if(k){ const downX=e.clientX,downY=e.clientY,downT=r.t,downV=r.v,kt0=k.t; let moved=false; const sel=selSetFor(C); const grp=(sel&&sel.has(k))?[...sel]:[k]; const base=grp.map(g=>({g,t:g.t,v:g.v}));
       cv._hoverKf=k; setTip(k,C); ghostOn(C,P); // [R95·B3]
       const move=ev=>{ if(!moved&&Math.hypot(ev.clientX-downX,ev.clientY-downY)<3)return; if(!moved){undo();moved=true;} const rr=inv(ev); if(!rr)return; let dt=(rr.absT-C.start)-downT, dv=rr.v-downV; if(ev.shiftKey){dt*=0.25;dv*=0.25;}
-        if(state.tl.snap&&!ev.altKey&&!ev.ctrlKey&&!ev.metaKey){ const g=snapGrid(); if(g>0){ const tt=kt0+dt,sn=Math.round(tt/g)*g; if(Math.abs((sn-tt)*m.pps)<7)dt=sn-kt0; } } // snap vs the DRAG-ORIGIN time (the live k.t moves every frame → snapping against it double-counted the delta and never landed on the grid)
+        // [R158] sin ajuste a la cuadrícula al arrastrar keyframes (the live k.t moves every frame → snapping against it double-counted the delta and never landed on the grid)
         for(const b of base){ b.g.t=Math.max(0,Math.min(C.dur,b.t+dt)); b.g.v=Math.max(m.mn,Math.min(m.mx,b.v+dv)); }
         C.kf[P].sort((a,b2)=>a.t-b2.t); cv._hoverKf=k; setTip(k,C); commit(); };
       const up=()=>{ window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up); cv._tip=null; cv._ghostK=null; // [R95·B3]
@@ -4291,7 +4296,7 @@ function bindAutoCurve(cv){
     if(C.kf&&C.kf[P]&&C.kf[P].length>3) items.push({label:T('Simplify curve','Simplificar curva'),fn:()=>simplifyAuto(C,P)});
     // [R92-T4] Insert shape (Ableton Live 12): scaled to the time-selection when it overlaps this clip, else to one grid step at the click
     { const sA=state.tl.selA,sB=state.tl.selB; const hasSel=(sA!=null&&sB!=null&&Math.abs(sB-sA)>1e-3);
-      const rng=()=>{ if(hasSel){ const a=Math.max(0,Math.min(sA,sB)-C.start), b=Math.min(C.dur,Math.max(sA,sB)-C.start); if(b>a+1e-3)return [a,b]; } const g=Math.max(0.05,snapGrid()||gridSec()||1); const a=Math.max(0,Math.min(C.dur-0.05,r.t)); return [a,Math.min(C.dur,a+g)]; };
+      const rng=()=>{ if(hasSel){ const a=Math.max(0,Math.min(sA,sB)-C.start), b=Math.min(C.dur,Math.max(sA,sB)-C.start); if(b>a+1e-3)return [a,b]; } const g=Math.max(0.05,gridStepSec()||gridSec()||1); const a=Math.max(0,Math.min(C.dur-0.05,r.t)); return [a,Math.min(C.dur,a+g)]; };
       const SH=(lbl,pts)=>({label:lbl,fn:()=>{ pushUndo(); const [a,b]=rng(); const span=b-a; C.kf=C.kf||{}; const ks=C.kf[P]=(C.kf[P]||[]).filter(x=>x.t<a-1e-6||x.t>b+1e-6);
         for(const q of pts)ks.push({t:a+q[0]*span,v:m.mn+q[1]*(m.mx-m.mn),e:q[2]||'linear'}); ks.sort((x,y)=>x.t-y.t); state.autoSel=null; commit(); }});
       const sine=[]; for(let i=0;i<=16;i++)sine.push([i/16,0.5-0.5*Math.cos(2*Math.PI*i/16)]);
@@ -5370,7 +5375,6 @@ function updModeUI(){ const fl=isFlat(), room=isRoom(); // a 360 room has a real
     const last=b2.lastChild; if(last&&last.nodeType===3)last.textContent=' 2D';
     b2.title=fl?T('2D master','Máster 2D'):T('Dome master (2D)','Máster de domo (2D)'); }
   const bh=document.querySelector('#dispSeg button[data-d="hfade"]'); if(bh)bh.style.display=fl?'none':''; // horizon fade is dome-only
-  const azr=document.getElementById('azelReadout'); if(azr)azr.style.display=(fl||state.view.mode==='3d')?'none':'inline-flex';
   if(fl && !room && state.view.mode==='3d'){ state.view.mode='2d'; document.querySelectorAll('#viewModeSeg button').forEach(x=>x.classList.toggle('on',x.dataset&&x.dataset.v==='2d')); } }
 function openSeq(id){ const m=mediaById(id); if(!isSeqMedia(m))return; if(!state.openSeqs)state.openSeqs=[]; if(!state.openSeqs.includes(id))state.openSeqs.push(id); switchSeq(id); }
 function switchSeq(id){ const m=mediaById(id); if(!isSeqMedia(m))return; if(id===state.activeSeqId){ if(!state.openSeqs.includes(id))state.openSeqs.push(id); renderSeqBar(); return; }
@@ -5820,7 +5824,7 @@ function loadProject(obj){ try{ showLoadingScreen(T('Loading project…','Cargan
   state.reactive=obj.reactive||null; _arCache=null; _fxEnvCache.clear(); // Reactive FX config (source clip + sensitivity) — bands re-analyzed lazily when the panel opens
   if(obj.tl){ if(obj.tl.bpm)state.tl.bpm=obj.tl.bpm; if(obj.tl.sig)state.tl.sig=obj.tl.sig; if(obj.tl.tcMode)state.tl.tcMode=obj.tl.tcMode; if(obj.tl.pxPerSec)state.tl.pxPerSec=obj.tl.pxPerSec;
     state.tl.audioCollapsed=!!obj.tl.audioCollapsed; state.tl._audioScroll=0; // [R110] the audio module reopens collapsed if it was saved collapsed
-    state.tl.snap=!!obj.tl.snap; { const sb=$('#snapBtn'); if(sb)sb.classList.toggle('on',state.tl.snap); } // [R94c] snap to grid + simple-clip view reopen as saved (both default off)
+    // [R158] `tl.snap` de un .isp viejo se ignora: el ajuste a la cuadrícula ya no existe // (both default off)
     syncSimpleUI(); // [R155] el modo de agarre ya no es una preferencia: un `tl.simpleClips` guardado se ignora
     state.inlineCurves=!!obj.tl.inlineCurves; const cb=$('#curvesBtn'); if(cb)cb.classList.toggle('on',state.inlineCurves); syncAutoUI(); } // [R92-T4] the automation view (and each track's lane layout, in lanes[]._auto) reopens as saved · [R94-UT2·U-05/U-09] legend + grab-band state restored too
   state.seqW=obj.seqW||4096; state.seqH=obj.seqH||4096;
@@ -6139,7 +6143,6 @@ function _updViewCtl(){ const is3=state.view.mode==='3d',spec=state.view.three==
   show('#outSep',F.out); show('#outWell',F.out);
   { const mb=$('#vpMoreBtn'); if(mb)mb.style.display=(F.disp&&F.qp&&F.out&&F.readout)?'none':'grid'; }
   // modo (× ancho para las lecturas): Az/El sólo en 2D, DIST sólo en 3D Orbit, FOV+DOLLY sólo en 3D Viewer
-  { const az=$('#azelReadout'); if(az)az.style.display=(!is3&&F.readout)?'inline-flex':'none'; }
   $('#fovCtl').style.display=(is3&&spec)?'inline-flex':'none'; $('#dollyCtl').style.display=(is3&&spec)?'inline-flex':'none';
   { const ro=$('#roomOutBtn'); if(ro){ ro.style.display=(is3&&isRoom())?'inline-flex':'none'; ro.classList.toggle('on',!!state.view.roomOutTex); } }
   if(is3&&spec){ const fr=$('#fovRange'); if(fr){ fr.value=state.view.cam.fov; faderFill(fr); const fl=$('#fovLbl'); if(fl)fl.textContent=Math.round(state.view.cam.fov)+'°'; } const dr2=$('#dollyRange'); if(dr2){ dr2.value=state.view.cam.back; faderFill(dr2); const dl2=$('#dollyLbl'); if(dl2)dl2.textContent=(+state.view.cam.back).toFixed(1); } } // reflect the live FOV/dolly on the sliders when entering Viewer mode
@@ -6231,7 +6234,6 @@ $('#curvesBtn').onclick=toggleCurves; // [R93] single Automation button — the 
 { const bi=$('#markIn'), bo=$('#markOut');
   if(bi){ bi.onclick=()=>setWorkIn(); bi.addEventListener('contextmenu',e=>{e.preventDefault();clearWork();}); }
   if(bo){ bo.onclick=()=>setWorkOut(); bo.addEventListener('contextmenu',e=>{e.preventDefault();clearWork();}); } }
-$('#snapBtn').onclick=()=>toggleSnap();
 /* [U6] gridReadout button removed — grid spacing stays adjustable via Ctrl+1/2 (narrower/wider), Ctrl+5 (fixed/adaptive), Ctrl+4 (snap) */
 /* loop brace: drag the top strip to move the loop, the ends to resize (snaps to grid) */
 (function wireLoopBrace(){ const w=$('#workArea'); if(!w)return; w.addEventListener('pointerdown',e=>{ if(e.button!==0)return; if(state.workIn==null||state.workOut==null)return; e.stopPropagation(); e.preventDefault();
@@ -6364,7 +6366,6 @@ window.addEventListener('keydown',e=>{ const tag=(e.target.tagName||'').toLowerC
   if(mod&&e.key.toLowerCase()==='l'){e.preventDefault(); loopSelection(); return;} // Ableton: Loop Selection
   if(mod&&e.key==='1'){e.preventDefault(); gridNarrow(); return;}
   if(mod&&e.key==='2'){e.preventDefault(); gridWiden(); return;}
-  if(mod&&e.key==='4'){e.preventDefault(); toggleSnap(); return;}
   if(mod&&e.key==='5'){e.preventDefault(); gridToggleFixed(); return;}
   if(e.code==='Space'){e.preventDefault(); (state.playing||shuttleOn())?pause():play(); return;}
   // [R97] J/K/L shuttle — checked before the single-letter tools below (which ignore modifiers)
@@ -6393,7 +6394,6 @@ window.addEventListener('keydown',e=>{ const tag=(e.target.tagName||'').toLowerC
   if(bare&&(e.key==='c'||e.key==='C'))setTool('razor'); // C = Razor tool; cut lands where you click on the clip (with snap), not at the playhead
   if(e.key==='a'||e.key==='A'){ toggleCurves(); return; } // [R92-T4] A = Automation view (Ableton)
   if(e.key==='d'||e.key==='D'){ state.tl.draw=!state.tl.draw; if(state.tl.draw&&!state.inlineCurves)toggleCurves(); flashStatus(state.tl.draw?T('Draw mode on — drag on a lane to paint (Alt = freehand) · D to exit','Modo dibujo activo — arrastra sobre un carril para pintar (Alt = a mano alzada) · D para salir'):T('Draw mode off','Modo dibujo desactivado')); return; } // [R92-T4] D = Draw (B is the razor here)
-  if(e.key==='s'||e.key==='S'){ toggleSnap(); return; } // [R92-T5] S = Snapping — the tooltips/palette always said so; the binding didn't exist
   if(e.key==='+'||e.key==='='){ state.tl.pxPerSec=Math.min(TL_PPS_MAX,state.tl.pxPerSec*1.25); renderTimeline(); return; } // [R92-T5] +/− timeline zoom (the palette promised them)
   if(e.key==='-'||e.key==='_'){ state.tl.pxPerSec=Math.max(TL_PPS_MIN,state.tl.pxPerSec*0.8); renderTimeline(); return; }
   if(e.key==='0'&&!mod){ toggleDisable(); return; } // Ableton: 0 disables/enables the selected clips or the time-selection slice
@@ -6630,7 +6630,7 @@ function commandList(){ const c1=T('Transport','Reproducción'),c2=T('File','Arc
   [c5,T('Split at selection / playhead','Dividir en la selección / cabezal'),'⌘E',splitAtSelection],
   [c5,T('Set clip start (seconds)…','Inicio del clip (segundos)…'),'',()=>{const c=selClip();if(!c){flashStatus(T('Select a clip','Selecciona un clip'));return;}appPrompt(T('Start time (seconds):','Inicio (segundos):'),(+c.start).toFixed(2),v=>{if(v!=null&&v!==''&&!isNaN(+v)){pushUndo();c.start=Math.max(0,+v);renderTimeline();render();flashStatus(T('Clip moved','Clip movido'));}});}],
   [c5,T('Nudge clip ±1 frame / ±1 s','Desplazar clip ±1 frame / ±1 s'),'Alt+←/→',()=>flashStatus(T('Alt+Arrow nudges the selected clip (add Shift for 1 s)','Alt+Flecha desplaza el clip seleccionado (Shift = 1 s)'))],
-  [c5,T('Toggle Snap to Grid','Activar/desactivar ajuste a la cuadrícula'),'S',()=>$('#snapBtn').click()],[c5,T('Zoom in','Acercar'),'+',()=>$('#tlZoomIn').click()],[c5,T('Zoom out','Alejar'),'−',()=>$('#tlZoomOut').click()],
+  [c5,T('Zoom in','Acercar'),'+',()=>$('#tlZoomIn').click()],[c5,T('Zoom out','Alejar'),'−',()=>$('#tlZoomOut').click()],
   [c6,T('Add locator','Añadir localizador'),'M',addMarker],[c6,T('Next','Siguiente'),'.',()=>jumpMarker(1)],[c6,T('Previous','Anterior'),',',()=>jumpMarker(-1)],
   [c1,T('Shuttle back (J · press again = 2×/4×/8×)','Retroceder (J · repetir = 2×/4×/8×)'),'J',()=>shuttleKey(-1)],
   [c1,T('Shuttle forward (L · press again = 2×/4×/8×)','Avanzar (L · repetir = 2×/4×/8×)'),'L',()=>shuttleKey(1)],
@@ -6663,14 +6663,14 @@ function openPrefs(){ closeMenu(); const ov=document.createElement('div'); ov.cl
   const sw=(id,on,label)=>`<div class="frow" style="justify-content:space-between;"><label style="width:auto;">${label}</label><button class="iosw ${on?'on':''}" data-sw="${id}"><i></i></button></div>`;
   ov.innerHTML=`<div class="modal" style="width:380px;"><div class="mh"><span style="color:var(--ink-2);display:flex;">${ICO('gear',16)}</span><span class="t">${T('Preferences','Preferencias')}</span></div><div class="mb">
     <div class="frow" style="justify-content:space-between;"><label style="width:auto;">${T('Language','Idioma')}</label><div class="kindseg" id="prefLang" style="width:auto;flex:0 0 auto;"><button data-l="en" class="${state.lang==='en'?'on':''}" style="flex:0 0 auto;padding:0 14px;">English</button><button data-l="es" class="${state.lang==='es'?'on':''}" style="flex:0 0 auto;padding:0 14px;">Español</button></div></div>
-    ${sw('reducedMotion',state.prefs.reducedMotion,T('Reduced motion','Movimiento reducido'))}${sw('snapping',state.tl.snap,T('Snap to Grid','Ajustar a la cuadrícula'))}${sw('grid',state.view.showGrid,T('Reference grid','Cuadrícula de referencia'))}${sw('safe',state.view.showSafe,T('Safe-zone overlay','Superposición de zona segura'))}
+    ${sw('reducedMotion',state.prefs.reducedMotion,T('Reduced motion','Movimiento reducido'))}${sw('grid',state.view.showGrid,T('Reference grid','Cuadrícula de referencia'))}${sw('safe',state.view.showSafe,T('Safe-zone overlay','Superposición de zona segura'))}
     <div class="frow" style="justify-content:space-between;margin-top:6px;"><label style="width:auto;">${T('Project FPS','FPS del proyecto')}</label><select id="prefFps" style="flex:0 0 90px;"><option>24</option><option>25</option><option>30</option><option>48</option><option>50</option><option selected>60</option></select></div>
     <div style="display:flex;justify-content:flex-end;margin-top:10px;"><button class="mbtn pri" id="prefClose">${T('Close','Cerrar')}</button></div></div></div>`;
   document.body.appendChild(ov); $('#prefFps').value=state.fps;
   $('#prefLang').querySelectorAll('button').forEach(b=>b.onclick=()=>{ if(b.dataset.l!==state.lang){ setLang(b.dataset.l); ov.remove(); openPrefs(); } });
   ov.querySelectorAll('[data-sw]').forEach(b=>b.onclick=()=>{ const k=b.dataset.sw; b.classList.toggle('on');
     if(k==='reducedMotion'){state.prefs.reducedMotion=b.classList.contains('on');document.body.classList.toggle('rm-on',state.prefs.reducedMotion);try{localStorage.setItem('domeProRM',state.prefs.reducedMotion?'1':'0');}catch(e){}}
-    if(k==='snapping'){state.tl.snap=b.classList.contains('on');$('#snapBtn').classList.toggle('on',state.tl.snap);}
+    
     if(k==='grid'){state.view.showGrid=b.classList.contains('on');$('#dispSeg button[data-d=grid]').classList.toggle('on',state.view.showGrid);render();}
     if(k==='safe'){state.view.showSafe=b.classList.contains('on');$('#dispSeg button[data-d=safe]').classList.toggle('on',state.view.showSafe);render();} });
   $('#prefFps').onchange=e=>{state.fps=+e.target.value; const as=activeSeq(); if(as)as.fps=state.fps; markDirty(); updFmtChip(); positionPlayhead();renderTimeline();}; // [U-11] persist to the active sequence + dirty flag — no more silent revert on seq switch
@@ -6969,7 +6969,6 @@ function applyLang(){ const L=state.lang; document.documentElement.lang=L;
   ttl('#bpmBox','Tempo — drag to change','Tempo — arrastra para cambiar');
   txt('#tcModeSeg button[data-t="frames"]','Frames','Fotogramas'); txt('#tcModeSeg button[data-t="bars"]','Bars','Compases');
   ttl('#markIn','Mark In · I (right-click clears the range)','Marcar entrada · I (clic derecho borra el rango)'); ttl('#markOut','Mark Out · O (right-click clears the range)','Marcar salida · O (clic derecho borra el rango)'); // [R94e]
-  ttl('#snapBtn','Snap to Grid · S','Ajustar a la cuadrícula · S'); // [U1] icon-only
   ttl('#curvesBtn','Show/hide automation (clip parameters + reactive FX) · A','Mostrar/ocultar automatización (parámetros del clip + FX reactivos) · A'); // [U1] icon-only
   ttl('#tlZoomOut','Zoom out timeline','Alejar línea de tiempo'); ttl('#tlZoomIn','Zoom in timeline','Acercar línea de tiempo');
   ttl('#toolRail button[data-t="select"]','Select (V)','Seleccionar (V)'); ttl('#toolRail button[data-t="hand"]','Hand / Pan (H)','Mano / Desplazar (H)'); ttl('#toolRail button[data-t="razor"]','Razor (B / C)','Cuchilla (B / C)'); ttl('#toolRail button[data-t="zoom"]','Zoom (Z)','Zoom (Z)');

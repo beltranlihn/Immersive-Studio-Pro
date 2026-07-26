@@ -1,0 +1,186 @@
+{
+  "pasos": [
+    {
+      "paso": "crear proyecto domo",
+      "ok": true,
+      "detalle": {
+        "mode": "dome",
+        "w": 4096,
+        "cov": 180
+      }
+    },
+    {
+      "paso": "escena demo (formas + clips)",
+      "ok": true,
+      "detalle": {
+        "clips": 4,
+        "media": 5,
+        "lanes": 5
+      }
+    },
+    {
+      "paso": "render del composite",
+      "ok": true,
+      "detalle": {
+        "glPerdido": false
+      }
+    },
+    {
+      "paso": "mover un clip (snap entre objetos)",
+      "ok": true,
+      "detalle": {
+        "antes": 0,
+        "pedido": 8.02,
+        "snapA": 8
+      }
+    },
+    {
+      "paso": "recortar (trim) un clip",
+      "ok": true,
+      "detalle": {
+        "antes": 8,
+        "ahora": 7.5
+      }
+    },
+    {
+      "paso": "cortar con razor",
+      "ok": true,
+      "detalle": {
+        "clipsAntes": 4,
+        "clipsDespues": 5
+      }
+    },
+    {
+      "paso": "añadir efecto reactivo",
+      "ok": true,
+      "detalle": {
+        "fx": 1,
+        "tipo": "blur"
+      }
+    },
+    {
+      "paso": "keyframe de automatización",
+      "ok": true,
+      "detalle": {
+        "kfs": 1,
+        "evalMedio": 10
+      }
+    },
+    {
+      "paso": "modo automatización",
+      "ok": true,
+      "detalle": {
+        "automode": true,
+        "curvas": 3,
+        "fadesVisibles": 0
+      }
+    },
+    {
+      "paso": "salir de automatización",
+      "ok": true,
+      "detalle": {
+        "automode": false
+      }
+    },
+    {
+      "paso": "composición (Compose)",
+      "ok": true,
+      "detalle": {
+        "creada": false,
+        "media": 5
+      }
+    },
+    {
+      "paso": "anidar selección (nest)",
+      "ok": true,
+      "detalle": {
+        "mediaAntes": 5,
+        "mediaDespues": 6,
+        "nests": 2
+      }
+    },
+    {
+      "paso": "capa de ajuste",
+      "ok": false,
+      "detalle": "ReferenceError: makeAdjustMedia is not defined\n    at <anonymous>:1:21\n    at <anonymous>:1:125"
+    },
+    {
+      "paso": "nueva secuencia + cambiar",
+      "ok": true,
+      "detalle": {
+        "seqs": 2,
+        "modo": "flat",
+        "flat": true
+      }
+    },
+    {
+      "paso": "volver a la secuencia domo",
+      "ok": true,
+      "detalle": {
+        "modo": "dome"
+      }
+    },
+    {
+      "paso": "cambiar a 3D y a Viewer",
+      "ok": true,
+      "detalle": {
+        "modo": "3d",
+        "three": "spec",
+        "fovVisible": true
+      }
+    },
+    {
+      "paso": "volver a 2D",
+      "ok": true,
+      "detalle": {
+        "modo": "2d"
+      }
+    },
+    {
+      "paso": "serializar y recargar el proyecto",
+      "ok": true,
+      "detalle": {
+        "clipsAntes": 4,
+        "clipsDespues": 4,
+        "media": 7
+      }
+    },
+    {
+      "paso": "render de un frame de export",
+      "ok": true,
+      "detalle": {
+        "fn": "function",
+        "exportDialog": "function"
+      }
+    },
+    {
+      "paso": "undo / redo",
+      "ok": true,
+      "detalle": {
+        "antes": 4,
+        "trasBorrar": 3,
+        "trasUndo": 4,
+        "recuperado": true
+      }
+    },
+    {
+      "paso": "grado de color por clip",
+      "ok": true,
+      "detalle": {
+        "filasColor": 10,
+        "ruedas": 3
+      }
+    },
+    {
+      "paso": "paneles y menús",
+      "ok": true,
+      "detalle": {
+        "file": 7,
+        "edit": 9,
+        "project": 4,
+        "window": 6
+      }
+    }
+  ],
+  "errores": "ninguno"
+}
