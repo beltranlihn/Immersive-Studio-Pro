@@ -2000,7 +2000,7 @@ function renderTimeline(){ reconcileVinst(); // free private decoders of clips t
       <button class="lcol" data-m="collapse" title="${collapsed?T('Expand track','Expandir pista'):T('Collapse track','Contraer pista')}"><span style="display:inline-flex;transform:rotate(${collapsed?-90:0}deg);">${ICO('chevDown',11)}</span></button>
       <span class="tag"${lane.color?' style="color:'+lane.color+'"':''}>${lane.tag}</span><span class="nm"${lane.color?' style="color:'+lane.color+'"':''}>${lane.name}</span>
       <button class="ms ${lane.mute?'on':''}" data-m="mute">M</button><button class="ms solo ${lane.solo?'on':''}" data-m="solo">S</button>
-      <div class="laneres" data-m="resize" title="${T('Drag to resize track','Arrastra para redimensionar la pista')}"></div>`;
+      `;
     hd.onclick=ev=>{ if(_laneJustDragged||ev.target.isContentEditable||ev.target.closest('[data-m]'))return; clearMediaSel(); state.selLane=li;
       state.selId=null; state.selIds=[]; state.selGroupId=null; renderInspector(); updStatus(); renderTimeline(); }; // [R93] selecting a TRACK deselects the clip (they were simultaneous → Ctrl+D was ambiguous)
     hd.tabIndex=0; hd.setAttribute('aria-label',lane.name); // [R94-UT5·U-10b] Tab reaches the track header; Enter/Space = same selection as a click
@@ -2010,9 +2010,6 @@ function renderTimeline(){ reconcileVinst(); // free private decoders of clips t
     hd.querySelector('[data-m=mute]').onclick=()=>{pushUndo();lane.mute=!lane.mute;renderTimeline();render();reschedAudio();};
     hd.querySelector('[data-m=solo]').onclick=()=>{pushUndo();lane.solo=!lane.solo;renderTimeline();render();reschedAudio();};
     hd.querySelector('[data-m=collapse]').onclick=ev=>{ev.stopPropagation();pushUndo();lane.collapsed=!lane.collapsed;renderTimeline();};
-    { const rz=hd.querySelector('[data-m=resize]'); rz.addEventListener('pointerdown',ev=>{ ev.preventDefault(); ev.stopPropagation(); pushUndo(); if(lane.collapsed)lane.collapsed=false; const h0=laneH(li),y0=ev.clientY; /* [REDISEÑO Rev1] audio también redimensionable (antes: solo vídeo) */
-      const mv=e2=>{ lane.h=Math.max(LANE_MIN_H,Math.min(LANE_MAX_H,h0+(e2.clientY-y0))); scheduleTimeline(); };
-      const up=()=>{ window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up); renderTimeline(); }; window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); }); } // [R110] audio tracks are fixed-height → no per-lane resize
     hd.oncontextmenu=ev=>{ev.preventDefault();openMenu(ev.clientX,ev.clientY,[{label:T('Rename track','Cambiar nombre de pista'),key:'⌘R',fn:()=>renameLane(li)},{label:T('Set track color…','Elegir color de pista…'),fn:()=>openLaneColorPopup(li,ev.clientX,ev.clientY)},...trackCreateItems(lane.kind),{label:T('Duplicate track','Duplicar pista'),fn:()=>duplicateLane(li)},'sep',{label:T('Delete track','Eliminar pista'),danger:true,fn:()=>removeLane(li)}]);};
     // [R93] Ableton: automation mode puts the device+parameter choosers INSIDE the track header rectangle (primary overlay param)
     if(state.inlineCurves&&!_isAud&&!collapsed&&LH>=52){ const P=laneAutoP(lane,li);
@@ -2020,7 +2017,7 @@ function renderTimeline(){ reconcileVinst(); // free private decoders of clips t
       ac.style.setProperty('--pc',autoColor(P)); // [R95·E1] side bar in the parameter's hue
       const _sc=selClip(); const _foc=!!(_sc&&_sc.lane===li);
       const _pick=np=>{ lane._autoP=np; renderTimeline(); markDirty(); };
-      ac.appendChild(_foc?autoDuo(li,P,_pick):autoDuoText(li,P,_pick)); // [A5] ONE automation at a time — the chooser swaps which param's curve overlays the clips; no more stacked sub-lanes / '+' add-lane button
+      ac.appendChild(autoDuoText(li,P,_pick)); // [R156] SIEMPRE los dos chips (el diseño no tiene variante "enfocada" con selects) · [A5] una automatización a la vez
       hd.appendChild(ac); }
     hdrT.appendChild(hd);
     // [R143] appendAutoLanes (sub-carriles apilados) archivado — el modelo vigente es la sola superposición por pista (attachClipAuto)
@@ -3714,7 +3711,21 @@ function autoDuoText(li,cur,onPick){ const wrap=document.createElement('div'); w
   const dev=isT?T(FXBY[q[1]].label[0],FXBY[q[1]].label[1]):(XFORM_P.some(d=>d[0]===cur)?T('Transform','Transformar'):T('Effects','Efectos'));
   const par=isT?fxParamLabel(q[1],q[2]):propLabel(cur);
   wrap.innerHTML=`<span class="achip acat"><span class="alab">${dev}</span>${ICO('chevDown',8)}</span><span class="achip apac"><span class="asw2" style="background:${autoColor(cur)}"></span><span class="alab">${par}</span>${ICO('chevDown',8)}</span>`; // [REDISEÑO Rev1] 2 chips (Effect-type + Parameter con swatch)
-  wrap.addEventListener('pointerdown',e=>{ e.stopPropagation(); const live=autoDuo(li,cur,onPick); wrap.replaceWith(live); const s=live.querySelector('.apar'); if(s){try{s.focus();}catch(_){}} });
+  /* [R156] Cada chip abre un MENÚ, no se transforma en dos <select> inline.
+     Antes, la pista con el clip seleccionado cambiaba a la versión con selects (`autoDuo`), que es más alta: a 57px
+     de pista —la altura del diseño— empujaba la fila de identidad fuera de la cabecera y esa pista se veía rota.
+     El prototipo tiene UNA sola representación (dos chips) y despliega un menú al pulsarlos. */
+  const devKey=isT?q[1]:(XFORM_P.some(d=>d[0]===cur)?'xf':'ef');
+  const paramsOf=dv=>{ if(dv==='xf'||dv==='ef') return (dv==='xf'?XFORM_P:FX).map(d=>[d[0],propLabel(d[0]),d[0]]);
+    const def=FXBY[dv]||{}; return [['int',T('Intensity','Intensidad')],['amt',T('Reactivity','Reactividad')]]
+      .concat((def.params||[]).map(p=>[p.k,T(p.label[0],p.label[1])])).map(pp=>[pp[0],pp[1],'fxt:'+dv+':'+pp[0]]); };
+  const menu=(el,items)=>{ const r=el.getBoundingClientRect(); openMenu(r.left,r.bottom+4,items); };
+  wrap.querySelector('.acat').addEventListener('pointerdown',e=>{ e.stopPropagation();
+    const items=[{label:T('Transform','Transformar'),fn:()=>onPick(XFORM_P[0][0])},{label:T('Effects','Efectos'),fn:()=>onPick('opacity')}]
+      .concat(laneFxTypes(li).map(ty=>({label:T(FXBY[ty].label[0],FXBY[ty].label[1]),fn:()=>onPick('fxt:'+ty+':int')})));
+    menu(e.currentTarget,items); });
+  wrap.querySelector('.apac').addEventListener('pointerdown',e=>{ e.stopPropagation();
+    menu(e.currentTarget, paramsOf(devKey).map(([k,lab,key])=>({label:(laneHasKf(li,key)?'◆  ':'')+lab,fn:()=>onPick(key)}))); });
   return wrap; }
 function fxParamLabel(ty,k){ const def=FXBY[ty]; if(!def)return k; if(k==='int')return T('Intensity','Intensidad'); if(k==='amt')return T('Reactivity','Reactividad'); const pd=(def.params||[]).find(x=>x.k===k); return pd?T(pd.label[0],pd.label[1]):k; }
 function autoDuo(li,cur,onPick){ const types=laneFxTypes(li); const isT=isFxtKey(cur); const cq=isT?cur.split(':'):null;
@@ -6250,6 +6261,8 @@ function startVBarDrag(e){ if(e.button!==0||e.target.classList.contains('tlvzcap
   const mv=ev=>{ sc.scrollTop=Math.max(0,Math.min(maxST, st0+((ev.clientY-y0)/travel)*maxST)); }; // el handler de scroll repinta cabeceras + la barra
   const up=()=>{ th.classList.remove('drag'); window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up); };
   window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); }
+/* [R156] SIN USO desde que Alt+rueda es la única forma de cambiar la altura de las pistas (pedido de Beltrán).
+   Se deja la función porque el gesto está resuelto y devolver los casquetes es re-añadir dos <span> al markup. */
 function startVCapDrag(e,side){ e.preventDefault(); e.stopPropagation(); // casquete = zoom vertical, anclando el borde opuesto
   const sc=$('#tlscroll'); const h=Math.max(1,sc.getBoundingClientRect().height); pushUndo();
   const base=state.lanes.map(l=>l.h||(l.kind==='audio'?AUDIO_LANE_H:LANE_DEF_H)); const st0=sc.scrollTop; const y0=e.clientY;
@@ -6289,10 +6302,17 @@ function setTool(t){ state.tl.tool=t; $('#toolRail').querySelectorAll('button').
 function gutter(el,pane,which){ el.addEventListener('pointerdown',e=>{ const w0=pane.offsetWidth,x0=e.clientX; const mv=ev=>{let w=which==='L'?w0+(ev.clientX-x0):w0-(ev.clientX-x0);w=Math.max(180,Math.min(560,w));pane.style.width=w+'px';resize();}; const up=()=>{window.removeEventListener('pointermove',mv);window.removeEventListener('pointerup',up);saveWorkspace();};window.addEventListener('pointermove',mv);window.addEventListener('pointerup',up); }); }
 gutter($('#gutterL'),$('#mediaPane'),'L'); gutter($('#gutterR'),$('#inspPane'),'R');
 /* horizontal resize: drag the top edge of the timeline / curve panels */
+// [R156] `maxH` puede ser un NÚMERO o una FUNCIÓN: el tope de la timeline depende de cuántas pistas haya, así que
+// se evalúa en cada movimiento en vez de congelarse al registrar el handler.
 function hResize(handle,target,minH,maxH,after){ const hEl=$(handle); if(!hEl)return; hEl.addEventListener('pointerdown',e=>{ e.preventDefault(); const t=$(target); const h0=t.offsetHeight,y0=e.clientY;
-  const mv=ev=>{ let h=Math.max(minH,Math.min(maxH,h0-(ev.clientY-y0))); t.style.height=h+'px'; if(after)after(); };
+  const mv=ev=>{ const mx=(typeof maxH==='function')?maxH():maxH; let h=Math.max(minH,Math.min(mx,h0-(ev.clientY-y0))); t.style.height=h+'px'; if(after)after(); };
   const up=()=>{window.removeEventListener('pointermove',mv);window.removeEventListener('pointerup',up);}; window.addEventListener('pointermove',mv);window.addEventListener('pointerup',up); }); }
-hResize('#tlResize','.timeline',170,Math.round(innerHeight*0.78),()=>{resize();renderTimeline();});
+/* [R156] La timeline no crece más allá de lo que ocupan sus pistas: estirarla dejaba un vacío debajo de la última
+   y no aportaba nada. El tope es regla + suma de alturas + barra de zoom, y se recalcula en cada arrastre porque
+   cambia al añadir/quitar/colapsar pistas o al escalarlas con Alt+rueda. Se deja un mínimo por si no hay ninguna. */
+function tlMaxH(){ const tracks=state.lanes.reduce((s,l,i)=>s+laneH(i),0);
+  return Math.max(170, Math.min(Math.round(innerHeight*0.78), RULER_H+tracks+15+2)); } // 15 = barra de zoom horizontal
+hResize('#tlResize','.timeline',170,tlMaxH,()=>{resize();renderTimeline();});
 function saveWorkspace(){ try{ const prev=JSON.parse(localStorage.getItem('domeProWs')||'{}'); const mc=state.prefs.mediaCollapsed, ic=state.prefs.inspCollapsed;
   localStorage.setItem('domeProWs', JSON.stringify({ mediaW: mc?(prev.mediaW||292):$('#mediaPane').offsetWidth, inspW: ic?(prev.inspW||300):$('#inspPane').offsetWidth, mediaCollapsed:mc, inspCollapsed:ic, tallInsp:!!state.prefs.tallInsp })); }catch(e){} }
 function loadWorkspace(){ try{ const s=localStorage.getItem('domeProWs'); if(!s)return; const w=JSON.parse(s);

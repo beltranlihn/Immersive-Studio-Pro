@@ -389,8 +389,6 @@
   .lanehdr .ms.solo.on{color:var(--bg-1);background:var(--ink-2);}
   .lanehdr .lcol{width:16px;height:16px;flex-shrink:0;display:grid;place-items:center;border:none;background:transparent;color:var(--ink-2);cursor:pointer;padding:0;}
   .lanehdr .lcol:hover{color:var(--ink);}
-  .lanehdr .laneres{position:absolute;left:0;right:0;bottom:-2px;height:6px;cursor:row-resize;z-index:4;}
-  .lanehdr .laneres:hover{background:rgba(255,255,255,0.25);}
   .lanehdr.collapsed .nm{font-size:11px;color:var(--ink-3);} .lanehdr.collapsed .ms{height:15px;width:16px;}
   .lane.collapsed .clip .tt{font-size:11px;height:100%;line-height:inherit;} .lane.collapsed .clip .fadeh,.lane.collapsed .clip .cpx,.lane.collapsed .clip .cpxbar,.lane.collapsed .clip .kfstrip{display:none;}
   /* automation: envelope canvas drawn on the clip (child of .clip), below the reserved title band */
@@ -510,7 +508,8 @@
   .trackdivider.hdr{display:flex;align-items:center;gap:5px;padding:0 10px;}
   .trackdivider.hdr .dvlab,.rulerpad .dvlab{font-family:'Geist',system-ui,sans-serif;font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink-faint);} /* [U1] VIDEO (ruler-pad) matches the AUDIO bar label style */
   .trackdivider.hdr .dvchev{font-size:9px;color:var(--ink-3);line-height:1;}
-  .lanehdr.aud .laneres,.lanehdr.aud .lcol{display:none;} /* [R110] audio tracks: fixed height → no per-lane resize / collapse */
+  /* [R156] el audio se comporta como el vídeo: SÍ colapsa (triángulo) — la regla de R110 que se lo quitaba
+     junto con el resize ya no aplica, porque el resize por pista no existe para nadie. */
   /* [R92-T9] pinned audio module — video tracks scroll behind it (Premiere) */
   .audiozone{position:sticky;bottom:0;z-index:4;margin-top:auto;background:var(--bg-1);overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;scrollbar-width:none;} /* [R93b] fixed-height module: extra audio tracks scroll INSIDE (wheel); no visible scrollbar · [L2] margin-top:auto pins it to the bottom when there's free space, sticky handles the overflow case */
   .audiozone::-webkit-scrollbar{display:none;}
@@ -1086,7 +1085,7 @@
         <div class="snapline" id="snapline"></div>
       </div>
       <!-- [R152] barra vertical única, espejo de la horizontal: cuerpo = scroll · casquetes = alto de pistas -->
-      <div class="tlvzoom" id="tlVZoom"><div class="tlvztrack" id="tlVZoomTrack"><div class="tlvzthumb" id="tlVZoomThumb" title="Drag to scroll · drag the round ends to resize tracks"><span class="tlvzcap t" data-vcap="t"></span><span class="tlvzcap b" data-vcap="b"></span></div></div></div>
+      <div class="tlvzoom" id="tlVZoom"><div class="tlvztrack" id="tlVZoomTrack"><div class="tlvzthumb" id="tlVZoomThumb" title="Drag to scroll · Alt+wheel resizes every track"></div></div></div>
     </div>
     <div class="tlzoom" id="tlZoomBar"><div class="tlztrack" id="tlZoomTrack"><div class="tlzthumb" id="tlZoomThumb"><span class="tlzcap l" data-cap="l"></span><span class="tlzcap r" data-cap="r"></span></div></div></div>
   </div>
