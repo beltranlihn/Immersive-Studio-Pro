@@ -204,6 +204,12 @@
 
 ---
 
+### Catálogo de iconos — `ICO(n,s)` (index.html ~L1126)
+- **Purpose:** mapa `nombre → cuerpo del <svg>` (viewBox 0 0 24 24, stroke currentColor 1.8). Se inyecta por `ICO(nombre,tamaño)` o por `<i class="ic" data-ico="nombre">` (el arranque recorre `[data-ico]`).
+- **[R164] Calcado verificado:** de los 32 botones con icono del handoff *Editor Domo Rev 1*, **31 de 31 existentes son idénticos** (el 32.º es `Simple`, el conmutador Ableton eliminado a propósito). Herramienta: `scratchpad/icon-bylabel.mjs` empareja **por rótulo de botón** contra el DOM vivo — no por selector adivinado, que daba falsos positivos.
+- **Invariants / gotchas:** hay referencias **DINÁMICAS** (`ICO(k?'kfFull':'kfEmpty')`, `ICO(i.ico)` en menús generados) → **no podar el catálogo con una expresión regular**: `redo` aparece como "sin uso" y sí se usa.
+- **Status:** ✅
+
 ## Deuda técnica & gaps detectados en el mapeo
 
 - **🗄️ Automatización legacy — ARCHIVADO (R137).** Las funciones muertas (`_autoOff` override/re-enable + perform-and-bake `recWrite`/`bakeRecorded` + `#autoRecBtn`) se sacaron del software y viven en `_backup/deprecated/20260722-automation-override-and-perform-bake.js` (recuperables). Verificado por CDP: motor de automatización intacto. **Barrido menor HECHO (R137):** removidos los reads no-op de `_autoOff` en sepAuto, returnToDefault, `drawAutoCurve` (var `off`), fxKfToggle y borrado de fx — solo queda `_autoOff` en un comentario (app.js L463). Curva renderiza OK (verificado por píxel).

@@ -1,5 +1,28 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 164 — Los iconos, uno a uno, contra el handoff
+
+Beltrán señaló que "hay íconos que no están iguales". En vez de mirarlos a ojo, dos herramientas: `icon-diff.mjs`
+(extrae los 92 `<svg>` del prototipo y los 62 del catálogo `ICO()`) y, cuando la primera resultó dar demasiados
+falsos positivos, `icon-bylabel.mjs`, que empareja **por el rótulo del botón** contra el DOM vivo de la app.
+
+**El veredicto: de los 32 botones con icono del handoff, 30 existían y 28 ya eran idénticos.** Los dos que no,
+más dos que faltaban:
+- **Alpha** reusaba el icono de `grid` (rejilla 4×4) cuando el diseño le pone cuatro cuadrantes — que es lo que
+  evoca un damero de transparencia. Icono `alpha` nuevo.
+- **Add Adjustment Layer** llevaba un `+` en vez de la pila de hojas del diseño.
+- **Fit** iba sin icono; el diseño le pone las cuatro esquinas. Icono `fit` nuevo.
+- Y seis geometrías que estaban cerca pero no calcadas: el **ojo** de Viewer (párpado 4→3.5, pupila r 3→2.5), la
+  **órbita** (rx 10/ry 4.2 → 9/4, y su centro pasa de hueco a punto macizo), la pila de **Adjust** (tres hojas → dos),
+  la **papelera** (tapa 2px más estrecha), el **power** (arco r 6→8) y el **asa de puntos** (r 1.1→1.4).
+
+Resultado medido tras aplicar: **31 de 31 iguales, 0 distintos.** El único botón del handoff que sigue sin existir
+es `Simple`, el conmutador de modo Ableton que se eliminó a propósito en R155.
+
+**Lo que NO se tocó, y por qué.** Nueve iconos del catálogo parecen no usarse, pero hay referencias dinámicas
+(`ICO(k?'kfFull':'kfEmpty')`, `ICO(i.ico)` en los menús generados): `redo` sale en esa lista y sí se usa. Podar
+el catálogo con una expresión regular dejaría botones sin icono en tiempo de ejecución. Queda anotado en COMPONENTS.md.
+
 ## ROUND 163 — Pasada de robustez: 15 escenarios de rotura y el suelo del modo automatización
 
 Suite nueva (`scratchpad/robust.mjs`), distinta de la funcional: en vez de recorrer el flujo feliz, intenta

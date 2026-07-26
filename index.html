@@ -954,7 +954,7 @@
           <button data-d="safe" title="Safe-zone overlay"><i class="ic" data-ico="safe"></i> Safe</button>
           <button data-d="outline" title="Clip outlines"><i class="ic" data-ico="outline"></i> Outline</button>
           <button data-d="hfade" title="Fade content near the dome horizon (spring line)"><i class="ic" data-ico="cull"></i> Horizon</button>
-          <button data-d="checker" title="Checkerboard background (alpha)"><i class="ic" data-ico="grid"></i> Alpha</button>
+          <button data-d="checker" title="Checkerboard background (alpha)"><i class="ic" data-ico="alpha"></i> Alpha</button><!-- [R164] icono propio, no la rejilla de Grid -->
         </div>
         <div class="vdiv" id="qpSep"></div>
         <div class="vseg" id="qualitySeg" title="Preview quality (does not affect export)">
@@ -1069,7 +1069,7 @@
     <div class="editseg" id="tlEditSeg">
       <button id="curvesBtn" title="Show/hide automation (clip parameters + reactive FX) · A"><i class="ic" data-ico="curves"></i> Auto</button>
       <button id="tlGridBtn" title="Grid — show/hide the timeline grid lines">Grid</button>
-      <button id="fitAllBtn" title="Fit the whole timeline to the visible width">Fit</button><!-- [AUDITORÍA Rev1] el tooltip prometía "(H·W)": fitAll() sólo ajusta el eje horizontal (la altura la da el V-zoom) -->
+      <button id="fitAllBtn" title="Fit the whole timeline to the visible width"><i class="ic" data-ico="fit"></i> Fit</button><!-- [R164] el diseño le pone las cuatro esquinas, como a sus vecinos --><!-- [AUDITORÍA Rev1] el tooltip prometía "(H·W)": fitAll() sólo ajusta el eje horizontal (la altura la da el V-zoom) -->
     </div>
     <div class="zoomgrp"><button id="tlZoomOut" title="Zoom out timeline"><i class="ic" data-ico="zoomOut"></i></button><button id="tlZoomIn" title="Zoom in timeline"><i class="ic" data-ico="zoomIn"></i></button></div>
   </div>
@@ -1138,9 +1138,17 @@ function ICO(n,s){ s=s||13; const a=`width="${s}" height="${s}" viewBox="0 0 24 
     mute:`<path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/>`,
     view2d:`<circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18"/>`,
     view3d:`<path d="M3 16a9 9 0 0 1 18 0"/><path d="M2 16h20"/>`,
-    viewer:`<circle cx="12" cy="12" r="3"/><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/>`,
-    orbit:`<circle cx="12" cy="12" r="3.5"/><ellipse cx="12" cy="12" rx="10" ry="4.2"/>`,
+    /* [R164] Geometría calcada del handoff (Editor Domo Rev 1). El ojo tenía el párpado más abierto (4 en vez
+       de 3.5) y la pupila más gorda (r 3 en vez de 2.5); la órbita era más ancha (rx 10/ry 4.2 en vez de 9/4)
+       y su centro iba HUECO, cuando en la maqueta es un punto MACIZO. */
+    viewer:`<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="2.5"/>`,
+    orbit:`<ellipse cx="12" cy="12" rx="9" ry="4"/><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"/>`,
     grid:`<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/>`,
+    /* [R164] Dos iconos que el handoff tiene y aquí faltaban: el botón Alpha reusaba `grid` (rejilla 4×4) cuando
+       el diseño le pone CUATRO cuadrantes — que es lo que evoca un damero de transparencia; y Fit iba sin icono
+       cuando el diseño le pone las cuatro esquinas. */
+    alpha:`<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 12h18M12 3v18"/>`,
+    fit:`<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>`,
     safe:`<rect x="5" y="5" width="14" height="14" rx="2" stroke-dasharray="3 3"/>`,
     outline:`<rect x="4" y="4" width="16" height="16" rx="2"/>`,
     cull:`<path d="M3.5 13a8.5 8.5 0 0 1 17 0"/><path d="M2 13h20"/>`,
@@ -1158,7 +1166,7 @@ function ICO(n,s){ s=s||13; const a=`width="${s}" height="${s}" viewBox="0 0 24 
     loop:`<path d="M4 9a8 8 0 0 1 13-3l3 3"/><path d="M20 5v4h-4"/><path d="M20 15a8 8 0 0 1-13 3l-3-3"/><path d="M4 19v-4h4"/>`,
     split:`<path d="M12 3v18"/><circle cx="6" cy="8" r="2.5"/><circle cx="6" cy="16" r="2.5"/>`,
     snap:`<path d="M5 4v8a7 7 0 0 0 14 0V4"/><path d="M3 4h5M16 4h5"/>`,
-    trash:`<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>`,
+    trash:`<path d="M5 7h14M9 7V5h6v2M6 7l1 13h10l1-13"/>`, /* [R164] la tapa de la maqueta es 2px más estrecha y el asa más baja */
     undo:`<path d="M9 7L4 12l5 5"/><path d="M4 12h11a5 5 0 0 1 0 10h-3"/>`,
     redo:`<path d="M15 7l5 5-5 5"/><path d="M20 12H9a5 5 0 0 0 0 10h3"/>`,
     cursor:`<path d="M5 3l6 16 2.5-6L20 11z" fill="currentColor" stroke="none"/>`,
@@ -1175,16 +1183,19 @@ function ICO(n,s){ s=s||13; const a=`width="${s}" height="${s}" viewBox="0 0 24 
     upload:`<path d="M12 16V5"/><path d="M8 9l4-4 4 4"/><path d="M5 19h14"/>`,
     ring:`<circle cx="12" cy="12" r="8"/><circle cx="12" cy="4.5" r="1.6" fill="currentColor"/><circle cx="19.5" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="19.5" r="1.6" fill="currentColor"/><circle cx="4.5" cy="12" r="1.6" fill="currentColor"/>`,
     gear:`<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>`,
-    grip:`<circle cx="9" cy="6" r="1.1" fill="currentColor" stroke="none"/><circle cx="15" cy="6" r="1.1" fill="currentColor" stroke="none"/><circle cx="9" cy="12" r="1.1" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="1.1" fill="currentColor" stroke="none"/><circle cx="9" cy="18" r="1.1" fill="currentColor" stroke="none"/><circle cx="15" cy="18" r="1.1" fill="currentColor" stroke="none"/>`,
-    power:`<path d="M12 4v8"/><path d="M7.5 7.5a6 6 0 1 0 9 0"/>`,
+    /* [R164] puntos de r=1.4 como la maqueta; 1.1 se veía anémico */
+    grip:`<circle cx="9" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="9" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="9" cy="18" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="18" r="1.4" fill="currentColor" stroke="none"/>`,
+    power:`<path d="M12 3v9"/><path d="M6.5 7a8 8 0 1 0 11 0"/>`, /* [R164] el arco de la maqueta es más grande (r 8, no 6) y el astil más largo */
     react:`<path d="M3 12h3l2-6 3 13 3-9 2 5h5"/>`,
     refresh:`<path d="M4 12a8 8 0 0 1 13.7-5.7L20 8"/><path d="M20 3.5V8h-4.5"/>`,
     close:`<path d="M6 6l12 12M18 6L6 18"/>`,
-    tallpanel:`<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M14 3v18"/>`,
+    /* [R164] El botón de OCULTAR el inspector usa la misma caja que panel/panelL con la divisoria en 14
+       (el ICO panel la tiene en 15: ése es el de MOSTRAR). La caja 3,3,18,18 no aparece en el handoff. */
+    tallpanel:`<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M14 4v16"/>`,
     bolt:`<path d="M13 2L5 13h6l-1 9 9-12h-7z" fill="currentColor" stroke="none"/>`,
     follow:`<circle cx="12" cy="12" r="6.5"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/>`,
     popout:`<rect x="3" y="5" width="11" height="11" rx="1.5"/><path d="M15 4h5v5"/><path d="M20 4l-7 7"/>`,
-    layers:`<path d="M12 3l8 4.5-8 4.5-8-4.5z"/><path d="M4 12l8 4.5 8-4.5"/><path d="M4 16l8 4.5 8-4.5"/>`,
+    layers:`<path d="M12 3l8 4.5-8 4.5-8-4.5z"/><path d="M4 12l8 4.5 8-4.5"/>`, /* [R164] la maqueta apila DOS hojas, no tres */
     clip:`<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/>`,
     ndi:`<circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/><path d="M8.5 8.5a5 5 0 0 0 0 7"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M6 6a9 9 0 0 0 0 12"/><path d="M18 6a9 9 0 0 1 0 12"/>`,
   };
