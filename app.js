@@ -2030,8 +2030,13 @@ function openMediaCtx(e,m){ e.preventDefault(); const seq=isSeqMedia(m); const i
   if(IS_ELEC&&m.path&&DSP.revealPath) items.push({label:T('Reveal in Explorer','Mostrar en el Explorador'),ico:'folder',fn:()=>{ try{DSP.revealPath(m.path);}catch(e){} }}); // R90: locate media on disk
   if(m.kind==='video'){ const selVids=((selIds.includes(m.id)?selIds.map(mediaById):[m]).filter(x=>x&&x.kind==='video')); const many=selVids.length>1; // proxies are manual now: generate for the whole (shift-)selection
     items.push({label:many?(T('Generate proxies (','Generar proxys (')+selVids.length+')'):(m.proxyReady?T('Regenerate proxy','Regenerar proxy'):T('Generate proxy','Generar proxy')),ico:'video',fn:()=>{ if(!HAS_WC){flashStatus(T('Proxies need WebCodecs (browser build)','Los proxys requieren WebCodecs'));return;} for(const v of selVids){ v.proxyReady=false; v.proxyPct=0; v._pxGen=true; if(v.proxyPath)v._proxyForce=true; enqProxy(v); } renderMedia(); flashStatus(many?(T('Generating ','Generando ')+selVids.length+T(' proxies…',' proxys…')):T('Generating proxy…','Generando proxy…')); }}); }
-  if(seq&&IS_ELEC){ items.push({label:m.ncPath?(m.ncStale?T('Nest proxy is out of date — regenerate','El proxy está desactualizado — regenerar'):T('Regenerate nest proxy…','Regenerar proxy de composición…')):T('Generate nest proxy…','Generar proxy de composición…'),ico:'layers',fn:()=>ncBuild(m)}); // [R180]
-    if(m.ncPath) items.push({label:T('Remove nest proxy','Quitar proxy de composición'),ico:'trash',fn:()=>{ ncDetach(m,true); flashStatus(T('Nest proxy removed','Proxy de composición eliminado')); }}); }
+  /* [R186] RETIRADO DE LA INTERFAZ, no del código. El caché acelera de verdad (medido: 2,6 → 15,8 fps en
+     un nest de 6 clips en domo 4096²), pero queda una discrepancia de encuadre entre el caché y la
+     composición recompuesta que NO se cerró: en R180 el caso cuadrado medía PSNR 68,7 y desplazamiento
+     0,03 px; tras pasar a lienzo completo mide PSNR 26,6 y 7 px sobre 32. Se descartaron por medición el
+     letterbox, el volteo de UNPACK_FLIP_Y_WEBGL y el fundido de horizonte. Con clientes entrando, una
+     previsualización que reencuadra es peor que no tener el acelerador. Se reponen estas dos entradas
+     cuando la fidelidad esté probada en varias relaciones de aspecto. */
   if(IS_ELEC && (m.kind==='video'||m.kind==='audio'||m.kind==='image')) items.push({label:T('Replace media…','Reemplazar medio…'),fn:()=>replaceMedia(m)});
   if(m.missing&&IS_ELEC) items.push({label:T('Locate file…','Localizar archivo…'),ico:'upload',fn:async()=>{ try{ const p=await DSP.pickMedia(); if(p){ m.path=p; await reloadMedia(m); flashStatus(T('Media re-linked','Medio re-vinculado')); } }catch(e){} }});
   if(state.folders.length){ items.push('sep'); const tgt=()=>selectedMediaIds().includes(m.id)?selectedMediaIds():[m.id]; // move the whole multi-selection (R88 audit) + undo/dirty via moveMediaTo
@@ -5540,39 +5545,34 @@ function ncBitrate(w,h,fps){ return Math.round(Math.max(8,Math.min(220, w*h*fps*
 /* El archivo se hornea CUADRADO (lado = el mayor), porque así es la textura que produce prepNests: el composite
    del nest letterboxeado en un cuadrado. La etiqueta enseña las dimensiones del nest, que es lo que le importa
    al montador; `s` es lo que de verdad se escribe. */
-function ncDivOptions(m){ const W=m.w||1920,H=m.h||1080; const out=[];
-  for(const d of [1,2,3,4]){ const w=Math.max(16,Math.round(W/d/2)*2), h=Math.max(16,Math.round(H/d/2)*2);
-    out.push({d,w,h,s:Math.max(16,Math.round(Math.max(w,h)/2)*2),label:(d===1?T('Full','Completa'):'1/'+d)+' · '+w+'×'+h}); }
-  return out; }
+/* [R186] El proxy es SIEMPRE el lienzo COMPLETO del nest. Antes ofrecía 1/2, 1/3 y 1/4, pero Beltrán lo va a
+   usar siempre a tamaño completo y una opción que nadie toca es una decisión que le cobras al usuario por nada.
+   Además desaparece la clase entera de errores de escala entre el caché y la composición recompuesta. */
+function ncFullSize(m){ const w=Math.max(16,Math.round((m.w||1920)/2)*2), h=Math.max(16,Math.round((m.h||1080)/2)*2);
+  return {w,h,s:Math.max(16,Math.round(Math.max(w,h)/2)*2)}; }
 async function ncDialog(m,opts){ return new Promise(resolve=>{
   const fps=m.fps||state.fps||60, dur=m.dur||1;
   const est=o=>{ const mb=ncBitrate(o.s,o.s,fps)/8*dur/1e6; return mb>=1000?(mb/1000).toFixed(2)+' GB':Math.max(1,Math.round(mb))+' MB'; };
-  const def=opts.findIndex(o=>o.s<=2048); const sel0=def>=0?def:opts.length-1; // por defecto, la mayor que quepa en 2048: ahí el H.264 va por hardware
+
+
   const ov=document.createElement('div'); ov.className='overlay'; ov.style.zIndex='320';
   ov.innerHTML=`<div class="modal" style="width:430px;"><div class="mh"><span style="color:var(--ink-2);display:flex;">${ICO('layers',16)}</span><span class="t">${T('Nest proxy','Proxy de composición')}</span></div><div class="mb">
     <div class="frow"><label>${T('Composition','Composición')}</label><span class="tnum" style="color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${(m.name||'').slice(0,34)}</span></div>
     <div class="frow"><label>${T('Length','Duración')}</label><span class="tnum" style="color:var(--ink-2);">${dur.toFixed(2)} s · ${fps} fps · ${(m.nestClips||[]).length} ${T('clips','clips')}</span></div>
-    <div class="frow"><label>${T('Resolution','Resolución')}</label><select id="ncRes" style="flex:1;">${opts.map((o,i)=>`<option value="${i}" ${i===sel0?'selected':''}>${o.label}</option>`).join('')}</select></div>
+    <div class="frow"><label>${T('Proxy','Proxy')}</label><span class="tnum" style="color:var(--ink-2);">${opts.w} × ${opts.h} px · ${T('full canvas','lienzo completo')}</span></div>
     <div class="frow"><label></label><span id="ncInfo" class="tnum" style="color:var(--ink-dim);font-size:11px;"></span></div>
     <div style="font-size:11px;color:var(--ink-dim);margin-top:2px;line-height:1.5;">${T('Used only while editing, so the composition plays as ONE video instead of decoding every clip inside it. The final export always rebuilds it from the original sources — a PNG sequence stays lossless.','Se usa sólo mientras editas, para que la composición se reproduzca como UN vídeo en vez de decodificar cada clip de dentro. El export final siempre la reconstruye desde las fuentes originales — una secuencia PNG sigue siendo sin pérdida.')}</div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;"><button class="mbtn" id="ncCancel">${T('Cancel','Cancelar')}</button><button class="mbtn pri" id="ncGo">${ICO('layers')} ${T('Generate','Generar')}</button></div></div></div>`;
   document.body.appendChild(ov); const close=r=>{ ov.remove(); resolve(r); };
-  const sel=ov.querySelector('#ncRes'), info=ov.querySelector('#ncInfo');
-  const paint=()=>{ const o=opts[+sel.value]; info.textContent='≈ '+est(o)+' · '+o.w+'×'+o.h; };
-  sel.onchange=paint; paint();
+  const info=ov.querySelector('#ncInfo'); info.textContent='≈ '+est(opts);
   ov.querySelector('#ncCancel').onclick=()=>close(null); ov.addEventListener('pointerdown',e=>{if(e.target===ov)close(null);});
-  ov.querySelector('#ncGo').onclick=()=>close(opts[+sel.value]); }); }
+  ov.querySelector('#ncGo').onclick=()=>close(opts); }); }
 async function ncBuild(m){
   if(!IS_ELEC){ appAlert(T('Nest proxies need the desktop app.','Los proxies de composición necesitan la app de escritorio.')); return; }
   if(!m||m.kind!=='nest'){ flashStatus(T('Pick a composition','Elige una composición'),'err'); return; }
   if(!(m.nestClips||[]).length){ flashStatus(T('That composition is empty','Esa composición está vacía'),'err'); return; }
-  /* [R180] Sólo composiciones CUADRADAS (las de domo, que es para lo que existe esto). En una no cuadrada el
-     encuadre no coincide con el de la composición recompuesta — MEDIDO: el centro de masa se va un 29% en
-     vertical en un nest 16:9. La causa está en cómo `flatPlace` mapea la textura del pool frente a la de un
-     vídeo, y no se ha aislado todavía. Antes que servir un encuadre distinto en silencio, se dice que no. */
-  if((m.w||0)!==(m.h||0)){ appAlert(T('Nest proxies are available for square compositions (dome) for now. This one is '+(m.w||0)+'×'+(m.h||0)+' and its framing would not match the rebuilt composition.','Los proxies de composición están disponibles por ahora para composiciones cuadradas (domo). Esta es '+(m.w||0)+'×'+(m.h||0)+' y su encuadre no coincidiría con la composición recompuesta.')); return; }
   if(!currentPath){ appAlert(T('Save the project first — nest proxies go beside it in a “nest proxies” folder.','Guarda el proyecto primero — los proxies de composición van junto a él en una carpeta “nest proxies”.')); return; }
-  const choice=await ncDialog(m,ncDivOptions(m)); if(!choice)return;
+  const choice=await ncDialog(m,ncFullSize(m)); if(!choice)return;
   const fps=m.fps||state.fps||60, dur=m.dur||1;
   const cods=await ripCodecOptions(choice.s,choice.s,fps); // el ARCHIVO es cuadrado
   if(!cods.length){ appAlert(T('No encoder accepts '+choice.s+'² on this machine.','Ningún codificador acepta '+choice.s+'² en esta máquina.')); return; }
@@ -6125,13 +6125,20 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
   const ps=$$('#exPreset');
   const fillPresets=()=>{ ps.innerHTML='<option value="">—</option>'+(state.exportPresets||[]).map((p,i)=>`<option value="${i}">${lchEsc(p.name)}</option>`).join(''); };
   fillPresets();
+  /* [R186] Un preajuste guardaba SÓLO el ancho, así que al aplicarlo un «Igualar a la fuente» o un tamaño
+     personalizado 2560×1072 volvían como un preajuste cuadrado: te cambiaba el encuadre sin decírtelo.
+     Ahora viaja el modo entero (y el alto, para los personalizados). Los preajustes viejos, sin `szMode`,
+     se siguen leyendo como antes. */
   ps.onchange=()=>{ const p=(state.exportPresets||[])[+ps.value]; if(!p)return;
-    S.codec=p.codec; S.fps=+p.fps; if(p.res){ S.szMode='preset'; S.szPreset=+p.res; }
+    S.codec=p.codec; S.fps=+p.fps;
+    if(p.szMode==='match')      S.szMode='match';
+    else if(p.szMode==='custom'){ S.szMode='custom'; S.szW=+p.res||S.szW; S.szH=+p.szH||S.szH; }
+    else if(p.res){ S.szMode='preset'; S.szPreset=+p.res; }
     if(p.bitrate){ S.br=Math.round(p.bitrate/1e6); S.brTouched=true; } exUpd(); };
   $$('#exSavePreset').onclick=()=>{ const p=exPx(S);
-    appPrompt(T('Preset name:','Nombre del preajuste:'),S.codec.toUpperCase()+' '+p.w,name=>{ if(!name)return;
+    appPrompt(T('Preset name:','Nombre del preajuste:'),S.codec.toUpperCase()+' '+p.w+'×'+p.h,name=>{ if(!name)return;
       state.exportPresets=state.exportPresets||[];
-      state.exportPresets.push({name,codec:S.codec,res:p.w,fps:S.fps,bitrate:S.br*1e6});
+      state.exportPresets.push({name,codec:S.codec,szMode:S.szMode,res:p.w,szH:p.h,fps:S.fps,bitrate:S.br*1e6});
       markDirty(); fillPresets(); ps.value=state.exportPresets.length-1; flashStatus(T('Preset saved','Preajuste guardado')); }); };
 
   /* --- destino --- */
@@ -7672,10 +7679,7 @@ $('#tracks').addEventListener('contextmenu',e=>{ const cd=e.target.closest('.cli
     {label:T('Nest selection','Anidar selección'),ico:'ring',fn:nestSelection},
     ...((()=>{const cc=clipById(id),mm=cc&&mediaById(cc.mediaId);return (mm&&isSeqMedia(mm))?[{label:T('Open sequence','Abrir secuencia'),ico:'panel',fn:()=>openSeq(mm.id)},{label:T('Make unique','Convertir en único'),ico:'ring',fn:()=>{const c2=clipById(id);if(c2)makeClipUnique(c2);}}]:[];})()),
     ...((()=>{const cc=clipById(id),mm=cc&&mediaById(cc.mediaId);return (mm&&mm.kind!=='audio')?[{label:T('Render in place…','Renderizar en el sitio…'),ico:'layers',fn:()=>{const c2=clipById(id);if(c2)renderInPlace(c2);}}]:[];})()),
-    ...((()=>{const cc=clipById(id),mm=cc&&mediaById(cc.mediaId); if(!(mm&&mm.kind==='nest'&&IS_ELEC))return []; // [R180] el proxy de composición, también a mano en el clip
-      const out=[{label:mm.ncPath?(mm.ncStale?T('Nest proxy is out of date — regenerate','El proxy está desactualizado — regenerar'):T('Regenerate nest proxy…','Regenerar proxy de composición…')):T('Generate nest proxy…','Generar proxy de composición…'),ico:'layers',fn:()=>ncBuild(mm)}];
-      if(mm.ncPath)out.push({label:T('Remove nest proxy','Quitar proxy de composición'),ico:'trash',fn:()=>{ ncDetach(mm,true); flashStatus(T('Nest proxy removed','Proxy de composición eliminado')); }});
-      return out; })()),
+    /* [R186] la entrada de proxy de composición sale del menú del clip por el mismo motivo (ver renderMedia) */
     ...((()=>{ const sA=state.tl.selA,sB=state.tl.selB; return (sA!=null&&sB!=null&&Math.abs(sB-sA)>1e-3)?[{label:T('Render selection in place…','Renderizar la selección en el sitio…'),ico:'layers',fn:renderRangeInPlace}]:[]; })()), // [R1] bake the in/out time selection → new top track
     'sep',
     {label:T('Show automation','Mostrar la automatización'),ico:'curves',fn:()=>{const c=clipById(id);if(c)showAutomation(c);}},
