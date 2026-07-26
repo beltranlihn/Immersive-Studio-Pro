@@ -237,7 +237,7 @@
 ### Menús desplegables — `openMenu` / `closeMenu` (app.js ~L6871)
 - **Purpose:** todo desplegable se abre al pulsar su disparador y se CIERRA al pulsarlo otra vez.
 - **[R172]** El `pointerdown` global cerraba el menú y el `click` siguiente —del mismo botón— lo reabría, así que no se cerraba nunca. `openMenu` guarda ahora el RECTÁNGULO del disparador; si el pointerdown que cerró el menú cae dentro de ese rectángulo y llega en menos de 600ms con el botón izquierdo, no reabre.
-- **Invariants / gotchas:** se compara por POSICIÓN, no por nodo: abrir el menú de un chip de automatización re-dibuja la cabecera de pista y en el segundo clic el elemento ya es OTRO. Sólo con el botón IZQUIERDO — un clic derecho repetido debe reabrir su menú contextual. Y en `openAppMenu` el resaltado `.on` se pone DESPUÉS de `openMenu`: delante lo borraba el `closeMenu()` interno.
+- **Invariants / gotchas:** se compara por POSICIÓN, no por nodo (abrir el menú de un chip re-dibuja la cabecera y el elemento ya es OTRO), y el vínculo cierre↔reapertura es el **sello del pointerdown** (`_ptrSeq`), no una ventana de tiempo — con reloj, descartar en el visor y volver al mismo botón dejaba el botón muerto **[R173]**. `rectDe` busca en una lista CERRADA y por orden (`.achip` antes que `.alab`, que vive dentro); sin coincidencia devuelve null, porque caer en el elemento crudo guardaba contenedores enteros y bloqueaba todo lo de dentro. El dueño NO se apunta si el pointerdown cayó dentro de otro menú (submenús) ni si no hubo pointerdown (la barra cambia de menú al pasar el ratón). Sólo con el botón IZQUIERDO. En `openAppMenu` el resaltado `.on` va DESPUÉS de `openMenu` y **sólo si el menú quedó abierto**.
 - **Status:** ✅
 
 ## Deuda técnica & gaps detectados en el mapeo

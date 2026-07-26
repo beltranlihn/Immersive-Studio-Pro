@@ -1,5 +1,37 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 173 — Los cinco agujeros del arreglo de menús de R172
+
+La revisión de código señaló que R172 tapaba el caso feliz —pulsar dos veces el mismo píxel— y dejaba cinco
+formas de fallar que su sonda no podía ver, porque siempre pulsaba en el mismo sitio y nunca descartaba con un
+tercer elemento. Tenía razón en las cinco.
+
+**El peor, y el que se lleva por delante un mecanismo entero: la ventana de 600ms.** El vínculo entre el cierre
+y la reapertura era temporal, así que descartar un menú pulsando el visor y volver al MISMO botón dentro de ese
+margen dejaba el botón muerto. Ahora el vínculo es el **sello del pointerdown** (`_ptrSeq`): `openMenu` sólo se
+calla si lo está llamando el mismísimo pointerdown que acaba de cerrar el menú. Sin reloj, sin margen, sin falsos
+positivos.
+
+**Los otros cuatro:**
+- `rectDe` caía en el elemento CRUDO si no encontraba disparador, así que guardaba contenedores enteros: con el
+  menú contextual de una cabecera de pista abierto, ningún chip de dentro podía abrirse. Ahora es una lista
+  cerrada y sin coincidencia devuelve null — mejor no alternar que bloquear.
+- `.alab` vive DENTRO de `.achip` y `closest` devolvía la etiqueta interior: abrir el chip por su texto y
+  cerrarlo por la flecha reproducía el fallo original de R172. El orden de búsqueda ahora prefiere el chip.
+- El resaltado `.on` de la barra de menús se ponía aunque `openMenu` hubiera alternado a CERRADO y salido: el
+  botón quedaba encendido sin menú y su propio alternador se comía el clic siguiente (tres clics para reabrir).
+  Ahora sólo se pone si el menú quedó abierto de verdad.
+- El dueño se apuntaba siempre desde el último punto pulsado, aunque el menú no naciera de pulsar SU disparador:
+  submenús lanzados desde una entrada de menú, y el cambio de menú al pasar el ratón por la barra, guardaban el
+  rectángulo de otra cosa. Ahora no se apunta dueño en esos dos casos.
+
+**Sonda nueva** (`probe-menus2.mjs`) con los seis escenarios, incluida una regresión. Para comprobar que la sonda
+sirve de algo se revirtió el arreglo y se volvió a pasar: **reproduce 3 de los 5** fallos (chip dentro de una
+cabecera, descartar y volver, y texto-flecha del mismo chip). Los otros dos —el resaltado huérfano y el submenú—
+no se reprodujeron con esta secuencia concreta; quedan cerrados por construcción, no por prueba, y así se anota.
+
+Pruebas: funcional 22/22, robustez 15/15, barrido de menús 7/7, chips 3/3, escenarios 6/6, cero errores.
+
 ## ROUND 172 — Los desplegables se cierran al segundo clic
 
 Beltrán: los menús abren al pulsar, pero pulsar otra vez no los cierra.

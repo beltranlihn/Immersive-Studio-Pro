@@ -6870,11 +6870,16 @@ function closeMenu(){ if(_menu){_menu.remove();_menu=null;} document.querySelect
 function fmtKey(s){ if(!s)return s; if(navigator.platform&&/mac/i.test(navigator.platform))return s; return String(s).replace(/⇧⌘/g,'Ctrl+Shift+').replace(/⌘/g,'Ctrl+').replace(/⇧/g,'Shift+').replace(/⌥/g,'Alt+').replace(/⌫/g,'Del'); }
 function openMenu(x,y,items){
   /* [R172] ¿este clic es el que acaba de cerrar el menú, sobre el mismo botón que lo abrió? Entonces era un
-     cierre, no una reapertura. Ver el bloque de `_menuOwnerPrev` junto al pointerdown global. */
-  if(_menuPrevRect && _ptrBtn===0 && performance.now()-_menuPrevAt<600 && dentroDe(_menuPrevRect,_ptrPt)){
+     cierre, no una reapertura. [R173] El vínculo es el sello del pointerdown, no el reloj — ver `_ptrSeq`. */
+  if(_menuPrevRect && _ptrBtn===0 && _menuPrevSeq===_ptrSeq && dentroDe(_menuPrevRect,_ptrPt)){
     _menuPrevRect=null; _menuOwnerRect=null; closeMenu(); return; }
   _menuPrevRect=null;
-  closeMenu(); _menuOwnerRect=rectDe(_ptrPt); const m=document.createElement('div'); m.className='menu'; m.setAttribute('role','menu'); m.style.left=x+'px'; m.style.top=y+'px'; // [R94-UT5·U-10a]
+  closeMenu();
+  /* [R173] El dueño sólo se apunta cuando este menú nace de pulsar SU disparador. Si el pointerdown cayó dentro
+     de otro menú (un submenú abierto desde una entrada) o si no hay pointerdown de por medio (la barra de menús
+     cambia de menú al pasar el ratón), el punto guardado sería el de otra cosa y bloquearía a quien no debe. */
+  _menuOwnerRect=(_ptrEnMenu||_ptrSeq===_menuOwnerSeq)?null:rectDe(_ptrPt); _menuOwnerSeq=_ptrSeq;
+  const m=document.createElement('div'); m.className='menu'; m.setAttribute('role','menu'); m.style.left=x+'px'; m.style.top=y+'px'; // [R94-UT5·U-10a]
   for(const it of items){ if(it==='sep'){const s=document.createElement('div');s.className='sep';m.appendChild(s);continue;}
     if(it.swatches){ const row=document.createElement('div'); row.style.cssText='display:flex;gap:6px;padding:6px 11px;flex-wrap:wrap;max-width:150px;align-items:center;'; // R90b: inline colour row INSIDE the menu (no extra popup)
       LANE_PALETTE.forEach(col=>{ const b=document.createElement('button'); b.title=col; b.style.cssText='width:16px;height:16px;border-radius:3px;border:.5px solid rgba(255,255,255,0.25);background:'+col+';cursor:pointer;padding:0;flex:0 0 auto;'+(it.swatches.cur===col?'box-shadow:0 0 0 2px #E8EAED;':''); b.onclick=e=>{ e.stopPropagation(); closeMenu(); it.swatches.onPick(col); }; row.appendChild(b); });
@@ -6900,17 +6905,27 @@ function openMenu(x,y,items){
    Se recuerda QUIÉN abrió el menú y qué se estaba pulsando al cerrarlo; si es el mismo botón, `openMenu` no
    reabre. Sólo con el botón izquierdo: el clic derecho sobre el mismo sitio debe volver a abrir su menú
    contextual, no cerrarlo. */
-let _menuOwnerRect=null, _menuPrevRect=null, _menuPrevAt=0, _ptrPt=null, _ptrBtn=0;
-window.addEventListener('pointerdown',e=>{ _ptrPt={x:e.clientX,y:e.clientY}; _ptrBtn=e.button;
+/* [R172] Se compara por POSICIÓN, no por nodo: abrir el menú de un chip de automatización re-dibuja la cabecera
+   de la pista, así que en el segundo clic el elemento ya es OTRO y cualquier comparación por identidad falla. El
+   rectángulo del disparador sigue donde estaba, y distingue chips iguales de pistas distintas.
+   [R173] El vínculo entre el cierre y la reapertura es el SELLO DEL POINTERDOWN (`_ptrSeq`), no una ventana de
+   tiempo: `openMenu` sólo se calla si lo está llamando el mismísimo pointerdown que acaba de cerrar el menú.
+   Con la ventana de 600ms, descartar un menú pulsando el visor y volver al mismo botón dentro de ese margen
+   dejaba el botón muerto. */
+let _menuOwnerRect=null, _menuOwnerSeq=-1, _menuPrevRect=null, _menuPrevSeq=-1, _ptrPt=null, _ptrBtn=0, _ptrSeq=0, _ptrEnMenu=false;
+window.addEventListener('pointerdown',e=>{ _ptrPt={x:e.clientX,y:e.clientY}; _ptrBtn=e.button; _ptrSeq++;
+  _ptrEnMenu=!!(e.target.closest&&e.target.closest('.menu'));
   if(_menu&&!_menu.contains(e.target)&&!(e.target.closest&&e.target.closest('.menubtn'))){
-    _menuPrevRect=_menuOwnerRect; _menuPrevAt=performance.now(); closeMenu(); } },true); // [R135] a menubtn manages its own open/close
-/* Se compara por POSICIÓN, no por nodo: abrir el menú de un chip de automatización re-dibuja la cabecera de la
-   pista, así que en el segundo clic el elemento ya es OTRO y cualquier comparación por identidad falla. El
-   rectángulo del disparador, en cambio, sigue donde estaba — y distingue chips iguales de pistas distintas, que
-   una firma por clase y texto confundiría. */
+    _menuPrevRect=_menuOwnerRect; _menuPrevSeq=_ptrSeq; closeMenu(); } },true); // [R135] a menubtn manages its own open/close
 function dentroDe(r,p){ return !!(r&&p && p.x>=r.x-2 && p.x<=r.x+r.w+2 && p.y>=r.y-2 && p.y<=r.y+r.h+2); }
-function rectDe(pt){ if(!pt)return null; const el=document.elementFromPoint(pt.x,pt.y); if(!el)return null;
-  const b=(el.closest&&el.closest('button,[data-menu],.achip,.chip,.alab,.autoduo'))||el;
+/* El disparador se busca en una lista CERRADA y por orden de preferencia — nada de caer en el elemento crudo.
+   · `.achip` antes que `.alab`: la etiqueta vive DENTRO del chip y `closest` devolvería la interior, así que
+     abrir por el texto y cerrar por la flecha volvía a fallar.
+   · sin coincidencia → null, y entonces no hay alternancia. Antes se guardaba el contenedor que hubiera debajo
+     (una cabecera de pista entera), y eso bloqueaba cualquier disparador dentro de esa caja. */
+function rectDe(pt){ if(!pt)return null; const el=document.elementFromPoint(pt.x,pt.y); if(!el||!el.closest)return null;
+  const b=el.closest('.achip')||el.closest('.autoduo')||el.closest('.menubtn')||el.closest('button')||el.closest('.chip')||el.closest('[data-menu]');
+  if(!b)return null;
   const r=b.getBoundingClientRect(); return {x:r.x,y:r.y,w:r.width,h:r.height}; }
 /* [R135·D3] application menu bar (File / Edit / Window) — reuses existing commands; the menu is just another access path. */
 function openAppMenu(which,btn){ const r=btn.getBoundingClientRect(); const x=r.left, y=r.bottom+3; let items;
@@ -6964,7 +6979,10 @@ function openAppMenu(which,btn){ const r=btn.getBoundingClientRect(); const x=r.
      nunca se veía activo, y su propio alternador (`if(btn.classList.contains('on')) closeMenu()`) no entraba
      jamás, así que el segundo clic reabría el menú en vez de cerrarlo. */
   openMenu(x,y,items);
-  document.querySelectorAll('.menubtn').forEach(b=>b.classList.toggle('on',b===btn)); }
+  /* [R173] ...y sólo si el menú ha quedado ABIERTO: `openMenu` puede haber alternado a cerrado y salido, y el
+     botón se quedaba resaltado sin menú — con su propio alternador comiéndose el clic siguiente (tres clics
+     para volver a abrir File). */
+  document.querySelectorAll('.menubtn').forEach(b=>b.classList.toggle('on',!!_menu&&b===btn)); }
 document.querySelectorAll('#menubar .menubtn').forEach(btn=>{ const which=btn.dataset.menu;
   btn.onclick=e=>{ e.stopPropagation(); if(btn.classList.contains('on')){ closeMenu(); return; } openAppMenu(which,btn); };
   btn.onmouseenter=()=>{ if(_menu)openAppMenu(which,btn); }; }); // hover switches menus while the bar is open (standard menubar behaviour)
