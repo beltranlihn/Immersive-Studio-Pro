@@ -1,5 +1,106 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 180 — El proxy de composición: 2,6 → 15,8 fps
+
+**La herramienta equivocada.** Beltrán quería render-in-place para que una composición de domo con 15 clips
+corriera fluida en el editor, pero que el export final saliera en alta. Con R179 eso era imposible: el horneado
+crea un medio y un clip NUEVOS, y el export renderiza lo que hay en la línea de tiempo — así que ese horneado
+*es* la fuente y no hay forma de volver a las originales. Lo que hacía falta era otra cosa.
+
+**Lo que sí estaba pidiendo la arquitectura.** El mecanismo ya existía para los vídeos: `_vinstUrl()` devuelve el
+proxy en previsualización y el original cuando `_exportQuality` está puesto. Editar ligero, exportar pesado. Lo
+que no cubría eran los nests: `prepNests` recompone los hijos en un FBO **en cada fotograma**, siempre. No es que
+el nest sea caro de dibujar — es que nada lo cachea nunca.
+
+Ahora un nest puede tener su propio caché. `ncUsable(m)` es la única puerta y la consultan cinco sitios: la
+imagen (`prepNests` enlaza la textura y NO desciende), las decodificaciones (`collectDrawnVideoClips` mete el
+caché como si fuera un vídeo y corta el descenso — ahí está toda la ganancia), el sonido, y los dos del enlace de
+instancias. Medido sobre un nest de 6 clips en domo 4096²: **2,6 fps con 6 decodificadores → 15,8 fps con 1**.
+
+**La regla que lo hace seguro, y que disuelve todo el debate de calidad de R179:** el caché sólo existe en
+previsualización. `runExport` pone `_exportQuality=true`, las cinco puertas se cierran y todo se recompone desde
+las fuentes reales — verificado: 1 decodificador en preview, 6 en export, y vuelve solo al terminar. El máster
+nunca sale del caché, así que su resolución y su códec dan igual: es material de trabajo. Por eso se hornea a
+media resolución con H.264, que a 2048² va por hardware.
+
+**La invalidación, que era el riesgo real.** No se marca un booleano al editar: se compara una FIRMA del
+contenido del nest (`nestSig`, recursiva a los nests hijos). Así ningún camino de edición se puede olvidar de
+invalidar, y además es **reversible** — deshacer un cambio devuelve el caché a la vida, cosa que un flag no da.
+`markDirty()` sólo agenda la revisión: recorrer firmas en cada fotograma sería absurdo, y hacerlo en cada tecla
+mientras se arrastra un keyframe, también. Un caché rancio nunca se muestra como bueno (chapa roja con ⚠ en el
+clip, forma además de color), pero tampoco secuestra el editor: se regenera cuando el montador lo pide.
+
+**Dos trampas que costaron sangre.** La firma hay que tomarla DESPUÉS de renderizar: entrar en la secuencia del
+nest lo muta — `loadSeqIntoState` le añade una pista de audio si no tiene y corre todos los clips un índice —
+así que firmando antes el caché nacía rancio en el mismo instante de crearse. Y el caché lleva la mezcla de
+audio horneada dentro: es lo que permite dejar de descender a los hijos sin quedarse sin sonido, y obliga al
+`continue` de `collectAudioEvents` para no oír lo de dentro dos veces.
+
+**El interruptor.** En la barra del visor, junto a `Proxy`, va **`Comp`**: apaga todos los cachés de composición
+de golpe y devuelve el visor a recomponer desde cada clip fuente. Suelta las instancias (`disposeAllVinst`) en
+los dos sentidos, porque las que estaban atadas al archivo del caché tienen que soltarlo para volver a componer.
+
+**Lo que salió del code review.** Siete cosas, todas arregladas. Las tres que más dolían: `prepNests` sólo LEÍA
+las instancias (`_vinst.get`) y no las creaba, así que cualquier camino que acabara en `render()` en vez de
+`scrubRender()` — el propio `ncBuild`, abrir proyecto, deshacer — dejaba la composición en NEGRO hasta mover el
+cabezal; `nestSig` hasheaba la LONGITUD de las máscaras y no su contenido, con lo que mover un punto de la pluma
+dejaba el caché tan fresco mostrando la versión anterior; y un horneado de render-in-place, que no tiene alfa,
+puesto en la pista más alta tapaba en negro todas las demás — ahora el de UN clip se inserta justo encima de su
+origen y lo que estaba por arriba sigue componiéndose por arriba. Además: cancelar el diálogo ya no se lleva por
+delante la selección de entrada/salida, `ncAttach` limpia `_noAudio` (si no, una composición que ganaba sonido
+después del primer horneado se quedaba muda para siempre), y la chapa dice «Proxy apagado» cuando el interruptor
+Comp está apagado en vez de mentir diciendo que se está reproduciendo el proxy.
+
+**Y una limitación que se asume en vez de disimular.** El review detectó que en un nest NO cuadrado el encuadre
+con caché no coincide con el recompuesto: medido, el centro de masa se va un 29% en vertical. Se probaron las dos
+hipótesis obvias — hornear cuadrado con letterbox, y el volteo de `UNPACK_FLIP_Y_WEBGL` — y ninguna lo movió (el
+desplazamiento se quedó en 15,6 → 15,1 → 14,9 px, que es ruido de compresión). La causa está en cómo `flatPlace`
+mapea la textura del pool frente a la de un vídeo, y no se ha aislado. Así que `ncBuild` **rechaza las
+composiciones no cuadradas con un aviso explícito**: antes servir un «no» claro que un encuadre distinto en
+silencio. En domo — que es para lo que existe esto — el encuadre es idéntico: **PSNR 68,7 dB, desplazamiento
+0,03 px**.
+
+**De propina:** apagar un nest no era gratis. `compositeClips` lo saltaba al dibujar, pero `prepNests` no miraba
+`c.disabled` y seguía componiendo sus 15 hijos cada fotograma para producir una textura que no usaba nadie.
+Una guarda de una línea.
+
+## ROUND 179 — Render in place: nunca había renderizado nada
+
+**La causa raíz.** Beltrán: «lo probé y sentí que no sucedió nada». No lo sintió: no sucedía nada. `uid()`
+devuelve un NÚMERO (`let _id=1; const uid=()=>_id++`) y las dos entradas de render-in-place armaban el nombre de
+salida con `uid().slice(0,5)`. Eso lanza un `TypeError` en la línea que construye la ruta — antes de abrir el
+codificador, antes del primer fotograma. La promesa moría sin dueño en el manejador del clic, así que la función
+había estado rota en silencio desde R115. Hoy es `String(uid()).padStart(4,'0')`.
+
+**El techo real de esta máquina, medido.** Antes de decidir nada se sondeó el codificador de verdad
+(`scratchpad/probe-4096*.mjs`, sobre el .exe por CDP). H.264 se niega por encima de **3072²** — 3200² ya falla, a
+cualquier bitrate. **HEVC no pasa de ~1080p**, y no es la GPU: NVENC llega a 8192², es el codificador HEVC de
+Chromium en Windows. O sea que el domo a 4096² tenía exactamente cero salidas, y el diálogo lo ofrecía igual (el
+export normal sigue anunciando «HEVC · 4K+», que en esta compilación es mentira: queda anotado).
+
+Lo que sí acepta 4096²: **AV1** (hasta 8192²) y **VP9**, incluido su perfil 2 de **10 bits**. Codifican por
+software, ~10 fps a 4096² sobre ruido puro — pero el archivo que producen se **decodifica por hardware**
+(`powerEfficient:true` a 4096²), que es lo que importa para volver a montarlo en la línea de tiempo. Probado de
+punta a punta: codificar → muxear en .mp4 → escribir → reproducir a 4096×4096.
+
+**Lo que se construyó encima.** `ripCodecOptions(w,h,fps)` le PREGUNTA al codificador qué acepta a ese tamaño
+exacto y ofrece sólo eso, el mejor primero — sondear en vez de codificar a mano la tabla, porque el próximo salto
+de Electron mueve estas paredes otra vez. A 4096² salen AV1 y VP9 10-bit; a 1920×1080 salen los cuatro con H.264
+de cabeza. `runExport` aprende `av1`/`vp9`/`vp910` (mismo muxer, distinto selector) y `noAudio`, que se salta el
+decode y la mezcla de audio enteros — un horneado es imagen, y esa etapa era la más lenta de un clip corto.
+
+`ripProgress` es el visor de avance que faltaba: el fotograma que se está renderizando (leído de `glc` dentro de
+la tarea de render, que es la única ventana en que el búfer es legible), barra, contador de fotogramas, ETA y un
+Cancelar que baja la misma bandera `cancelExport` que sondea el bucle. Si se cancela o falla, el `.mp4` a medio
+escribir se borra: `runExport` se traga sus propios errores con un `appAlert`, así que ahora un trabajo puede
+declarar `job.fail` y quedarse con el error para no importar un archivo trunco.
+
+**Y lo que pedía Beltrán:** el resultado ya no reemplaza nada. `ripPlaceOnNewTrack` crea una pista de vídeo
+nueva y deja el clip horneado en el mismo sitio del timeline, con los originales intactos debajo — silenciarlos o
+borrarlos es decisión del montador. `push` es lo que la pone arriba: `compositeClips` pinta de la pista 0 a la n
+y `lanesTopDown()` invierte para mostrar, así que el índice más alto es la fila de arriba Y la capa de encima.
+En domo el clip vuelve con `props.fulldome=true`, o sea que el máster fisheye entra 1:1 sin deformarse otra vez.
+
 ## ROUND 178 — El recorrido guiado por formato, y la barra vertical bien
 
 **El recorrido, donde toca.** Beltrán: el tour no debe aparecer antes del landing, sino al abrir por primera vez

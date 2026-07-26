@@ -573,6 +573,9 @@
   /* [R171] La fuente va JUNTO AL NOMBRE dentro del título, en gris y con peso normal: antes era una chapa en
      mayúsculas flotando sobre el clip, que competía con el nombre y tapaba la miniatura. */
   .clip .tt .cpx{margin-left:6px;font-weight:400;font-size:10px;color:var(--ink-3);opacity:.85;}
+  .clip .tt .cnc{padding:0 4px;border-radius:2px;background:rgba(255,255,255,0.16);color:var(--ink);opacity:1;}
+  .clip .tt .cnc.stale{background:rgba(224,96,96,0.85);color:#fff;font-weight:600;}
+  .clip .tt .cnc.offsw{background:transparent;border:1px solid rgba(255,255,255,0.28);color:var(--ink-3);}
   .clip .cpxbar{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(0,0,0,0.45);pointer-events:none;}
   .clip .cpxbar>i{display:block;height:100%;background:var(--ink-2);}
   /* [R102·D-T2] ESTA es la señal de selección que siempre se ve: el borde del clip entero. (El contorno del
@@ -993,6 +996,7 @@
         <div class="vslab" id="distCtl" hidden data-retirado="R174" style="display:none;"><span class="k">DIST</span><input type="range" min="1.2" max="12" step="0.1" value="3" id="distRange" class="vfader"><span class="v" id="distLbl" style="width:26px;text-align:right;">3.0</span></div>
         </div>
         <div class="vseg" id="proxyToggle" title="Viewport uses proxies (faster). Turn off to preview the original clips."><button data-p="proxy" class="on"><i class="ic" data-ico="bolt"></i> Proxy</button></div>
+        <div class="vseg" id="nestCacheToggle" title="Compositions play from their proxy (much faster). Turn off to preview them rebuilt from every source clip. The export always rebuilds from sources either way."><button data-p="ncache" class="on"><i class="ic" data-ico="layers"></i> Comp</button></div>
         <div class="vdiv" id="zoomSep"></div>
         <div class="vseg">
           <button id="vzOut" style="width:24px;padding:0;justify-content:center;"><i class="ic" data-ico="zoomOut"></i></button>

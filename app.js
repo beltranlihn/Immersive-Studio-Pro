@@ -122,7 +122,7 @@ const state = {
   clips:[],
   playhead:0, playing:false, loop:false, follow:false,
   selId:null, selMediaId:null, selMediaIds:[], selMediaAnchor:null,
-  view:{ mode:'2d', three:'orbit', zoom:0.92, pan:[0,0], showGrid:true, showOutline:true, cull:false, useProxy:true, checkerBg:false,
+  view:{ mode:'2d', three:'orbit', zoom:0.92, pan:[0,0], showGrid:true, showOutline:true, cull:false, useProxy:true, useNestCache:true, checkerBg:false, /* [R180] los cachés de composición nacen activos, como los proxies: se generan a mano, así que si existe uno es porque alguien lo pidió */
          showCenter:false, showSeam:true, // [R168·Etapa 7] guías de centro (2D) y costuras de muro (sala): el tercer hueco de superposición por formato. La costura nace encendida porque en la sala orienta, igual que el horizonte en el domo.
          cw:400, ch:400, cam:{yaw:0, pitch:0.5, dist:3.0, fov:60, back:0.8} },
   tl:{ pxPerSec:80, tool:'select', tcMode:'timecode', bpm:120, sig:4, gridDiv:0, gridFixed:false, gridFixedBase:1, selA:null, selB:null, audioCollapsed:false }, // [R161] fuera `snap` (R158 quitó el ajuste a la cuadrícula) y `simpleClips` (R155 dejó sólo el agarre estilo Premiere): nadie los leía. [R110] audioCollapsed = the audio module is compacted to just its bar
@@ -906,9 +906,76 @@ function nestSlot(){ let e=_nestPool[_nestN];
   if(e.size!==nestSize){ gl.bindTexture(gl.TEXTURE_2D,e.tex); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,nestSize,nestSize,0,gl.RGBA,gl.UNSIGNED_BYTE,null); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE); gl.bindTexture(gl.TEXTURE_2D,null); gl.bindFramebuffer(gl.FRAMEBUFFER,e.fbo); gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,e.tex,0); gl.bindFramebuffer(gl.FRAMEBUFFER,null); e.size=nestSize; }
   _nestN++; return e; }
 function freeNestPool(){ for(const e of _nestPool){ try{gl.deleteTexture(e.tex);}catch(_){} try{gl.deleteFramebuffer(e.fbo);}catch(_){} } _nestPool.length=0; _nestN=0; }
+/* ===================== [R180] NEST PROXY — el caché de una composición =====================
+   Un nest de 15 clips se RECOMPONE ENTERO en cada fotograma: prepNests decodifica y compone los quince,
+   sesenta veces por segundo. Por eso una composición de domo con mucho material se arrastra: no es que
+   dibujarla sea caro, es que nada la cachea nunca.
+
+   El caché hornea el nest UNA vez a un archivo ligero y, mientras siga vigente, lo sustituye por completo:
+   un decodificador en lugar de quince.
+
+   La regla que lo hace seguro, y que es el motivo de que la calidad del caché no importe:
+   EL CACHÉ SÓLO EXISTE EN PREVISUALIZACIÓN. `runExport` pone `_exportQuality=true`, `ncUsable()` pasa a ser
+   false en los cuatro sitios que lo consultan (imagen, sonido, enlace de instancias y URL), y todo vuelve a
+   componerse desde las fuentes reales. El máster nunca sale del caché — es material de trabajo, no de entrega. */
+function ncUsable(m){ return !_exportQuality && state.view.useNestCache!==false && !!(m && m.kind==='nest' && m.ncReady && m.ncUrl && !m.ncStale); }
+function _r4(v){ return Math.round((+v||0)*1e4)/1e4; }
+function _fnv(s){ let h=2166136261>>>0; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619)>>>0; } return h.toString(36); }
+/* Firma del CONTENIDO del nest. Es lo único que decide si el caché sigue valiendo, y se compara en vez de
+   engancharse a cada sitio que muta — así ningún camino de edición se puede olvidar de invalidar (incluidos
+   deshacer/rehacer y reabrir el proyecto). Desciende a los nests hijos: si cambia un nieto, el abuelo también
+   queda rancio. */
+function nestSig(m,depth){ if(!m||m.kind!=='nest')return '';
+  const d=depth||0;
+  const one=c=>{ const cm=mediaById(c.mediaId);
+    return [c.mediaId,c.lane,_r4(c.start),_r4(c.dur),_r4(c.inP||0),c.speed||1,c.disabled?1:0,c.adjust?1:0,
+      c.trans||'',c.loop?1:0,_r4(c.loopS||0),_r4(c.loopLen||0),_r4(c.fadeIn||0),_r4(c.fadeOut||0),
+      JSON.stringify(c.props||{}),JSON.stringify(c.kf||{}),JSON.stringify(c.fx||[]),
+      _fnv(String(c.maskData||'')),_fnv(JSON.stringify(c.penMasks||null)), // el CONTENIDO, no la longitud: mover un punto de la pluma de 0,5123 a 0,5124 no cambia el largo, y el caché se quedaba tan fresco mostrando la versión anterior
+      (cm&&cm.kind==='nest'&&d<5)?nestSig(cm,d+1):(cm?String(cm.path||cm.id):'?')].join('|'); };
+  let s;
+  try{ s=[m.w,m.h,_r4(m.dur),m.fps,m.mode||'',m.cov||'',
+        (m.nestLanes||[]).map(l=>[l.kind,l.mute?1:0,l.solo?1:0].join(',')).join(';'),
+        (m.nestClips||[]).map(one).join(';')].join('#'); }
+  catch(e){ return 'err'; }
+  return _fnv(s)+'.'+s.length.toString(36); }
+/* Revisión perezosa: markDirty() sólo agenda: recorrer las firmas en cada fotograma sería absurdo, y hacerlo
+   en cada tecla mientras se arrastra un keyframe, también. Un caché rancio NUNCA se muestra como bueno, pero
+   tampoco secuestra el editor: se marca al instante y se regenera cuando el montador lo pida. */
+let _ncCheckT=0;
+function ncTouch(){ if(_ncCheckT)return; _ncCheckT=setTimeout(()=>{ _ncCheckT=0; ncRecheck(); },140); }
+function ncRecheck(){ let changed=false;
+  for(const m of state.media){ if(m.kind!=='nest'||!m.ncPath)continue;
+    const st=(nestSig(m)!==m.ncSig); if(!!m.ncStale!==st){ m.ncStale=st; changed=true; } }
+  if(changed){ try{ renderMedia(); renderTimeline(); render(); }catch(e){} } }
+function ncDropVinst(mid){ const kill=cs=>{ for(const c of (cs||[])) if(c.mediaId===mid) vinstDispose(c.id); };
+  kill(state.clips); for(const s of state.media) if(s.kind==='nest') kill(s.nestClips); }
+function ncAttach(m,path,sig,w,h,fps){ m.ncPath=path; m.ncSig=sig; m.ncW=w; m.ncH=h; m.ncFps=fps; delete m._noAudio; // sonda de silencio en limpio: un primer horneado sin pista de audio dejaba _noAudio pegado para siempre, y tras añadir sonido dentro del nest y regenerar, la composición seguía muda (vinstAudio devolvía null y collectAudioEvents seguía sin descender)
+  m.ncUrl=(IS_ELEC&&DSP.toFileURL)?DSP.toFileURL(path):null; m.ncReady=!!m.ncUrl; m.ncStale=false; ncDropVinst(m.id); }
+function ncDetach(m,delFile){ const p=m.ncPath;
+  m.ncPath=null; m.ncSig=null; m.ncUrl=null; m.ncReady=false; m.ncStale=false; m.ncW=m.ncH=m.ncFps=null;
+  ncDropVinst(m.id);
+  if(delFile&&p&&IS_ELEC&&DSP.deleteFile){ try{ DSP.deleteFile(p); }catch(e){} }
+  try{ renderMedia(); renderTimeline(); render(); markDirty(); }catch(e){} }
+/* Al reabrir el proyecto: si el archivo sigue en disco se vuelve a enganchar, y la firma dice si sirve. */
+async function ncReattach(m){ if(!m||!m.ncPath||!IS_ELEC||!DSP.stat){ return; }
+  let ok=false; try{ const st=await DSP.stat(m.ncPath); ok=!!(st&&st.size>0); }catch(e){}
+  if(!ok){ m.ncPath=null; m.ncSig=null; m.ncReady=false; return; }
+  m.ncUrl=DSP.toFileURL(m.ncPath); m.ncReady=true; m.ncStale=(nestSig(m)!==m.ncSig);
+  try{ renderMedia(); renderTimeline(); }catch(e){} }
 function prepNests(clips,t,depth){ if(!depth)_nestN=0; if((depth||0)>5||!clips)return; // post-order: render inner nests first, then each clip into its own slot
   for(const c of clips){ const m=mediaById(c.mediaId); if(!m||!isSeqMedia(m)){ c._ntex=null; continue; } if(t<c.start||t>=c.start+c.dur){ c._ntex=null; continue; }
-    const lt=srcT(c,t); prepNests(m.nestClips,lt,(depth||0)+1);
+    if(c.disabled){ c._ntex=null; continue; } // [R180] apagar un nest NO lo hacía gratis: compositeClips lo saltaba al dibujar, pero aquí se seguían componiendo sus 15 hijos cada fotograma para producir una textura que nadie usaba
+    const lt=srcT(c,t);
+    if(ncUsable(m)){ const vi=vinstEnsure(c,m); c._ntex=(vi&&vi.ready&&vi.vtex)?vi.vtex:null; // [R180] el caché ES el nest: no se desciende a los hijos. Las props del clip (az/el/tamaño/opacidad/LUT/keyframes) se aplican encima igual que antes, porque el caché sustituye SÓLO la composición interna
+      /* vinstEnsure, no _vinst.get: la instancia puede NO existir todavía — ncAttach acaba de soltarlas, o
+         venimos de abrir el proyecto, o de un deshacer. Sin esto `c._ntex` se quedaba en null y `drawClip` caía
+         a `m.tex`, que en un nest es null → la composición desaparecía del visor hasta que alguien movía el
+         cabezal (los caminos que terminan en render() y no en scrubRender() no siembran instancias). */
+      if(vi&&!vi.ready&&!vi._ncKick&&!state.playing&&!exporting){ vi._ncKick=1; // un solo tiro por instancia: al llegar su primer fotograma se pide UN repintado
+        (vi.loadP||Promise.resolve()).then(()=>vinstSeek(c,m,lt)).then(()=>{ if(!state.playing&&!exporting)render(); },()=>{}); }
+      continue; }
+    prepNests(m.nestClips,lt,(depth||0)+1);
     const e=nestSlot(); const oc=state.clips,ol=state.lanes,odf=_drawFlat,oca=_compAspect,orw=_roomWrap; state.clips=m.nestClips||[]; state.lanes=(m.nestLanes&&m.nestLanes.length?m.nestLanes:ol); _drawFlat=flatLikeMode(m.mode); _roomWrap=false; _compAspect=(m.w||1)/(m.h||1); gl.bindFramebuffer(gl.FRAMEBUFFER,e.fbo); composite(lt,nestSize,false); gl.bindFramebuffer(gl.FRAMEBUFFER,null); state.clips=oc; state.lanes=ol; _drawFlat=odf; _roomWrap=orw; _compAspect=oca; c._ntex=e.tex; } }
 /* active video media at time t, descending into active nests (local-time-adjusted), deduped by media — so playback/scrub drive videos INSIDE nests, not just top-level clips. */
 function collectActiveVideos(clips,lanes,t,depth,out,seen){ out=out||[]; seen=seen||new Set(); if((depth||0)>5||!clips||!lanes)return out;
@@ -1596,6 +1663,7 @@ function collectAudioEvents(clips,lanes,tlOffset,winA,winB,depth,out,S,pVol,pFiE
       { const tot=visB-visA; fi=Math.min(fi,tot); fo=Math.min(fo,tot); if(fi+fo>tot&&fi+fo>1e-6){ const s=tot/(fi+fo); fi*=s; fo*=s; } } // [R92-T6] proportional rescale like fadeFactor — video crossfaded but its audio didn't when fadeIn+fadeOut > dur
       const e={id:c.id, buffer:buf, start:visA, off:Math.max(0,(c.inP||0)+front*(c.speed||1)), rate, dur:visB-visA, fadeIn:fi, fadeOut:fo, vol:pVol*(c.props&&c.props.volume!=null?Math.max(0,c.props.volume/100):1)};
       if(c.loop&&c.loopLen>0){ e.loopLen=c.loopLen; e.loopS=(c.inP||0); } out.push(e); } // R81: loopable audio carries its loop region
+    else if(isSeqMedia(m)&&ncUsable(m)) continue; // [R180] el caché lleva la mezcla del nest horneada y suena por su <audio> (ver vinstAudio); descender aquí además haría sonar dos veces lo de dentro. En export ncUsable() es false y esto vuelve a bajar a las fuentes.
     else if(isSeqMedia(m)&&m.nestClips){
       const nl=(m.nestLanes&&m.nestLanes.length?m.nestLanes:lanes); const r=(c.speed||1); const S2=S/r; // one inner-local second lasts S/r top seconds
       const nVol=pVol*(c.props&&c.props.volume!=null?Math.max(0,c.props.volume/100):1);
@@ -1962,6 +2030,8 @@ function openMediaCtx(e,m){ e.preventDefault(); const seq=isSeqMedia(m); const i
   if(IS_ELEC&&m.path&&DSP.revealPath) items.push({label:T('Reveal in Explorer','Mostrar en el Explorador'),ico:'folder',fn:()=>{ try{DSP.revealPath(m.path);}catch(e){} }}); // R90: locate media on disk
   if(m.kind==='video'){ const selVids=((selIds.includes(m.id)?selIds.map(mediaById):[m]).filter(x=>x&&x.kind==='video')); const many=selVids.length>1; // proxies are manual now: generate for the whole (shift-)selection
     items.push({label:many?(T('Generate proxies (','Generar proxys (')+selVids.length+')'):(m.proxyReady?T('Regenerate proxy','Regenerar proxy'):T('Generate proxy','Generar proxy')),ico:'video',fn:()=>{ if(!HAS_WC){flashStatus(T('Proxies need WebCodecs (browser build)','Los proxys requieren WebCodecs'));return;} for(const v of selVids){ v.proxyReady=false; v.proxyPct=0; v._pxGen=true; if(v.proxyPath)v._proxyForce=true; enqProxy(v); } renderMedia(); flashStatus(many?(T('Generating ','Generando ')+selVids.length+T(' proxies…',' proxys…')):T('Generating proxy…','Generando proxy…')); }}); }
+  if(seq&&IS_ELEC){ items.push({label:m.ncPath?(m.ncStale?T('Nest proxy is out of date — regenerate','El proxy está desactualizado — regenerar'):T('Regenerate nest proxy…','Regenerar proxy de composición…')):T('Generate nest proxy…','Generar proxy de composición…'),ico:'layers',fn:()=>ncBuild(m)}); // [R180]
+    if(m.ncPath) items.push({label:T('Remove nest proxy','Quitar proxy de composición'),ico:'trash',fn:()=>{ ncDetach(m,true); flashStatus(T('Nest proxy removed','Proxy de composición eliminado')); }}); }
   if(IS_ELEC && (m.kind==='video'||m.kind==='audio'||m.kind==='image')) items.push({label:T('Replace media…','Reemplazar medio…'),fn:()=>replaceMedia(m)});
   if(m.missing&&IS_ELEC) items.push({label:T('Locate file…','Localizar archivo…'),ico:'upload',fn:async()=>{ try{ const p=await DSP.pickMedia(); if(p){ m.path=p; await reloadMedia(m); flashStatus(T('Media re-linked','Medio re-vinculado')); } }catch(e){} }});
   if(state.folders.length){ items.push('sep'); const tgt=()=>selectedMediaIds().includes(m.id)?selectedMediaIds():[m.id]; // move the whole multi-selection (R88 audit) + undo/dirty via moveMediaTo
@@ -2228,6 +2298,12 @@ function renderTimeline(){ reconcileVinst(); // free private decoders of clips t
         const txt=rdy?T('Proxy','Proxy'):(pct>0?T('Proxy','Proxy')+' '+pct+'%':T('Original','Original'));
         pxTag='<span class="cpx" data-mid="'+c.mediaId+'">'+txt+'</span>';
         px2='<div class="cpxbar" data-mid="'+c.mediaId+'" style="'+((rdy||pct<=0)?'display:none;':'')+'"><i style="width:'+pct+'%"></i></div>'; }
+      /* [R180] Un caché de nest se DICE siempre, y su estado rancio se dice con forma (⚠) además de color: un
+         caché desactualizado que se muestre como bueno es peor que ir lento, porque montas sobre una mentira. */
+      else if(m&&m.kind==='nest'&&m.ncPath){ const off=(state.view.useNestCache===false); // la chapa dice lo que está pasando DE VERDAD: con el interruptor Comp apagado el caché existe pero no se usa, y decir "reproduciendo el proxy" sería mentira
+        const txt=off?T('Proxy off','Proxy apagado'):(m.ncStale?'⚠ '+T('Proxy stale','Proxy viejo'):T('Proxy','Proxy'));
+        const tip=off?T('Nest proxy exists but the Comp switch is off — rebuilding from every source clip','El proxy existe pero el interruptor Comp está apagado — recomponiendo desde cada clip fuente'):(m.ncStale?T('Nest proxy out of date — right-click to regenerate','Proxy de composición desactualizado — clic-derecho para regenerar'):T('Playing the nest proxy (export always rebuilds from sources)','Reproduciendo el proxy de composición (el export siempre reconstruye desde las fuentes)'));
+        pxTag='<span class="cpx cnc'+((m.ncStale&&!off)?' stale':'')+(off?' offsw':'')+'" data-mid="'+c.mediaId+'" title="'+tip+'">'+txt+'</span>'; }
       const animBadge=hasLiveAnim(c)?`<div class="animbadge" title="${T('Live motion','Movimiento activo')}" style="position:absolute;top:3px;right:5px;width:15px;height:15px;border-radius:50%;background:var(--ink-2);color:#0b0d10;font-size:11px;line-height:15px;text-align:center;pointer-events:none;font-weight:700;z-index:3;">↻</div>`:'';
       const mutedBadge=(lane.mute&&!c.disabled)?`<div class="mutebadge" title="${T('Track muted','Pista silenciada')}">${ICO('mute',11)}</div>`:''; // [T5] chapa de mute (signo de forma, no de color → daltonismo)
       let loopMarks=''; const lcyc=loopCycleSec(c); // R81: subtle boundary ticks + a ↻ badge at each loop repeat
@@ -4877,7 +4953,8 @@ function makeClipDecoder(d){
 const _vinst=new Map(); let _vinstClock=0; const VINST_MAX=32;
 let _exportQuality=false; // export/still bind instances to the ORIGINAL source; preview binds proxy-if-ready
 const HAS_WEBCODECS=(typeof VideoDecoder!=='undefined');
-function _vinstUrl(m){ return (!_exportQuality && state.view.useProxy!==false && m.proxyReady && m.proxyUrl) ? m.proxyUrl : (m.srcUrl||null); }
+function _vinstUrl(m){ if(m&&m.kind==='nest') return ncUsable(m)?m.ncUrl:null; // [R180] un nest cacheado se enlaza como si fuera un vídeo: mismo camino de seek/play/textura que ya está probado
+  return (!_exportQuality && state.view.useProxy!==false && m.proxyReady && m.proxyUrl) ? m.proxyUrl : (m.srcUrl||null); }
 /* [R108·E4] use the WebCodecs ClipDecoder when this clip would otherwise decode the ORIGINAL heavy file through a
    <video> element (no usable proxy) — the exact case where the 4th <video> decoder collapses. Proxied playback keeps
    the proven <video> path; a demux/codec failure sets m._cdFail → permanent fallback to <video> for that media. */
@@ -4886,7 +4963,7 @@ function _useCD(m){ if(!state.view.wcDecode)return false; // [R108] engine compl
   if(!m||m.kind!=='video'||!m.path||m._cdFail)return false;
   if(/\.dsp-proxy-\w+\.mp4$/i.test(m.path))return false;                                   // a proxy is light — <video> handles it
   const usingProxy=(state.view.useProxy!==false && m.proxyReady && m.proxyUrl); return !usingProxy; }
-function vinstEnsure(c,m){ if(!m||m.kind!=='video')return null; const url=_vinstUrl(m); if(!url)return null;
+function vinstEnsure(c,m){ if(!m||(m.kind!=='video' && !(m.kind==='nest'&&ncUsable(m))))return null; const url=_vinstUrl(m); if(!url)return null; // [R180] nests cacheados incluidos (_useCD exige kind==='video', así que van por <video>, que es lo correcto para un archivo ligero)
   let vi=_vinst.get(c.id);
   if(!vi){ vi={vel:document.createElement('video'),vtex:newTex(),vsrc:null,ready:false,vf:0,last:0,loadP:null,cd:null,cdPending:false,cdReadyP:null}; vi.vel.muted=true; vi.vel.playsInline=true; vi.vel.preload='auto'; _vinst.set(c.id,vi); }
   vi.last=++_vinstClock;
@@ -4906,7 +4983,7 @@ function vinstDispose(id){ const vi=_vinst.get(id); if(!vi)return; if(vi.cd){try
    (proxies carry no audio track); decodes only the audio stream, so it's cheap even on a 12GB movie.
    [R92-T6] keyed by URL: it used to cache `null` forever if srcUrl wasn't loaded yet, and kept playing the OLD
    file's sound after Replace/Locate media. preservesPitch=false matches the export (which resamples). */
-function vinstAudio(vi,m){ const url=m&&m.srcUrl; if(!url||m._noAudio)return (m&&m._noAudio)?null:(vi.ael||null); // [R92-T6] a probed-silent video never gets a demuxer again
+function vinstAudio(vi,m){ const url=(m&&m.kind==='nest')?(ncUsable(m)?m.ncUrl:null):(m&&m.srcUrl); if(!url||m._noAudio)return (m&&m._noAudio)?null:(vi.ael||null); // [R92-T6] a probed-silent video never gets a demuxer again · [R180] un nest cacheado suena por la mezcla horneada en su propio archivo
   if(vi.ael&&vi._aelUrl===url)return vi.ael;
   if(vi.ael){ try{vi.ael.pause();vi.ael.removeAttribute('src');vi.ael.load();}catch(e){} }
   const a=new Audio(); a.preload='auto'; try{a.preservesPitch=false;}catch(e){} a.src=url; vi.ael=a; vi._aelUrl=url; return a; }
@@ -4946,6 +5023,7 @@ function collectDrawnVideoClips(clips,lanes,t,depth,out,pGain,pRate){ out=out||[
   for(const x of drawn){ const c=x.c, m=mediaById(c.mediaId); if(!m)continue; const lt=srcT(c,t);
     const lane=lanes[c.lane]; const g=pg*((lane&&lane.mute)?0:1)*fadeFactor(c,t)*((c.props&&c.props.volume!=null)?Math.max(0,c.props.volume/100):1); const rr=pr*(c.speed||1);
     if(m.kind==='video') out.push({c,m,local:lt,gain:g,rate:rr});
+    else if(m.kind==='nest'&&ncUsable(m)) out.push({c,m,local:lt,gain:g,rate:rr}); // [R180] AQUÍ está la ganancia: el caché entra como un vídeo y NO se desciende — quince decodificaciones pasan a ser una
     else if(m.kind==='nest'&&m.nestClips) collectDrawnVideoClips(m.nestClips,(m.nestLanes&&m.nestLanes.length?m.nestLanes:lanes),lt,(depth||0)+1,out,g,rr); }
   return out; }
 let playRaf=0,lastT=0,_phLast=null,_audioBase=0,_audioHead=0;
@@ -5026,6 +5104,7 @@ function ensureExportFBO(SR){ if(_exTex&&_exSR===SR)return; freeExportFBO(); _ex
 function freeExportFBO(){ if(_exTex){gl.deleteTexture(_exTex);_exTex=null;} if(_exFBO){gl.deleteFramebuffer(_exFBO);_exFBO=null;} _exSR=0; }
 function exportSS(res){ const glMax=gl.getParameter(gl.MAX_TEXTURE_SIZE)||4096; return (res*2<=Math.min(glMax,8192))?2:1; }
 /* render one export frame into glc at `res`, supersampled ×ss (opaque black bg for MP4). gl.finish() before read. */
+let _ncSquare=false; // [R180] activo sólo mientras se hornea el caché de un nest (ver renderExportFrame)
 function renderExportFrame(t,res,ss,wall){ const flat=isFlat(); _drawFlat=flat; _roomWrap=isRoom(); _compAspect=(state.seqW||1)/(state.seqH||1); _arTime=t; const SR=res*ss; ensureExportFBO(SR); // FBO→PB blit; dome clips to the disc, flat extracts the rect region into glc (w×h)
   gl.bindFramebuffer(gl.FRAMEBUFFER,_exFBO); composite(t,SR,true);
   gl.bindFramebuffer(gl.FRAMEBUFFER,null); gl.viewport(0,0,glc.width,glc.height); gl.disable(gl.DEPTH_TEST); gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT);
@@ -5033,8 +5112,12 @@ function renderExportFrame(t,res,ss,wall){ const flat=isFlat(); _drawFlat=flat; 
   if(wall){ const A=_compAspect, s=Math.min(2/A,2), Fx=s*A/2, Fy=s/2; const sw=wall.stripW||1, sh=wall.stripH||1; // F5 per-wall: crop this wall's strip sub-rect (top-aligned) → resample into glc (pxW×pxH)
     const uSc=(wall.x1-wall.x0)/sw*Fx, uOf=(1-Fx)/2+wall.x0/sw*Fx, vSc=(wall.pxH/sh)*Fy, vOf=(1+Fy)/2-(wall.pxH/sh)*Fy;
     gl.uniform1f(LB.flat,1); gl.uniform2f(LB.uvsc,uSc,vSc); gl.uniform2f(LB.uvof,uOf,vOf); gl.uniform1f(LB.hfade,0); }
+  /* [R180] `_ncSquare` = estoy horneando el caché de un nest. Entonces la salida tiene que quedar EXACTAMENTE
+     como la textura que produce `prepNests`: el composite cuadrado CON su letterbox, sin recortar y sin fundido
+     de horizonte. Recortándolo (que es lo correcto para un export de entrega) un nest 16:9 se encuadraba
+     distinto con el caché puesto que sin él — medido: el centro de masa se iba un 29% en vertical. */
   else if(flat){ const A=_compAspect, s=Math.min(2/A,2), Fx=s*A/2, Fy=s/2; gl.uniform1f(LB.flat,1); gl.uniform2f(LB.uvsc,Fx,Fy); gl.uniform2f(LB.uvof,(1-Fx)/2,(1-Fy)/2); gl.uniform1f(LB.hfade,0); }
-  else { gl.uniform1f(LB.flat,0); gl.uniform2f(LB.uvsc,1,1); gl.uniform2f(LB.uvof,0,0); gl.uniform1f(LB.hfade, state.view.hfade?HFADE:0); }
+  else { gl.uniform1f(LB.flat,0); gl.uniform2f(LB.uvsc,1,1); gl.uniform2f(LB.uvof,0,0); gl.uniform1f(LB.hfade, _ncSquare?0:(state.view.hfade?HFADE:0)); } // [R180] el caché de un nest nunca lleva el fundido de horizonte horneado: es una ayuda del visor, no parte de la composición
   const _exOut=_exTex; // [archivado 20260725] ya no hay grade máster que hornear: el export es el composite tal cual (el grado vive por clip)
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,_exOut); gl.uniform1i(LB.tex,0); gl.drawArrays(gl.TRIANGLES,0,6); gl.bindVertexArray(null);
   gl.finish();
@@ -5055,6 +5138,32 @@ async function pickHevcCodec(w,h,bitrate,fps){ if(typeof VideoEncoder==='undefin
   for(const p of pre) for(const l of levels){ const codec=p+l+'.B0';
     try{ const s=await VideoEncoder.isConfigSupported({codec,width:w,height:h,bitrate,framerate:fps}); if(s&&s.supported)return codec; }catch(e){} }
   return null;
+}
+/* [R179] AV1 and VP9 encoders. They matter because of a MEASURED ceiling on this build (Chromium 148 + RTX):
+     H.264 → refused above 3072² (3200² already fails, at any bitrate)
+     HEVC  → refused above ~1080p. NOT a GPU limit: NVENC does 8192². Chromium's Windows HEVC encoder is capped.
+     AV1   → accepted to 8192²  ·  VP9 → accepted to 4096² (both 8-bit AND VP9's 10-bit profile 2)
+   AV1/VP9 encode in SOFTWARE here (prefer-hardware is refused) — ~10-12 fps at 4096² on worst-case noise — but
+   the files they produce decode in HARDWARE (mediaCapabilities: powerEfficient=true at 4096²), so a baked dome
+   master plays back cheaply. That is what makes a 4096² render-in-place possible at all. */
+async function pickAv1Codec(w,h,bitrate,fps){ if(typeof VideoEncoder==='undefined')return null;
+  for(const codec of ['av01.0.13M.08','av01.0.12M.08','av01.0.09M.08','av01.0.05M.08','av01.0.01M.08']){ // levels 5.1→2.1, Main profile 8-bit
+    try{ const s=await VideoEncoder.isConfigSupported({codec,width:w,height:h,bitrate,framerate:fps}); if(s&&s.supported)return codec; }catch(e){} }
+  return null;
+}
+async function pickVp9Codec(w,h,bitrate,fps,ten){ if(typeof VideoEncoder==='undefined')return null;
+  const list=ten?['vp09.02.62.10','vp09.02.51.10','vp09.02.41.10']:['vp09.00.62.08','vp09.00.51.08','vp09.00.41.08']; // profile 2 = 10-bit, profile 0 = 8-bit
+  for(const codec of list){ try{ const s=await VideoEncoder.isConfigSupported({codec,width:w,height:h,bitrate,framerate:fps}); if(s&&s.supported)return codec; }catch(e){} }
+  return null;
+}
+/* Codec families runExport understands for the MP4 path: our key → [muxer codec, picker]. */
+const VCODECS={ h264:'avc', hevc:'hevc', av1:'av1', vp9:'vp9', vp910:'vp9' };
+function pickVideoCodec(kind,w,h,bitrate,fps){
+  if(kind==='hevc')return pickHevcCodec(w,h,bitrate,fps);
+  if(kind==='av1') return pickAv1Codec(w,h,bitrate,fps);
+  if(kind==='vp9') return pickVp9Codec(w,h,bitrate,fps,false);
+  if(kind==='vp910')return pickVp9Codec(w,h,bitrate,fps,true);
+  return pickAvcCodec(w,h,bitrate,fps);
 }
 /* ---- audio bake for export ---- */
 function audioBufferToWav(buf){ const ch=buf.numberOfChannels, sr=buf.sampleRate, n=buf.length; const bytes=44+n*ch*2; const dv=new DataView(new ArrayBuffer(bytes)); let p=0;
@@ -5096,16 +5205,17 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
   const _ce=clipExtent(); let t0=useIO?state.workIn:_ce[0], endT=useIO?state.workOut:_ce[1]; if(opt.rangeT){ t0=Math.max(0,opt.rangeT[0]); endT=Math.max(t0+0.02,opt.rangeT[1]); } let dur=Math.max(0.05,endT-t0), total=Math.max(1,Math.round(dur*fps));
   const _ripSaved=opt.isolateClips?state.clips:null; if(opt.isolateClips)state.clips=opt.isolateClips; // [R115] render-in-place: composite ONLY these clips → excludes external adjustment layers (nest-internal ones stay, composited inside the nest)
   const flat=isFlat(); const wall=opt.wall||null; const stripW=state.seqW||1920, stripH=state.seqH||1080; // F5 per-wall: composite the full strip at native res, then crop this wall to its own pxW×pxH file
-  const eW=wall?wall.pxW:(flat?(state.seqW||1920):res), eH=wall?wall.pxH:(flat?(state.seqH||1080):res), qRes=wall?Math.max(stripW,stripH):(flat?Math.max(eW,eH):res), dimStr=wall?(wall.pxW+'x'+wall.pxH):(flat?(eW+'x'+eH):(res+'')); // flat exports at the sequence's W×H (rect); dome stays square
+  let eW=wall?wall.pxW:(flat?(state.seqW||1920):res), eH=wall?wall.pxH:(flat?(state.seqH||1080):res), qRes=wall?Math.max(stripW,stripH):(flat?Math.max(eW,eH):res), dimStr=wall?(wall.pxW+'x'+wall.pxH):(flat?(eW+'x'+eH):(res+'')); // flat exports at the sequence's W×H (rect); dome stays square
+  if(opt.outW&&opt.outH&&!wall){ eW=Math.max(16,Math.round(opt.outW/2)*2); eH=Math.max(16,Math.round(opt.outH/2)*2); qRes=Math.max(eW,eH); dimStr=eW+'x'+eH; } // [R180] salida a escala: el caché de un nest se hornea a media resolución (o menos) — es material de trabajo, no de entrega
   const filePre=wall?('wall_'+String(wall.role||'').toLowerCase()):(flat?'2d':'dome');
   const job=opt.job; const oW=glc.width,oH=glc.height; if(state.playing)pause(); // never export over a live transport — the playback rAF loop and the export seeker would fight over the media elements
-  exporting=true; _exportQuality=true; try{ if($('#renderMask'))$('#renderMask').classList.add('on'); }catch(_){} // [R2] mask the viewport while glc is resized to export dims (else it shows a stretched stale frame)
+  exporting=true; _exportQuality=true; _ncSquare=!!opt.squareNest; try{ if($('#renderMask'))$('#renderMask').classList.add('on'); }catch(_){} // [R2] mask the viewport while glc is resized to export dims (else it shows a stretched stale frame)
   _drawFlat=flat; _roomWrap=isRoom(); _compAspect=(state.seqW||1)/(state.seqH||1); glc.width=eW;glc.height=eH; try{fxResetHistory();}catch(e){} // fresh feedback buffers → export is byte-deterministic regardless of prior scrub state
   // render nests/compositions at the export resolution (×SSAA, capped to the GPU limit) so dome-fills/ring grids aren't capped at 2048 then upscaled
   { const glMaxTex=gl.getParameter(gl.MAX_TEXTURE_SIZE)||8192; nestSize=Math.min(qRes*exportSS(qRes), glMaxTex, 8192); }
   let expOut=null; // R82: the written file/folder → offer to reveal it after a successful export
   try{
-    if(opt.codec!=='still'){ // [R92-T2 C1] decode the audio track of exported VIDEO clips into m._exAudio so it lands in the mix (Chromium's decodeAudioData demuxes MP4/MOV audio). ≤1.5GB source cap: decodeAudioData needs the whole file as one ArrayBuffer.
+    if(opt.codec!=='still' && !opt.noAudio){ // [R92-T2 C1] decode the audio track of exported VIDEO clips into m._exAudio so it lands in the mix (Chromium's decodeAudioData demuxes MP4/MOV audio). ≤1.5GB source cap: decodeAudioData needs the whole file as one ArrayBuffer. · [R179] noAudio (render-in-place) skips the whole stage — it is the slowest part of a short bake (a 1h source decodes to ~1.4GB of PCM for nothing)
       const vmap=new Map(); (function walk(cs,d){ if(d>6||!cs)return; for(const c of cs){ if(c.disabled)continue; const m=mediaById(c.mediaId); if(!m)continue; if(m.kind==='video'&&m.path&&!vmap.has(m.id))vmap.set(m.id,m); else if(isSeqMedia(m))walk(m.nestClips,d+1); } })(state.clips,0);
       const skipped=[];
       for(const m of vmap.values()){ if(cancelExport)break; if(m._exAudio)continue; try{ const st=await DSP.stat(m.path); if(!st||!st.size)continue;
@@ -5114,7 +5224,7 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
           const ab=await (await fetch(DSP.toFileURL(m.path))).arrayBuffer(); m._exAudio=await new Promise((res,rej)=>ACTX().decodeAudioData(ab,res,rej)); }
         catch(e){} } // no audio track / unsupported → the clip simply stays silent, like before
       if(skipped.length) flashStatus(T('Video audio skipped (file >1.5GB): ','Audio de vídeo omitido (archivo >1,5GB): ')+skipped.join(', '),'err'); } // [R94-UT3·U-21]
-    const audioBuf = (opt.codec==='still') ? null : await exportAudioMix(t0,endT); // a still has no audio
+    const audioBuf = (opt.codec==='still'||opt.noAudio) ? null : await exportAudioMix(t0,endT); // a still has no audio; neither has a render-in-place bake (opt.noAudio)
     if(opt.codec==='still'){ // single high-quality PNG of the current frame, rendered from ORIGINAL media (seekExport→seekMedia useOrig=true), with SSAA
       const t=state.playhead; await seekExport(t); prepNests(state.clips,t,0); renderExportFrame(t,qRes,exportSS(qRes),wall);
       const blob=await new Promise(r=>glc.toBlob(r,'image/png'));
@@ -5123,7 +5233,7 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
         else dlBlob(blob,fn); }
       job.prog(1,1);
     } else if(opt.codec==='png'){ const pad=Math.max(6,String(total).length), fnum=i=>String(i+1).padStart(pad,'0'); // [R96] IMERSA/AFDI Dome Master Spec: 6-digit frame number STARTING AT 1 ("Name_000001.png"). We shipped base-0 with a padding that shrank with the take length ("dome_000.png") — a planetarium can't ingest that without renaming every frame, and two exports of different lengths sorted inconsistently.
-      const renderFrame=async i=>{ const t=t0+i/fps; await seekExport(t); prepNests(state.clips,t,0); if(flat){ renderExportFrame(t,qRes,1,wall); } else { composite(t,res,false); gl.finish(); } return await new Promise(r=>glc.toBlob(r,'image/png')); };
+      const renderFrame=async i=>{ const t=t0+i/fps; await seekExport(t); prepNests(state.clips,t,0); if(flat){ renderExportFrame(t,qRes,1,wall); } else { composite(t,res,false); gl.finish(); } if(job.frame)job.frame(i,total); return await new Promise(r=>glc.toBlob(r,'image/png')); };
       if(IS_ELEC && DSP.chooseExportDir){ // stream to disk, no RAM buildup (handles 75-min 4K+)
         const dir=await DSP.chooseExportDir();
         if(!dir){ cancelExport=true; }
@@ -5155,6 +5265,7 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
         const frames=[], aChunks=[];
         for(let i=0;i<total;i++){ if(cancelExport||wErr)break;
           const t=t0+i/fps; await seekExport(t); prepNests(state.clips,t,0); renderExportFrame(t,qRes,ssE,wall);
+          if(job.frame)job.frame(i,total);
           const frame=hapFrame(dxtEncodeCanvas(F.tex,eW,eH),opt.codec,chunks);
           frames.push({off:put(frame),size:frame.length});
           if(pcm){ const s0=Math.floor(i*aSR/fps), s1=Math.min(aN,Math.floor((i+1)*aSR/fps)); // interleave the audio a frame at a time
@@ -5171,16 +5282,16 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
         if(wErr) throw new Error(T('Write failed during HAP export (disk full or no permission).','Fallo de escritura durante el export HAP (disco lleno o sin permiso).'));
         if(!cancelExport){ expOut=path; job.label(T('Saved','Guardado')); } }
     } else {
-      const isHevc=opt.codec==='hevc';
-      const codec=isHevc?await pickHevcCodec(eW,eH,opt.bitrate,fps):await pickAvcCodec(eW,eH,opt.bitrate,fps);
-      if(!codec) throw new Error(isHevc?T('H.265/HEVC is not available at '+res+'² on this GPU. Try H.264 at ≤4096², or PNG sequence (.zip).','H.265/HEVC no está disponible a '+res+'² en esta GPU. Prueba H.264 a ≤4096², o Secuencia PNG (.zip).'):T('This resolution exceeds H.264 limits. Use H.265/HEVC or PNG sequence (.zip) for '+res+'², or pick 4096² or lower for H.264.','Esta resolución supera el límite de H.264. Usa H.265/HEVC o Secuencia PNG (.zip) para '+res+'², o elige 4096² o menos para H.264.'));
+      const isHevc=opt.codec==='hevc'; const muxCodec=VCODECS[opt.codec]||'avc'; // [R179] av1 / vp9 / vp910 join h264 / hevc — same muxer, different picker
+      const codec=await pickVideoCodec(opt.codec,eW,eH,opt.bitrate,fps);
+      if(!codec) throw new Error(isHevc?T('H.265/HEVC is not available at '+res+'² on this build (Chromium caps its HEVC encoder near 1080p). Use AV1 for '+res+'², or PNG sequence (.zip).','H.265/HEVC no está disponible a '+res+'² en esta compilación (Chromium limita su codificador HEVC cerca de 1080p). Usa AV1 para '+res+'², o Secuencia PNG (.zip).'):T('This resolution exceeds the limits of that codec. Use AV1 for '+res+'² (it goes to 8192²), or PNG sequence (.zip).','Esta resolución supera el límite de ese códec. Usa AV1 para '+res+'² (llega a 8192²), o Secuencia PNG (.zip).'));
       const fn=`${filePre}_${dimStr}_${fps}fps.mp4`;
       // STREAMING-TO-DISK path (Electron): muxer output is written straight to the file via random-access fd writes → no multi-GB RAM buffer. (StreamTarget+writeAt reconstructs a byte-identical MP4 — verified in Node against ArrayBufferTarget.)
       const canStream=IS_ELEC && !!DSP.fileOpen && !!DSP.saveFile;
       let streamPath=null,fileId=null,wq=Promise.resolve(),wErr=null,pending=0;
-      if(canStream){ streamPath=opt.outPath||await DSP.saveFile(fn,'mp4','MP4 video'); if(!streamPath){ if(_ripSaved)state.clips=_ripSaved; try{ if($('#renderMask'))$('#renderMask').classList.remove('on'); }catch(_){} glc.width=oW;glc.height=oH; freeExportFBO(); nestSize=COMP; freeNestPool(); exporting=false; _exportQuality=false; disposeAllVinst(); for(const m of state.media)if(m._exAudio)delete m._exAudio; if(_rsSeq)switchSeq(_rsSeq); resize(); try{scrubRender();}catch(_){} job.done(true); return; } fileId=await DSP.fileOpen(streamPath); } // FULL cleanup on this early return — it used to leak _exportQuality=true (viewer stuck binding heavy originals: "the editor went crazy after export")
+      if(canStream){ streamPath=opt.outPath||await DSP.saveFile(fn,'mp4','MP4 video'); if(!streamPath){ if(_ripSaved)state.clips=_ripSaved; try{ if($('#renderMask'))$('#renderMask').classList.remove('on'); }catch(_){} glc.width=oW;glc.height=oH; freeExportFBO(); nestSize=COMP; freeNestPool(); exporting=false; _exportQuality=false; _ncSquare=false; disposeAllVinst(); for(const m of state.media)if(m._exAudio)delete m._exAudio; if(_rsSeq)switchSeq(_rsSeq); resize(); try{scrubRender();}catch(_){} job.done(true); return; } fileId=await DSP.fileOpen(streamPath); } // FULL cleanup on this early return — it used to leak _exportQuality=true (viewer stuck binding heavy originals: "the editor went crazy after export")
       const streaming=canStream && fileId!=null;
-      const muxCfg={video:{codec:isHevc?'hevc':'avc',width:eW,height:eH}};
+      const muxCfg={video:{codec:muxCodec,width:eW,height:eH}};
       if(streaming){ muxCfg.fastStart=false; muxCfg.target=new Mp4Muxer.StreamTarget({chunked:true,onData:(data,position)=>{ const buf=data.slice(); pending++; wq=wq.then(()=>DSP.fileWriteAt(fileId,position,buf)).then(ok=>{pending--; if(ok===false)wErr=wErr||new Error('disk write failed');},e=>{pending--;wErr=wErr||e;}); }}); }
       else { muxCfg.fastStart='in-memory'; muxCfg.target=new Mp4Muxer.ArrayBufferTarget(); }
       let wantAudio=false; if(audioBuf && typeof AudioEncoder!=='undefined'){ try{ const sup=await AudioEncoder.isConfigSupported({codec:'mp4a.40.2',sampleRate:audioBuf.sampleRate,numberOfChannels:audioBuf.numberOfChannels,bitrate:192000}); wantAudio=!!(sup&&sup.supported); }catch(e){ wantAudio=false; } } // only declare the AAC track if it will actually encode (else valid silent MP4)
@@ -5190,6 +5301,7 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
       enc.configure({codec,width:eW,height:eH,bitrate:opt.bitrate,framerate:fps,bitrateMode:'variable',latencyMode:'quality'});
       const us=1e6/fps,gop=Math.max(1,Math.round(fps)); const ssE=exportSS(qRes); // supersampling factor (2× when the GPU allows)
       for(let i=0;i<total;i++){ if(cancelExport||encErr||wErr)break; const t=t0+i/fps; await seekExport(t); prepNests(state.clips,t,0); renderExportFrame(t,qRes,ssE,wall);
+        if(job.frame)job.frame(i,total); // [R179] live thumbnail for the progress viewer — read glc HERE, while the drawing buffer is still valid (same rule the VideoFrame below lives by)
         if(enc.state!=='configured'){encErr=encErr||new Error('codec closed');break;}
         const vf=new VideoFrame(glc,{timestamp:Math.round(i*us),duration:Math.round(us)});
         try{ enc.encode(vf,{keyFrame:i%gop===0}); }catch(e){ encErr=e; vf.close(); break; }
@@ -5199,7 +5311,7 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
       if(wantAudio && !cancelExport && !encErr){ job.label(T('Encoding audio…','Codificando audio…')); try{ await muxAudioAAC(mux,audioBuf); }catch(e){ console.warn('audio mux',e); } }
       if(!encErr && !cancelExport) mux.finalize();
       if(streaming){ try{ await wq; }catch(e){} try{ await DSP.fileClose(fileId); }catch(e){} }
-      if(encErr) throw new Error(T('H.264 encoding failed at '+res+'² (','La codificación H.264 falló a '+res+'² (')+(encErr.message||encErr)+T('). Try a lower resolution or PNG sequence.','). Prueba una resolución menor o Secuencia PNG.'));
+      if(encErr) throw new Error(T('Encoding failed at '+res+'² with '+codec+' (','La codificación falló a '+res+'² con '+codec+' (')+(encErr.message||encErr)+T('). Try a lower resolution or PNG sequence.','). Prueba una resolución menor o Secuencia PNG.'));
       if(wErr) throw new Error(T('Write failed during MP4 export (disk full or no permission).','Fallo de escritura durante el export MP4 (disco lleno o sin permiso).'));
       if(!cancelExport){
         if(streaming){ job.label(T('Saved','Guardado')); expOut=streamPath; } // already written to disk chunk-by-chunk
@@ -5207,10 +5319,10 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
           if(p){ job.label(T('Saving…','Guardando…')); const ok=await DSP.writeBinary(p, new Uint8Array(mux.target.buffer)); if(ok===false)throw new Error(T('Write failed (disk full, locked, or no permission).','Fallo de escritura (disco lleno, bloqueado o sin permiso).')); expOut=p; } }
         else dlBlob(new Blob([mux.target.buffer],{type:'video/mp4'}),fn); }
     }
-  }catch(err){console.error(err);appAlert(T('Error export: ','Error de exportación: ')+err.message);}
+  }catch(err){console.error(err); if(job&&job.fail){ job.fail(err); } else appAlert(T('Error export: ','Error de exportación: ')+err.message); } // [R179] a job that declares job.fail owns the error (render-in-place must NOT go on to import a half-written file); everyone else keeps the alert
   diag('info','export',cancelExport?'cancelled':'done',{codec:opt.codec,res}); diagFlush();
   if(_ripSaved)state.clips=_ripSaved; // [R115] restore the full clip list after an isolated render-in-place
-  glc.width=oW;glc.height=oH; try{ if($('#renderMask'))$('#renderMask').classList.remove('on'); }catch(_){} freeExportFBO(); dxtFree(); nestSize=COMP; freeNestPool(); exporting=false; _exportQuality=false; disposeAllVinst(); for(const m of state.media)if(m._exAudio)delete m._exAudio; if(_rsSeq)switchSeq(_rsSeq); resize(); try{scrubRender();}catch(_){} job.done(cancelExport); // _exAudio freed: decoded video audio is export-only (1h ≈ 1.4GB PCM)
+  glc.width=oW;glc.height=oH; try{ if($('#renderMask'))$('#renderMask').classList.remove('on'); }catch(_){} freeExportFBO(); dxtFree(); nestSize=COMP; freeNestPool(); exporting=false; _exportQuality=false; _ncSquare=false; disposeAllVinst(); for(const m of state.media)if(m._exAudio)delete m._exAudio; if(_rsSeq)switchSeq(_rsSeq); resize(); try{scrubRender();}catch(_){} job.done(cancelExport); // _exAudio freed: decoded video audio is export-only (1h ≈ 1.4GB PCM)
   if(!cancelExport && expOut && !opt.silent && IS_ELEC && DSP.revealPath){ appConfirm(T('Export complete. Open the folder?','Exportación completa. ¿Abrir la carpeta?'),ok=>{ if(ok)try{DSP.revealPath(expOut);}catch(e){} },{ok:T('Open folder','Abrir carpeta'),cancel:T('Close','Cerrar')}); } // R82: offer to reveal the exported file/folder
 }
 /* ===================== R115 · RENDER IN PLACE ===================== */
@@ -5227,77 +5339,210 @@ function addVideoFromPath(path,name){ return new Promise(resolve=>{ if(!(IS_ELEC
     state.media.push(m); adopt(m); renderMedia(); markDirty();
     detectFps(v,m,()=>{ seekMedia(m,0,true).then(()=>{makeThumb(m);render();}); });
     resolve(m); },{once:true}); }); }
-function ripFormatDialog(m,c,layoutStr,flat){ return new Promise(resolve=>{ const ov=document.createElement('div'); ov.className='overlay'; ov.style.zIndex='320';
-  ov.innerHTML=`<div class="modal" style="width:410px;"><div class="mh"><span style="color:var(--ink-2);display:flex;">${ICO('layers',16)}</span><span class="t">${T('Render in place','Renderizar en el sitio')}</span></div><div class="mb">
-    <div class="frow"><label>${T('Clip','Clip')}</label><span class="tnum" style="color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${(m.name||'').slice(0,34)}${isSeqMedia(m)?' · '+T('composition','composición'):''}</span></div>
-    <div class="frow"><label>${T('Duration','Duración')}</label><span class="tnum" style="color:var(--ink-2);">${c.dur.toFixed(2)} s · ${layoutStr}</span></div>
-    <div class="frow"><label>${T('Format','Formato')}</label><select id="ripFmt" style="flex:1;"><option value="hevc" ${!flat?'selected':''}>HEVC · H.265</option><option value="h264" ${flat?'selected':''}>H.264</option></select><span class="tnum" style="color:var(--ink-dim);">.mp4</span></div>
-    <div style="font-size:11px;color:var(--ink-dim);margin-top:2px;line-height:1.5;">${T('Bakes this clip’s effects & automation into a light file in the project’s “rendered clips” folder and replaces it here. External adjustment layers are not included; the source stays in Media.','Hornea los efectos y la automatización de este clip en un archivo liviano en la carpeta “rendered clips” del proyecto y lo reemplaza aquí. Las capas de ajuste externas no se incluyen; la fuente queda en Media.')}</div>
-    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;"><button class="mbtn" id="ripCancel">${T('Cancel','Cancelar')}</button><button class="mbtn pri" id="ripGo">${ICO('layers')} ${T('Render','Renderizar')}</button></div></div></div>`;
+/* [R179] Bitrate for a BAKE, not for a delivery master: this file gets composited again, so we spend bits
+   generously. The figures are per-codec because AV1/VP9 buy the same look for noticeably fewer bits. */
+function ripBitrate(kind,w,h,fps){ const bpp=(kind==='av1')?0.20:((kind==='vp9'||kind==='vp910')?0.24:0.30);
+  return Math.round(Math.max(12,Math.min(900, w*h*fps*bpp/1e6))*1e6); }
+const RIP_CODECS=[ // ranked: the first one the encoder accepts at this size becomes the default
+  {kind:'h264',  label:'H.264',      note:['fastest · hardware','el más rápido · por hardware']},
+  {kind:'hevc',  label:'H.265 / HEVC',note:['hardware · smaller files','por hardware · archivos más pequeños']},
+  {kind:'av1',   label:'AV1',        note:['best quality at large sizes · software','mejor calidad en tamaños grandes · por software']},
+  {kind:'vp910', label:'VP9 10-bit', note:['no banding on gradients · slowest','sin bandas en degradados · el más lento']},
+];
+/* Ask the ENCODER which of them it will really take at this exact size — the answer is not guessable and it is
+   not the same on every machine. Measured here (Chromium 148 + RTX): H.264 stops at 3072², HEVC never passes
+   1080p, AV1 reaches 8192². Probing beats hard-coding: the next Electron bump moves these walls again. */
+async function ripCodecOptions(w,h,fps){ const out=[];
+  for(const o of RIP_CODECS){ const bitrate=ripBitrate(o.kind,w,h,fps); const codec=await pickVideoCodec(o.kind,w,h,bitrate,fps);
+    if(codec)out.push({kind:o.kind,label:o.label,note:o.note,bitrate,codec}); }
+  return out; }
+function ripFormatDialog(name,dur,eW,eH,fps,flat,opts,isNest){ return new Promise(resolve=>{
+  const dim=flat?(eW+'×'+eH):(eW+'²');
+  const est=o=>{ const mb=o.bitrate/8*dur/1e6; return mb>=1000?(mb/1000).toFixed(2)+' GB':Math.max(1,Math.round(mb))+' MB'; };
+  const ov=document.createElement('div'); ov.className='overlay'; ov.style.zIndex='320';
+  ov.innerHTML=`<div class="modal" style="width:430px;"><div class="mh"><span style="color:var(--ink-2);display:flex;">${ICO('layers',16)}</span><span class="t">${T('Render in place','Renderizar en el sitio')}</span></div><div class="mb">
+    <div class="frow"><label>${T('Source','Fuente')}</label><span class="tnum" style="color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${(name||'').slice(0,36)}${isNest?' · '+T('composition','composición'):''}</span></div>
+    <div class="frow"><label>${T('Output','Salida')}</label><span class="tnum" style="color:var(--ink-2);">${dim} · ${fps} fps · ${dur.toFixed(2)} s · ${T('no audio','sin audio')}</span></div>
+    ${opts.length?`<div class="frow"><label>${T('Codec','Códec')}</label><select id="ripFmt" style="flex:1;">${opts.map((o,i)=>`<option value="${i}">${o.label} · ${Math.round(o.bitrate/1e6)} Mbps</option>`).join('')}</select><span class="tnum" style="color:var(--ink-dim);">.mp4</span></div>
+    <div class="frow"><label></label><span id="ripInfo" class="tnum" style="color:var(--ink-dim);font-size:11px;"></span></div>`
+    :`<div style="font-size:11px;color:var(--err,#e06060);line-height:1.5;">${T('No encoder on this machine accepts '+dim+'. Export a PNG sequence instead, or lower the sequence resolution.','Ningún codificador de esta máquina acepta '+dim+'. Exporta una secuencia PNG, o baja la resolución de la secuencia.')}</div>`}
+    <div style="font-size:11px;color:var(--ink-dim);margin-top:2px;line-height:1.5;">${T('Bakes to a file in the project’s “rendered clips” folder and drops it on a NEW track at the same position. Nothing is deleted — mute or remove the sources yourself.','Hornea a un archivo en la carpeta “rendered clips” del proyecto y lo coloca en una pista NUEVA en la misma posición. No se borra nada — silencia o elimina las fuentes tú mismo.')}</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;"><button class="mbtn" id="ripCancel">${T('Cancel','Cancelar')}</button>${opts.length?`<button class="mbtn pri" id="ripGo">${ICO('layers')} ${T('Render','Renderizar')}</button>`:''}</div></div></div>`;
   document.body.appendChild(ov); const close=r=>{ ov.remove(); resolve(r); };
+  const sel=ov.querySelector('#ripFmt'), info=ov.querySelector('#ripInfo');
+  const paint=()=>{ const o=opts[+sel.value]||opts[0]; info.textContent='≈ '+est(o)+' · '+T(o.note[0],o.note[1]); };
+  if(sel){ sel.onchange=paint; paint(); }
   ov.querySelector('#ripCancel').onclick=()=>close(null); ov.addEventListener('pointerdown',e=>{if(e.target===ov)close(null);});
-  ov.querySelector('#ripGo').onclick=()=>close({format:ov.querySelector('#ripFmt').value}); }); }
-async function renderInPlace(clip){
-  if(!IS_ELEC){ appAlert(T('Render in place needs the desktop app.','Renderizar en el sitio necesita la app de escritorio.')); return; }
-  const c=clip||selClip(); if(!c)return; const m=mediaById(c.mediaId); if(!m||m.kind==='audio'){ flashStatus(T('Pick a video or composition clip','Elige un clip de vídeo o composición'),'err'); return; }
-  if(!currentPath){ appAlert(T('Save the project first — the rendered clip goes beside it in a “rendered clips” folder.','Guarda el proyecto primero — el clip renderizado va junto a él en una carpeta “rendered clips”.')); return; }
-  const as=activeSeq(); const flat=isFlat(); const layoutStr=flat?((as.w||1920)+'×'+(as.h||1080)):((as.w||4096)+'²');
-  const choice=await ripFormatDialog(m,c,layoutStr,flat); if(!choice)return;
-  const fps=as.fps||state.fps||60, res=flat?(as.w||1920):(as.w||4096);
-  const codec=(choice.format==='h264')?'h264':'hevc'; // render-in-place is H.264 / H.265 only (no PNG-seq / HAP)
-  const eW=flat?(as.w||1920):res, eH=flat?(as.h||1080):res, br=suggestBitrate(res,fps,flat?eW:0,flat?eH:0)*1e6;
-  const i=Math.max(currentPath.lastIndexOf('\\'),currentPath.lastIndexOf('/')), projDir=currentPath.slice(0,i), dir=projDir+'\\rendered clips';
-  try{ if(DSP.ensureDir)await DSP.ensureDir(dir); }catch(e){ appAlert(T('Could not create the “rendered clips” folder.','No se pudo crear la carpeta “rendered clips”.')); return; }
-  const safe=(m.name||'clip').replace(/[\\/:*?"<>|]/g,'_').slice(0,60);
-  const outPath=dir+'\\'+safe+' ['+layoutStr.replace('×','x')+' '+codec+'] '+uid().slice(0,5)+'.mp4';
-  let cancelled=false; const job={ prog:(n,t)=>{ if(n===1||n>=t||n%8===0)flashStatus(T('Rendering in place… ','Renderizando en el sitio… ')+Math.round(n/t*100)+'%'); }, label:()=>{}, done:cx=>{ cancelled=!!cx; } };
-  flashStatus(T('Rendering in place…','Renderizando en el sitio…'));
-  try{ await runExport({codec,res,fps,bitrate:br,range:'clips',rangeT:[c.start,c.start+c.dur],isolateClips:[c],outPath,silent:true,job}); }
-  catch(e){ flashStatus(T('Render in place failed','Falló el render en el sitio'),'err'); return; }
-  let ok=false; try{ const st=await DSP.stat(outPath); ok=!!(st&&st.size>0); }catch(e){}
-  if(cancelled||!ok){ flashStatus(T('Render in place cancelled','Render en el sitio cancelado'),'err'); return; }
-  const nm=await addVideoFromPath(outPath,safe); if(!nm){ flashStatus(T('Could not import the rendered file','No se pudo importar el archivo renderizado'),'err'); return; }
-  pushUndo();
-  const lane=c.lane, start=c.start, dur=c.dur; const nc=makeClip(nm,lane,start); nc.start=start; nc.dur=dur; nc.inP=0;
-  if(!flat)nc.props.fulldome=true; // dome master fills the dome 1:1 (no re-warp)
-  const idx=state.clips.indexOf(c); if(idx>=0)state.clips.splice(idx,1);
+  const go=ov.querySelector('#ripGo'); if(go)go.onclick=()=>close(opts[+sel.value]||opts[0]); }); }
+/* [R179] The bake used to run behind a status-bar percentage that a short clip blew through in a blink — it
+   read as "nothing happened". Now it has its own viewer: the frame being rendered, a bar, the frame count, an
+   ETA and a Cancel that actually stops the encoder loop. */
+function ripProgress(title,meta,aspect){
+  const pw=330, ph=Math.max(110,Math.round(pw/(aspect||1)));
+  const ov=document.createElement('div'); ov.className='overlay'; ov.style.zIndex='340';
+  ov.innerHTML=`<div class="modal" style="width:${pw+48}px;"><div class="mh"><span style="color:var(--ink-2);display:flex;">${ICO('layers',16)}</span><span class="t">${title}</span></div><div class="mb">
+    <canvas id="ripPv" width="${pw}" height="${ph}" style="width:100%;height:auto;display:block;background:var(--bg-0);border-radius:3px;"></canvas>
+    <div style="display:flex;align-items:center;gap:10px;margin-top:11px;"><span class="qbar" style="flex:1;"><i id="ripBar"></i></span><span id="ripPct" class="tnum" style="color:var(--ink);font-size:11px;min-width:34px;text-align:right;">0%</span></div>
+    <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:11px;color:var(--ink-dim);"><span id="ripLbl">${T('Preparing…','Preparando…')}</span><span id="ripEta" class="tnum"></span></div>
+    <div style="margin-top:3px;font-size:11px;color:var(--ink-dim);">${meta}</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;"><button class="mbtn" id="ripStop">${T('Cancel','Cancelar')}</button></div></div></div>`;
+  document.body.appendChild(ov);
+  const cv=ov.querySelector('#ripPv'), cx=cv.getContext('2d');
+  const bar=ov.querySelector('#ripBar'), pct=ov.querySelector('#ripPct'), lbl=ov.querySelector('#ripLbl'), eta=ov.querySelector('#ripEta'), stop=ov.querySelector('#ripStop');
+  let cancelled=false, failed=null, t0=performance.now(), lastPv=-999;
+  const mmss=s=>{ s=Math.max(0,Math.round(s)); return Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); };
+  stop.onclick=()=>{ cancelled=true; cancelExport=true; stop.disabled=true; lbl.textContent=T('Cancelling…','Cancelando…'); }; // same flag every export loop polls
+  const job={
+    prog:(n,t)=>{ const f=Math.max(0,Math.min(1,n/t)); bar.style.width=(f*100).toFixed(1)+'%'; pct.textContent=Math.round(f*100)+'%';
+      if(!cancelled)lbl.textContent=T('Frame ','Fotograma ')+n+' / '+t;
+      const el=(performance.now()-t0)/1000; eta.textContent=(n>=3&&n<t)?(mmss(el/n*(t-n))+' '+T('left','restante')):''; },
+    label:s=>{ if(!cancelled)lbl.textContent=s; },
+    /* the WebGL drawing buffer is only readable inside the render task — same rule the VideoFrame lives by, so
+       this runs where it is called from and never on a timer. Every 5th frame keeps the cost near zero. */
+    frame:(i,total)=>{ if(i!==0&&i!==total-1&&i-lastPv<5)return; lastPv=i; try{ cx.drawImage(glc,0,0,cv.width,cv.height); }catch(e){} },
+    fail:e=>{ failed=e; },
+    done:cx=>{ if(cx)cancelled=true; }, // cancelExport can also be raised from the status bar ✕ — trust the flag, not just our button
+  };
+  return { job, close:()=>{ try{ov.remove();}catch(e){} }, cancelled:()=>cancelled, failed:()=>failed };
+}
+/* [R179] A bake ALWAYS lands on a new video track directly above the rest, at the exact same place on the
+   timeline, and nothing is removed. Muting or deleting the sources is the editor's call, not ours.
+   `push` is what puts it on top: compositeClips paints lane 0 → n (last = frontmost) and lanesTopDown()
+   reverses for display, so the highest index is the top row AND the top layer. */
+function ripPlaceOnNewTrack(nm,start,dur,flat,laneName,aboveLane){
+  const n=state.lanes.filter(l=>l.kind==='video').length+1;
+  const lane={id:uid(),name:laneName||('Render '+n),tag:'V'+n,kind:'video'};
+  let li;
+  /* Un horneado NO tiene alfa: el MP4 es un fotograma completo con negro donde no había nada. En la pista más
+     alta, el horneado de UN clip tapaba en negro todas las demás pistas de ese tramo. Por eso el de un clip se
+     inserta justo ENCIMA DE SU ORIGEN: lo que estaba por encima sigue componiéndose por encima, como antes.
+     El de una selección sí va arriba del todo, que es lo correcto — ahí el horneado ES el composite entero. */
+  if(aboveLane!=null && aboveLane>=0 && aboveLane<state.lanes.length){
+    li=aboveLane+1; state.lanes.splice(li,0,lane);
+    for(const c of state.clips) if(c.lane>=li) c.lane++; // los clips guardan la pista por índice: insertar en medio obliga a correrlos
+  } else { state.lanes.push(lane); li=state.lanes.length-1; }
+  const nc=makeClip(nm,li,start); nc.start=start; nc.dur=dur; nc.inP=0;
+  if(!flat)nc.props.fulldome=true; // a dome master maps 1:1 into the dome — never warp it a second time
   state.clips.push(nc); state.selId=nc.id; state.selIds=[nc.id]; state.selGroupId=null;
   renderMedia(); renderTimeline(); renderInspector(); render(); updStatus(); markDirty();
-  flashStatus(T('Rendered in place → ','Renderizado en el sitio → ')+nm.name);
+  return nc;
+}
+/* Shared body of both entry points: pick a codec for the sequence size, bake the range with NO audio behind a
+   progress viewer, import the result and drop it on a new top track over the very same span. */
+async function ripRun({name,a,b,isolateClips,isNest,laneName,aboveLane}){
+  if(!IS_ELEC){ appAlert(T('Render in place needs the desktop app.','Renderizar en el sitio necesita la app de escritorio.')); return; }
+  if(!currentPath){ appAlert(T('Save the project first — the rendered clip goes beside it in a “rendered clips” folder.','Guarda el proyecto primero — el clip renderizado va junto a él en una carpeta “rendered clips”.')); return; }
+  const as=activeSeq(); const flat=isFlat(); const dur=b-a;
+  const fps=as.fps||state.fps||60, res=flat?(as.w||1920):(as.w||4096);
+  const eW=flat?(as.w||1920):res, eH=flat?(as.h||1080):res;
+  const opts=await ripCodecOptions(eW,eH,fps);
+  const choice=await ripFormatDialog(name,dur,eW,eH,fps,flat,opts,isNest); if(!choice)return;
+  const i=Math.max(currentPath.lastIndexOf('\\'),currentPath.lastIndexOf('/')), projDir=currentPath.slice(0,i), dir=projDir+'\\rendered clips';
+  try{ if(DSP.ensureDir)await DSP.ensureDir(dir); }catch(e){ appAlert(T('Could not create the “rendered clips” folder.','No se pudo crear la carpeta “rendered clips”.')); return; }
+  const safe=(name||'clip').replace(/[\\/:*?"<>|]/g,'_').slice(0,60);
+  const dimStr=flat?(eW+'x'+eH):(eW+'');
+  const outPath=dir+'\\'+safe+' ['+dimStr+' '+choice.kind+'] '+String(uid()).padStart(4,'0')+'.mp4'; // [R179] uid() is a NUMBER (let _id=1; ()=>_id++). The old `uid().slice(0,5)` threw a TypeError right here, before a single frame was rendered — which is exactly why render-in-place looked like it did nothing at all.
+  const ui=ripProgress(T('Rendering in place','Renderizando en el sitio'), dimStr.replace('x','×')+' · '+choice.label+' · '+Math.round(choice.bitrate/1e6)+' Mbps · '+fps+' fps', flat?(eW/eH):1);
+  let thrown=null;
+  try{ await runExport({codec:choice.kind,res,fps,bitrate:choice.bitrate,range:'clips',rangeT:[a,b],isolateClips,outPath,silent:true,noAudio:true,job:ui.job}); }
+  catch(e){ thrown=e; }
+  ui.close();
+  const failed=thrown||ui.failed();
+  const rm=async()=>{ try{ if(DSP.deleteFile)await DSP.deleteFile(outPath); }catch(e){} }; // the streaming writer has already put bytes on disk — don't leave a stub behind
+  if(failed){ await rm(); appAlert(T('Render in place failed: ','Falló el render en el sitio: ')+(failed.message||failed)); return; }
+  if(ui.cancelled()){ flashStatus(T('Render in place cancelled','Render en el sitio cancelado'),'err'); await rm(); return; }
+  let ok=false; try{ const st=await DSP.stat(outPath); ok=!!(st&&st.size>0); }catch(e){}
+  if(!ok){ flashStatus(T('Render in place produced no file','El render en el sitio no produjo archivo'),'err'); return; }
+  const nm=await addVideoFromPath(outPath,safe); if(!nm){ flashStatus(T('Could not import the rendered file','No se pudo importar el archivo renderizado'),'err'); return; }
+  pushUndo();
+  ripPlaceOnNewTrack(nm,a,dur,flat,laneName,aboveLane);
+  flashStatus(T('Rendered → new track · ','Renderizado → pista nueva · ')+nm.name);
+  return true;
+}
+async function renderInPlace(clip){
+  const c=clip||selClip(); if(!c)return; const m=mediaById(c.mediaId); if(!m||m.kind==='audio'){ flashStatus(T('Pick a video or composition clip','Elige un clip de vídeo o composición'),'err'); return; }
+  await ripRun({name:m.name||'clip', a:c.start, b:c.start+c.dur, isolateClips:[c], isNest:isSeqMedia(m), laneName:'RIP · '+(m.name||'clip').slice(0,24), aboveLane:c.lane});
 }
 /* [R1] Render a TIME SELECTION (in/out) in place: bake the FULL composite over [a,b] (all clips + adjustment layers → a
    true flatten) to a light MP4 and drop it as one clip on a NEW top video track covering the range. Non-destructive —
    the source clips stay underneath; undo with ⌘Z. */
+/* ===================== [R180] Generar el caché de un nest =====================
+   Reutiliza entero el motor de horneado: `runExport({seqId})` es el mismo camino con el que ya se exporta el
+   piso de la sala 360 — cambia a esa secuencia, la renderiza y vuelve. Aquí se hornea el nest completo
+   [0, m.dur] para que el caché mapee 1:1 con su tiempo interno, CON audio (la mezcla del nest va dentro: es
+   lo que permite dejar de descender a los hijos sin quedarse sin sonido). */
+function ncBitrate(w,h,fps){ return Math.round(Math.max(8,Math.min(220, w*h*fps*0.10/1e6))*1e6); } // ~0,10 bpp: la mitad que un horneado definitivo. Nunca llega al export, así que sobra.
+/* El archivo se hornea CUADRADO (lado = el mayor), porque así es la textura que produce prepNests: el composite
+   del nest letterboxeado en un cuadrado. La etiqueta enseña las dimensiones del nest, que es lo que le importa
+   al montador; `s` es lo que de verdad se escribe. */
+function ncDivOptions(m){ const W=m.w||1920,H=m.h||1080; const out=[];
+  for(const d of [1,2,3,4]){ const w=Math.max(16,Math.round(W/d/2)*2), h=Math.max(16,Math.round(H/d/2)*2);
+    out.push({d,w,h,s:Math.max(16,Math.round(Math.max(w,h)/2)*2),label:(d===1?T('Full','Completa'):'1/'+d)+' · '+w+'×'+h}); }
+  return out; }
+async function ncDialog(m,opts){ return new Promise(resolve=>{
+  const fps=m.fps||state.fps||60, dur=m.dur||1;
+  const est=o=>{ const mb=ncBitrate(o.s,o.s,fps)/8*dur/1e6; return mb>=1000?(mb/1000).toFixed(2)+' GB':Math.max(1,Math.round(mb))+' MB'; };
+  const def=opts.findIndex(o=>o.s<=2048); const sel0=def>=0?def:opts.length-1; // por defecto, la mayor que quepa en 2048: ahí el H.264 va por hardware
+  const ov=document.createElement('div'); ov.className='overlay'; ov.style.zIndex='320';
+  ov.innerHTML=`<div class="modal" style="width:430px;"><div class="mh"><span style="color:var(--ink-2);display:flex;">${ICO('layers',16)}</span><span class="t">${T('Nest proxy','Proxy de composición')}</span></div><div class="mb">
+    <div class="frow"><label>${T('Composition','Composición')}</label><span class="tnum" style="color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${(m.name||'').slice(0,34)}</span></div>
+    <div class="frow"><label>${T('Length','Duración')}</label><span class="tnum" style="color:var(--ink-2);">${dur.toFixed(2)} s · ${fps} fps · ${(m.nestClips||[]).length} ${T('clips','clips')}</span></div>
+    <div class="frow"><label>${T('Resolution','Resolución')}</label><select id="ncRes" style="flex:1;">${opts.map((o,i)=>`<option value="${i}" ${i===sel0?'selected':''}>${o.label}</option>`).join('')}</select></div>
+    <div class="frow"><label></label><span id="ncInfo" class="tnum" style="color:var(--ink-dim);font-size:11px;"></span></div>
+    <div style="font-size:11px;color:var(--ink-dim);margin-top:2px;line-height:1.5;">${T('Used only while editing, so the composition plays as ONE video instead of decoding every clip inside it. The final export always rebuilds it from the original sources — a PNG sequence stays lossless.','Se usa sólo mientras editas, para que la composición se reproduzca como UN vídeo en vez de decodificar cada clip de dentro. El export final siempre la reconstruye desde las fuentes originales — una secuencia PNG sigue siendo sin pérdida.')}</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;"><button class="mbtn" id="ncCancel">${T('Cancel','Cancelar')}</button><button class="mbtn pri" id="ncGo">${ICO('layers')} ${T('Generate','Generar')}</button></div></div></div>`;
+  document.body.appendChild(ov); const close=r=>{ ov.remove(); resolve(r); };
+  const sel=ov.querySelector('#ncRes'), info=ov.querySelector('#ncInfo');
+  const paint=()=>{ const o=opts[+sel.value]; info.textContent='≈ '+est(o)+' · '+o.w+'×'+o.h; };
+  sel.onchange=paint; paint();
+  ov.querySelector('#ncCancel').onclick=()=>close(null); ov.addEventListener('pointerdown',e=>{if(e.target===ov)close(null);});
+  ov.querySelector('#ncGo').onclick=()=>close(opts[+sel.value]); }); }
+async function ncBuild(m){
+  if(!IS_ELEC){ appAlert(T('Nest proxies need the desktop app.','Los proxies de composición necesitan la app de escritorio.')); return; }
+  if(!m||m.kind!=='nest'){ flashStatus(T('Pick a composition','Elige una composición'),'err'); return; }
+  if(!(m.nestClips||[]).length){ flashStatus(T('That composition is empty','Esa composición está vacía'),'err'); return; }
+  /* [R180] Sólo composiciones CUADRADAS (las de domo, que es para lo que existe esto). En una no cuadrada el
+     encuadre no coincide con el de la composición recompuesta — MEDIDO: el centro de masa se va un 29% en
+     vertical en un nest 16:9. La causa está en cómo `flatPlace` mapea la textura del pool frente a la de un
+     vídeo, y no se ha aislado todavía. Antes que servir un encuadre distinto en silencio, se dice que no. */
+  if((m.w||0)!==(m.h||0)){ appAlert(T('Nest proxies are available for square compositions (dome) for now. This one is '+(m.w||0)+'×'+(m.h||0)+' and its framing would not match the rebuilt composition.','Los proxies de composición están disponibles por ahora para composiciones cuadradas (domo). Esta es '+(m.w||0)+'×'+(m.h||0)+' y su encuadre no coincidiría con la composición recompuesta.')); return; }
+  if(!currentPath){ appAlert(T('Save the project first — nest proxies go beside it in a “nest proxies” folder.','Guarda el proyecto primero — los proxies de composición van junto a él en una carpeta “nest proxies”.')); return; }
+  const choice=await ncDialog(m,ncDivOptions(m)); if(!choice)return;
+  const fps=m.fps||state.fps||60, dur=m.dur||1;
+  const cods=await ripCodecOptions(choice.s,choice.s,fps); // el ARCHIVO es cuadrado
+  if(!cods.length){ appAlert(T('No encoder accepts '+choice.s+'² on this machine.','Ningún codificador acepta '+choice.s+'² en esta máquina.')); return; }
+  const cod=cods[0]; const bitrate=ncBitrate(choice.s,choice.s,fps);
+  const i=Math.max(currentPath.lastIndexOf('\\'),currentPath.lastIndexOf('/')), dir=currentPath.slice(0,i)+'\\nest proxies';
+  try{ if(DSP.ensureDir)await DSP.ensureDir(dir); }catch(e){ appAlert(T('Could not create the “nest proxies” folder.','No se pudo crear la carpeta “nest proxies”.')); return; }
+  const safe=(m.name||'nest').replace(/[\\/:*?"<>|]/g,'_').slice(0,50);
+  const outPath=dir+'\\'+safe+' ['+choice.w+'x'+choice.h+'] '+String(uid()).padStart(4,'0')+'.mp4'; // nombre nuevo cada vez: sobrescribir el que está enlazado a un <video> vivo falla en Windows
+  const old=m.ncPath;
+  const ui=ripProgress(T('Nest proxy','Proxy de composición'), (m.name||'').slice(0,22)+' · '+choice.w+'×'+choice.h+' · '+cod.label+' · '+fps+' fps', 1);
+  let thrown=null;
+  try{ await runExport({seqId:m.id, codec:cod.kind, res:choice.s, fps, bitrate, range:'clips', rangeT:[0,dur], outW:choice.s, outH:choice.s, squareNest:true, outPath, silent:true, job:ui.job}); }
+  catch(e){ thrown=e; }
+  ui.close();
+  const failed=thrown||ui.failed();
+  const rm=async()=>{ try{ if(DSP.deleteFile)await DSP.deleteFile(outPath); }catch(e){} };
+  if(failed){ await rm(); appAlert(T('Nest proxy failed: ','Falló el proxy de composición: ')+(failed.message||failed)); return; }
+  if(ui.cancelled()){ await rm(); flashStatus(T('Nest proxy cancelled','Proxy de composición cancelado'),'err'); return; }
+  let ok=false; try{ const st=await DSP.stat(outPath); ok=!!(st&&st.size>0); }catch(e){}
+  if(!ok){ flashStatus(T('Nest proxy produced no file','El proxy de composición no produjo archivo'),'err'); return; }
+  /* La firma se toma AQUÍ, no antes de renderizar: entrar en la secuencia del nest la MUTA — loadSeqIntoState
+     le añade una pista de audio si no tiene y corre los clips un índice (migración idempotente, neutra para la
+     imagen). Firmando antes, el caché nacía rancio en el mismo instante de crearse. */
+  ncAttach(m,outPath,nestSig(m),choice.w,choice.h,fps);
+  if(old&&old!==outPath&&DSP.deleteFile){ try{ await DSP.deleteFile(old); }catch(e){} } // el anterior sólo se borra cuando el nuevo ya está enlazado
+  renderMedia(); renderTimeline(); renderInspector(); render(); markDirty();
+  flashStatus(T('Nest proxy ready · ','Proxy de composición listo · ')+choice.w+'×'+choice.h);
+}
 async function renderRangeInPlace(){
-  if(!IS_ELEC){ appAlert(T('Render in place needs the desktop app.','Renderizar en el sitio necesita la app de escritorio.')); return; }
   const sA=state.tl.selA, sB=state.tl.selB; let a,b;
   if(sA!=null&&sB!=null&&Math.abs(sB-sA)>1e-3){ a=Math.min(sA,sB); b=Math.max(sA,sB); }
   else if(state.workIn!=null&&state.workOut!=null&&state.workOut>state.workIn+1e-3){ a=state.workIn; b=state.workOut; }
   else { flashStatus(T('Make a time selection (or set In/Out) first','Haz una selección de tiempo (o define Entrada/Salida) primero'),'err'); return; }
-  if(!currentPath){ appAlert(T('Save the project first — the rendered clip goes beside it in a “rendered clips” folder.','Guarda el proyecto primero — el clip renderizado va junto a él en una carpeta “rendered clips”.')); return; }
-  const as=activeSeq(); const flat=isFlat(); const layoutStr=flat?((as.w||1920)+'×'+(as.h||1080)):((as.w||4096)+'²'); const dur=b-a;
-  const choice=await ripFormatDialog({name:T('Time selection','Selección de tiempo'),kind:'video'},{dur},layoutStr,flat); if(!choice)return;
-  const fps=as.fps||state.fps||60, res=flat?(as.w||1920):(as.w||4096);
-  const codec=(choice.format==='h264')?'h264':'hevc';
-  const eW=flat?(as.w||1920):res, eH=flat?(as.h||1080):res, br=suggestBitrate(res,fps,flat?eW:0,flat?eH:0)*1e6;
-  const i=Math.max(currentPath.lastIndexOf('\\'),currentPath.lastIndexOf('/')), projDir=currentPath.slice(0,i), dir=projDir+'\\rendered clips';
-  try{ if(DSP.ensureDir)await DSP.ensureDir(dir); }catch(e){ appAlert(T('Could not create the “rendered clips” folder.','No se pudo crear la carpeta “rendered clips”.')); return; }
-  const safe='selection '+fmtTime(a).replace(/[:.]/g,'-');
-  const outPath=dir+'\\'+safe+' ['+layoutStr.replace('×','x')+' '+codec+'] '+uid().slice(0,5)+'.mp4';
-  let cancelled=false; const job={ prog:(n,t)=>{ if(n===1||n>=t||n%8===0)flashStatus(T('Rendering selection… ','Renderizando selección… ')+Math.round(n/t*100)+'%'); }, label:()=>{}, done:cx=>{ cancelled=!!cx; } };
-  flashStatus(T('Rendering selection…','Renderizando selección…'));
-  try{ await runExport({codec,res,fps,bitrate:br,range:'clips',rangeT:[a,b],outPath,silent:true,job}); } // NO isolateClips → full composite over the range (a real flatten)
-  catch(e){ flashStatus(T('Render failed','Falló el render'),'err'); return; }
-  let ok=false; try{ const st=await DSP.stat(outPath); ok=!!(st&&st.size>0); }catch(e){}
-  if(cancelled||!ok){ flashStatus(T('Render cancelled','Render cancelado'),'err'); return; }
-  const nm=await addVideoFromPath(outPath,T('Selection','Selección')); if(!nm){ flashStatus(T('Could not import the rendered file','No se pudo importar el archivo renderizado'),'err'); return; }
-  pushUndo();
-  const n=state.lanes.filter(l=>l.kind==='video').length+1; const nl={id:uid(),name:'Render '+n,tag:'V'+n,kind:'video'}; state.lanes.push(nl); const li=state.lanes.length-1; // new video lane at the top (push keeps existing clip lane-indices valid)
-  const nc=makeClip(nm,li,a); nc.start=a; nc.dur=b-a; nc.inP=0; if(!flat)nc.props.fulldome=true;
-  state.clips.push(nc); state.selId=nc.id; state.selIds=[nc.id]; state.selGroupId=null;
-  state.tl.selA=state.tl.selB=null; state.tl.selLanes=null; // the range is now baked → clear the selection
-  renderMedia(); renderTimeline(); renderInspector(); renderTimeSel(); render(); updStatus(); markDirty();
-  flashStatus(T('Rendered selection → new track · ','Renderizado la selección → pista nueva · ')+fmtTime(dur));
+  const done=await ripRun({name:'selection '+fmtTime(a).replace(/[:.]/g,'-'), a, b, isolateClips:null, laneName:'Render '+fmtTime(a)}); // no isolateClips → the FULL composite over the range (a real flatten, adjustment layers included)
+  if(done){ state.tl.selA=state.tl.selB=null; state.tl.selLanes=null; renderTimeSel(); } // sólo si de verdad se horneó: cancelar el diálogo no puede llevarse por delante la selección de entrada/salida
 }
 
 /* ===================== HAP (Vidvox) — DXT en GPU + Snappy + muxer QuickTime =====================
@@ -5719,12 +5964,13 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
 
 /* ===================== PROYECTO: NUEVO / GUARDAR / ABRIR (sin pérdida de datos) ===================== */
 let currentPath=null;
-function markDirty(){ state.dirty=true; projTitle(); raInvalidate(); }
+function markDirty(){ state.dirty=true; projTitle(); raInvalidate(); ncTouch(); } // [R180] toda mutación pasa por aquí → es el único enganche que necesita la invalidación del caché de nests
 function currentTitle(){ return (currentPath&&IS_ELEC)?DSP.basename(currentPath).replace(/\.(isp|ise|rdome)$/i,''):T('Untitled project','Proyecto sin título'); }
 function projTitle(){ const md=(activeSeq()&&activeSeq().mode)||state.seqMode; const pre=md==='flat'?'2D':md==='room'?T('360 Room','Sala 360'):T('Immersive Dome','Domo inmersivo'); const t=$('#projTitle'); if(t)t.textContent=pre+' · '+currentTitle()+(state.dirty?' *':''); if(IS_ELEC){try{DSP.setTitle('Immersive Studio Pro — '+currentTitle()+(state.dirty?' *':''));}catch(e){} try{if(DSP.setUiState)DSP.setUiState({dirty:!!state.dirty,lang:state.lang});}catch(e){}} }
 function serMedia(m){ return {id:m.id,name:m.name,kind:m.kind,w:m.w,h:m.h,mode:m.mode||null,cov:m.cov||null,room:m.room||null,roomFloorOf:m.roomFloorOf||null,dur:m.dur,fps:m.fps,color:m.color,path:m.path||null,fsize:m.fsize||0,folder:m.folder||null,framePaths:m.framePaths||null,ndiSource:m.ndiSource||null,spoutSource:m.spoutSource||null,/* [V3] serMedia es una LISTA BLANCA: sin esta línea el .isp guardaba el medio Spout sin su emisor y al reabrir enganchaba al que estuviera activo — parecía funcionar por casualidad */
   text:m.text,tfontSize:m.tfontSize,tweight:m.tweight,tfont:m.tfont,talign:m.talign,tlineH:m.tlineH,titalic:m.titalic,tcolor:m.tcolor,tbg:m.tbg,tstroke:m.tstroke,tstrokeColor:m.tstrokeColor,
   shape:m.shape,fill:m.fill,stroke:m.stroke,strokeW:m.strokeW,sw:m.sw,sh:m.sh,
+  ncPath:(m.kind==='nest'?(m.ncPath||null):null), ncSig:(m.kind==='nest'?(m.ncSig||null):null), ncW:(m.kind==='nest'?(m.ncW||null):null), ncH:(m.kind==='nest'?(m.ncH||null):null), ncFps:(m.kind==='nest'?(m.ncFps||null):null), /* [R180] el caché sobrevive al cierre: al reabrir, ncReattach compara la firma y decide si sigue valiendo */
   nestClips:(m.kind==='nest'?(m.nestClips||[]).map(serClip):null), nestLanes:(m.kind==='nest'?m.nestLanes:null),
   nestMarkers:(m.kind==='nest'?(m.nestMarkers||[]):null), nestGroups:(m.kind==='nest'?(m.nestGroups||[]):null), nestPlayhead:(m.kind==='nest'?(m.nestPlayhead||0):null), nestWorkIn:(m.kind==='nest'?(m.nestWorkIn??null):null), nestWorkOut:(m.kind==='nest'?(m.nestWorkOut??null):null), comp:(m.comp||null), /* [archivado 20260725] grade: del nest */
   thumb:(m.kind==='audio'?m.thumb:null)}; }
@@ -6272,7 +6518,8 @@ function loadProject(obj){ try{ if(!_bootEsperandoProyecto)showLoadingScreen(T('
   state.media=(obj.media||[]).map(md=>({...md,el:null,originalEl:null,tex:null,buffer:null,missing:true,_loading:true,proxyReady:false,proxyPct:0})); // _loading: file exists but is still decoding → show "loading", NOT "missing" (esp. audio, which decodes slowly)
   try{ closeAllNdi(); }catch(e){} // drop any NDI receivers from the previous project
   for(const m of state.media){ if(m.kind==='text'){ renderTextMedia(m); m.missing=false; } else if(m.kind==='shape'){ renderShapeMedia(m); m.missing=false; } else if(m.kind==='spout'){ m.tex=newTex(); try{ upTexRaw(m.tex,16,16,new Uint8Array(16*16*4).fill(24)); }catch(e){} m.w=m.w||16; m.h=m.h||16; m.dur=m.dur||60; m._spLive=false; m._thumbT=0; m.missing=false; try{ if(m.spoutSource&&DSP&&DSP.spout)DSP.spout.inOpen(m.spoutSource); }catch(e){} spoutStartPump(); } /* [V3] al abrir un .isp: textura de relleno + reenganche al emisor si sigue vivo */
-  else if(m.kind==='ndi'){ m.tex=newTex(); try{ upTexRaw(m.tex,16,16,new Uint8Array(16*16*4).fill(24)); }catch(e){} m.w=m.w||16; m.h=m.h||16; m.dur=m.dur||60; m._ndiLive=false; m._thumbT=0; m.missing=false; try{ if(m.ndiSource&&DSP&&DSP.ndi)DSP.ndi.recvOpen(m.ndiSource); }catch(e){} ndiStartPump(); } else if(m.kind==='nest'){ m.nestClips=(m.nestClips||[]).map(c=>({...c,maskTex:null,kf:c.kf||{}})); for(const c of m.nestClips)if(c.maskData)rebuildMaskTex(c); m.nestLanes=(m.nestLanes&&m.nestLanes.length)?m.nestLanes:defLanes(); m.nestMarkers=m.nestMarkers||[]; m.nestGroups=m.nestGroups||[]; m.fbo=null; m.tex=null; m.w=m.w||4096; m.h=m.h||4096; m.fps=m.fps||obj.fps||60; m.missing=false; } } // text/shape re-render from params; nest = a sequence (keeps its own w/h/fps)
+  else if(m.kind==='ndi'){ m.tex=newTex(); try{ upTexRaw(m.tex,16,16,new Uint8Array(16*16*4).fill(24)); }catch(e){} m.w=m.w||16; m.h=m.h||16; m.dur=m.dur||60; m._ndiLive=false; m._thumbT=0; m.missing=false; try{ if(m.ndiSource&&DSP&&DSP.ndi)DSP.ndi.recvOpen(m.ndiSource); }catch(e){} ndiStartPump(); } else if(m.kind==='nest'){ m.nestClips=(m.nestClips||[]).map(c=>({...c,maskTex:null,kf:c.kf||{}})); for(const c of m.nestClips)if(c.maskData)rebuildMaskTex(c); m.nestLanes=(m.nestLanes&&m.nestLanes.length)?m.nestLanes:defLanes(); m.nestMarkers=m.nestMarkers||[]; m.nestGroups=m.nestGroups||[]; m.fbo=null; m.tex=null; m.w=m.w||4096; m.h=m.h||4096; m.fps=m.fps||obj.fps||60; m.missing=false; m.ncReady=false; m.ncUrl=null; m.ncStale=false; } }
+  for(const m of state.media) if(m.kind==='nest'&&m.ncPath) ncReattach(m); // [R180] los cachés de nest se re-enganchan al reabrir; la firma decide si siguen valiendo (va después del bucle: nestSig desciende a otros medios) // text/shape re-render from params; nest = a sequence (keeps its own w/h/fps)
   for(const m of state.media)if(m.missing===false)m._loading=false; // text/shape/ndi/nest are ready synchronously → not loading
   let mx=0; const fxMx=c=>{ if(c&&c.fx)for(const f of c.fx)mx=Math.max(mx,f.id||0); }; for(const c of state.clips){mx=Math.max(mx,c.id);fxMx(c);} for(const l of state.lanes)mx=Math.max(mx,l.id); for(const m of state.media){ mx=Math.max(mx,m.id); if(m.nestClips)for(const c of m.nestClips){mx=Math.max(mx,c.id);fxMx(c);} if(m.nestLanes)for(const l of m.nestLanes)mx=Math.max(mx,l.id); if(m.nestMarkers)for(const k of m.nestMarkers)mx=Math.max(mx,k.id); if(m.nestGroups)for(const g of m.nestGroups)mx=Math.max(mx,g.id); if(m.comp&&m.comp.id)mx=Math.max(mx,m.comp.id); } for(const g of (state.groups||[]))mx=Math.max(mx,g.id); for(const k of state.markers)mx=Math.max(mx,k.id); _id=mx+1;
   state.selId=null; state.dirty=false;
@@ -6678,6 +6925,9 @@ $('#qualitySeg').querySelectorAll('button').forEach(b=>b.onclick=()=>{ applyPrev
   flashStatus(b.dataset.q==='1'?T('Preview: full quality','Previsualización: calidad completa'):(T('Preview at ','Previsualización a ')+(b.textContent.trim())+T(' quality',' de calidad'))); });
 (function restorePreviewQuality(){ try{ const s=localStorage.getItem('dspPreviewQuality'); if(s&&parseFloat(s)!==1)applyPreviewQuality(s); }catch(_){} })();
 { const pb=$('#proxyToggle button'); if(pb)pb.onclick=()=>{ state.view.useProxy=!state.view.useProxy; pb.classList.toggle('on',state.view.useProxy); disposeAllVinst(); scrubRender(); render(); flashStatus(state.view.useProxy?T('Viewport: proxies (fast)','Visor: proxies (rápido)'):T('Viewport: original clips','Visor: clips originales')); }; }
+/* [R180] Mismo interruptor, para los cachés de composición. disposeAllVinst() es obligatorio: las instancias
+   enlazadas al archivo del caché tienen que soltarlo para volver a componer desde las fuentes, y al revés. */
+{ const nb=$('#nestCacheToggle button'); if(nb)nb.onclick=()=>{ state.view.useNestCache=(state.view.useNestCache===false); nb.classList.toggle('on',state.view.useNestCache!==false); disposeAllVinst(); scrubRender(); render(); renderTimeline(); flashStatus(state.view.useNestCache!==false?T('Compositions: proxy (fast)','Composiciones: proxy (rápido)'):T('Compositions: rebuilt from sources','Composiciones: recompuestas desde las fuentes')); }; }
 function faderFill(el){ if(!el)return; const mn=+el.min||0,mx=+el.max||1,v=+el.value; el.style.setProperty('--pct',(mx>mn?((v-mn)/(mx-mn))*100:0).toFixed(1)+'%'); } // [T4] paint the fader's filled portion (left of the thumb) via the --pct CSS var
 $('#fovRange').oninput=e=>{state.view.cam.fov=+e.target.value;$('#fovLbl').textContent=Math.round(+e.target.value)+'°';faderFill(e.target);render();};
 $('#dollyRange').oninput=e=>{state.view.cam.back=+e.target.value;$('#dollyLbl').textContent=(+e.target.value).toFixed(1);faderFill(e.target);render();};
@@ -7156,6 +7406,10 @@ $('#tracks').addEventListener('contextmenu',e=>{ const cd=e.target.closest('.cli
     {label:T('Nest selection','Anidar selección'),ico:'ring',fn:nestSelection},
     ...((()=>{const cc=clipById(id),mm=cc&&mediaById(cc.mediaId);return (mm&&isSeqMedia(mm))?[{label:T('Open sequence','Abrir secuencia'),ico:'panel',fn:()=>openSeq(mm.id)},{label:T('Make unique','Convertir en único'),ico:'ring',fn:()=>{const c2=clipById(id);if(c2)makeClipUnique(c2);}}]:[];})()),
     ...((()=>{const cc=clipById(id),mm=cc&&mediaById(cc.mediaId);return (mm&&mm.kind!=='audio')?[{label:T('Render in place…','Renderizar en el sitio…'),ico:'layers',fn:()=>{const c2=clipById(id);if(c2)renderInPlace(c2);}}]:[];})()),
+    ...((()=>{const cc=clipById(id),mm=cc&&mediaById(cc.mediaId); if(!(mm&&mm.kind==='nest'&&IS_ELEC))return []; // [R180] el proxy de composición, también a mano en el clip
+      const out=[{label:mm.ncPath?(mm.ncStale?T('Nest proxy is out of date — regenerate','El proxy está desactualizado — regenerar'):T('Regenerate nest proxy…','Regenerar proxy de composición…')):T('Generate nest proxy…','Generar proxy de composición…'),ico:'layers',fn:()=>ncBuild(mm)}];
+      if(mm.ncPath)out.push({label:T('Remove nest proxy','Quitar proxy de composición'),ico:'trash',fn:()=>{ ncDetach(mm,true); flashStatus(T('Nest proxy removed','Proxy de composición eliminado')); }});
+      return out; })()),
     ...((()=>{ const sA=state.tl.selA,sB=state.tl.selB; return (sA!=null&&sB!=null&&Math.abs(sB-sA)>1e-3)?[{label:T('Render selection in place…','Renderizar la selección en el sitio…'),ico:'layers',fn:renderRangeInPlace}]:[]; })()), // [R1] bake the in/out time selection → new top track
     'sep',
     {label:T('Show automation','Mostrar la automatización'),ico:'curves',fn:()=>{const c=clipById(id);if(c)showAutomation(c);}},
