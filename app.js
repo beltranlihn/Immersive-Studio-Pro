@@ -13,7 +13,30 @@ function bootMark(pct){ if(pct<=_bootPct)return; _bootPct=pct;
 /* El arranque real puede tardar 300ms; el splash no puede ser un parpadeo. Se respeta un mínimo en pantalla,
    igual que hacía el splash viejo con sus 2 vueltas de logo. */
 const BOOT_MIN_MS=2400;
-function bootReveal(){ document.body.classList.remove('preboot'); // fuera de Electron no hay splash: revelar y ya
+/* [R175] Abrir un `.isp` con doble clic encadenaba DOS pantallas de carga: el splash cuadrado terminaba, se
+   revelaba el editor… y el editor tapaba todo con su propio "Loading…" mientras cargaba el proyecto. Eran dos
+   caminos independientes — `bootReveal` no esperaba al proyecto.
+   Ahora, si hay un proyecto que abrir, el splash SE QUEDA: `_bootEsperandoProyecto` bloquea el revelado, la
+   carga del proyecto reporta su avance por el mismo `bootMark()` (así el splash cuenta lo que de verdad está
+   pasando) y el editor sólo aparece cuando el proyecto está montado, con sus medios y proxys. Se llega y se da
+   al play, que es lo que pidió Beltrán. */
+let _bootRevelado=false, _bootEsperandoProyecto=false;
+/* Se PREGUNTA al proceso principal, no se espera su aviso: `dsp:openPath` sale en `did-finish-load` y llegaba
+   DESPUÉS de que el editor decidiera revelarse — una carrera que perdía, y de ahí las dos pantallas seguidas.
+   Esta consulta es lo primero que ocurre, así que el freno está puesto antes de que nada pueda revelar. */
+function bootEsperarProyecto(){ if(_bootRevelado)return; if(_bootEsperandoProyecto)return; _bootEsperandoProyecto=true;
+  /* Último cortafuegos: pase lo que pase con el proyecto, el editor se revela. Sin esto, un fallo por un camino
+     que no previera dejaría al usuario mirando el splash para siempre — peor que las dos pantallas de antes. */
+  setTimeout(()=>{ if(_bootEsperandoProyecto){ diag('warn','boot','el proyecto no terminó de cargar: se revela el editor igualmente'); bootProyectoListo(); } }, 35000); }
+/* Se PREGUNTA al proceso principal en vez de esperar su aviso: `dsp:openPath` sale en `did-finish-load` y
+   llegaba DESPUES de que el editor decidiera revelarse — una carrera que perdia, y de ahi las dos pantallas
+   seguidas. Esta consulta corre antes que nada, asi que el freno queda puesto (y con su cortafuegos armado). */
+try{ if(window.dsp&&window.dsp.bootProject&&window.dsp.bootProject()) bootEsperarProyecto(); }catch(e){}
+function bootProyectoListo(){ if(!_bootEsperandoProyecto)return; _bootEsperandoProyecto=false; bootReveal(); }
+function bootReveal(){
+  if(_bootEsperandoProyecto)return;                    // hay un proyecto en marcha: el splash sigue, ya llamará bootProyectoListo
+  if(_bootRevelado)return; _bootRevelado=true;
+  document.body.classList.remove('preboot'); // fuera de Electron no hay splash: revelar y ya
   if(!(window.dsp&&window.dsp.bootReady))return;
   const el=((typeof performance!=='undefined'&&performance.now)?performance.now():Date.now())-_bootT0;
   setTimeout(()=>{ try{ window.dsp.bootReady(); }catch(e){} }, Math.max(0,BOOT_MIN_MS-el)); }
@@ -6095,9 +6118,13 @@ function confirmDiscard(){ return new Promise(res=>{ if(!state.dirty){ res(true)
 async function openProject(){ if(!(await confirmDiscard()))return;
   if(IS_ELEC){ const p=await DSP.openDialog(); if(!p)return; const txt=await DSP.readText(p); if(txt==null){appAlert(T('Could not read the file.','No se pudo leer el archivo.'));return;} let obj; try{obj=JSON.parse(txt);}catch(e){appAlert(T('Invalid project','Proyecto no válido'));return;} currentPath=p; hideLanding(); loadProject(await maybeOfferAutosave(p,obj)); } // hide the landing FIRST so the recovery prompt (if any) shows on a clean screen, not buried behind the start screen
   else { $('#projInput').click(); } }
-async function openProjectPath(p){ if(!p||!IS_ELEC)return; if(!(await confirmDiscard()))return; // open a .rdome handed in by a double-click (file association)
-  try{ const txt=await DSP.readText(p); if(txt==null){appAlert(T('Could not read the file.','No se pudo leer el archivo.'));return;} let obj; try{obj=JSON.parse(txt);}catch(e){appAlert(T('Invalid project','Proyecto no válido'));return;} currentPath=p; hideLanding(); loadProject(await maybeOfferAutosave(p,obj)); } // hide the landing FIRST so the recovery prompt shows on a clean screen
-  catch(e){ appAlert(T('Could not open the project.','No se pudo abrir el proyecto.')); } }
+/* [R175] Cada salida de aquí tiene que soltar el splash. Si el archivo no se puede leer, no es JSON válido o el
+   usuario cancela, `_bootEsperandoProyecto` se quedaría en true y el editor NO aparecería nunca: el splash se
+   quedaría fijo hasta el plazo del proceso principal, y encima revelaría una ventana todavía en `preboot`. */
+async function openProjectPath(p){ if(!p||!IS_ELEC){ bootProyectoListo(); return; }
+  if(!(await confirmDiscard())){ bootProyectoListo(); return; } // open a .isp handed in by a double-click (file association)
+  try{ const txt=await DSP.readText(p); if(txt==null){appAlert(T('Could not read the file.','No se pudo leer el archivo.'));bootProyectoListo();return;} let obj; try{obj=JSON.parse(txt);}catch(e){appAlert(T('Invalid project','Proyecto no válido'));bootProyectoListo();return;} currentPath=p; hideLanding(); loadProject(await maybeOfferAutosave(p,obj)); } // hide the landing FIRST so the recovery prompt shows on a clean screen
+  catch(e){ appAlert(T('Could not open the project.','No se pudo abrir el proyecto.')); bootProyectoListo(); } }
 function disposeMedia(m){ try{ disposeDecoder(m); if(m.srcUrl)URL.revokeObjectURL(m.srcUrl); if(m.proxyUrl)URL.revokeObjectURL(m.proxyUrl); if(m._frameUrls)m._frameUrls.forEach(u=>{try{URL.revokeObjectURL(u);}catch(e){}}); if(m.thumb&&typeof m.thumb==='string'&&m.thumb.indexOf('blob:')===0)URL.revokeObjectURL(m.thumb); if(m.tex)gl.deleteTexture(m.tex); if(m.fbo){try{gl.deleteFramebuffer(m.fbo);}catch(e){}} if(m.nestClips)for(const c of m.nestClips)if(c.maskTex){try{gl.deleteTexture(c.maskTex);}catch(e){}} }catch(e){} }
 async function newProject(mode,w,h,fps,cov){ if(!(await confirmDiscard()))return; if(state.playing)pause(); disposeAllVinst();
   for(const c of state.clips){ try{ if(c.maskTex)gl.deleteTexture(c.maskTex); }catch(e){} }
@@ -6188,7 +6215,7 @@ function rasterizePenMasks(c){ if(!c)return;
   }
   x.globalCompositeOperation='source-over';
   if(!c.maskTex)c.maskTex=newTex(); upTex(c.maskTex,cv); c.props.mask='pen'; }
-function loadProject(obj){ try{ showLoadingScreen(T('Loading project…','Cargando proyecto…')); }catch(e){} // [U9] logo-loop loading screen while the project + its proxies buffer
+function loadProject(obj){ try{ if(!_bootEsperandoProyecto)showLoadingScreen(T('Loading project…','Cargando proyecto…')); else bootMark(72); }catch(e){} /* [R175] durante el arranque la cuenta la lleva el splash, no una segunda pantalla encima del editor */ // [U9] logo-loop loading screen while the project + its proxies buffer
   if(state.playing)pause(); disposeAllVinst(); try{freeFxResources();}catch(e){} for(const _tid in (state.mediaTrash||{})) disposeMedia(state.mediaTrash[_tid]); state.mediaTrash={}; // free deleted-media textures + FX history from the previous project
   clearAllUndo(); // [R92-T1 C2] undo history belongs to the PREVIOUS project — Ctrl+Z after opening must never inject its clips here (newProject already did this; loadProject didn't)
   state.fps=obj.fps||60; state.lanes=obj.lanes||state.lanes; state.clips=(obj.clips||[]).map(c=>({...c,kf:c.kf||{},maskTex:null})); state.playhead=obj.playhead||0; state.markers=obj.markers||[]; state.selMarkerId=null; state.groups=obj.groups||[]; state.selGroupId=null;
@@ -6227,7 +6254,14 @@ function loadProject(obj){ try{ showLoadingScreen(T('Loading project…','Cargan
   if(IS_ELEC){ for(const m of state.media) reloadMedia(m); }
   renderMedia(); renderTimeline(); renderInspector(); render(); updRelink(); updStatus(); projTitle(); try{preloadLUTs();}catch(e){} flashStatus(T('Project loaded','Proyecto cargado'));
   hideLanding(); if(currentPath)addRecent(currentPath, projThumb());
-  try{ loadingWaitMedia(Date.now()+20000); }catch(e){ hideLoadingScreen(); } } // [U9] keep the loading screen until media/proxies finish buffering (or a 20 s deadline)
+  try{ if(_bootEsperandoProyecto){ bootMark(88); esperarMediosArranque(Date.now()+30000); } else loadingWaitMedia(Date.now()+20000); }catch(e){ hideLoadingScreen(); bootProyectoListo(); } }
+/* [R175] Gemelo de loadingWaitMedia para el arranque: mismo criterio de "listo" (nada decodificando ni generando
+   proxy) pero en vez de quitar una pantalla, revela el editor. Plazo más largo que el de la pantalla normal
+   porque aquí no hay nada visible detrás esperando: el usuario sigue mirando el splash. */
+function esperarMediosArranque(deadline){ const cargando=state.media.some(m=>m._loading&&!m.missing);
+  const proxy=state.media.some(m=>m._pxGen||(m.proxyPct>0&&!m.proxyReady));
+  if((!cargando&&!proxy)||Date.now()>deadline){ bootMark(100); bootProyectoListo(); return; }
+  bootMark(proxy?94:91); setTimeout(()=>esperarMediosArranque(deadline),200); } // [U9] keep the loading screen until media/proxies finish buffering (or a 20 s deadline)
 async function reloadMedia(m){
   if(m.kind==='adjust'){ m.missing=false; m._loading=false; return; } // adjustment layer template — no file
   if(m.kind==='ndi'||m.kind==='spout'){ m.missing=false; m._loading=false; return; } // entrada en vivo (NDI/Spout) — no hay archivo que reenlazar
@@ -6484,7 +6518,7 @@ if($('#statXBtn'))$('#statXBtn').onclick=()=>exCancelActive(); // [R94-UT3·U-02
 if($('#undoBtn'))$('#undoBtn').onclick=()=>undo(); if($('#redoBtn'))$('#redoBtn').onclick=()=>redo(); // [U-07] visible undo/redo affordance in the top bar (same path as Ctrl+Z / Ctrl+Shift+Z)
 if($('#helpBtn'))$('#helpBtn').onclick=()=>openPalette(); // [U-08] "?" opens the command palette (all commands + shortcuts)
 $('#projInput').onchange=e=>{const f=e.target.files[0];e.target.value='';if(!f)return;const r=new FileReader();r.onload=()=>{try{loadProject(JSON.parse(r.result));}catch(err){appAlert(T('Invalid project','Proyecto no válido'));}};r.readAsText(f);};
-if(IS_ELEC&&DSP.onOpenPath)DSP.onOpenPath(p=>openProjectPath(p)); // double-clicked .rdome (file association)
+if(IS_ELEC&&DSP.onOpenPath)DSP.onOpenPath(p=>{ bootEsperarProyecto(); openProjectPath(p); }); // doble clic en un .isp — [R175] el splash se queda hasta que el proyecto esté montado
 
 /* viewport toolbar */
 function roomStandDefaults(){ const c=state.view.cam; c.yaw=-Math.PI/2; c.pitch=0; c.fov=60; c.back=-0.5; } // 3D-room Viewer: stand at ~1.7m looking straight at the FRONT wall

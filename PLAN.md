@@ -1,5 +1,34 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 175 — Abrir un proyecto: UNA pantalla de carga, no dos
+
+Beltrán grabó el arranque: doble clic en un `.isp` → splash cuadrado → se abre el editor → y el editor tapa todo
+al instante con su propio "Loading…". Dos pantallas de carga seguidas. Su encargo: que la ventana 1:1 sea la que
+carga el proyecto y del splash se pase directo al editor con los proxys y la ruta ya puestos, para llegar y dar
+al play.
+
+**Eran dos caminos independientes:** `bootReveal()` revelaba el editor cuando terminaba de arrancar el motor, sin
+saber nada del proyecto; y `loadProject()` levantaba su propia pantalla al cargar. Ahora, si el arranque trae un
+proyecto, el splash SE QUEDA: la carga reporta su avance por el mismo `bootMark()` y el editor sólo se revela
+cuando los medios y proxys están montados.
+
+**Lo que costó acertar: era una CARRERA.** El primer intento colgaba el freno del aviso `dsp:openPath`, y no
+funcionó — ese mensaje sale en `did-finish-load` y llega DESPUÉS de que el editor decida revelarse. Medido:
+revelado a los 2,4s, proyecto cargado a los 2,6s. La solución es al revés: el renderer **PREGUNTA** al proceso
+principal, con una consulta síncrona que es lo primero que hace, si este arranque viene con archivo. Así el freno
+está puesto antes de que nada pueda revelar.
+
+**Cortafuegos, porque el fallo aquí sería peor que el problema.** Si abrir el proyecto se cancela, el archivo no
+se puede leer o no es JSON válido, el splash se quedaría fijo para siempre — y el proceso principal acabaría
+revelando una ventana todavía en `preboot`. Cada salida de `openProjectPath` suelta el splash, y además hay un
+temporizador de 35s que revela pase lo que pase, con aviso al diagnóstico.
+
+Medido con `Rito360.isp` real: a los 2,5s el splash sigue puesto y el editor no; a los 2,7s aparece con sus 4
+clips y el avance en 100. **Cero apariciones de la segunda pantalla.** Y arrancar SIN proyecto sigue revelando a
+los 2,4s como siempre.
+
+Pruebas: funcional 22/22, robustez 15/15, barra del visor 3/3 estados, cero errores de consola.
+
 ## ROUND 174 — La barra del visor, botón por botón contra el handoff
 
 Beltrán mandó dos capturas —la nuestra y la del prototipo— con las tres vistas (2D · Orbit · Viewer) y el encargo

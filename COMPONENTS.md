@@ -246,6 +246,12 @@
 - **Invariants / gotchas:** la visibilidad de `#threeModeSeg` (Orbit|Viewer) vive en `_updViewCtl`, NO en el manejador de clic del botón 3D — estaba sólo ahí y llegar a 3D por otra vía (abrir proyecto, cambiar de secuencia) dejaba el grupo escondido.
 - **Status:** ✅
 
+### Arranque con proyecto — `bootReveal` / `bootEsperarProyecto` (app.js, cabecera)
+- **Purpose:** abrir un `.isp` con doble clic muestra UNA sola pantalla: el splash 1080² carga el proyecto y el editor aparece ya montado, con medios y proxys.
+- **Key symbols:** `_bootEsperandoProyecto` · `bootEsperarProyecto()` (+ cortafuegos de 35s) · `bootProyectoListo()` · `esperarMediosArranque(deadline)` · puente `DSP.bootProject()` ⇄ `ipcMain.on('dsp:bootProject')`.
+- **Invariants / gotchas:** el renderer **PREGUNTA** si el arranque trae proyecto (`sendSync`), no espera `dsp:openPath`: ese mensaje sale en `did-finish-load` y llega DESPUÉS de que el editor decida revelarse — medido: revelado a 2,4s, proyecto a 2,6s. Toda salida de `openProjectPath` debe llamar a `bootProyectoListo()` o el splash se queda fijo para siempre y el proceso principal acabaría revelando una ventana aún en `preboot`.
+- **Status:** ✅
+
 ## Deuda técnica & gaps detectados en el mapeo
 
 - **🗄️ Automatización legacy — ARCHIVADO (R137).** Las funciones muertas (`_autoOff` override/re-enable + perform-and-bake `recWrite`/`bakeRecorded` + `#autoRecBtn`) se sacaron del software y viven en `_backup/deprecated/20260722-automation-override-and-perform-bake.js` (recuperables). Verificado por CDP: motor de automatización intacto. **Barrido menor HECHO (R137):** removidos los reads no-op de `_autoOff` en sepAuto, returnToDefault, `drawAutoCurve` (var `off`), fxKfToggle y borrado de fx — solo queda `_autoOff` en un comentario (app.js L463). Curva renderiza OK (verificado por píxel).

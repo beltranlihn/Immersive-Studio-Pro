@@ -74,6 +74,8 @@ contextBridge.exposeInMainWorld('dsp', {
   listDir: (dir) => ipcRenderer.invoke('dsp:listDir', dir),
   deleteFile: (p) => ipcRenderer.invoke('dsp:deleteFile', p),
   rename: (from, to) => ipcRenderer.invoke('dsp:rename', from, to),
+  // [R175] síncrono a propósito: se consulta UNA vez al arrancar, antes de que nada decida revelar el editor
+  bootProject: () => { try { return ipcRenderer.sendSync('dsp:bootProject'); } catch (e) { return null; } },
   onOpenPath: (cb) => ipcRenderer.on('dsp:openPath', (e, p) => { try { cb(p); } catch (_) {} }),
   onConfirmClose: (cb) => ipcRenderer.on('dsp:confirmClose', () => { try { cb(); } catch (_) {} }),
   forceClose: () => ipcRenderer.invoke('dsp:forceClose'),

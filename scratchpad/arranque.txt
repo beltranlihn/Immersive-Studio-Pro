@@ -1,0 +1,6 @@
+Warning: Detected unsettled top-level await at file:///C:/Users/beltr/Desktop/Alma%20Digital%20Studio/Projects/Immersive%20Studio%20Pro/scratchpad/probe-arranque.mjs:21
+  const s = await evl(`(()=>{ if(typeof state==='undefined')return null;
+            ^
+
+
+

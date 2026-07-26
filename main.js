@@ -96,6 +96,12 @@ function finishBoot() {
 let pendingOpenPath = null;
 function rdomeFromArgv(argv){ try{ for(const a of (argv||[]).slice(1)){ if(a && /\.(isp|ise|rdome)$/i.test(a) && fs.existsSync(a)) return a; } }catch(e){} return null; } // .isp (Immersive Studio Pro) + legacy .ise/.rdome
 pendingOpenPath = rdomeFromArgv(process.argv);
+/* [R175] El renderer PREGUNTA si este arranque trae proyecto, en vez de esperar el mensaje `dsp:openPath`.
+   Ese mensaje sale en `did-finish-load` y llegaba DESPUÉS de que el editor decidiera revelarse: una carrera
+   que perdía, y por eso salían dos pantallas de carga seguidas. Esta copia no se limpia nunca: sólo dice si
+   el arranque venía con un archivo. */
+const bootProjectPath = pendingOpenPath;
+ipcMain.on('dsp:bootProject', (e) => { e.returnValue = bootProjectPath || null; });
 
 // --- UI state reported from renderer (for localized dialogs + unsaved-changes guard) ---
 let uiDirty = false, uiLang = 'en';
