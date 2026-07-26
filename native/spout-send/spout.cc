@@ -58,11 +58,86 @@ Napi::Value Stop(const Napi::CallbackInfo& info) {
 	return info.Env().Undefined();
 }
 
+/* ---------------------------------------------------------------------------------------------------------
+   [V3] LADO RECEPTOR (Spout In). Instancia spoutDX aparte de la del emisor: la app puede estar emitiendo su
+   composite y recibiendo una fuente externa a la vez, y compartir un objeto haría que soltar uno cerrara el
+   otro. Los píxeles se entregan en RGBA top-down; el flip a bottom-up (lo que quiere WebGL) se pide con
+   invertir=true y lo hace el propio SDK, que es más barato que copiar fila a fila en JS.
+   --------------------------------------------------------------------------------------------------------- */
+static spoutDX*             g_in     = nullptr;
+static std::string          g_inName;
+static std::vector<uint8_t> g_inBuf;
+static unsigned             g_inW = 0, g_inH = 0;
+
+// inList() -> [nombre, …] : qué emisores hay ahora mismo en la máquina.
+Napi::Value InList(const Napi::CallbackInfo& info) {
+	Napi::Env env = info.Env();
+	if (!g_in) g_in = new spoutDX();
+	int n = g_in->GetSenderCount();
+	Napi::Array out = Napi::Array::New(env, n < 0 ? 0 : n);
+	char nombre[256];
+	for (int i = 0, k = 0; i < n; i++) {
+		if (g_in->GetSender(i, nombre, 256)) out.Set(k++, Napi::String::New(env, nombre));
+	}
+	return out;
+}
+
+// inOpen(nombre) -> bool : engancha a un emisor (cadena vacía = el activo del sistema).
+Napi::Value InOpen(const Napi::CallbackInfo& info) {
+	Napi::Env env = info.Env();
+	if (!g_in) g_in = new spoutDX();
+	if (!g_in->OpenDirectX11()) return Napi::Boolean::New(env, false);
+	g_inName = (info.Length() > 0 && info[0].IsString()) ? info[0].As<Napi::String>().Utf8Value() : std::string();
+	g_in->SetReceiverName(g_inName.empty() ? nullptr : g_inName.c_str());
+	g_inW = g_inH = 0;
+	return Napi::Boolean::New(env, true);
+}
+
+/* inFrame(invertir) -> {w,h,data,nuevo} | null
+   `nuevo` distingue "hay un fotograma fresco" de "el emisor sigue vivo pero no ha publicado nada nuevo":
+   sin eso, la app repintaría la misma textura 60 veces por segundo sin motivo. */
+Napi::Value InFrame(const Napi::CallbackInfo& info) {
+	Napi::Env env = info.Env();
+	if (!g_in) return env.Null();
+	bool invertir = info.Length() > 0 && info[0].IsBoolean() ? info[0].As<Napi::Boolean>().Value() : false;
+
+	// primer intento: engancha y aprende el tamaño (ReceiveImage con buffer nulo sólo conecta)
+	if (g_inW == 0 || g_inH == 0) {
+		g_in->ReceiveImage(nullptr, 0, 0);
+		g_inW = g_in->GetSenderWidth(); g_inH = g_in->GetSenderHeight();
+		if (g_inW == 0 || g_inH == 0) return env.Null();          // aún no hay emisor
+	}
+	if (g_in->IsUpdated()) { g_inW = g_in->GetSenderWidth(); g_inH = g_in->GetSenderHeight(); } // cambió de tamaño
+
+	size_t need = (size_t)g_inW * (size_t)g_inH * 4;
+	if (g_inBuf.size() < need) g_inBuf.resize(need);
+	bool ok = g_in->ReceiveImage(g_inBuf.data(), g_inW, g_inH, false, invertir);
+
+	Napi::Object r = Napi::Object::New(env);
+	r.Set("w", Napi::Number::New(env, (double)g_inW));
+	r.Set("h", Napi::Number::New(env, (double)g_inH));
+	r.Set("nuevo", Napi::Boolean::New(env, ok));
+	r.Set("nombre", Napi::String::New(env, g_in->GetSenderName() ? g_in->GetSenderName() : ""));
+	if (ok) r.Set("data", Napi::Buffer<uint8_t>::Copy(env, g_inBuf.data(), need));
+	return r;
+}
+
+// inClose() : suelta el receptor (el emisor de esta misma app, si lo hay, sigue como estaba).
+Napi::Value InClose(const Napi::CallbackInfo& info) {
+	if (g_in) { g_in->ReleaseReceiver(); g_in->CloseDirectX11(); delete g_in; g_in = nullptr; }
+	g_inW = g_inH = 0; g_inBuf.clear();
+	return info.Env().Undefined();
+}
+
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
 	exports.Set("available", Napi::Function::New(env, Available));
 	exports.Set("start",     Napi::Function::New(env, Start));
 	exports.Set("send",      Napi::Function::New(env, Send));
 	exports.Set("stop",      Napi::Function::New(env, Stop));
+	exports.Set("inList",    Napi::Function::New(env, InList));
+	exports.Set("inOpen",    Napi::Function::New(env, InOpen));
+	exports.Set("inFrame",   Napi::Function::New(env, InFrame));
+	exports.Set("inClose",   Napi::Function::New(env, InClose));
 	return exports;
 }
 NODE_API_MODULE(dsp_spout, Init)

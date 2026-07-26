@@ -164,7 +164,7 @@
       "paso": "cierre: serializar el proyecto maltratado y reabrirlo",
       "ok": true,
       "detalle": {
-        "bytesDelProyecto": 15395,
+        "bytesDelProyecto": 15509,
         "clips": 14,
         "pistas": 5,
         "medios": 6,

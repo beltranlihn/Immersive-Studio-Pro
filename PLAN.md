@@ -1,5 +1,39 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 167 — Spout In, y el waveform contra audio de verdad
+
+Beltrán dejó los dos recursos que faltaban: `Umbral.wav` y su `TDSyphonSpoutOut` encendido. Se cierran los dos
+pendientes que necesitaban su entorno.
+
+**[V3] Spout In — CERRADO.** No hizo falta un addon nuevo: la `SpoutDX` vendorizada para emitir ya trae el lado
+receptor (`SetReceiverName`/`ReceiveImage`/`GetSenderCount`/`GetSender`). Se añaden cuatro funciones al `.cc`
+—`inList`, `inOpen`, `inFrame`, `inClose`— sobre una instancia `spoutDX` APARTE de la del emisor, para que emitir
+el composite y recibir una fuente externa a la vez no se pisen. Sin el truco del SharedArrayBuffer que usa NDI:
+Spout es local y el búfer sólo cruza el puente cuando hay fotograma nuevo, así que un sondeo sin novedad no copia
+nada. El volteo se pide al SDK, más barato que hacerlo fila a fila en JS.
+
+En la app, un medio `kind:spout` que replica el camino de NDI: bombeo a 8ms + presentación por rAF, subida por
+`texSubImage2D` sin realojar, miniatura cada segundo, ficha en Medios, reenganche al abrir el `.isp` y cierre del
+receptor al borrar el medio. Entrada por clic derecho en el panel Medios. **Una conexión a la vez** (el receptor
+nativo mantiene una), y se avisa si se añade una segunda.
+
+Verificado contra el emisor real: enumera los dos `TDSyphonSpoutOut`, recibe 40/40 fotogramas en 2s a 1280×720,
+el búfer cuadra exacto, el contenido es imagen de verdad (brillo medio 172, alfa 255) y llega al composite del
+domo (4096/4096 píxeles con luz frente a 0 en vacío). Dos defectos encontrados y corregidos por el camino:
+`serMedia` es una LISTA BLANCA y `spoutSource` no estaba, así que el `.isp` guardaba el medio sin su emisor y al
+reabrir enganchaba al que estuviera activo —parecía funcionar por casualidad—; y la ficha de Medios anunciaba
+"NDI INPUT · CONNECTING…" en un medio Spout que ya estaba recibiendo.
+
+**Waveform con audio real — CERRADO.** `Umbral.wav`, 35,6s a 44,1kHz y 24 bits (el AudioContext lo remuestrea a
+48k, que es lo normal). El pico dibujado (0,2489) coincide con el leído del propio búfer (0,2486): la onda no
+miente sobre la amplitud. Cero cubos recortados, pico/RMS de 1,81 —dinámica real, no un bloque macizo—, las cuatro
+bandas con recorrido de 0,88 a 0,95, espectro de 32 bandas que varía en el tiempo, 180 BPM y 171 golpes
+detectados, y el medidor del ecualizador pintando el 69% de su lienzo.
+
+**Y un item de la cola que era falso:** "pasada visual con la ventana al frente, porque las capturas salen
+negras en segundo plano". No salen negras: `Page.captureScreenshot` devuelve el WebGL renderizado con la ventana
+detrás. Todas las capturas de `scratchpad/shots/` lo demuestran.
+
 ## ROUND 166b — El diálogo de la sala arranca con TU sala
 
 Defecto de lo entregado en R165 el mismo día: "Geometría de la sala…" abría `roomSetupDialog`, que siempre parte

@@ -42,7 +42,16 @@ const spoutApi = {
   loadError: () => { try { return (_spout && _spout._loadError) || null; } catch (e) { return String(e); } },
   start: (name) => { try { return !!(_spout && _spout.start(String(name || 'Immersive Studio Pro'))); } catch (e) { return false; } },
   send: (u8, w, h, flipY) => { try { if (!_spout) return false; const b = Buffer.from(u8.buffer, u8.byteOffset, u8.byteLength); return !!_spout.send(b, w | 0, h | 0, !!flipY); } catch (e) { return false; } },
-  stop: () => { try { if (_spout) _spout.stop(); } catch (e) {} }
+  stop: () => { try { if (_spout) _spout.stop(); } catch (e) {} },
+  // --- [V3] Spout input (receive) — instancia aparte de la del emisor, así que emitir y recibir a la vez es válido.
+  // Sin el truco del SharedArrayBuffer que usa NDI: Spout ya es local y el receptor entrega un Buffer que sólo
+  // cruza el puente cuando HAY fotograma nuevo (`nuevo`), no en cada sondeo.
+  inList: () => { try { return (_spout && _spout.inList()) || []; } catch (e) { return []; } },
+  inOpen: (name) => { try { return !!(_spout && _spout.inOpen(String(name || ''))); } catch (e) { return false; } },
+  inFrame: (flipY) => { try { if (!_spout) return null; const f = _spout.inFrame(!!flipY); if (!f) return null;
+    return { w: f.w, h: f.h, nuevo: !!f.nuevo, nombre: f.nombre || '',
+      data: f.data ? new Uint8Array(f.data.buffer, f.data.byteOffset, f.data.byteLength) : null }; } catch (e) { return null; } },
+  inClose: () => { try { if (_spout) _spout.inClose(); } catch (e) {} }
 };
 
 contextBridge.exposeInMainWorld('dsp', {

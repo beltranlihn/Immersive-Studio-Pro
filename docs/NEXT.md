@@ -17,9 +17,9 @@
 - [x] **Master Grade — CERRADO (R150).** Beltrán decidió sacarlo del código. Motor archivado en
       `_backup/deprecated/20260725-master-grade-engine.js` (la UI ya estaba, desde R148). Verificado por CDP: nada
       roto, el grado por clip intacto, y un `.isp` viejo con `grade` abre sin problema (se ignora).
-- [ ] **Pasada visual** con la ventana al frente (las capturas de píxel salen negras en segundo plano).
+- [x] **Pasada visual** — el supuesto de las capturas negras era falso: `Page.captureScreenshot` devuelve el WebGL renderizado con la ventana en segundo plano. Las capturas de `scratchpad/shots/` lo demuestran. _(R167)_
 - [x] Tres checkboxes nativos fuera del sistema de toggles: `#bkToggle`, `#txtStroke` (Clip), `#motionPrev` (Motion). _(R166)_ — pasan al `.iosw` del diseño vía `ioswHtml`/`ioswBind`, un puente que expone `.checked` y emite `change`, así que los `onchange` que ya existían siguen valiendo sin tocarlos.
-- [ ] Verificar el **waveform de audio** con un archivo real (el clip de prueba era sintético).
+- [x] Verificar el **waveform de audio** con un archivo real _(R167)_ — `Umbral.wav` (35,6s · 44,1k · 24-bit). El pico dibujado (0,2489) coincide con el del archivo (0,2486), sin recortes, pico/RMS 1,81 (dinámica real), 180 BPM y 171 golpes detectados, espectro de 32 bandas variando en el tiempo y el medidor pintando el 69% de su lienzo.
 - [x] **Etapa 6a · Splash de carga** — ventana propia de 1080² → editor en 16:9 _(R151)_. Handoff nuevo en
       `scratchpad/redesign/design_handoff_launcher_splash/` (`Loading Splash - Rev 1.dc.html` + README).
 - [x] **Etapa 6b · Launcher (landing)** — hecho _(R153)_ con los **visores reales del editor** (`drawSeqViz`,
@@ -80,7 +80,7 @@
       lanza un **tour de coach-marks** (`startTour`): overlay con foco recortado (box-shadow) sobre visor→timeline→inspector→export,
       tarjeta con Atrás/Siguiente/Saltar, teclado (Esc/←/→/Enter). Omitible; al saltar/terminar fija el flag y no reaparece.
       Relanzable desde **Window → Guided tour** (no destructivo). Verificado por CDP (build, foco por objetivo, finish, relaunch). _(R145)_
-- [ ] **[V3] Spout In** — Spout como fuente en Media (addon nativo grande, solo Windows).
+- [x] **[V3] Spout In** — Spout como fuente en Media. _(R167)_ Receptor añadido al addon existente (`inList/inOpen/inFrame/inClose` sobre la misma `SpoutDX` vendorizada, instancia aparte de la del emisor). Verificado contra el `TDSyphonSpoutOut` real de Beltrán.
 - [x] **[R1] Render in-site flexible** — nuevo `renderRangeInPlace()`: hornea el **composite completo** sobre la
       selección de tiempo `[selA,selB]` (o In/Out) → un clip en una **pista nueva arriba** que la cubre (aplana). No
       destructivo (las fuentes quedan debajo; ⌘Z). Ítem "Renderizar la selección en el sitio…" en el menú de clip cuando
@@ -106,8 +106,7 @@
       "para el final"; sigue en pie, es el de mayor esfuerzo.)
 
 ## Necesitan el entorno de Beltrán para cerrarse
-- [ ] **[V3] Spout In** — Spout como fuente en Media (addon nativo, solo Windows). Requiere rebuild del `.node` + un
-      **emisor Spout real** para validar; Claude puede escribir todo pero no verificarlo solo.
+- [x] **[V3] Spout In** — CERRADO en R167 con el emisor real de Beltrán encendido.
 
 ## En pausa por Beltrán (no tocar hasta aviso)
 - **[P1] Mac + [D5] instalador cerrado** — hasta que Beltrán lo pida.

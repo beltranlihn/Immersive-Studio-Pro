@@ -1163,6 +1163,53 @@ function addNdiInput(){ if(!IS_ELEC||!DSP.ndi){ appAlert(T('NDI is only availabl
     const items=srcs.map(s=>({ label:ndiSourceLabel(s)+(have.has(s)?'  ✓':''), ico:'ndi', fn:()=>{ if(have.has(s)){ flashStatus(T('That NDI source is already added','Esa fuente NDI ya está añadida')); return; } const m=makeNdiMedia(s); flashStatus(T('NDI source added — drag it to the timeline','Fuente NDI añadida — arrástrala a la línea de tiempo')); } }));
     const r=$('#mediaList').getBoundingClientRect(); openMenu(r.left+20, Math.min(innerHeight-60, r.top+40), items);
   }, 340); }
+/* ============================================================================================================
+   [V3] SPOUT IN — la misma idea que la entrada NDI pero LOCAL: TouchDesigner / Resolume / OBS comparten una
+   textura de GPU en la misma máquina. Diferencias con NDI que justifican no reusar su bombeo:
+   · Spout es local, así que no hace falta el SharedArrayBuffer: el receptor sólo cruza el puente cuando HAY
+     fotograma nuevo, y un sondeo sin novedad no copia nada.
+   · El receptor nativo mantiene UNA conexión a la vez (una instancia `spoutDX`), así que aquí sólo puede haber
+     un medio Spout activo. Si hay varios, manda el primero — y se avisa al crear el segundo.
+   El volteo se pide al SDK (`inFrame(true)`), que es más barato que hacerlo fila a fila en JS, y por eso la
+   subida usa UNPACK_FLIP_Y_WEBGL=false igual que NDI.
+   ============================================================================================================ */
+let _spPumpTimer=0, _spRenderRaf=0, _spDirty=false;
+function spoutMediaList(){ return state.media.filter(m=>m.kind==='spout'); }
+function spoutClipOnScreen(){ const t=state.playhead; return state.clips.some(c=>{ const mm=mediaById(c.mediaId); return mm&&mm.kind==='spout'&&t>=c.start&&t<c.start+c.dur; }); }
+function spoutStartPump(){ if(!_spPumpTimer){ _spPumpTimer=setInterval(()=>{ if(!spoutMediaList().length){ clearInterval(_spPumpTimer); _spPumpTimer=0; try{ if(DSP&&DSP.spout)DSP.spout.inClose(); }catch(e){} return; } spoutPump(); },8); }
+  if(!_spRenderRaf)_spRenderRaf=requestAnimationFrame(spoutRenderLoop); }
+function spoutRenderLoop(){ _spRenderRaf=0; if(!spoutMediaList().length)return;
+  if(_spDirty && !state.playing && spoutClipOnScreen()){ _spDirty=false; render(); }
+  _spRenderRaf=requestAnimationFrame(spoutRenderLoop); }
+function spoutPump(){ if(!DSP||!DSP.spout||!DSP.spout.inFrame)return;
+  const m=spoutMediaList()[0]; if(!m)return;                       // una conexión a la vez (ver cabecera)
+  let fr=null; try{ fr=DSP.spout.inFrame(true); }catch(e){ return; }
+  if(!fr||!fr.nuevo||!fr.data||!(fr.w>0&&fr.h>0))return;           // sondeo sin novedad: ni una copia
+  m.w=fr.w; m.h=fr.h; m._spLive=true; if(fr.nombre)m._spReal=fr.nombre;
+  ndiUpload(m,fr.w,fr.h,fr.data); _spDirty=true;                   // misma subida: texSubImage2D sin realojar
+  const ahora=performance.now();
+  if(ahora-(m._thumbT||0)>1000){ m._thumbT=ahora; try{ const tc=document.createElement('canvas'); tc.width=108; tc.height=Math.max(1,Math.round(108*fr.h/fr.w));
+    const tx=tc.getContext('2d'); const src=document.createElement('canvas'); src.width=fr.w; src.height=fr.h;
+    src.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(fr.data.buffer,fr.data.byteOffset,fr.w*fr.h*4),fr.w,fr.h),0,0);
+    tx.translate(0,tc.height); tx.scale(1,-1); tx.drawImage(src,0,0,tc.width,tc.height); // llega bocabajo (se pidió volteado para WebGL)
+    m.thumb=tc.toDataURL('image/jpeg',0.6); renderMedia(); }catch(e){} } }
+function makeSpoutMedia(nombre){
+  const m={id:uid(),kind:'spout',spoutSource:nombre,name:'Spout · '+nombre,w:16,h:16,dur:60,fps:0,color:clipColorFor('ndi'),tex:newTex(),thumb:null,_spLive:false,_thumbT:0};
+  try{ upTexRaw(m.tex,16,16,new Uint8Array(16*16*4).fill(24)); }catch(e){}
+  try{ if(DSP&&DSP.spout)DSP.spout.inOpen(nombre); }catch(e){}
+  state.media.push(m); renderMedia(); markDirty(); spoutStartPump(); return m; }
+function closeSpoutMedia(m){ if(!m||m.kind!=='spout')return; if(spoutMediaList().length<=1){ try{ if(DSP&&DSP.spout)DSP.spout.inClose(); }catch(e){} } }
+function addSpoutInput(){ if(!IS_ELEC||!DSP.spout||!DSP.spout.inList){ appAlert(T('Spout is only available in the desktop app.','Spout solo está disponible en la app de escritorio.')); return; }
+  let srcs=[]; try{ srcs=DSP.spout.inList()||[]; }catch(e){}
+  if(!srcs.length){ appAlert(T('No Spout senders found. Make sure one is running on this machine.','No se encontraron emisores Spout. Asegúrate de que haya uno activo en esta máquina.')); return; }
+  const have=new Set(spoutMediaList().map(m=>m.spoutSource));
+  const items=srcs.map(s=>({ label:s+(have.has(s)?'  ✓':''), ico:'ndi', fn:()=>{
+    if(have.has(s)){ flashStatus(T('That Spout sender is already added','Ese emisor Spout ya está añadido')); return; }
+    const yaHabia=spoutMediaList().length;
+    makeSpoutMedia(s);
+    flashStatus(yaHabia?T('Spout source added — only one can receive at a time','Fuente Spout añadida — solo una puede recibir a la vez')
+                       :T('Spout source added — drag it to the timeline','Fuente Spout añadida — arrástrala a la línea de tiempo')); } }));
+  const r=$('#mediaList').getBoundingClientRect(); openMenu(r.left+20, Math.min(innerHeight-60, r.top+40), items); }
 function ndiMediaList(){ return state.media.filter(m=>m.kind==='ndi'); }
 function ndiClipOnScreen(){ const t=state.playhead; return state.clips.some(c=>{ const mm=mediaById(c.mediaId); return mm&&mm.kind==='ndi'&&t>=c.start&&t<c.start+c.dur; }); }
 /* Pump (setInterval ~120Hz, immune to rAF occlusion throttling via backgroundThrottling:false): receive + upload
@@ -1764,8 +1811,8 @@ function makeMediaItem(m){
     const loading=!!(m._loading&&m.missing), reallyMissing=(m.missing&&!m._loading); // decoding (esp. audio) ≠ missing
     if(reallyMissing){ d.style.boxShadow='inset 0 0 0 1px #E06A6A'; } // [M4] media whose original is missing → red
     let px=''; if(m.kind==='video'){ if(m.proxyReady)px=`<div class="pbar"><i style="width:100%;background:var(--ink-2)"></i></div>`; else if(m.proxyPct>0||m._pxGen)px=`<div class="pbar gen"><i style="width:${Math.max(0,m.proxyPct||0)}%"></i><span class="pbtxt">${m.proxyPct>0?(m.proxyPct+'%'):'…'}</span></div>`; }
-    const isNdi=(m.kind==='ndi'); const seq=isSeqMedia(m); const isAdj=(m.kind==='adjust'); const dur=isNdi?'NDI':(seq?'SEQ':(isAdj?'ADJ':(m.kind==='image'?'IMG':fmtDur(m.dur))));
-    const meta=reallyMissing?T('missing · re-import','ausente · reimportar'):(loading?T('loading…','cargando…'):(isNdi?(T('NDI input','Entrada NDI')+(m._ndiLive?' · '+m.w+'×'+m.h:' · '+T('connecting…','conectando…'))):(seq?(T('sequence','secuencia')+' · '+m.w+'² · '+(m.fps||60)+'p'):(isAdj?T('adjustment · FX below','ajuste · FX debajo'):(m.kind==='audio'?('audio · '+fmtDur(m.dur)):(m.kind+' · '+m.w+'×'+m.h))))));
+    const isNdi=(m.kind==='ndi'||m.kind==='spout'); const seq=isSeqMedia(m); const isAdj=(m.kind==='adjust'); const dur=(m.kind==='ndi')?'NDI':(m.kind==='spout')?'SPOUT':(seq?'SEQ':(isAdj?'ADJ':(m.kind==='image'?'IMG':fmtDur(m.dur))));
+    const meta=reallyMissing?T('missing · re-import','ausente · reimportar'):(loading?T('loading…','cargando…'):(isNdi?((m.kind==='spout'?T('Spout input','Entrada Spout'):T('NDI input','Entrada NDI'))+((m.kind==='spout'?m._spLive:m._ndiLive)?' · '+m.w+'×'+m.h:' · '+T('connecting…','conectando…'))):/* [V3] la ficha compartía el rótulo de NDI: un medio Spout se anunciaba como "NDI INPUT · CONNECTING…" aunque ya estuviera recibiendo */(seq?(T('sequence','secuencia')+' · '+m.w+'² · '+(m.fps||60)+'p'):(isAdj?T('adjustment · FX below','ajuste · FX debajo'):(m.kind==='audio'?('audio · '+fmtDur(m.dur)):(m.kind+' · '+m.w+'×'+m.h))))));
     const thumbBg=isAdj?'repeating-linear-gradient(45deg,rgba(180,186,193,0.30) 0 9px,rgba(180,186,193,0.10) 9px 18px)':(m.thumb?`url(${m.thumb})`:'none');
     d.innerHTML=`<div class="mthumb${seq?' mseq':''}" style="background-image:${thumbBg}">
         <span class="dur"${seq?' style="background:var(--state-on);color:var(--ink);"':''}>${dur}</span>${px}</div>
@@ -1820,7 +1867,7 @@ function openMediaCtx(e,m){ e.preventDefault(); const seq=isSeqMedia(m); const i
   items.push('sep',{label:seq?T('Delete sequence','Eliminar secuencia'):T('Delete media','Eliminar medio'),ico:'trash',danger:true,fn:()=>deleteMedia(m)});
   openMenu(e.clientX,e.clientY,items); }
 /* grid tile (square) — same drag / dbl-click / context menu as a list row */
-function makeMediaTile(m){ const seq=isSeqMedia(m), isNdi=(m.kind==='ndi');
+function makeMediaTile(m){ const seq=isSeqMedia(m), isNdi=(m.kind==='ndi'||m.kind==='spout'); // [V3] Spout se comporta como NDI: fuente en vivo, sin archivo
   const d=document.createElement('div'); d.className='mtile'+((m.missing&&!m._loading)?' missing':'')+(selectedMediaIds().includes(m.id)?' sel':''); d.dataset.id=m.id; d.title=m.name;
   const isAdj=(m.kind==='adjust'); const dur=isNdi?'NDI':(seq?'SEQ':(isAdj?'ADJ':(m.kind==='image'?'IMG':fmtDur(m.dur))));
   const px=(m.kind==='video'&&!m.proxyReady&&m.proxyPct>0)?`<div class="tpbar"><i style="width:${m.proxyPct}%"></i></div>`:'';
@@ -1850,7 +1897,7 @@ function renameMediaInline(m,el){ if(!m)return; el=el||mediaNameEl(m.id); if(!in
 /* delete a media item + its clips (shared by the context menu and the Delete key) */
 function deleteMedia(m){ if(!m)return; if(isSeqMedia(m)){ deleteSequenceMedia(m.id); return; }
   const doIt=()=>{
-    pushUndo(); for(const c of state.clips)if(c.mediaId===m.id&&c.maskTex){try{gl.deleteTexture(c.maskTex);}catch(e){}} try{disposeDecoder(m);}catch(e){} if(m.kind==='ndi')closeNdiMedia(m); state.mediaTrash=state.mediaTrash||{}; state.mediaTrash[m.id]=m; state.media=state.media.filter(x=>x.id!==m.id);
+    pushUndo(); for(const c of state.clips)if(c.mediaId===m.id&&c.maskTex){try{gl.deleteTexture(c.maskTex);}catch(e){}} try{disposeDecoder(m);}catch(e){} if(m.kind==='ndi')closeNdiMedia(m); if(m.kind==='spout')closeSpoutMedia(m); state.mediaTrash=state.mediaTrash||{}; state.mediaTrash[m.id]=m; state.media=state.media.filter(x=>x.id!==m.id);
     if(m.path&&(m.kind==='video'||m.kind==='audio'||m.kind==='image')){ // [R92-T3 F2] the trash used to retain the decoded AudioBuffer (1.4GB/h), the <video> demuxer and the GPU texture for the whole session — undo re-loads from disk instead
       try{ if(m.el&&m.el.pause){m.el.pause();m.el.removeAttribute('src');m.el.load();} }catch(e){} m.el=null; m.originalEl=null;
       if(m.tex){try{gl.deleteTexture(m.tex);}catch(e){} m.tex=null;} m.buffer=null; m.frames=null; m._trashed=true; }
@@ -5421,7 +5468,7 @@ let currentPath=null;
 function markDirty(){ state.dirty=true; projTitle(); raInvalidate(); }
 function currentTitle(){ return (currentPath&&IS_ELEC)?DSP.basename(currentPath).replace(/\.(isp|ise|rdome)$/i,''):T('Untitled project','Proyecto sin título'); }
 function projTitle(){ const md=(activeSeq()&&activeSeq().mode)||state.seqMode; const pre=md==='flat'?'2D':md==='room'?T('360 Room','Sala 360'):T('Immersive Dome','Domo inmersivo'); const t=$('#projTitle'); if(t)t.textContent=pre+' · '+currentTitle()+(state.dirty?' *':''); if(IS_ELEC){try{DSP.setTitle('Immersive Studio Pro — '+currentTitle()+(state.dirty?' *':''));}catch(e){} try{if(DSP.setUiState)DSP.setUiState({dirty:!!state.dirty,lang:state.lang});}catch(e){}} }
-function serMedia(m){ return {id:m.id,name:m.name,kind:m.kind,w:m.w,h:m.h,mode:m.mode||null,cov:m.cov||null,room:m.room||null,roomFloorOf:m.roomFloorOf||null,dur:m.dur,fps:m.fps,color:m.color,path:m.path||null,fsize:m.fsize||0,folder:m.folder||null,framePaths:m.framePaths||null,ndiSource:m.ndiSource||null,
+function serMedia(m){ return {id:m.id,name:m.name,kind:m.kind,w:m.w,h:m.h,mode:m.mode||null,cov:m.cov||null,room:m.room||null,roomFloorOf:m.roomFloorOf||null,dur:m.dur,fps:m.fps,color:m.color,path:m.path||null,fsize:m.fsize||0,folder:m.folder||null,framePaths:m.framePaths||null,ndiSource:m.ndiSource||null,spoutSource:m.spoutSource||null,/* [V3] serMedia es una LISTA BLANCA: sin esta línea el .isp guardaba el medio Spout sin su emisor y al reabrir enganchaba al que estuviera activo — parecía funcionar por casualidad */
   text:m.text,tfontSize:m.tfontSize,tweight:m.tweight,tfont:m.tfont,talign:m.talign,tlineH:m.tlineH,titalic:m.titalic,tcolor:m.tcolor,tbg:m.tbg,tstroke:m.tstroke,tstrokeColor:m.tstrokeColor,
   shape:m.shape,fill:m.fill,stroke:m.stroke,strokeW:m.strokeW,sw:m.sw,sh:m.sh,
   nestClips:(m.kind==='nest'?(m.nestClips||[]).map(serClip):null), nestLanes:(m.kind==='nest'?m.nestLanes:null),
@@ -5951,7 +5998,8 @@ function loadProject(obj){ try{ showLoadingScreen(T('Loading project…','Cargan
   for(const c of state.clips){ if((c.penMasks&&c.penMasks.length)||c.maskData)rebuildMaskTex(c); else if(c.props&&(c.props.mask==='custom'||c.props.mask==='pen'))c.props.mask='none'; }
   state.media=(obj.media||[]).map(md=>({...md,el:null,originalEl:null,tex:null,buffer:null,missing:true,_loading:true,proxyReady:false,proxyPct:0})); // _loading: file exists but is still decoding → show "loading", NOT "missing" (esp. audio, which decodes slowly)
   try{ closeAllNdi(); }catch(e){} // drop any NDI receivers from the previous project
-  for(const m of state.media){ if(m.kind==='text'){ renderTextMedia(m); m.missing=false; } else if(m.kind==='shape'){ renderShapeMedia(m); m.missing=false; } else if(m.kind==='ndi'){ m.tex=newTex(); try{ upTexRaw(m.tex,16,16,new Uint8Array(16*16*4).fill(24)); }catch(e){} m.w=m.w||16; m.h=m.h||16; m.dur=m.dur||60; m._ndiLive=false; m._thumbT=0; m.missing=false; try{ if(m.ndiSource&&DSP&&DSP.ndi)DSP.ndi.recvOpen(m.ndiSource); }catch(e){} ndiStartPump(); } else if(m.kind==='nest'){ m.nestClips=(m.nestClips||[]).map(c=>({...c,maskTex:null,kf:c.kf||{}})); for(const c of m.nestClips)if(c.maskData)rebuildMaskTex(c); m.nestLanes=(m.nestLanes&&m.nestLanes.length)?m.nestLanes:defLanes(); m.nestMarkers=m.nestMarkers||[]; m.nestGroups=m.nestGroups||[]; m.fbo=null; m.tex=null; m.w=m.w||4096; m.h=m.h||4096; m.fps=m.fps||obj.fps||60; m.missing=false; } } // text/shape re-render from params; nest = a sequence (keeps its own w/h/fps)
+  for(const m of state.media){ if(m.kind==='text'){ renderTextMedia(m); m.missing=false; } else if(m.kind==='shape'){ renderShapeMedia(m); m.missing=false; } else if(m.kind==='spout'){ m.tex=newTex(); try{ upTexRaw(m.tex,16,16,new Uint8Array(16*16*4).fill(24)); }catch(e){} m.w=m.w||16; m.h=m.h||16; m.dur=m.dur||60; m._spLive=false; m._thumbT=0; m.missing=false; try{ if(m.spoutSource&&DSP&&DSP.spout)DSP.spout.inOpen(m.spoutSource); }catch(e){} spoutStartPump(); } /* [V3] al abrir un .isp: textura de relleno + reenganche al emisor si sigue vivo */
+  else if(m.kind==='ndi'){ m.tex=newTex(); try{ upTexRaw(m.tex,16,16,new Uint8Array(16*16*4).fill(24)); }catch(e){} m.w=m.w||16; m.h=m.h||16; m.dur=m.dur||60; m._ndiLive=false; m._thumbT=0; m.missing=false; try{ if(m.ndiSource&&DSP&&DSP.ndi)DSP.ndi.recvOpen(m.ndiSource); }catch(e){} ndiStartPump(); } else if(m.kind==='nest'){ m.nestClips=(m.nestClips||[]).map(c=>({...c,maskTex:null,kf:c.kf||{}})); for(const c of m.nestClips)if(c.maskData)rebuildMaskTex(c); m.nestLanes=(m.nestLanes&&m.nestLanes.length)?m.nestLanes:defLanes(); m.nestMarkers=m.nestMarkers||[]; m.nestGroups=m.nestGroups||[]; m.fbo=null; m.tex=null; m.w=m.w||4096; m.h=m.h||4096; m.fps=m.fps||obj.fps||60; m.missing=false; } } // text/shape re-render from params; nest = a sequence (keeps its own w/h/fps)
   for(const m of state.media)if(m.missing===false)m._loading=false; // text/shape/ndi/nest are ready synchronously → not loading
   let mx=0; const fxMx=c=>{ if(c&&c.fx)for(const f of c.fx)mx=Math.max(mx,f.id||0); }; for(const c of state.clips){mx=Math.max(mx,c.id);fxMx(c);} for(const l of state.lanes)mx=Math.max(mx,l.id); for(const m of state.media){ mx=Math.max(mx,m.id); if(m.nestClips)for(const c of m.nestClips){mx=Math.max(mx,c.id);fxMx(c);} if(m.nestLanes)for(const l of m.nestLanes)mx=Math.max(mx,l.id); if(m.nestMarkers)for(const k of m.nestMarkers)mx=Math.max(mx,k.id); if(m.nestGroups)for(const g of m.nestGroups)mx=Math.max(mx,g.id); if(m.comp&&m.comp.id)mx=Math.max(mx,m.comp.id); } for(const g of (state.groups||[]))mx=Math.max(mx,g.id); for(const k of state.markers)mx=Math.max(mx,k.id); _id=mx+1;
   state.selId=null; state.dirty=false;
@@ -5984,7 +6032,7 @@ function loadProject(obj){ try{ showLoadingScreen(T('Loading project…','Cargan
   try{ loadingWaitMedia(Date.now()+20000); }catch(e){ hideLoadingScreen(); } } // [U9] keep the loading screen until media/proxies finish buffering (or a 20 s deadline)
 async function reloadMedia(m){
   if(m.kind==='adjust'){ m.missing=false; m._loading=false; return; } // adjustment layer template — no file
-  if(m.kind==='ndi'){ m.missing=false; m._loading=false; return; } // live NDI input — no file to relink
+  if(m.kind==='ndi'||m.kind==='spout'){ m.missing=false; m._loading=false; return; } // entrada en vivo (NDI/Spout) — no hay archivo que reenlazar
   if(m.kind==='sequence'){ if(!m.framePaths||!m.framePaths.length){ m.missing=true; m._loading=false; renderMedia(); updRelink(); return; }
     const total=m.framePaths.length, frames=new Array(total); m.tex=m.tex||newTex(); m._curFrame=-1; let loaded=0;
     m.framePaths.forEach((fp,i)=>{ if(!fp){ if(++loaded===total){ m._loading=false; renderMedia(); } return; } const img=new Image(); img.onload=()=>{ const fit=fitImage(img); frames[i]=fit.src; if(i===0){ m.w=fit.w; m.h=fit.h; upTex(m.tex,fit.src); m._curFrame=0; m.thumb=DSP.toFileURL(fp); m.missing=false; } if(++loaded===total){ m.missing=false; m._loading=false; renderMedia(); render(); } }; img.onerror=()=>{ if(++loaded===total){ m._loading=false; renderMedia(); } }; img.src=DSP.toFileURL(fp); });
@@ -6176,6 +6224,7 @@ wireDrop($('#mediaList')); wireDrop($('#stage'));
 $('#mediaList').addEventListener('contextmenu',e=>{ if(e.target.closest('.mitem')||e.target.closest('.folderhdr')||e.target.closest('.folderdrop'))return; e.preventDefault();
   const items=[{label:T('Import media…','Importar medios…'),ico:'plus',fn:()=>$('#fileInput').click()},{label:T('Import image sequence…','Importar secuencia de imágenes…'),ico:'video',fn:()=>$('#fileInput').click()}];
   if(IS_ELEC&&window.dsp&&window.dsp.ndi) items.push({label:T('Add NDI source…','Añadir fuente NDI…'),ico:'ndi',fn:()=>addNdiInput()});
+  if(IS_ELEC&&window.dsp&&window.dsp.spout&&window.dsp.spout.inList) items.push({label:T('Add Spout source…','Añadir fuente Spout…'),ico:'ndi',fn:()=>addSpoutInput()}); // [V3] entrada Spout (local, misma máquina)
   items.push('sep',{label:T('New folder','Nueva carpeta'),ico:'folder',fn:()=>$('#newFolderBtn').click()});
   openMenu(e.clientX,e.clientY,items); });
 $('#filtSeg').querySelectorAll('button').forEach(b=>b.onclick=()=>{state.mediaFilter=b.dataset.f;$('#filtSeg').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));renderMedia();});
