@@ -1,5 +1,28 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 175b — El parpadeo del launcher, y una pregunta invisible
+
+Beltrán, probando R175: al abrir un proyecto, justo antes de llegar al editor se cuelan un par de fotogramas del
+launcher.
+
+**Lo causé yo en R175.** El arranque decidía su destino —launcher, demo o nada— mirando si existía `#loadingOv`
+para saber si ya había un proyecto abriéndose… y `#loadingOv` es exactamente lo que R175 dejó de crear. Sin esa
+señal pintaba el launcher, y `hideLanding()` lo borraba dos fotogramas después. Ahora se decide con
+`_bootEsperandoProyecto`, que se fija de forma síncrona nada más arrancar. (`currentPath` tampoco servía: se
+asigna DESPUÉS de leer el archivo, más tarde que esa decisión.)
+
+**Y al verificarlo apareció algo peor, también de R175.** El proyecto de prueba tenía un autoguardado más nuevo,
+así que salía el diálogo de recuperación… DENTRO de la ventana todavía oculta. El usuario se quedaba mirando el
+splash, sin saber que le estaban preguntando algo, hasta el cortafuegos de 35s. Antes no pasaba porque el editor
+se revelaba primero. Arreglado en el punto único por donde pasan todos: `appConfirm`, `appAlert` y `appPrompt`
+sueltan el splash antes de pintarse. Si hay que preguntar algo, el editor aparece para que se vea la pregunta.
+
+Medido en los dos caminos: con `Rito360.isp` (con autoguardado pendiente) el diálogo sale a los 2,7s **con el
+editor ya revelado**; con `RitoDome.isp` (limpio, 21 medios) el editor aparece a los 2,9s con el proyecto entero
+y **cero launcher, cero segunda pantalla**.
+
+Pruebas: funcional 22/22, robustez 15/15, cero errores de consola.
+
 ## ROUND 175 — Abrir un proyecto: UNA pantalla de carga, no dos
 
 Beltrán grabó el arranque: doble clic en un `.isp` → splash cuadrado → se abre el editor → y el editor tapa todo

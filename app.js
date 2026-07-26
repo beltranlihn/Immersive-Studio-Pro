@@ -2340,6 +2340,11 @@ function removeLane(li){ const lane=state.lanes[li]; if(!lane)return; const has=
   if(has) appConfirm(T('This track has clips. Delete it with its clips?','Esta pista contiene clips. ¿Eliminarla junto con sus clips?'), ok=>{ if(ok)doIt(); }, {ok:T('Delete','Eliminar'),danger:true}); else doIt(); }
 /* Electron disables window.prompt() → custom in-app prompt modal (works in the packaged .exe). */
 function appPrompt(message,def,cb){ try{closeMenu();}catch(e){}
+  /* [R175b] Cualquier diálogo durante el arranque SUELTA el splash antes de pintarse: si no, la pregunta
+     queda dentro de la ventana todavía oculta y el usuario se queda mirando el splash sin saber que le están
+     preguntando algo (pasó con el aviso de autoguardado al abrir un .isp). */
+  try{ if(typeof _bootEsperandoProyecto!=='undefined'&&_bootEsperandoProyecto)bootProyectoListo(); }catch(e){}
+
   const ov=document.createElement('div'); ov.className='overlay'; ov.style.alignItems='flex-start'; ov.id='promptOv';
   ov.innerHTML='<div class="modal" style="width:360px;margin-top:120px;padding:14px 16px;"><div style="font-size:13px;color:var(--ink-2);margin-bottom:9px;">'+message+'</div><input id="apIn" type="text" spellcheck="false" style="width:100%;height:30px;box-sizing:border-box;background:var(--s0);border:.5px solid rgba(255,255,255,0.14);border-radius:2px;color:var(--ink);font-family:inherit;font-size:13px;padding:0 9px;outline:none;"><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:13px;"><button id="apCancel" class="togbtn2">'+T('Cancel','Cancelar')+'</button><button id="apOk" class="togbtn2 on">'+T('OK','Aceptar')+'</button></div></div>';
   document.body.appendChild(ov); const inp=ov.querySelector('#apIn'); inp.value=(def!=null?def:''); setTimeout(()=>{try{inp.focus();inp.select();}catch(e){}},10);
@@ -2349,6 +2354,11 @@ function appPrompt(message,def,cb){ try{closeMenu();}catch(e){}
   ov.addEventListener('pointerdown',e=>{ if(e.target===ov)fin(null); }); }
 /* ===== Styled in-app dialogs (match the app aesthetic, replace native confirm/alert) ===== */
 function appConfirm(message,cb,opts){ opts=opts||{}; try{closeMenu();}catch(e){}
+  /* [R175b] Cualquier diálogo durante el arranque SUELTA el splash antes de pintarse: si no, la pregunta
+     queda dentro de la ventana todavía oculta y el usuario se queda mirando el splash sin saber que le están
+     preguntando algo (pasó con el aviso de autoguardado al abrir un .isp). */
+  try{ if(typeof _bootEsperandoProyecto!=='undefined'&&_bootEsperandoProyecto)bootProyectoListo(); }catch(e){}
+
   const ov=document.createElement('div'); ov.className='overlay'; ov.id='confirmOv';
   ov.innerHTML='<div class="modal" style="width:390px;padding:16px 18px;"><div style="font-size:13px;color:var(--ink-2);line-height:1.5;margin-bottom:15px;">'+message+'</div><div style="display:flex;gap:8px;justify-content:flex-end;"><button id="cfCancel" class="togbtn2">'+(opts.cancel||T('Cancel','Cancelar'))+'</button><button id="cfOk" class="togbtn2 on"'+(opts.danger?' style="background:#33383F;border-color:rgba(255,255,255,0.2);color:#fff;"':'')+'>'+(opts.ok||T('OK','Aceptar'))+'</button></div></div>';
   document.body.appendChild(ov); let done=false; const fin=v=>{ if(done)return; done=true; document.removeEventListener('keydown',onk,true); ov.remove(); if(cb)cb(v); };
@@ -2356,6 +2366,11 @@ function appConfirm(message,cb,opts){ opts=opts||{}; try{closeMenu();}catch(e){}
   const onk=e=>{ e.stopPropagation(); if(e.key==='Escape'){e.preventDefault();fin(false);} else if(e.key==='Enter'){e.preventDefault();fin(true);} }; document.addEventListener('keydown',onk,true);
   setTimeout(()=>{try{ov.querySelector('#cfOk').focus();}catch(e){}},10); }
 function appAlert(message,cb){ try{closeMenu();}catch(e){}
+  /* [R175b] Cualquier diálogo durante el arranque SUELTA el splash antes de pintarse: si no, la pregunta
+     queda dentro de la ventana todavía oculta y el usuario se queda mirando el splash sin saber que le están
+     preguntando algo (pasó con el aviso de autoguardado al abrir un .isp). */
+  try{ if(typeof _bootEsperandoProyecto!=='undefined'&&_bootEsperandoProyecto)bootProyectoListo(); }catch(e){}
+
   const ov=document.createElement('div'); ov.className='overlay'; ov.style.alignItems='flex-start'; ov.id='alertOv';
   ov.innerHTML='<div class="modal" style="width:390px;margin-top:130px;padding:16px 18px;"><div style="font-size:13px;color:var(--ink-2);line-height:1.5;margin-bottom:15px;">'+message+'</div><div style="display:flex;justify-content:flex-end;"><button id="alOk" class="togbtn2 on">'+T('OK','Aceptar')+'</button></div></div>';
   document.body.appendChild(ov); let done=false; const fin=()=>{ if(done)return; done=true; document.removeEventListener('keydown',onk,true); ov.remove(); if(cb)cb(); };
@@ -8241,7 +8256,12 @@ function init(){
      parpadeo (el `preboot` de R147 sigue puesto sólo por si se abre fuera de Electron): se pinta el destino con
      calma y recién cuando está listo se pide revelar. */
   bootMark(91); // [arranque] visores dimensionados, primer render pedido
-  const _dest = (document.getElementById('loadingOv') || currentPath)
+  /* [R175b] `_bootEsperandoProyecto` PRIMERO: este punto detectaba «ya hay un proyecto abriéndose» por la
+     presencia de `#loadingOv`… que es exactamente lo que R175 dejó de crear durante el arranque. Sin esa señal
+     se pintaba el launcher y `hideLanding()` lo borraba un par de fotogramas después: el parpadeo que vio
+     Beltrán justo antes de aparecer el editor. La bandera se fija de forma síncrona nada más arrancar, así que
+     aquí ya está puesta. `currentPath` no sirve: se asigna DESPUÉS de leer el archivo, más tarde que esto. */
+  const _dest = (_bootEsperandoProyecto || document.getElementById('loadingOv') || currentPath)
     ? Promise.resolve()                                             // ya hay un proyecto abriéndose (doble clic en un .isp)
     : (onboardDone() ? Promise.resolve(showLanding())               // [D7] arranques posteriores → pantalla de inicio
                      : startOnboarding());                          //      primer arranque → escena demo + recorrido
