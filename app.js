@@ -131,7 +131,9 @@ const LANE_DEF_H=57, LANE_MIN_H=26, LANE_MAX_H=120, LANE_COLLAPSED_H=24;
    para dibujarlos (`LH>=AUTO_LANE_MIN_H`); antes eran dos números sueltos que podían desincronizarse.
    Encoger por debajo de este suelo NO deja la pista a medias: la colapsa entera. */
 const AUTO_LANE_MIN_H=52;
-const AUDIO_LANE_H=44; // altura POR DEFECTO del audio (no fija): se redimensiona igual que el vídeo
+const AUDIO_LANE_H=LANE_DEF_H; /* [R171] el audio mide lo MISMO que el vídeo. Era 44 contra 57 y se notaba a
+   simple vista; con clips enlazados A/V, además, la mitad de audio quedaba visiblemente más baja que su
+   pareja. Sigue siendo sólo el valor POR DEFECTO: Alt+rueda las escala todas juntas. */
 /* [R152] Alto de la regla del timeline. Estaba cableado como 22 en el CSS y en TRES sitios de JS (playhead,
    límite de arrastre, brace de work-area); el diseño la pone en 24 y desincronizarlos desalinea todo. Una fuente. */
 const RULER_H=24;
@@ -1765,7 +1767,7 @@ async function makeProxy(m){
 function updProxyUI(m){const it=document.querySelector('.mitem[data-id="'+m.id+'"]');if(it){const b=it.querySelector('.pbar>i');if(b)b.style.width=Math.max(0,m.proxyPct||0)+'%'; const tx=it.querySelector('.pbar .pbtxt');if(tx)tx.textContent=m.proxyReady?'':(m.proxyPct>0?(m.proxyPct+'%'):'…');}
   document.querySelectorAll('.pdot[data-mid="'+m.id+'"]').forEach(el=>{ el.style.background=m.proxyReady?'#B4BAC1':'#5E646C'; el.title=m.proxyReady?T('Proxy ready','Proxy listo'):T('No proxy yet / generating','Sin proxy aún / generando'); });
   const rdy=!!m.proxyReady,pct=m.proxyPct||0;
-  document.querySelectorAll('.cpx[data-mid="'+m.id+'"]').forEach(el=>{el.textContent=rdy?'⚡ PROXY':(pct>0?'PROXY '+pct+'%':'ORIGINAL');});
+  document.querySelectorAll('.cpx[data-mid="'+m.id+'"]').forEach(el=>{el.textContent=rdy?T('Proxy','Proxy'):(pct>0?T('Proxy','Proxy')+' '+pct+'%':T('Original','Original'));}); // [R171] mismo texto que al construir el clip
   document.querySelectorAll('.cpxbar[data-mid="'+m.id+'"]').forEach(el=>{el.style.display=(rdy||pct<=0)?'none':'block';const i=el.querySelector('i');if(i)i.style.width=pct+'%';}); }
 
 /* ===================== MEDIA LIST UI ===================== */
@@ -2202,12 +2204,17 @@ function renderTimeline(){ reconcileVinst(); // free private decoders of clips t
         fades+=`<svg class="fadeenv" width="${cW}" height="${cH}" viewBox="0 0 ${cW} ${cH}" preserveAspectRatio="none"><polyline points="0,${c.fadeIn>0?botY:topY} ${x1.toFixed(1)},${topY} ${x2.toFixed(1)},${topY} ${cW},${c.fadeOut>0?botY:topY}"/></svg>`; }
       const isAud=!!(m&&m.kind==='audio')||isAudioClip(c); /* [R170] la mitad de audio de un vídeo enlazado vive en una pista de audio con medio de VÍDEO: sin mirar la pista no recibía .audioclip y se quedaba sin onda */ const fillBg=c.adjust?'repeating-linear-gradient(45deg,rgba(180,186,193,0.30) 0 9px,rgba(180,186,193,0.10) 9px 18px)':'none'; // [R94b] the stretched-thumbnail fill is gone — Premiere-style HEAD THUMBNAIL instead (below)
       let cth=''; if(m&&m.thumb&&!isAud&&!collapsed){ const th=Math.max(8,LH-8-15), tw=Math.round(th*16/9); if(Math.max(14,c.dur*pps)>=tw+24) cth=`<div class="cthumb" style="width:${tw}px;background-image:url(${m.thumb})"></div>`; } // Premiere-style head thumbnail, pinned to the clip's own left edge; hidden in automation mode
-      let px2=''; if(m&&m.kind==='video'){ const rdy=!!m.proxyReady,pct=m.proxyPct||0; px2='<div class="cpx" data-mid="'+c.mediaId+'">'+(rdy?'⚡ PROXY':(pct>0?'PROXY '+pct+'%':'ORIGINAL'))+'</div><div class="cpxbar" data-mid="'+c.mediaId+'" style="'+((rdy||pct<=0)?'display:none;':'')+'"><i style="width:'+pct+'%"></i></div>'; }
+      /* [R171] La fuente (Original / Proxy) ya no es una chapa en mayúsculas flotando sobre el clip: va en gris
+         JUNTO AL NOMBRE, dentro del título. Sólo queda aquí la barrita de progreso mientras se genera el proxy. */
+      let px2='', pxTag=''; if(m&&m.kind==='video'){ const rdy=!!m.proxyReady, pct=m.proxyPct||0;
+        const txt=rdy?T('Proxy','Proxy'):(pct>0?T('Proxy','Proxy')+' '+pct+'%':T('Original','Original'));
+        pxTag='<span class="cpx" data-mid="'+c.mediaId+'">'+txt+'</span>';
+        px2='<div class="cpxbar" data-mid="'+c.mediaId+'" style="'+((rdy||pct<=0)?'display:none;':'')+'"><i style="width:'+pct+'%"></i></div>'; }
       const animBadge=hasLiveAnim(c)?`<div class="animbadge" title="${T('Live motion','Movimiento activo')}" style="position:absolute;top:3px;right:5px;width:15px;height:15px;border-radius:50%;background:var(--ink-2);color:#0b0d10;font-size:11px;line-height:15px;text-align:center;pointer-events:none;font-weight:700;z-index:3;">↻</div>`:'';
       const mutedBadge=(lane.mute&&!c.disabled)?`<div class="mutebadge" title="${T('Track muted','Pista silenciada')}">${ICO('mute',11)}</div>`:''; // [T5] chapa de mute (signo de forma, no de color → daltonismo)
       let loopMarks=''; const lcyc=loopCycleSec(c); // R81: subtle boundary ticks + a ↻ badge at each loop repeat
       if(lcyc>0.02){ for(let k=1;k*lcyc<c.dur-1e-3;k++){ const lx=k*lcyc*pps; loopMarks+=`<div style="position:absolute;left:${lx}px;top:0;bottom:0;width:1px;background:repeating-linear-gradient(180deg,rgba(255,255,255,0.55) 0 3px,transparent 3px 6px);pointer-events:none;z-index:2;"></div><div style="position:absolute;left:${lx+2}px;bottom:2px;font-size:11px;line-height:1;color:rgba(255,255,255,0.55);pointer-events:none;z-index:2;">↻</div>`; } }
-      const _ct=clipTint(c,m); cd.innerHTML=`<div class="fill" style="background-image:${fillBg};background-color:${_ct}"></div><div class="scrim"></div>${cth}${fades}${loopMarks}<div class="tt" style="background:${_ct};color:${textOn(_ct)}">${c.loop?'↻ ':''}${c.name}</div>${px2}${animBadge}${mutedBadge}<div class="hd l"></div><div class="hd r"></div><div class="fadeh fadeL" style="left:${fiPx}px"></div><div class="fadeh fadeR" style="right:${foPx}px"></div>${kf}`; // R84c: clips use their OWN colour (lane colour tints only the header)
+      const _ct=clipTint(c,m); cd.innerHTML=`<div class="fill" style="background-image:${fillBg};background-color:${_ct}"></div><div class="scrim"></div>${cth}${fades}${loopMarks}<div class="tt" style="background:${_ct};color:${textOn(_ct)}">${c.loop?'↻ ':''}${c.name}${pxTag}</div>${px2}${animBadge}${mutedBadge}<div class="hd l"></div><div class="hd r"></div><div class="fadeh fadeL" style="left:${fiPx}px"></div><div class="fadeh fadeR" style="right:${foPx}px"></div>${kf}`; // R84c: clips use their OWN colour (lane colour tints only the header)
       cd.tabIndex=0; cd.setAttribute('aria-label',c.name||T('Clip','Clip')); // [R94-UT5·U-10b] Tab reaches every clip; Enter/Space selects (keydown delegated on #tracks)
       row.appendChild(cd);
       // drag-and-drop a Motion chip onto a clip to animate it
@@ -2271,7 +2278,7 @@ function renderTimeline(){ reconcileVinst(); // free private decoders of clips t
   positionPlayhead(); const dt=$('#durTc'); if(dt)dt.textContent=TC(duration());
   renderWork(); renderClipExtent(); renderTimeSel(); applyToolCursor(); updEnable(); redrawAudioWaves(); // draw the visible slice of every audio waveform at screen resolution
   renderZoomBar(); // [T3] keep the custom zoom-scrollbar thumb sized to the current zoom/content
-  try{ renderVZoom(); }catch(e){} // [Rev1] V-zoom lateral (altura de pistas) — definido más abajo (hoisted); try por si falta el DOM
+  try{ renderVZoom(); }catch(e){} try{ clampTimelineH(); }catch(e){} // [R171] sin banda vacía bajo la última pista // [Rev1] V-zoom lateral (altura de pistas) — definido más abajo (hoisted); try por si falta el DOM
 }
 /* lanes */
 /* [R93] selecting a CLIP deselects the track (mutual exclusion — Ctrl+T/Ctrl+D are contextual). Cheap: also strips the
@@ -6719,7 +6726,19 @@ function hResize(handle,target,minH,maxH,after){ const hEl=$(handle); if(!hEl)re
    cambia al añadir/quitar/colapsar pistas o al escalarlas con Alt+rueda. Se deja un mínimo por si no hay ninguna. */
 function tlMaxH(){ const tracks=state.lanes.reduce((s,l,i)=>s+laneH(i),0);
   return Math.max(170, Math.min(Math.round(innerHeight*0.78), RULER_H+tracks+15+2)); } // 15 = barra de zoom horizontal
-hResize('#tlResize','.timeline',170,tlMaxH,()=>{resize();renderTimeline();});
+hResize('#tlResize','.timeline',170,tlMaxH,()=>{_tlAltoManual=true;resize();renderTimeline();}); // [R171] arrastrar el divisor marca la altura como manual (ver clampTimelineH)
+/* [R171] `tlMaxH` sólo limitaba el ARRASTRE. La altura de partida está cableada en el CSS (402px) y no se
+   recalcula al colapsar, quitar o escalar pistas, así que sobraba banda vacía debajo de la última. Esto la
+   recorta al alto real de las pistas. Sólo hacia ABAJO: si el usuario la ha dejado más pequeña, se respeta. */
+let _tlAltoManual=false; // el usuario arrastró el divisor → su altura manda y sólo se recorta, nunca se estira
+function clampTimelineH(){ const el=document.querySelector('.timeline'); if(!el)return;
+  const max=tlMaxH(), cur=el.getBoundingClientRect().height;
+  /* Mientras nadie haya arrastrado el divisor, el panel MIDE lo que miden las pistas: se recorta cuando sobran y
+     CRECE cuando aparece una nueva. Sólo recortar escondía pistas — al enlazar audio se crea A2 y quedaba fuera
+     de vista, que es peor que la banda vacía que se quería quitar. Si el usuario lo ha ajustado a mano se
+     respeta su altura, y entonces sí sólo se recorta al tope. */
+  const objetivo=_tlAltoManual?Math.min(cur,max):max;
+  if(Math.abs(cur-objetivo)>0.5){ el.style.height=objetivo+'px'; try{ resize(); }catch(e){} } }
 function saveWorkspace(){ try{ const prev=JSON.parse(localStorage.getItem('domeProWs')||'{}'); const mc=state.prefs.mediaCollapsed, ic=state.prefs.inspCollapsed;
   localStorage.setItem('domeProWs', JSON.stringify({ mediaW: mc?(prev.mediaW||292):$('#mediaPane').offsetWidth, inspW: ic?(prev.inspW||300):$('#inspPane').offsetWidth, mediaCollapsed:mc, inspCollapsed:ic, tallInsp:!!state.prefs.tallInsp })); }catch(e){} }
 function loadWorkspace(){ try{ const s=localStorage.getItem('domeProWs'); if(!s)return; const w=JSON.parse(s);

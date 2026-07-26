@@ -558,7 +558,9 @@
   body.simpleclips .clip .tt{box-shadow:none;}
   body.automode .clip .tt:active{cursor:grabbing;}
   body.automode .clip.sel .tt{box-shadow:inset 0 0 0 1.5px rgba(255,255,255,0.7),inset 0 -1px 0 rgba(255,255,255,0.28);}
-  .clip .cpx{position:absolute;left:7px;bottom:3px;font-size:11px;font-weight:600;letter-spacing:0.06em;color:var(--ink-2);text-shadow:0 1px 2px #000;white-space:nowrap;pointer-events:none;opacity:.92;}
+  /* [R171] La fuente va JUNTO AL NOMBRE dentro del título, en gris y con peso normal: antes era una chapa en
+     mayúsculas flotando sobre el clip, que competía con el nombre y tapaba la miniatura. */
+  .clip .tt .cpx{margin-left:6px;font-weight:400;font-size:10px;color:var(--ink-3);opacity:.85;}
   .clip .cpxbar{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(0,0,0,0.45);pointer-events:none;}
   .clip .cpxbar>i{display:block;height:100%;background:var(--ink-2);}
   /* [R102·D-T2] ESTA es la señal de selección que siempre se ve: el borde del clip entero. (El contorno del

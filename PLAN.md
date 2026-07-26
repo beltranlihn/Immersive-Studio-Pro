@@ -1,5 +1,27 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 171 — Tres ajustes del timeline
+
+Sobre la captura que mandó Beltrán tras probar los clips enlazados.
+
+**1 · El panel mide lo que miden las pistas.** `tlMaxH()` (R156) sólo limitaba el ARRASTRE del divisor; la altura
+de partida seguía cableada en el CSS (402px) y no se recalculaba al colapsar, quitar o escalar pistas, así que
+sobraba banda vacía bajo la última. Ahora `clampTimelineH()` ajusta el panel en cada re-render. **Y no sólo hacia
+abajo:** la primera versión únicamente recortaba, y al enlazar audio —que puede crear una pista A2— la pista
+nueva quedaba fuera de vista. Esconder una pista es peor que la banda vacía que se quería quitar. Si el usuario
+arrastra el divisor, su altura manda y entonces sí sólo se recorta al tope.
+
+**2 · Las pistas de audio miden lo mismo que las de vídeo.** Eran 44 contra 57 y se notaba; con clips enlazados
+A/V la mitad de audio quedaba visiblemente más baja que su pareja. `AUDIO_LANE_H` pasa a ser `LANE_DEF_H`. Sigue
+siendo sólo el valor por defecto: Alt+rueda las escala todas juntas.
+
+**3 · La fuente va junto al nombre, en gris.** "ORIGINAL" / "PROXY" era una chapa en mayúsculas, con espaciado de
+letra y sombra, flotando sobre el clip: competía con el nombre y tapaba la miniatura. Ahora es "Original" /
+"Proxy" dentro del título, a 10px, peso normal y en `--ink-3`. La barrita de progreso del proxy se queda donde
+estaba. Medido: dentro del título, gris rgb(140,140,140), peso 400, sin mayúsculas.
+
+Pruebas: funcional 22/22, robustez 15/15, enlace A/V 6/6, cero errores de consola.
+
 ## ROUND 170 — Clips enlazados A/V, como Premiere
 
 Petición de Beltrán: arrastrar un vídeo y que su audio baje solo a la pista de audio más cercana, enlazado; que
