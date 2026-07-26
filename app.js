@@ -2752,6 +2752,43 @@ function renderLauncher(){ const ov=document.getElementById('landingOv'); if(!ov
 /* Pinta los canvas del visor con los MISMOS painters del editor. Se dimensionan por DPR para que no salgan borrosos.
    Va en rAF a propósito: llamado justo después de escribir el innerHTML, el layout todavía no existe y
    getBoundingClientRect() devuelve 0 → los canvas se quedaban en su 300×150 por defecto y se veían estirados. */
+/* [R182] Trae el VISOR REAL del editor al launcher. Pedido de Beltrán: "los viewport 2d y 3d en fondo negro de
+   cada modo ya existen dentro del editor, es traerlos a este diagrama nomás".
+   Cómo: se monta un estado TEMPORAL con el formato elegido, se llama al MISMO `render()` del editor, y se
+   bliteda `glc` (WebGL) + `gridc` (la capa 2D de guías y rótulos) al canvas del panel. Es el mismo truco que el
+   visor de avance del render-in-place: leer el búfer de dibujo DENTRO de la misma tarea de render, que es la
+   única ventana en que es legible.
+   Todo lo que se toca se restaura en el `finally`, incluido el tamaño de los lienzos: el launcher corre con el
+   editor detrás y no puede dejarle el visor descuadrado. */
+function lchEditorShot(cv,o){
+  if(!cv||typeof render!=='function')return false;
+  let ok=false;
+  const S=state, V=state.view;
+  const bak={ w:S.seqW,h:S.seqH,mode:S.seqMode,cov:S.seqCov, clips:S.clips, vmode:V.mode, zoom:V.zoom, pan:V.pan.slice(),
+              cw:view.cw, ch:view.ch, vs:VSIZE, gw:glc.width, gh:glc.height, rw:gridc.width, rh:gridc.height };
+  try{
+    const r=cv.getBoundingClientRect(); if(!r.width||!r.height)return false;
+    const dpr=Math.min(2,window.devicePixelRatio||1);
+    const W=Math.max(16,Math.round(r.width*dpr)), H=Math.max(16,Math.round(r.height*dpr));
+    S.seqW=o.w; S.seqH=o.h; S.seqMode=o.mode; S.seqCov=o.cov||180; S.clips=[];
+    V.mode=o.view; V.zoom=0.92; V.pan=[0,0];
+    view.cw=r.width; view.ch=r.height; VSIZE=Math.min(r.width,r.height);
+    glc.width=W; glc.height=H; gridc.width=W; gridc.height=H; gx.setTransform(dpr,0,0,dpr,0,0);
+    render();
+    if(cv.width!==W||cv.height!==H){ cv.width=W; cv.height=H; }
+    const cx=cv.getContext('2d'); cx.clearRect(0,0,W,H);
+    cx.drawImage(glc,0,0,W,H); cx.drawImage(gridc,0,0,W,H); // el WebGL primero, las guías encima
+    ok=true;
+  }catch(e){ ok=false; }
+  finally{
+    S.seqW=bak.w; S.seqH=bak.h; S.seqMode=bak.mode; S.seqCov=bak.cov; S.clips=bak.clips;
+    V.mode=bak.vmode; V.zoom=bak.zoom; V.pan=bak.pan;
+    view.cw=bak.cw; view.ch=bak.ch; VSIZE=bak.vs;
+    glc.width=bak.gw; glc.height=bak.gh; gridc.width=bak.rw; gridc.height=bak.rh;
+    try{ gx.setTransform(Math.min(2,window.devicePixelRatio||1),0,0,Math.min(2,window.devicePixelRatio||1),0,0); }catch(_){}
+  }
+  return ok;
+}
 function lchPaint(){ requestAnimationFrame(lchPaintNow); }
 function lchPaintNow(){ const ov=document.getElementById('landingOv'); if(!ov||!_lch)return;
   /* [R165] fit() sólo iguala el BÚFER del lienzo a la caja que ya le dio el CSS. Antes escribía además
@@ -2762,9 +2799,13 @@ function lchPaintNow(){ const ov=document.getElementById('landingOv'); if(!ov||!
     const dpr=Math.min(2,window.devicePixelRatio||1); cv.width=Math.round(r.width*dpr); cv.height=Math.round(r.height*dpr);
     return cv; };
   const S=_lch;
+  /* [R182] El panel 3D del domo y el lienzo 2D los dibuja AHORA el visor real del editor; si por lo que sea no
+     se puede (contexto WebGL perdido, lienzo sin caja), se cae al esquema de siempre y la pantalla no se rompe. */
   if(S.ptype==='dome'){ const cv=fit(ov.querySelector('#lchCvDome')); if(cv)try{ drawSeqViz(cv,'dome',{cov:S.domeCov}); }catch(e){}
-    const c3=fit(ov.querySelector('#lchCvDome3d')); if(c3)try{ drawDomeIso(c3,S.domeCov,LCH_PAL); }catch(e){} }
-  else if(S.ptype==='flat'){ const cv=fit(ov.querySelector('#lchCvFlat')); if(cv)try{ drawSeqViz(cv,'flat',{w:S.flatW,h:S.flatH}); }catch(e){} }
+    const c3=ov.querySelector('#lchCvDome3d');
+    if(c3 && !lchEditorShot(c3,{w:S.domeRes,h:S.domeRes,mode:'dome',cov:S.domeCov,view:'3d'})){ const f=fit(c3); if(f)try{ drawDomeIso(f,S.domeCov,LCH_PAL); }catch(e){} } }
+  else if(S.ptype==='flat'){ const cv=ov.querySelector('#lchCvFlat');
+    if(cv && !lchEditorShot(cv,{w:S.flatW,h:S.flatH,mode:'flat',view:'2d'})){ const f=fit(cv); if(f)try{ drawSeqViz(f,'flat',{w:S.flatW,h:S.flatH}); }catch(e){} } }
   else { const w=lchCfgWalls();
     const a=fit(ov.querySelector('#lchCvIso')); if(a)try{ drawRoomIso(a,w,S.roomFloor,null,LCH_PAL); }catch(e){}
     const b=fit(ov.querySelector('#lchCvStrip')); if(b)try{ drawRoomStrip(b,w,S.roomFloor,null,LCH_PAL); }catch(e){} }
