@@ -216,6 +216,12 @@
 - **Invariants / gotchas:** `isFlat()` incluye `room`, así que el orden de comprobación es **isRoom() antes que isFlat()** en el manejador y en el dibujo. El horizonte NO se puede medir en el lienzo `#grid`: vive en el sombreador del WebGL.
 - **Status:** ✅
 
+### Equirect 360° — `FSEQ`/`PEQ` (composite) · `FSPH`/`PSPH` + `sphVAO` (visor 3D)
+- **Purpose:** una fuente 2:1 se trata como panorama esférico. En el composite se deforma a domo (fase 1, R126); en el visor 3D en ÓRBITA se dibuja además sobre una esfera entera atenuada al 45% (fase 2, R169) para ver el entorno que el casquete descarta.
+- **Location:** app.js · `FSEQ` (~L389) · `FSPH`/`PSPH`/`buildSphereMesh`/`equirectClipAt`/`drawEquirectSphere` (~L457) · llamada dentro del bloque 3D de `render()` · `pareceEquirect(m)` junto a `makeClip`.
+- **Invariants / gotchas:** **el signo de la v.** Las texturas suben con `UNPACK_FLIP_Y_WEBGL=true`, así que `v=0` es el borde INFERIOR del archivo → el cenit debe ser `v = 0.5 + lat/π`, NO `0.5 − lat/π`. Con el signo malo el panorama sale invertido (suelo arriba) y no salta a la vista con contenido abstracto. Los dos sombreadores comparten el criterio: si se toca uno, tocar el otro. La esfera NO se dibuja en modo Viewer (dentro eres el público: sólo existe lo que el domo proyecta) ni escribe profundidad, para que el casquete gane donde se solapan.
+- **Status:** ✅
+
 ## Deuda técnica & gaps detectados en el mapeo
 
 - **🗄️ Automatización legacy — ARCHIVADO (R137).** Las funciones muertas (`_autoOff` override/re-enable + perform-and-bake `recWrite`/`bakeRecorded` + `#autoRecBtn`) se sacaron del software y viven en `_backup/deprecated/20260722-automation-override-and-perform-bake.js` (recuperables). Verificado por CDP: motor de automatización intacto. **Barrido menor HECHO (R137):** removidos los reads no-op de `_autoOff` en sepAuto, returnToDefault, `drawAutoCurve` (var `off`), fxKfToggle y borrado de fx — solo queda `_autoOff` en un comentario (app.js L463). Curva renderiza OK (verificado por píxel).

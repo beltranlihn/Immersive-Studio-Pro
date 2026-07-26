@@ -397,7 +397,11 @@ void main(){ float rho=length(v_p); if(rho>1.0) discard;
   float cy=cos(u_yaw), sy=sin(u_yaw); ray=vec3(ray.x*cy-ray.y*sy, ray.x*sy+ray.y*cy, ray.z);          // yaw around zenith
   float cp=cos(u_pitch), sp=sin(u_pitch); ray=vec3(ray.x, ray.y*cp-ray.z*sp, ray.y*sp+ray.z*cp);       // pitch (tilt)
   float az=atan(ray.y, ray.x); float lat=asin(clamp(ray.z,-1.0,1.0));
-  vec2 uv=vec2(az*0.15915494+0.5, 0.5 - lat*0.31830989); // az/(2π)+0.5 , 0.5 − lat/π
+  /* [F7 fase 2] El signo era MENOS y ponía el suelo sobre tu cabeza: las texturas se suben con
+     UNPACK_FLIP_Y_WEBGL=true (upTex), así que v=0 es el borde INFERIOR del archivo. Con "0.5 − lat/π" el cenit
+     (lat=+90°) caía en v=0, o sea en la última fila de la imagen. Verificado con un patrón de mitades: el cenit
+     devolvía el color de ABAJO. Ahora v = 0.5 + lat/π → cenit v=1 (fila de arriba), horizonte 0.5, nadir 0. */
+  vec2 uv=vec2(az*0.15915494+0.5, 0.5 + lat*0.31830989);
   vec4 c=texture(u_tex, uv); vec3 col=c.rgb;
   col*=exp2(u_exp); col=(col-0.5)*(1.0+u_con)+0.5; float L=dot(col,vec3(0.2126,0.7152,0.0722)); col=mix(vec3(L),col,1.0+u_sat); col*=vec3(1.0+u_tmp,1.0,1.0-u_tmp); col*=vec3(1.0-u_tnt*0.5,1.0+u_tnt,1.0-u_tnt*0.5);
   col=pow(max(u_gain*col+u_lift,0.0), u_gamma); col=clamp(col,0.0,1.0);                 // R130 lift/gamma/gain
@@ -454,6 +458,58 @@ function buildDomeMesh(covHalf){ if(Math.abs(covHalf-_domeCov)<1e-6)return; _dom
  if(needIx){ const ix=[],W=S+1;for(let ri=0;ri<R;ri++)for(let si=0;si<S;si++){const a=ri*W+si,b=a+1,c=a+W,d=c+1;ix.push(a,b,c,b,d,c);} const ib=gl.createBuffer();gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ib);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint32Array(ix),gl.STATIC_DRAW);domeCount=ix.length; }
  gl.bindVertexArray(null); }
 buildDomeMesh(HALF_PI);
+
+/* ============================================================================================================
+   [F7 fase 2] ESFERA COMPLETA en el visor 3D. La fase 1 deforma equirect→domo en el composite, y eso por
+   definición TIRA todo lo que queda bajo el horizonte: el máster es un casquete. Aquí la fuente equirect se
+   dibuja además sobre una esfera entera alrededor de la escena, atenuada, para ver el entorno del que el domo
+   sólo recoge una parte — y de paso dónde cae el borde.
+   Sólo en ÓRBITA: ahí estás fuera mirando el domo y el contexto informa. En modo Viewer eres el público dentro,
+   y lo único que existe para el público es lo que el domo proyecta; meter la esfera ahí mentiría.
+   El muestreo copia literalmente la convención de FSEQ (yaw, luego pitch, luego az/lat → uv) para que la esfera
+   y el casquete no discrepen ni medio píxel en la zona que comparten.
+   ============================================================================================================ */
+const VSPH=`#version 300 es
+precision highp float; in vec3 a_pos; uniform mat4 u_mvp; uniform float u_flipx; out vec3 v_dir;
+void main(){ v_dir=a_pos; vec4 p=u_mvp*vec4(a_pos,1.0); p.x*=u_flipx; gl_Position=p; }`;
+const FSPH=`#version 300 es
+precision highp float; in vec3 v_dir; uniform sampler2D u_tex; uniform float u_yaw,u_pitch,u_dim; out vec4 o;
+void main(){ vec3 ray=normalize(v_dir);
+  float cy=cos(u_yaw), sy=sin(u_yaw); ray=vec3(ray.x*cy-ray.y*sy, ray.x*sy+ray.y*cy, ray.z);
+  float cp=cos(u_pitch), sp=sin(u_pitch); ray=vec3(ray.x, ray.y*cp-ray.z*sp, ray.y*sp+ray.z*cp);
+  float az=atan(ray.y, ray.x); float lat=asin(clamp(ray.z,-1.0,1.0));
+  vec2 uv=vec2(az*0.15915494+0.5, 0.5 + lat*0.31830989); // mismo criterio que FSEQ (ver la nota del signo allí)
+  o=vec4(texture(u_tex,uv).rgb*u_dim, 1.0); }`;
+const PSPH=prog(VSPH,FSPH);
+const LSPH={pos:gl.getAttribLocation(PSPH,'a_pos'),mvp:gl.getUniformLocation(PSPH,'u_mvp'),flipx:gl.getUniformLocation(PSPH,'u_flipx'),
+            tex:gl.getUniformLocation(PSPH,'u_tex'),yaw:gl.getUniformLocation(PSPH,'u_yaw'),pitch:gl.getUniformLocation(PSPH,'u_pitch'),dim:gl.getUniformLocation(PSPH,'u_dim')};
+const sphVAO=gl.createVertexArray(); let sphCount=0;
+(function buildSphereMesh(){ const R=48,S=96,vv=[],ix=[];
+  for(let ri=0;ri<=R;ri++){ const zen=ri/R*PI, sz=Math.sin(zen), cz=Math.cos(zen);
+    for(let si=0;si<=S;si++){ const aa=si/S*2*PI; vv.push(Math.cos(aa)*sz, Math.sin(aa)*sz, cz); } }
+  const W=S+1; for(let ri=0;ri<R;ri++)for(let si=0;si<S;si++){ const a=ri*W+si,b=a+1,c=a+W,d=c+1; ix.push(a,c,b,b,c,d); } // orden invertido: se mira desde DENTRO
+  gl.bindVertexArray(sphVAO);
+  const vb=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,vb); gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(vv),gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(LSPH.pos); gl.vertexAttribPointer(LSPH.pos,3,gl.FLOAT,false,12,0);
+  const ib=gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ib); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint32Array(ix),gl.STATIC_DRAW);
+  sphCount=ix.length; gl.bindVertexArray(null); })();
+/* el clip equirect que manda en el instante t: el de la pista más alta, que es el que domina el composite */
+function equirectClipAt(t){ let mejor=null;
+  for(const c of state.clips){ if(!c.props||!c.props.equirect)continue; if(t<c.start||t>=c.start+c.dur)continue;
+    const m=mediaById(c.mediaId); if(!m||m.missing||!m.tex)continue;
+    if(!mejor||c.lane>mejor.lane)mejor=c; }
+  return mejor; }
+function drawEquirectSphere(mvp,t){ const c=equirectClipAt(t); if(!c)return false;
+  const m=mediaById(c.mediaId); const tex=(m.kind==='video'&&_vinst.get(c.id)&&_vinst.get(c.id).vtex)||m.tex; if(!tex)return false;
+  gl.useProgram(PSPH); gl.bindVertexArray(sphVAO);
+  gl.uniformMatrix4fv(LSPH.mvp,false,new Float32Array(mvp));
+  gl.uniform1f(LSPH.flipx,-1);
+  gl.uniform1f(LSPH.yaw,(evalR(c,'az',t)+evalR(c,'spin',t))*D2R);
+  gl.uniform1f(LSPH.pitch,(c.props.eqPitch||0)*D2R);
+  gl.uniform1f(LSPH.dim,0.45); // atenuada: es contexto, no la obra — el casquete tiene que seguir leyéndose encima
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,tex); gl.uniform1i(LSPH.tex,0);
+  gl.drawElements(gl.TRIANGLES,sphCount,gl.UNSIGNED_INT,0);
+  gl.bindVertexArray(null); return true; }
 
 /* 3D ROOM (360 immersive room) — textured quads (walls + floor). Positions in a normalized, centered room; each wall samples its sub-rect of the unwrapped strip, the floor samples the floor sequence, both stretched onto their real quads so non-90° corners + a deformed floor show ONLY here. */
 const VSR=`#version 300 es
@@ -983,6 +1039,9 @@ function render(){ if(glLost)return;
     gl.clearColor(0,0,0,state.view.checkerBg?0:1); gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT); // [F8] transparent clear lets the CSS checkerboard show behind the dome
     const spec=state.view.three==='spec'; const mvp=cameraMVP(spec);
     buildDomeMesh(curCovHalf()); // cap geometry follows the sequence's coverage (cheap: rebuilds only on change)
+    /* [F7 fase 2] el entorno 360 completo DETRÁS del casquete, sólo en órbita (ver drawEquirectSphere).
+       Se dibuja antes y sin escribir profundidad, para que el casquete siempre gane donde se solapan. */
+    if(!spec){ gl.depthMask(false); try{ drawEquirectSphere(mvp,state.playhead); }catch(e){} gl.depthMask(true); }
     gl.useProgram(P3); gl.bindVertexArray(domeVAO);
     gl.uniformMatrix4fv(L3.mvp,false,new Float32Array(mvp)); gl.uniform1f(L3.grid,state.view.showGrid?1:0);
     gl.uniform1f(L3.flipx, -1); // orbit + spec both use the in-dome (audience) handedness so Right/Left aren't mirrored between modes
@@ -1922,9 +1981,15 @@ function deleteMedia(m){ if(!m)return; if(isSeqMedia(m)){ deleteSequenceMedia(m.
   doIt(); }
 
 /* ===================== TIMELINE ===================== */
+/* [F7 fase 2] ¿esta fuente es un panorama equirectangular? La convención es 2:1 exacto y resolución grande.
+   Se exige el 2:1 con un 1% de margen Y un ancho mínimo de 2048 para no marcar como panorama un banner
+   apaisado o un recorte cualquiera. Es sólo el valor INICIAL del clip: el interruptor Equirect 360° del
+   inspector manda siempre, y al detectarlo se avisa por la barra de estado — nada silencioso. */
+function pareceEquirect(m){ if(!m||!(m.w>0)||!(m.h>0))return false; if(m.kind!=='image'&&m.kind!=='video')return false;
+  return m.w>=2048 && Math.abs(m.w/m.h-2)<=0.02; }
 function makeClip(m,lane,start,props,extra){
   return Object.assign({id:uid(),mediaId:m.id,lane,start:Math.max(0,start),dur:m.dur||6,inP:0,name:m.name,color:m.color,
-    fadeIn:0,fadeOut:0,props:Object.assign({az:0,el:35,size:55,rot:0,spin:0,mirror:false,opacity:100,blur:0,feather:0,crop:0,mask:'none',blend:'normal',exposure:0,contrast:0,saturation:0,temperature:0,tint:0,glow:0,chroma:0,react:'none',reactAmt:60,fulldome:false,fisheye:false,fisheyeAmt:60,equirect:false,eqPitch:0,blackKey:false,blackKeyAmt:15,blackKeySoft:30,warp:'patch',secAz:60,secEl:30,volume:100,x:0,y:0,scale:100,lut:null,lutMix:100},props||{}),kf:{},fx:[]}, extra||{});
+    fadeIn:0,fadeOut:0,props:Object.assign({az:0,el:35,size:55,rot:0,spin:0,mirror:false,opacity:100,blur:0,feather:0,crop:0,mask:'none',blend:'normal',exposure:0,contrast:0,saturation:0,temperature:0,tint:0,glow:0,chroma:0,react:'none',reactAmt:60,fulldome:false,fisheye:false,fisheyeAmt:60,equirect:(!isFlat()&&pareceEquirect(m)),eqPitch:0,/* [F7 fase 2] un 2:1 grande arranca como panorama; sólo en secuencias de domo, donde equirect significa algo */blackKey:false,blackKeyAmt:15,blackKeySoft:30,warp:'patch',secAz:60,secEl:30,volume:100,x:0,y:0,scale:100,lut:null,lutMix:100},props||{}),kf:{},fx:[]}, extra||{});
 }
 function addClip(m,lane,start){
   if(isSeqMedia(m)&&(m.id===state.activeSeqId||seqReaches(m.id,state.activeSeqId))){ flashStatus(T("Can't nest a sequence inside itself (would create a loop)",'No se puede anidar una secuencia que crearía un bucle'),'err'); return; } // [R94-UT3·U-21]
@@ -1939,6 +2004,7 @@ function addClip(m,lane,start){
   start=(start!=null)?start:state.playhead;
   const c=makeClip(m,lane,start);
   state.clips.push(c); state.selId=c.id; state.selIds=[c.id]; state.selGroupId=null; clearMediaSel(); renderTimeline(); renderInspector(); render(); updStatus(); // adding to the timeline hands Delete-priority to the new clip (R86)
+  if(c.props&&c.props.equirect) flashStatus(T('2:1 source — treated as a 360° panorama (toggle it in Source)','Fuente 2:1 — se trata como panorama 360° (se cambia en Source)')); // [F7 fase 2] la detección nunca es silenciosa
 }
 const TC=(s)=>{s=Math.max(0,s);const f=state.fps;const tf=Math.round(s*f);const ff=tf%f, ss=Math.floor(tf/f)%60, mm=Math.floor(tf/f/60);return String(mm).padStart(2,'0')+':'+String(ss).padStart(2,'0')+':'+String(ff).padStart(2,'0');};
 function fmtTime(s){ const mode=state.tl.tcMode; if(mode==='frames')return String(Math.round(Math.max(0,s)*state.fps)); if(mode==='bars')return BBT(s); return TC(s); }

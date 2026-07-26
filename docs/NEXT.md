@@ -99,8 +99,7 @@
       `wireFxCards(c,sel,reRender)` + `fxDragHandle(…,sel,reRender)`; añadir desde Motion → efecto **estático** (`int=100`,
       `band='none'`). Verificado por CDP (tarjeta sin banda, param con kf, se comparte con Reactive, regresión del panel
       Reactive intacta: add reactivo sigue `int=0/band=bass`). _(R146)_
-- [ ] **[F7 fase 2]** — equirect en el **visor 3D** (esfera completa) + **auto-detección 2:1** al importar. La fase 1
-      (warp equirect→domo en el composite 2D, shader `PEQ`) ya está (R126). GL, verificable.
+- [x] **[F7 fase 2]** — equirect en el **visor 3D** (esfera completa) + **auto-detección 2:1** al importar. _(R169)_ Y por el camino apareció que la fase 1 mostraba los panoramas **del revés** (el suelo sobre la cabeza): signo equivocado en la v de `FSEQ` frente al `UNPACK_FLIP_Y_WEBGL=true` de `upTex`.
 - [ ] **[D2]** — cola/encoder de export en **segundo plano** con **snapshot congelado** del proyecto al enviar (seguir
       editando/borrando mientras exporta; encolar varios con progreso). **Grande** pero JS + verificable. (Beltrán lo tenía
       "para el final"; sigue en pie, es el de mayor esfuerzo.)

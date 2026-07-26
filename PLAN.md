@@ -1,5 +1,30 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 169 — [F7 fase 2]: la esfera completa, y los panoramas que salían del revés
+
+**Autodetección 2:1.** Una fuente de 2048px o más de ancho y proporción 2:1 (con un 1% de margen) arranca como
+panorama equirect, sólo en secuencias de domo. El margen y el mínimo están para no marcar un banner apaisado o un
+recorte cualquiera; el interruptor del inspector manda siempre y la detección avisa por la barra de estado — nada
+silencioso. Verificado: 4096×2048 sí, 3840×2160 no, 1024×512 (2:1 pero pequeño) no.
+
+**La esfera completa.** La fase 1 deforma equirect→domo, y eso por definición tira todo lo que queda bajo el
+horizonte: el máster es un casquete. Ahora, en ÓRBITA, la fuente se dibuja además sobre una esfera entera
+atenuada al 45%, así que se ve el entorno del que el domo sólo recoge una parte, y dónde cae el borde. En modo
+Viewer NO se dibuja: dentro eres el público, y para el público sólo existe lo que el domo proyecta. La esfera va
+sin escritura de profundidad, para que el casquete gane siempre donde se solapan.
+
+**Y el hallazgo gordo: los panoramas se veían del revés.** El patrón de prueba tenía la mitad de arriba gris y la
+de abajo magenta; el cenit del domo devolvía RGB(255,0,170) — el magenta de ABAJO. Las texturas se suben con
+`UNPACK_FLIP_Y_WEBGL=true`, así que `v=0` es el borde inferior del archivo, y `FSEQ` mapeaba el cenit justo ahí
+con un `0.5 − lat/π`. Debe ser `0.5 + lat/π`. Con contenido abstracto esto no salta a la vista, pero con un
+panorama de verdad significa el suelo sobre tu cabeza. Tras el arreglo el cenit devuelve el gris de arriba.
+El fallo venía de R126 y sólo apareció porque la fase 2 necesitaba un patrón con arriba y abajo distinguibles.
+
+Medido al final: 0% del color del hemisferio inferior en 2D y en Viewer, 2,4% en órbita — que es exactamente la
+esfera enseñando lo que el casquete descarta.
+
+Pruebas: funcional 22/22, robustez 15/15, iconos 31/31, cero errores de consola.
+
 ## ROUND 168 — Etapa 7: lo que cambia cuando cambia el formato
 
 **El método primero.** Los tres handoffs (Domo · 2D Flat · 360) pesan casi lo mismo y traen 91-92 SVG y 109-110
