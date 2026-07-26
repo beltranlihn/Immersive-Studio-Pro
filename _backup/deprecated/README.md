@@ -46,3 +46,4 @@ lo que indique, y actualizá `COMPONENTS.md`. Corré el syntax check.
 -->
 | 2026-07-26 | `20260726-jump-kf-per-param.js` | app.js · `jumpKf(p,dir)` | Sin llamadores desde que R159 quitó los botones «fotograma anterior / siguiente» de cada fila del inspector (esos 40px eran los que le faltaban al fader para medir como el prototipo: pasó de 53px a 129px). Lo sustituye `jumpAnyKf(dir)` en **Alt+, / Alt+.**, que recorre los keyframes de TODOS los parámetros automatizados del clip. | R159/R161, ADR-0007 |
 | `20260726-safe-zone-overlay.js` | Superposición de ZONA SEGURA (action/title safe, plano y domo) | R174 · el handoff lleva CUATRO superposiciones y ninguna es Safe; Beltrán: «Safe no va. Se elimina» |
+| `20260726-auto-curve-range-labels.js` | Etiquetas de rango de la curva de automatización (el 100% y el 0% del borde del clip) | R176 · cada parámetro tiene su escala; dos números sueltos no dicen de cuál son |

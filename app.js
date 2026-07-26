@@ -32,7 +32,14 @@ function bootEsperarProyecto(){ if(_bootRevelado)return; if(_bootEsperandoProyec
    llegaba DESPUES de que el editor decidiera revelarse — una carrera que perdia, y de ahi las dos pantallas
    seguidas. Esta consulta corre antes que nada, asi que el freno queda puesto (y con su cortafuegos armado). */
 try{ if(window.dsp&&window.dsp.bootProject&&window.dsp.bootProject()) bootEsperarProyecto(); }catch(e){}
-function bootProyectoListo(){ if(!_bootEsperandoProyecto)return; _bootEsperandoProyecto=false; bootReveal(); }
+let _autoguardadoPendiente=null; // [R176] oferta de recuperación aplazada: se pregunta con el editor ya montado
+function bootProyectoListo(){ if(!_bootEsperandoProyecto)return; _bootEsperandoProyecto=false; bootReveal();
+  /* La pregunta va DESPUÉS del revelado —y con un respiro— para que se vea sobre un editor ya pintado y no
+     sobre una ventana que todavía se está mostrando. */
+  if(_autoguardadoPendiente){ const ruta=_autoguardadoPendiente; _autoguardadoPendiente=null;
+    setTimeout(()=>{ appConfirm(T('An autosave newer than this file exists (possible crash). Restore it?','Existe un autoguardado más reciente que este archivo (posible cierre inesperado). ¿Restaurarlo?'),
+      async ok=>{ if(!ok)return; try{ const txt=await DSP.readText(ruta); if(txt)loadProject(JSON.parse(txt)); }catch(e){ appAlert(T('Could not restore the autosave.','No se pudo restaurar el autoguardado.')); } },
+      {ok:T('Restore','Restaurar'),cancel:T('Keep the file','Mantener el archivo')}); }, 700); } }
 function bootReveal(){
   if(_bootEsperandoProyecto)return;                    // hay un proyecto en marcha: el splash sigue, ya llamará bootProyectoListo
   if(_bootRevelado)return; _bootRevelado=true;
@@ -2340,10 +2347,6 @@ function removeLane(li){ const lane=state.lanes[li]; if(!lane)return; const has=
   if(has) appConfirm(T('This track has clips. Delete it with its clips?','Esta pista contiene clips. ¿Eliminarla junto con sus clips?'), ok=>{ if(ok)doIt(); }, {ok:T('Delete','Eliminar'),danger:true}); else doIt(); }
 /* Electron disables window.prompt() → custom in-app prompt modal (works in the packaged .exe). */
 function appPrompt(message,def,cb){ try{closeMenu();}catch(e){}
-  /* [R175b] Cualquier diálogo durante el arranque SUELTA el splash antes de pintarse: si no, la pregunta
-     queda dentro de la ventana todavía oculta y el usuario se queda mirando el splash sin saber que le están
-     preguntando algo (pasó con el aviso de autoguardado al abrir un .isp). */
-  try{ if(typeof _bootEsperandoProyecto!=='undefined'&&_bootEsperandoProyecto)bootProyectoListo(); }catch(e){}
 
   const ov=document.createElement('div'); ov.className='overlay'; ov.style.alignItems='flex-start'; ov.id='promptOv';
   ov.innerHTML='<div class="modal" style="width:360px;margin-top:120px;padding:14px 16px;"><div style="font-size:13px;color:var(--ink-2);margin-bottom:9px;">'+message+'</div><input id="apIn" type="text" spellcheck="false" style="width:100%;height:30px;box-sizing:border-box;background:var(--s0);border:.5px solid rgba(255,255,255,0.14);border-radius:2px;color:var(--ink);font-family:inherit;font-size:13px;padding:0 9px;outline:none;"><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:13px;"><button id="apCancel" class="togbtn2">'+T('Cancel','Cancelar')+'</button><button id="apOk" class="togbtn2 on">'+T('OK','Aceptar')+'</button></div></div>';
@@ -2354,10 +2357,6 @@ function appPrompt(message,def,cb){ try{closeMenu();}catch(e){}
   ov.addEventListener('pointerdown',e=>{ if(e.target===ov)fin(null); }); }
 /* ===== Styled in-app dialogs (match the app aesthetic, replace native confirm/alert) ===== */
 function appConfirm(message,cb,opts){ opts=opts||{}; try{closeMenu();}catch(e){}
-  /* [R175b] Cualquier diálogo durante el arranque SUELTA el splash antes de pintarse: si no, la pregunta
-     queda dentro de la ventana todavía oculta y el usuario se queda mirando el splash sin saber que le están
-     preguntando algo (pasó con el aviso de autoguardado al abrir un .isp). */
-  try{ if(typeof _bootEsperandoProyecto!=='undefined'&&_bootEsperandoProyecto)bootProyectoListo(); }catch(e){}
 
   const ov=document.createElement('div'); ov.className='overlay'; ov.id='confirmOv';
   ov.innerHTML='<div class="modal" style="width:390px;padding:16px 18px;"><div style="font-size:13px;color:var(--ink-2);line-height:1.5;margin-bottom:15px;">'+message+'</div><div style="display:flex;gap:8px;justify-content:flex-end;"><button id="cfCancel" class="togbtn2">'+(opts.cancel||T('Cancel','Cancelar'))+'</button><button id="cfOk" class="togbtn2 on"'+(opts.danger?' style="background:#33383F;border-color:rgba(255,255,255,0.2);color:#fff;"':'')+'>'+(opts.ok||T('OK','Aceptar'))+'</button></div></div>';
@@ -2366,10 +2365,11 @@ function appConfirm(message,cb,opts){ opts=opts||{}; try{closeMenu();}catch(e){}
   const onk=e=>{ e.stopPropagation(); if(e.key==='Escape'){e.preventDefault();fin(false);} else if(e.key==='Enter'){e.preventDefault();fin(true);} }; document.addEventListener('keydown',onk,true);
   setTimeout(()=>{try{ov.querySelector('#cfOk').focus();}catch(e){}},10); }
 function appAlert(message,cb){ try{closeMenu();}catch(e){}
-  /* [R175b] Cualquier diálogo durante el arranque SUELTA el splash antes de pintarse: si no, la pregunta
-     queda dentro de la ventana todavía oculta y el usuario se queda mirando el splash sin saber que le están
-     preguntando algo (pasó con el aviso de autoguardado al abrir un .isp). */
+  /* [R176] Sólo los AVISOS sueltan el splash: un aviso durante el arranque significa que algo falló y no va a
+     haber proyecto que esperar. Las preguntas (appConfirm/appPrompt) ya no interrumpen el arranque — ver
+     maybeOfferAutosave: se aplazan a cuando el editor está montado. */
   try{ if(typeof _bootEsperandoProyecto!=='undefined'&&_bootEsperandoProyecto)bootProyectoListo(); }catch(e){}
+
 
   const ov=document.createElement('div'); ov.className='overlay'; ov.style.alignItems='flex-start'; ov.id='alertOv';
   ov.innerHTML='<div class="modal" style="width:390px;margin-top:130px;padding:16px 18px;"><div style="font-size:13px;color:var(--ink-2);line-height:1.5;margin-bottom:15px;">'+message+'</div><div style="display:flex;justify-content:flex-end;"><button id="alOk" class="togbtn2 on">'+T('OK','Aceptar')+'</button></div></div>';
@@ -4411,10 +4411,12 @@ function drawAutoCurve(cv,c,p){ const laneMode=(cv._li!=null);
       if(isS){ctx.strokeStyle=UI.ink2;ctx.lineWidth=1;ctx.strokeRect(x-s-2,y-s-2,2*s+4,2*s+4);}}
   }
   // [R70] scale labels (sub-lanes) / param label (clip overlays) + value at the playhead
-  const fmtV=v=>{const r=Math.round(v*10)/10;return (r%1===0?r.toFixed(0):r.toFixed(1))+(unit||'');};
   const lx=Math.max(3,(laneMode?0:firstVx)+3);
   if(cv._label){ ctx.font='600 11px Geist'; ctx.fillStyle='rgba(232,234,237,0.55)'; ctx.textBaseline='top'; ctx.fillText(cv._label,lx,2); ctx.textBaseline='alphabetic'; }
-  else if(H>=30){ ctx.font='11px Geist'; ctx.fillStyle='rgba(154,160,168,0.55)'; ctx.textBaseline='top'; ctx.fillText(fmtV(mx),lx,1); ctx.textBaseline='alphabetic'; ctx.fillText(fmtV(mn),lx,H-2); }
+  /* [R176] Fuera el tope y el suelo del rango (el «100%» y el «0%» pegados al borde izquierdo del clip). Cada
+     parámetro tiene su propia escala —grados, por ciento, píxeles—, así que un par de números sueltos ahí no
+     dicen de cuál son y sólo ensucian el clip. La identidad y el valor ya están en los chips de la cabecera de
+     pista y en el inspector. */
   // [R94b] the playhead value dot + % label was removed per request (it didn't track playback — stale value mid-play)
   // [R95·B3] curve ghosting (Cavalry): while a gesture is live, the curve as it was before the drag stays behind in grey —
   // free differential feedback ("where was it?"). Built from a snapshot, so it costs nothing when idle.
@@ -6331,6 +6333,10 @@ async function maybeOfferAutosave(p,obj){ try{ const stP=await DSP.stat(p); let 
     const i=Math.max(p.lastIndexOf('\\'),p.lastIndexOf('/')); const cands=[]; if(i>=0)cands.push(p.slice(0,i)+'\\autosave\\'+p.slice(i+1)); cands.push(p); // project-local autosave folder + LEGACY sidecar
     for(const bp of cands)for(const s of ['.autosave1','.autosave2']){ try{ const st=await DSP.stat(bp+s); if(st&&st.size>2&&(!best||(st.mtimeMs||0)>best.t))best={p:bp+s,t:st.mtimeMs||0}; }catch(e){} }
     if(best&&stP&&best.t>(stP.mtimeMs||0)+2000){
+      /* [R176] Durante el ARRANQUE no se pregunta nada: el splash se queda hasta que todo esté montado, y una
+         pregunta aquí o quedaría dentro de la ventana oculta, o obligaría a revelar un editor a medio hacer. Se
+         abre el archivo tal cual y la oferta de recuperación se guarda para DESPUÉS, ya con el editor listo. */
+      if(_bootEsperandoProyecto){ _autoguardadoPendiente=best.p; return obj; }
       const yes=await new Promise(r=>appConfirm(T('An autosave newer than this file exists (possible crash). Restore it?','Existe un autoguardado más reciente que este archivo (posible cierre inesperado). ¿Restaurarlo?'),r,{ok:T('Restore autosave','Restaurar autoguardado'),cancel:T('Open the file','Abrir el archivo')}));
       if(yes){ const txt=await DSP.readText(best.p); if(txt)return JSON.parse(txt); } } }catch(e){}
   return obj; }

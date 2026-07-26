@@ -605,6 +605,7 @@ separate subsystem — only cross-references appear here.
 - **Purpose:** 12px column to the right of the clip area (design §6). Dragging the thumb scales the height of ALL lanes at once; the thumb size/position reflect the current average track height.
 - **Location:** app.js · `renderVZoom()` (~L5809), called at the end of `renderTimeline` (wrapped in try). DOM `#tlVZoom`>`#tlVZoomTrack`>`#tlVZoomThumb` (index.html, inside `.tlmain`). CSS `.tlvzoom`/`.tlvztrack`/`.tlvzthumb`.
 - **State/data:** writes `lane.h` on every lane (clamped to [`laneFloorH(l)`, LANE_MAX_H]; below the floor it sets `collapsed` instead — [R163], same rule as Alt+scroll).
+- **[R176]** La barra vertical ya tiene sus DOS PUNTOS (`.tlvzcap` t/b): existían en CSS y `startVCapDrag` estaba escrito y enganchado, pero los elementos nunca se habían añadido al DOM — la barra no era el espejo de la horizontal. Arrastrar un punto escala TODAS las pistas anclando el borde opuesto.
 - **Invariants / gotchas:** it is a SCALE, not a per-lane resize — **[R156]** the per-lane grip is gone; Alt+scroll and this bar are the only two ways to resize, and both move ALL lanes at once. Collapsed lanes keep `LANE_COLLAPSED_H` (`laneH` checks `collapsed` first) and only come back up (`wheelResizeLanes` refuses to un-collapse on a downward wheel — [R163]).
 - **Status:** ✅
 - **Roadmap:** Rev1 §6

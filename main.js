@@ -57,7 +57,10 @@ function createSplash() {
   // El diseño es de 1080×1080 fijos. En una pantalla de 1080p esa altura no entra, así que se toma el lado
   // mayor que quepa en el área de trabajo y el HTML escala su lienzo de 1080 a ese tamaño (proporción intacta).
   // SPLASH_SCALE: pedido de Beltrán — la ventana al 70% de lo que daba antes; ocupaba demasiada pantalla.
-  const SPLASH_SCALE = 0.70;
+  // [R176] 0.49 = otro 70% sobre el 0.70 anterior, a petición de Beltrán. El splash es una tarjeta de 1080²
+  // escalada por transform, así que la tipografía y todo lo demás encogen en la MISMA proporción: no hay dos
+  // diagramaciones que mantener.
+  const SPLASH_SCALE = 0.49;
   let side = 1080;
   try {
     const { screen } = require('electron');

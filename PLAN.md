@@ -1,5 +1,31 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 176 — Tres ajustes y el arranque sin interrupciones
+
+**El arranque, hasta el final.** Beltrán zanjó la duda que quedaba de R175b: el splash se queda SIEMPRE y no se
+ve nada hasta terminar. Eso obliga a que la pregunta del autoguardado no salga a mitad del arranque —o quedaría
+dentro de la ventana oculta, o forzaría a revelar un editor a medio montar—. Ahora `maybeOfferAutosave` detecta
+el arranque, abre el archivo tal cual y APLAZA la oferta de recuperación: se pregunta después, con el editor ya
+pintado. Los avisos (`appAlert`) siguen soltando el splash, porque un aviso durante el arranque significa que
+algo falló y no va a haber proyecto que esperar. Medido: editor a los 2,6s con sus 4 clips, y la pregunta a los
+3,2s, ya encima del editor. Cero launcher, cero segunda pantalla.
+
+**Los tres ajustes:**
+- **Splash al 70% del actual** (0,70 → 0,49). En una pantalla de 1080p pasa de 695 a 487px. Es una tarjeta de
+  1080² escalada por transform, así que la tipografía y la diagramación encogen en la misma proporción solas.
+- **Fuera el 0 y el 100** del borde del clip en modo automatización: cada parámetro tiene su escala —grados, por
+  ciento, píxeles— y dos números sueltos ahí no dicen de cuál son. Archivado en
+  `_backup/deprecated/20260726-auto-curve-range-labels.js` junto con su `fmtV`, que quedaba sin uso.
+- **La barra vertical ya tiene sus puntos**, y sirven para redimensionar las pistas. El CSS (`.tlvzcap`) y el
+  manejador (`startVCapDrag`) llevaban escritos desde R152, pero los elementos NUNCA se habían añadido al DOM:
+  la barra no era el espejo de la horizontal que decía ser. Medido: arrastrar el punto inferior lleva las cinco
+  pistas de 57 a 84px.
+
+Sobre el 0/100 hubo un falso positivo de mi propia sonda: detectaba tinta abajo a la izquierda y resultó ser el
+primer fotograma clave de la curva, que vale 0 y se dibuja justo ahí. Confirmado a la vista con una captura.
+
+Pruebas: funcional 22/22, robustez 15/15, cero errores de consola.
+
 ## ROUND 175b — El parpadeo del launcher, y una pregunta invisible
 
 Beltrán, probando R175: al abrir un proyecto, justo antes de llegar al editor se cuelan un par de fotogramas del
