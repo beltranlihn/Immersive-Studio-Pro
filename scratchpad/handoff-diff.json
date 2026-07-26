@@ -1,0 +1,129 @@
+{
+  "filas": [
+    {
+      "t": "0",
+      "domo": false,
+      "flat": true,
+      "sala": false
+    },
+    {
+      "t": "0°",
+      "domo": true,
+      "flat": false,
+      "sala": true
+    },
+    {
+      "t": "1920×1080 · 60p · ProRes",
+      "domo": false,
+      "flat": true,
+      "sala": false
+    },
+    {
+      "t": "2D",
+      "domo": true,
+      "flat": false,
+      "sala": false
+    },
+    {
+      "t": "2D Composition · Show 01",
+      "domo": false,
+      "flat": true,
+      "sala": false
+    },
+    {
+      "t": "35°",
+      "domo": true,
+      "flat": false,
+      "sala": false
+    },
+    {
+      "t": "3840×1920 · 60p · equirect",
+      "domo": false,
+      "flat": false,
+      "sala": true
+    },
+    {
+      "t": "3D",
+      "domo": true,
+      "flat": false,
+      "sala": true
+    },
+    {
+      "t": "4096² · 60p · PNG",
+      "domo": true,
+      "flat": false,
+      "sala": false
+    },
+    {
+      "t": "AZ",
+      "domo": true,
+      "flat": false,
+      "sala": false
+    },
+    {
+      "t": "Canvas",
+      "domo": false,
+      "flat": true,
+      "sala": true
+    },
+    {
+      "t": "Center",
+      "domo": false,
+      "flat": true,
+      "sala": false
+    },
+    {
+      "t": "EL",
+      "domo": true,
+      "flat": false,
+      "sala": false
+    },
+    {
+      "t": "Immersive Dome · Show 01",
+      "domo": true,
+      "flat": false,
+      "sala": false
+    },
+    {
+      "t": "Immersive Room 360 · Show 01",
+      "domo": false,
+      "flat": false,
+      "sala": true
+    },
+    {
+      "t": "PITCH",
+      "domo": false,
+      "flat": false,
+      "sala": true
+    },
+    {
+      "t": "Seam",
+      "domo": false,
+      "flat": false,
+      "sala": true
+    },
+    {
+      "t": "X",
+      "domo": false,
+      "flat": true,
+      "sala": false
+    },
+    {
+      "t": "Y",
+      "domo": false,
+      "flat": true,
+      "sala": false
+    },
+    {
+      "t": "YAW",
+      "domo": false,
+      "flat": false,
+      "sala": true
+    }
+  ],
+  "conteos": {
+    "domo": 123,
+    "flat": 122,
+    "sala": 123
+  }
+}

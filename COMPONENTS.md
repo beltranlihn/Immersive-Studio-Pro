@@ -210,6 +210,12 @@
 - **Invariants / gotchas:** hay referencias **DINÁMICAS** (`ICO(k?'kfFull':'kfEmpty')`, `ICO(i.ico)` en menús generados) → **no podar el catálogo con una expresión regular**: `redo` aparece como "sin uso" y sí se usa.
 - **Status:** ✅
 
+### Superposiciones del visor — `#dispSeg` (index.html) · `updModeUI` / drawFlatFrame / drawRoomGrid2D
+- **Purpose:** Grid · Safe · Outline · **[3.º por formato]** · Alpha. El tercer hueco cambia de FUNCIÓN con `state.seqMode`, no sólo de nombre.
+- **[R168·Etapa 7]** domo → `hfade` (Horizon, desvanecido cerca de la línea de arranque: uniforme de sombreador en `PB`/`PR`) · 2D plano → `state.view.showCenter` (Center, cruz de centro en `drawFlatFrame`) · sala → `state.view.showSeam` (Seam, juntas entre muros en `drawRoomGrid2D`). El botón mantiene `data-d="hfade"` como id de hueco; `updModeUI` reescribe rótulo, tooltip y estado `.on`.
+- **Invariants / gotchas:** `isFlat()` incluye `room`, así que el orden de comprobación es **isRoom() antes que isFlat()** en el manejador y en el dibujo. El horizonte NO se puede medir en el lienzo `#grid`: vive en el sombreador del WebGL.
+- **Status:** ✅
+
 ## Deuda técnica & gaps detectados en el mapeo
 
 - **🗄️ Automatización legacy — ARCHIVADO (R137).** Las funciones muertas (`_autoOff` override/re-enable + perform-and-bake `recWrite`/`bakeRecorded` + `#autoRecBtn`) se sacaron del software y viven en `_backup/deprecated/20260722-automation-override-and-perform-bake.js` (recuperables). Verificado por CDP: motor de automatización intacto. **Barrido menor HECHO (R137):** removidos los reads no-op de `_autoOff` en sepAuto, returnToDefault, `drawAutoCurve` (var `off`), fxKfToggle y borrado de fx — solo queda `_autoOff` en un comentario (app.js L463). Curva renderiza OK (verificado por píxel).

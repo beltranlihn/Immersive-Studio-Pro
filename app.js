@@ -93,6 +93,7 @@ const state = {
   playhead:0, playing:false, loop:false, follow:false,
   selId:null, selMediaId:null, selMediaIds:[], selMediaAnchor:null,
   view:{ mode:'2d', three:'orbit', zoom:0.92, pan:[0,0], showGrid:true, showSafe:false, showOutline:true, cull:false, useProxy:true, checkerBg:false,
+         showCenter:false, showSeam:true, // [R168·Etapa 7] guías de centro (2D) y costuras de muro (sala): el tercer hueco de superposición por formato. La costura nace encendida porque en la sala orienta, igual que el horizonte en el domo.
          cw:400, ch:400, cam:{yaw:0, pitch:0.5, dist:3.0, fov:60, back:0.8} },
   tl:{ pxPerSec:80, tool:'select', tcMode:'timecode', bpm:120, sig:4, gridDiv:0, gridFixed:false, gridFixedBase:1, selA:null, selB:null, audioCollapsed:false }, // [R161] fuera `snap` (R158 quitó el ajuste a la cuadrícula) y `simpleClips` (R155 dejó sólo el agarre estilo Premiere): nadie los leía. [R110] audioCollapsed = the audio module is compacted to just its bar
   workIn:null, workOut:null,
@@ -1256,7 +1257,16 @@ function drawFlatFrame(){ const M=flatMap(); const a=M.px(-1,1), b=M.px(1,-1); c
     const rect=(inset,dash,col,lbl,bottom)=>{ const mx=w*inset,my=h*inset; gx.lineWidth=1; gx.strokeStyle=col; gx.setLineDash(dash); gx.strokeRect(x0+mx,y0+my,w-2*mx,h-2*my); gx.setLineDash([]);
       gx.font='10px Geist'; gx.textAlign='left'; gx.textBaseline='alphabetic'; const tx=x0+mx+4, ty=bottom?(y0+h-my-4):(y0+my+12), tw=gx.measureText(lbl).width; gx.fillStyle='rgba(6,7,9,0.6)'; gx.fillRect(tx-3,ty-10,tw+6,13); gx.fillStyle=col; gx.fillText(lbl,tx,ty); };
     rect(0.035,[5,4],'rgba(201,205,211,0.55)',T('ACTION SAFE','ACCIÓN'),false);
-    rect(0.05 ,[3,4],'rgba(201,205,211,0.34)',T('TITLE SAFE','TÍTULOS'),true); } }
+    rect(0.05 ,[3,4],'rgba(201,205,211,0.34)',T('TITLE SAFE','TÍTULOS'),true); }
+  /* [R168·Etapa 7] Guías de CENTRO — el hueco que en el domo ocupa el desvanecido de horizonte. Una cruz por el
+     medio exacto del lienzo con un hueco central para no tapar lo que se está encuadrando. No es la cuadrícula
+     de tercios (ésa la da Grid): aquí lo que importa es el eje exacto. Sólo 2D plano; la sala usa su costura. */
+  if(state.view.showCenter && !isRoom()){ const cx=x0+w/2, cy=y0+h/2, hueco=Math.min(w,h)*0.045;
+    gx.save(); gx.lineWidth=1; gx.strokeStyle='rgba(232,236,242,0.42)'; gx.setLineDash([6,5]);
+    gx.beginPath(); gx.moveTo(cx,y0); gx.lineTo(cx,cy-hueco); gx.moveTo(cx,cy+hueco); gx.lineTo(cx,y0+h);
+    gx.moveTo(x0,cy); gx.lineTo(cx-hueco,cy); gx.moveTo(cx+hueco,cy); gx.lineTo(x0+w,cy); gx.stroke();
+    gx.setLineDash([]); gx.strokeStyle='rgba(232,236,242,0.7)'; gx.beginPath(); gx.arc(cx,cy,3,0,Math.PI*2); gx.stroke();
+    gx.restore(); } }
 /* R91b: 360-room wall grid over the flat strip — vertical dividers at wall seams, a subtle role label bottom-left of each wall, and a dimmed dead-zone under walls shorter than the strip. Drawn by EXACT PIXELS (wall.x0/x1/pxH), never by physical cm. Only the walls strip carries a .room; the floor is a plain flat sequence with no grid. */
 function drawRoomGrid2D(){ const as=activeSeq(); const room=as&&as.room; if(!room||!room.walls||!room.walls.length)return;
   const M=flatMap(); const stripW=as.w||state.seqW||1, stripH=as.h||state.seqH||1;
@@ -1269,9 +1279,13 @@ function drawRoomGrid2D(){ const as=activeSeq(); const room=as&&as.room; if(!roo
   if(state.view.showGrid){ gx.lineWidth=1; gx.strokeStyle='rgba(255,255,255,0.11)';
     for(const w of room.walls){ for(let i=1;i<ROOM_GRID_COLS;i++){ const x=fx(w.x0+(w.x1-w.x0)*i/ROOM_GRID_COLS); const a=M.px(x,fy(0)), b=M.px(x,fy(w.pxH)); gx.beginPath(); gx.moveTo(a[0],a[1]); gx.lineTo(b[0],b[1]); gx.stroke(); }
       for(let j=1;j<ROOM_GRID_ROWS;j++){ const yy=fy(w.pxH*j/ROOM_GRID_ROWS); const a=M.px(fx(w.x0),yy), b=M.px(fx(w.x1),yy); gx.beginPath(); gx.moveTo(a[0],a[1]); gx.lineTo(b[0],b[1]); gx.stroke(); } } }
-  // vertical seams between walls (the outer L/R edges are drawn by drawFlatFrame)
-  gx.strokeStyle='rgba(255,255,255,0.24)'; gx.lineWidth=1;
-  for(let i=1;i<room.walls.length;i++){ const x=fx(room.walls[i].x0); const p0=M.px(x,fy(0)), p1=M.px(x,fy(stripH)); gx.beginPath(); gx.moveTo(p0[0],p0[1]); gx.lineTo(p1[0],p1[1]); gx.stroke(); }
+  /* costuras verticales entre muros (los bordes exteriores L/R los dibuja drawFlatFrame)
+     [R168·Etapa 7] ahora tras el interruptor "Seam", que es el que los tres handoffs ponen en este hueco para la
+     sala. Se dibujan más marcadas que antes (0.24 → 0.34 y 1.5px): son la referencia de dónde dobla la pared, y
+     con la cuadrícula de muro encendida se confundían con una línea más de la rejilla. */
+  if(state.view.showSeam){ gx.strokeStyle='rgba(255,255,255,0.34)'; gx.lineWidth=1.5;
+    for(let i=1;i<room.walls.length;i++){ const x=fx(room.walls[i].x0); const p0=M.px(x,fy(0)), p1=M.px(x,fy(stripH)); gx.beginPath(); gx.moveTo(p0[0],p0[1]); gx.lineTo(p1[0],p1[1]); gx.stroke(); }
+    gx.lineWidth=1; }
   // subtle wall-role label, bottom-left inside each wall region
   gx.font='600 11px Geist'; gx.textAlign='left'; gx.textBaseline='alphabetic';
   for(const w of room.walls){ const p=M.px(fx(w.x0),fy(w.pxH)); const lbl=roomRoleLabel(w.role).toUpperCase(); const tw=gx.measureText(lbl).width;
@@ -5510,9 +5524,24 @@ function updModeUI(){ const fl=isFlat(), room=isRoom(); // a 360 room has a real
   const b3=document.querySelector('#viewModeSeg button[data-v="3d"]'); if(b3){ b3.style.display=(fl&&!room)?'none':'';
     const l3=b3.lastChild; if(l3&&l3.nodeType===3)l3.textContent=' 3D'; b3.title=room?T('3D room','Sala 3D'):T('3D preview','Vista 3D'); }
   const b2=document.querySelector('#viewModeSeg button[data-v="2d"]'); if(b2){
-    const last=b2.lastChild; if(last&&last.nodeType===3)last.textContent=' 2D';
-    b2.title=fl?T('2D master','Máster 2D'):T('Dome master (2D)','Máster de domo (2D)'); }
-  const bh=document.querySelector('#dispSeg button[data-d="hfade"]'); if(bh)bh.style.display=fl?'none':''; // horizon fade is dome-only
+    /* [R168·Etapa 7] El botón del máster se llama "2D" SÓLO en el domo; en 2D y en la sala los handoffs lo
+       llaman "Canvas" (Editor 2D Flat / Editor 360, fila del visor). Ahí no hay un domo del que este sea la
+       vista plana: el lienzo ES la obra. */
+    const last=b2.lastChild; if(last&&last.nodeType===3)last.textContent=fl?' Canvas':' 2D';
+    b2.title=room?T('Canvas (2D)','Lienzo (2D)'):fl?T('2D canvas','Lienzo 2D'):T('Dome master (2D)','Máster de domo (2D)'); }
+  /* [R168·Etapa 7] El TERCER botón de superposición cambia de FUNCIÓN con el formato, no sólo de nombre:
+     domo → Horizon (desvanece cerca de la línea de arranque: efecto de sombreador, sin sentido en plano)
+     2D   → Center (guías de centro sobre el lienzo)
+     sala → Seam   (marca las juntas entre muros de la tira)
+     Antes se ocultaba en 2D y en la sala, así que esos dos formatos se quedaban sin su control. */
+  const bh=document.querySelector('#dispSeg button[data-d="hfade"]');
+  if(bh){ bh.style.display='';
+    const et=room?T('Seam','Costura'):fl?T('Center','Centro'):T('Horizon','Horizonte');
+    const lt=bh.lastChild; if(lt&&lt.nodeType===3)lt.textContent=' '+et;
+    bh.title=room?T('Show the joins between walls','Mostrar las juntas entre muros')
+                 :fl?T('Center guides','Guías de centro')
+                    :T('Fade content near the dome horizon (spring line)','Desvanecer cerca del horizonte del domo (línea de arranque)');
+    bh.classList.toggle('on', !!(room?state.view.showSeam:fl?state.view.showCenter:state.view.hfade)); }
   if(fl && !room && state.view.mode==='3d'){ state.view.mode='2d'; document.querySelectorAll('#viewModeSeg button').forEach(x=>x.classList.toggle('on',x.dataset&&x.dataset.v==='2d')); } }
 function openSeq(id){ const m=mediaById(id); if(!isSeqMedia(m))return; if(!state.openSeqs)state.openSeqs=[]; if(!state.openSeqs.includes(id))state.openSeqs.push(id); switchSeq(id); }
 function switchSeq(id){ const m=mediaById(id); if(!isSeqMedia(m))return; if(id===state.activeSeqId){ if(!state.openSeqs.includes(id))state.openSeqs.push(id); renderSeqBar(); return; }
@@ -6373,7 +6402,10 @@ function openVpMore(){ const F=vpFits(); closeMenu();
 if($('#vpMoreBtn'))$('#vpMoreBtn').onclick=()=>{ if(document.getElementById('vpMorePan')){ document.getElementById('vpMorePan').remove(); $('#vpMoreBtn').classList.remove('on'); return; } openVpMore(); };
 // la barra se re-evalúa cuando cambia el ancho de la columna (ventana, paneles plegados, gutters)
 addEventListener('resize',()=>{ try{ updViewCtl(); }catch(e){} });
-$('#dispSeg').querySelectorAll('button').forEach(b=>b.onclick=()=>{ const d=b.dataset.d; if(d==='grid')state.view.showGrid=!state.view.showGrid; if(d==='safe')state.view.showSafe=!state.view.showSafe; if(d==='outline')state.view.showOutline=!state.view.showOutline; if(d==='hfade'){ state.view.hfade=!state.view.hfade; flashStatus(state.view.hfade?T('Horizon fade on','Desvanecido de horizonte activado'):T('Horizon fade off','Desvanecido de horizonte desactivado')); }
+$('#dispSeg').querySelectorAll('button').forEach(b=>b.onclick=()=>{ const d=b.dataset.d; if(d==='grid')state.view.showGrid=!state.view.showGrid; if(d==='safe')state.view.showSafe=!state.view.showSafe; if(d==='outline')state.view.showOutline=!state.view.showOutline; if(d==='hfade'){ /* [R168·Etapa 7] mismo hueco, tres funciones según el formato (ver updModeUI) */
+    if(isRoom()){ state.view.showSeam=!state.view.showSeam; flashStatus(state.view.showSeam?T('Wall seams on','Costuras de muro activadas'):T('Wall seams off','Costuras de muro desactivadas')); }
+    else if(isFlat()){ state.view.showCenter=!state.view.showCenter; flashStatus(state.view.showCenter?T('Center guides on','Guías de centro activadas'):T('Center guides off','Guías de centro desactivadas')); }
+    else { state.view.hfade=!state.view.hfade; flashStatus(state.view.hfade?T('Horizon fade on','Desvanecido de horizonte activado'):T('Horizon fade off','Desvanecido de horizonte desactivado')); } }
   if(d==='checker'){ state.view.checkerBg=!state.view.checkerBg; const cb=$('#checkerBg'); if(cb)cb.classList.toggle('on',state.view.checkerBg); flashStatus(state.view.checkerBg?T('Alpha checkerboard on','Cuadrícula de alpha activada'):T('Alpha checkerboard off','Cuadrícula de alpha desactivada')); } // [F8]
   b.classList.toggle('on', d==='grid'?state.view.showGrid:d==='safe'?state.view.showSafe:d==='outline'?state.view.showOutline:d==='checker'?state.view.checkerBg:state.view.hfade); render(); });
 /* [R105] La calidad de previsualización se persiste entre sesiones. NO era el bug de coherencia que creí

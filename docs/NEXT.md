@@ -25,7 +25,7 @@
 - [x] **Etapa 6b · Launcher (landing)** — hecho _(R153)_ con los **visores reales del editor** (`drawSeqViz`,
       `drawRoomIso`, `drawRoomStrip`) en vez de los SVGs del prototipo. Alto estable en los tres tipos y sin scroll,
       verificado. El segundo panel de Domo (domo 3D) se cerró en **R155** con `drawDomeIso` (pintor 2D propio, no WebGL) y responde al ángulo 180/200/210/220.
-- [ ] Etapa **7 · variantes por formato** (360 / 2D) del editor.
+- [x] Etapa **7 · variantes por formato** (360 / 2D) del editor. _(R168)_ Método: en vez de auditar tres maquetas casi idénticas, `scratchpad/handoff-diff.mjs` aísla lo que VARÍA entre ellas (20 textos de 115). Resultado: el botón del máster se llama **Canvas** en 2D y sala (**2D** sólo en domo), el 3D no existe en 2D plano, y el tercer hueco de superposición cambia de FUNCIÓN — Horizon (domo) · **Center** (2D, guías nuevas) · **Seam** (sala, juntas de muro). Antes ese botón se ocultaba en 2D y en sala, dejando ambos formatos sin control.
 
 ## Arranque (wins rápidos) 🟢
 - [x] **[T5] Mute visual** — pista silenciada → sus clips a opacidad **alta** (`.muted`, `.82`, sin trama → claramente

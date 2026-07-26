@@ -1,5 +1,36 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 168 — Etapa 7: lo que cambia cuando cambia el formato
+
+**El método primero.** Los tres handoffs (Domo · 2D Flat · 360) pesan casi lo mismo y traen 91-92 SVG y 109-110
+botones cada uno: son variantes del mismo esquema. Auditarlos de arriba abajo por separado habría sido tres veces
+el mismo trabajo. `scratchpad/handoff-diff.mjs` extrae el texto visible de los tres y se queda sólo con lo que NO
+aparece en los tres: **20 de 115 textos**. Ahí está toda la Etapa 7.
+
+**Lo que salió:**
+- El botón del máster se llama **"Canvas"** en 2D y en la sala; **"2D"** sólo en el domo. Tiene sentido: ahí no hay
+  un domo del que éste sea la vista plana — el lienzo ES la obra. Con sus tres tooltips distintos.
+- El **3D no existe** en 2D plano (ya estaba bien) y en la sala se llama "sala 3D" (ya estaba bien).
+- El **tercer hueco de superposición cambia de FUNCIÓN**, no de nombre: Horizon en el domo, **Center** en 2D,
+  **Seam** en la sala. Y esto era un agujero: la app lo OCULTABA en 2D y en la sala (`display:none` cuando
+  `isFlat()`), así que esos dos formatos se quedaban sin control ninguno en ese hueco.
+
+No es un renombrado: `hfade` es un uniforme de sombreador que desvanece cerca de la línea de arranque del domo, y
+no significa nada en plano. Se han escrito las otras dos: **Center** dibuja una cruz por el eje exacto del lienzo
+con hueco central para no tapar lo que se encuadra (distinta de la cuadrícula de tercios, que es Grid), y **Seam**
+pone tras interruptor las juntas entre muros —que antes se dibujaban siempre— y las marca más (0,24→0,34 y 1,5px)
+porque con la rejilla de muro encendida se confundían con una línea más.
+
+Verificado en los tres formatos: rótulo, tooltip y que el dibujo aparezca de verdad en el lienzo (tinta 364→688 en
+2D, 579→723 en la sala). El domo no se puede medir así — su horizonte vive en el sombreador, no en el lienzo de
+superposición.
+
+**Dos diferencias que NO se tocaron, a propósito:** el handoff de la sala plantea un proyecto equirect de
+3840×1920, mientras que aquí la sala es la tira de muros desenrollada (ADR); y los handoffs llevan la lectura
+AZ/EL — YAW/PITCH en la sala — que Beltrán mandó quitar en R158.
+
+Pruebas: funcional 22/22, robustez 15/15, iconos 31/31, cero errores de consola.
+
 ## ROUND 167 — Spout In, y el waveform contra audio de verdad
 
 Beltrán dejó los dos recursos que faltaban: `Umbral.wav` y su `TDSyphonSpoutOut` encendido. Se cierran los dos
