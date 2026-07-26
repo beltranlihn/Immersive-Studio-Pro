@@ -1,5 +1,24 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 166 — Los últimos checkboxes nativos, y el título del demo que vivía en la pista de audio
+
+Cerrado el item de `NEXT.md`: los tres checkboxes que se habían quedado fuera del sistema de interruptores del
+diseño (quitar negro, contorno del texto, vista en vivo de Motion) se veían como piezas de otro programa al lado
+de los `.iosw`. Ahora usan `ioswHtml`/`ioswBind`, un puente que expone `.checked` (lectura y escritura) y emite un
+evento `change` al pulsar: los `onchange` que ya existían siguen valiendo **sin tocarlos**, y el rótulo de al lado
+conmuta igual que hacía el `<label>` nativo. Verificado por CDP: los tres cambian el estado, la fila de umbral del
+recorte de negro aparece y desaparece con el suyo, y los tres vuelven a su valor al segundo clic.
+
+**Y por el camino apareció una regresión de R155 que llevaba doce rondas escondida.** Al probar el contorno del
+texto, `#txtStroke` no existía. El inspector del clip de texto salía con Transform vacío, sin propiedades de texto
+y con los restos de Color del render anterior — la firma de la rama de audio, que hace `return` antes de construir
+nada más. La causa: `buildDemoProject` reparte sus clips en las pistas 0..3, escrito cuando el índice 0 era V1.
+Desde R155 el 0 es la pista de AUDIO, así que el título "IMMERSIVE" aterrizaba en ella y `isAudioClip()` daba que
+sí. Ahora las pistas de vídeo se piden por su índice real. Esto afecta al proyecto de bienvenida, que es
+literalmente lo primero que ve alguien que abre el programa por primera vez.
+
+Pruebas: funcional 22/22, robustez 15/15, iconos 31/31, cero errores de consola.
+
 ## ROUND 165 — Lo que sacó la revisión de código sobre R152-R164
 
 Once hallazgos; **diez reales y uno falso positivo**. Verificados uno a uno antes de tocar nada.

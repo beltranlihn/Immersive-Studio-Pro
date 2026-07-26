@@ -71,7 +71,7 @@
       "ok": true,
       "detalle": {
         "automode": true,
-        "curvas": 3,
+        "curvas": 5,
         "fadesVisibles": 0
       }
     },

@@ -18,7 +18,7 @@
       `_backup/deprecated/20260725-master-grade-engine.js` (la UI ya estaba, desde R148). Verificado por CDP: nada
       roto, el grado por clip intacto, y un `.isp` viejo con `grade` abre sin problema (se ignora).
 - [ ] **Pasada visual** con la ventana al frente (las capturas de píxel salen negras en segundo plano).
-- [ ] Tres checkboxes nativos fuera del sistema de toggles: `#bkToggle`, `#txtStroke` (Clip), `#motionPrev` (Motion).
+- [x] Tres checkboxes nativos fuera del sistema de toggles: `#bkToggle`, `#txtStroke` (Clip), `#motionPrev` (Motion). _(R166)_ — pasan al `.iosw` del diseño vía `ioswHtml`/`ioswBind`, un puente que expone `.checked` y emite `change`, así que los `onchange` que ya existían siguen valiendo sin tocarlos.
 - [ ] Verificar el **waveform de audio** con un archivo real (el clip de prueba era sintético).
 - [x] **Etapa 6a · Splash de carga** — ventana propia de 1080² → editor en 16:9 _(R151)_. Handoff nuevo en
       `scratchpad/redesign/design_handoff_launcher_splash/` (`Loading Splash - Rev 1.dc.html` + README).

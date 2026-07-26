@@ -2485,11 +2485,16 @@ function _demoAddText(text,lane,start,dur,az,el,size){
   renderTextMedia(m); return _demoPlace(m,lane,start,dur,az,el,size); }
 async function buildDemoProject(){ hideLanding();
   await newProject('dome',4096,4096,60,180); // fresh dome sequence (4 video + 1 audio lane)
+  /* [R166] Las pistas iban por número fijo 0..3, de cuando el índice 0 era V1. Desde R155 el 0 es la pista de
+     AUDIO, así que el título "IMMERSIVE" aterrizaba en ella: el inspector le mostraba el panel de audio (volumen,
+     onda) en vez de Transform y las propiedades de texto. Ahora se piden las pistas de VÍDEO por su índice real. */
+  const V=state.lanes.map((l,i)=>i).filter(i=>state.lanes[i].kind!=='audio');
+  const v=n=>V[Math.min(n,V.length-1)];
   // a little reference scene across the dome — title up top, three basic shapes on their own tracks
-  _demoAddText('IMMERSIVE',0,0,8,0,72,42);
-  _demoAddShape('ellipse','#C9CDD3',1,0,8,-58,42,46);
-  const focus=_demoAddShape('rect','#8A9199',2,0.5,7,4,26,50);
-  _demoAddShape('line','#E8EAED',3,1,6,58,44,44);
+  _demoAddText('IMMERSIVE',v(0),0,8,0,72,42);
+  _demoAddShape('ellipse','#C9CDD3',v(1),0,8,-58,42,46);
+  const focus=_demoAddShape('rect','#8A9199',v(2),0.5,7,4,26,50);
+  _demoAddShape('line','#E8EAED',v(3),1,6,58,44,44);
   if(focus){ state.selId=focus.id; state.selIds=[focus.id]; } // inspector has something to show during the tour
   state.playhead=2; clearAllUndo(); state.dirty=false; // a throwaway demo shouldn't nag "unsaved" on close
   renderMedia(); renderTimeline(); renderInspector(); render(); projTitle(); }
@@ -3414,14 +3419,14 @@ function _renderInspectorMain(){
   // Remove black (luma key) — any VISUAL clip: keys out the black background into real transparency (R85)
   if(m && m.kind!=='audio'){ const kr=document.createElement('div'); kr.className='prow';
     kr.innerHTML=`<span class="kf" style="cursor:default;"></span><span class="lab">${T('Remove black','Quitar negro')}</span>
-      <label style="display:flex;align-items:center;gap:6px;flex:1;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="bkToggle" ${c.props.blackKey?'checked':''}> ${T('Key the black background','Recortar el fondo negro')}</label>`;
+      ${ioswHtml('bkToggle',!!c.props.blackKey,T('Key the black background','Recortar el fondo negro'))}`;
     $('#fxRows').appendChild(kr);
     const bk2=document.createElement('div'); bk2.className='prow'; bk2.style.display=c.props.blackKey?'':'none';
     bk2.innerHTML=`<span class="kf" style="cursor:default;visibility:hidden;"></span><span class="lab" style="font-size:11px;color:var(--ink-2);">${T('Threshold / Soft','Umbral / Suave')}</span>
       <input type="number" id="bkThr" value="${c.props.blackKeyAmt!=null?c.props.blackKeyAmt:15}" min="0" max="100" title="${T('Threshold — raise to key darker grays','Umbral — súbelo para recortar grises oscuros')}" style="width:46px;height:18px;background:var(--s2);border:.5px solid rgba(255,255,255,0.12);border-radius:2px;color:var(--ink);text-align:center;">
       <input type="number" id="bkSoft" value="${c.props.blackKeySoft!=null?c.props.blackKeySoft:30}" min="0" max="100" title="${T('Softness — edge feather','Suavidad — difuminado del borde')}" style="width:46px;height:18px;background:var(--s2);border:.5px solid rgba(255,255,255,0.12);border-radius:2px;color:var(--ink);text-align:center;">`;
     $('#fxRows').appendChild(bk2);
-    kr.querySelector('#bkToggle').onchange=e=>{const cc=selClip();if(cc){pushUndo();cc.props.blackKey=e.target.checked;bk2.style.display=e.target.checked?'':'none';if(_raOn)raInvalidate();render();}};
+    ioswBind(kr,'bkToggle').onchange=e=>{const cc=selClip();if(cc){pushUndo();cc.props.blackKey=e.target.checked;bk2.style.display=e.target.checked?'':'none';if(_raOn)raInvalidate();render();}};
     bk2.querySelector('#bkThr').onchange=e=>{const cc=selClip();if(cc){pushUndo();cc.props.blackKeyAmt=Math.max(0,Math.min(100,+e.target.value||0));if(_raOn)raInvalidate();render();}};
     bk2.querySelector('#bkSoft').onchange=e=>{const cc=selClip();if(cc){pushUndo();cc.props.blackKeySoft=Math.max(0,Math.min(100,+e.target.value||0));if(_raOn)raInvalidate();render();}}; }
   // Text editor (only for text clips) — [U8] a useful paragraph tool: font · weight · italic · size · alignment · line height · colour · outline · load custom font
@@ -3444,13 +3449,13 @@ function _renderInspectorMain(){
         <input type="number" id="txtSize" value="${m.tfontSize||160}" min="8" max="600" title="${T('Size (px)','Tamaño (px)')}" style="width:54px;${inp}">
         <input type="number" id="txtLineH" value="${(m.tlineH||1.25)}" min="0.7" max="3" step="0.05" title="${T('Line height','Interlineado')}" style="width:50px;${inp}">
         <input type="color" id="txtColor" value="${m.tcolor||'#ffffff'}" title="${T('Color','Color')}" style="width:30px;height:20px;padding:0;background:none;border:none;cursor:pointer;">
-        <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="txtStroke" ${m.tstroke?'checked':''}> ${T('Outline','Contorno')}</label>
+        ${ioswHtml('txtStroke',!!m.tstroke,T('Outline','Contorno'))}
       </div>
       <button class="mbtn" id="txtLoadFont" style="height:20px;justify-content:center;gap:6px;">${ICO('upload',12)} ${T('Load font…','Cargar fuente…')}</button>`;
     $('#fxRows').appendChild(trow);
     trow.querySelector('#txtContent').value=m.text||'';
     const reTxt=()=>{ const cc=selClip(); if(!cc)return; const mm=mediaById(cc.mediaId); if(!mm)return; mm.text=$('#txtContent').value; mm.tcolor=$('#txtColor').value; mm.tfontSize=+$('#txtSize').value||160; mm.tstroke=$('#txtStroke').checked; mm.tfont=$('#txtFont').value; mm.tweight=$('#txtWeight').value; mm.tlineH=Math.max(0.7,+$('#txtLineH').value||1.25); renderTextMedia(mm); renderMedia(); render(); markDirty(); };
-    trow.querySelector('#txtContent').oninput=reTxt; trow.querySelector('#txtColor').oninput=reTxt; trow.querySelector('#txtSize').onchange=reTxt; trow.querySelector('#txtStroke').onchange=reTxt; trow.querySelector('#txtFont').onchange=reTxt; trow.querySelector('#txtWeight').onchange=reTxt; trow.querySelector('#txtLineH').onchange=reTxt;
+    trow.querySelector('#txtContent').oninput=reTxt; trow.querySelector('#txtColor').oninput=reTxt; trow.querySelector('#txtSize').onchange=reTxt; ioswBind(trow,'txtStroke').onchange=reTxt; trow.querySelector('#txtFont').onchange=reTxt; trow.querySelector('#txtWeight').onchange=reTxt; trow.querySelector('#txtLineH').onchange=reTxt;
     trow.querySelector('#txtItalic').onclick=()=>{ const cc=selClip(); if(!cc)return; const mm=mediaById(cc.mediaId); if(!mm)return; mm.titalic=!mm.titalic; trow.querySelector('#txtItalic').classList.toggle('on',mm.titalic); renderTextMedia(mm); renderMedia(); render(); markDirty(); };
     trow.querySelectorAll('#txtAlign button').forEach(b=>b.onclick=()=>{ const cc=selClip(); if(!cc)return; const mm=mediaById(cc.mediaId); if(!mm)return; mm.talign=b.dataset.a; trow.querySelectorAll('#txtAlign button').forEach(x=>x.classList.toggle('on',x===b)); renderTextMedia(mm); renderMedia(); render(); markDirty(); });
     trow.querySelector('#txtLoadFont').onclick=()=>loadCustomFont().then(fam=>{ if(fam){ const cc=selClip(); const mm=cc&&mediaById(cc.mediaId); if(mm){ mm.tfont=fam; renderTextMedia(mm); renderMedia(); render(); markDirty(); } } });
@@ -3476,12 +3481,12 @@ function _renderInspectorMain(){
     const chips=curAnimPresets().map(pz=>`<button class="animchip" draggable="true" data-k="${pz.key}" style="font-size:11px;padding:3px 9px;border-radius:2px;border:.5px solid rgba(255,255,255,0.14);background:var(--s2);color:var(--ink-2);cursor:grab;">${T(pz.label[0],pz.label[1])}</button>`).join('');
     anrow.innerHTML=`<div style="display:flex;align-items:center;gap:6px;">
         <span style="flex:1"></span>
-        <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--ink-3);cursor:pointer;" title="${T('Animate live in the editor while paused','Animar en vivo en el editor en pausa')}"><input type="checkbox" id="motionPrev" ${state.motionPreview!==false?'checked':''}> ${T('Live','En vivo')}</label></div>
+        ${ioswHtml('motionPrev',state.motionPreview!==false,T('Live','En vivo'),T('Animate live in the editor while paused','Animar en vivo en el editor en pausa'))}</div>
       <div style="display:flex;flex-wrap:wrap;gap:6px;">${chips}</div>
       <div id="animList" style="display:flex;flex-direction:column;gap:6px;"></div>
       <span style="font-size:11px;color:var(--ink-dim);line-height:1.35;">${T('Click or drag a chip onto the clip. Loops forever — independent of keyframes.','Haz clic o arrastra un chip al clip. Bucle infinito, independiente de los keyframes.')}</span>`;
     $('#motionRows').appendChild(anrow);
-    $('#motionPrev').onchange=e=>{ state.motionPreview=e.target.checked; if(state.motionPreview)startMotionPreview(); else { stopMotionPreview(); _previewClock=0; render(); } };
+    ioswBind(document,'motionPrev').onchange=e=>{ state.motionPreview=e.target.checked; if(state.motionPreview)startMotionPreview(); else { stopMotionPreview(); _previewClock=0; render(); } };
     anrow.querySelectorAll('.animchip').forEach(b=>{ b.onclick=()=>{ const cc=selClip(); if(!cc)return; pushUndo(); addAnimPreset(cc,b.dataset.k); buildAnimList(cc); render(); renderTimeline(); startMotionPreview(); markDirty(); };
       b.addEventListener('dragstart', e=>{ try{ e.dataTransfer.setData('text/dsp-anim',b.dataset.k); e.dataTransfer.effectAllowed='copy'; }catch(_){} }); });
     buildAnimList(c);
@@ -3624,6 +3629,24 @@ function buildAnimList(c){ const host=$('#animList'); if(!host)return; host.inne
 function fadeDrag(box,key){ box.addEventListener('pointerdown',e=>{e.preventDefault();const c=selClip();const x0=e.clientX,v0=c[key]||0;pushUndo();
   const mv=ev=>{c[key]=Math.max(0,Math.min(c.dur/2,v0+(ev.clientX-x0)*0.02));box.querySelector('.num').textContent=c[key].toFixed(1);renderTimeline();render();};
   const up=()=>{window.removeEventListener('pointermove',mv);window.removeEventListener('pointerup',up);};window.addEventListener('pointermove',mv);window.addEventListener('pointerup',up);});}
+/* [R166] Los tres últimos checkboxes NATIVOS del inspector (quitar negro, contorno del texto, vista en vivo de
+   Motion) se veían como piezas de otro programa al lado de los interruptores `.iosw` del diseño. Esto los cambia
+   sin tocar a quien los lee: el botón expone `.checked` (lectura y escritura) y emite un evento `change` al
+   pulsarlo, así que los `onchange` que ya existían siguen valiendo tal cual. El rótulo de al lado también
+   conmuta, como hacía el <label> nativo. */
+function ioswHtml(id,on,texto,titulo){
+  return `<span class="ioswrap" data-iosw="${id}"${titulo?` title="${escAttr(titulo)}"`:''} style="display:flex;align-items:center;gap:6px;flex:1;min-width:0;font-size:11px;color:var(--ink-2);cursor:pointer;">`
+    +`<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${texto}</span>`
+    +`<button type="button" class="iosw ${on?'on':''}" id="${id}" role="switch" aria-checked="${on?'true':'false'}"><i></i></button></span>`;
+}
+function ioswBind(raiz,id){ const b=raiz.querySelector('#'+id); if(!b)return null;
+  Object.defineProperty(b,'checked',{configurable:true,
+    get:()=>b.classList.contains('on'),
+    set:v=>{ b.classList.toggle('on',!!v); b.setAttribute('aria-checked',b.classList.contains('on')?'true':'false'); }});
+  const conmutar=()=>{ b.checked=!b.checked; b.dispatchEvent(new Event('change')); };
+  b.onclick=e=>{ e.stopPropagation(); conmutar(); };
+  const env=raiz.querySelector('[data-iosw="'+id+'"]'); if(env)env.onclick=e=>{ if(e.target!==b&&!b.contains(e.target))conmutar(); };
+  return b; }
 function buildRows(sel,defs,c){ const host=$(sel); host.innerHTML='';
   for(const [p,label,unit,mn,mx] of defs){
     const row=document.createElement('div'); row.className='prow'+(hasKf(c,p)?' auto':''); // .auto = param already automated → brighter label (Ableton-style)
