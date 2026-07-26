@@ -1,5 +1,39 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 162 — Lo que se ve en los pantallazos: cinco defectos reales
+
+Se levantó una escena de mentira (ocho formas repartidas por las pistas, carpetas en Media, un clip de audio,
+dos clips con automatización) y se fotografió zona por zona. Mirar la app en vez de medirla destapó cosas que
+ninguna sonda había pillado.
+
+**`NaN°` en el inspector.** Cuando `c.props[p]` no existe —clip de un `.isp` anterior a que el parámetro se
+añadiera— `evalP` devuelve `undefined` y la fila escribía `NaN°` con el surco vacío. Había ya un mapa de
+valores de fábrica, pero suelto dentro del `contextmenu` de la fila; se saca a `P_DEF` y `refreshInspector` cae
+en él cuando el valor no es finito. De paso el clic derecho de restablecer usa la misma fuente.
+
+**Las etiquetas de la regla se pisaban.** El paso de etiquetado era `Math.round(66/(iv*pps))`: con los ticks a
+48px eso redondea a 1 y etiqueta todos, mientras una etiqueta de timecode mide ~52px — salía
+`00:00:0000:00:3000:01:00`. Es `Math.ceil`.
+
+**El inspector de audio hablaba otro idioma.** Pomo redondo nativo para el volumen, cajas de 64px, checkbox del
+sistema y un hueco de 56px cuando el medio aún no tenía picos. Pasa a la misma gramática de fila que
+Transform/Source (etiqueta 60 · surco · caja), con arrastre horizontal sobre el surco y el mismo interruptor
+`.iosw`; la onda sólo ocupa sitio si existe.
+
+**El hueco de cámara reservaba 324px en 2D**, donde no hay ningún control de cámara. Esos 324px vacíos eran los
+que empujaban Display y Quality al menú "More" con la barra a 1008px y sitio de sobra. Ahora sólo reserva en 3D,
+que es donde su razón de ser —que al alternar Orbit ↔ Viewer no se muevan los botones que persisten— aplica.
+
+**Y la escalada replegaba primero el `readout`**, justo lo que ese hueco existe para sostener: en Orbit acababas
+con 324px reservados y vacíos. El orden pasa a `disp → qp → readout → out`. Verificado: 2D no repliega nada
+(sin botón "More"), 3D Orbit muestra DIST y 3D Viewer muestra FOV+DOLLY sin que se mueva nada más.
+
+**Comprobado y descartado:** el trapecio de fundido sobre el clip es correcto (ampliado ×3: sube en 0,4s y baja
+en 0,5s); y la pista de audio no lleva selectores de automatización porque el volumen no es automatizable en
+este motor — no existe `kf.volume`. No es una regresión de la paridad audio/vídeo de R156.
+
+Prueba funcional tras cada arreglo: 22/22 pasos, 0 errores de consola.
+
 ## ROUND 161 — Revisión de código sobre R155-R160: los residuos de lo eliminado
 
 Cinco rondas seguidas quitando cosas (Master Grade, modo Ableton, botón de modulación, Snap to Grid, resize

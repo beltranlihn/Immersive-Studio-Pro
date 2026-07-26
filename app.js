@@ -1893,7 +1893,9 @@ function drawRuler(){ const rc=$('#rulerCv'), sc=$('#tlscroll'); if(!rc||!sc)ret
   } else { let iv=gridSec(); if(iv*pps<7)iv=Math.ceil(7/(iv*pps))*iv; // keep ticks readable even on a very narrow grid
     const startTt=Math.max(0, Math.floor((x0/pps)/iv)*iv);
     for(let tt=startTt; tt*pps<=x1 && tt<=dur+iv; tt+=iv){ const x=tt*pps; if(x<x0)continue; rx.strokeStyle='rgba(255,255,255,0.07)';rx.beginPath();rx.moveTo(x,22);rx.lineTo(x,14);rx.stroke();
-      if((Math.round(tt/iv))%(Math.max(1,Math.round(66/(iv*pps))))===0) rx.fillText(fmtTime(tt),x+3,7); } }
+      /* [R162] `ceil`, no `round`: con los ticks a 48px, 66/48=1.375 redondeaba a 1 y etiquetaba TODOS —
+         y una etiqueta de timecode («00:00:30») mide ~52px, así que se pisaban unas con otras. */
+      if((Math.round(tt/iv))%(Math.max(1,Math.ceil(66/(iv*pps))))===0) rx.fillText(fmtTime(tt),x+3,7); } }
   for(const mk of state.markers){ const x=mk.time*pps; if(x<x0-40||x>x1+40)continue; const selM=mk.id===state.selMarkerId; const col=selM?'#F2F4F6':(mk.color||'#B4BAC1');
     rx.fillStyle=col; rx.beginPath(); rx.moveTo(x,2); rx.lineTo(x+9,5); rx.lineTo(x,8); rx.closePath(); rx.fill(); rx.fillRect(x-0.5,2,1,18);
     if(selM){ rx.strokeStyle='rgba(255,255,255,0.85)'; rx.lineWidth=1; rx.beginPath(); rx.moveTo(x,2); rx.lineTo(x+9,5); rx.lineTo(x,8); rx.closePath(); rx.stroke(); }
@@ -3473,22 +3475,31 @@ function drawWaveInto(cv,peaks,vol,rms){ const x=cv.getContext('2d'); const W=cv
   for(let px=0;px<W;px++){ const pi=Math.min(N-1,Math.floor(px/W*N)); const a=Math.min(1,(rms[pi]||0)*vol*1.7); const bh=Math.max(0.4,a*amp); x.fillRect(px,mid-bh,1,bh*2); } }
 /* Audio-clip inspector: waveform + per-clip Volume + Fade in/out (dome transform/FX hidden) */
 function buildAudioInspector(c,m){ const host=$('#insAudio'); if(!host)return; const vol=(c.props&&c.props.volume!=null)?c.props.volume:100;
-  const inp='width:64px;height:18px;background:var(--s2);border:.5px solid rgba(255,255,255,0.12);border-radius:2px;color:var(--ink);text-align:center;font-size:11px;';
+  /* [R162] El inspector de audio hablaba otro idioma que el resto del panel: pomo redondo nativo para el volumen,
+     cajas de 64px, checkbox del sistema y un hueco de 56px cuando el medio aún no tiene picos. Pasa a la MISMA
+     gramática de fila que Transform/Source (etiqueta 60 · surco · caja) y al mismo interruptor .iosw. */
+  const box42='width:42px;height:18px;background:var(--s2);border:.5px solid rgba(255,255,255,0.12);border-radius:2px;color:var(--ink);text-align:center;font-size:11px;';
+  const volPct=Math.max(0,Math.min(100,vol/200*100));
+  const hayOnda=!!(m&&m.peaks);
   host.innerHTML=`<button class="sechead"><span style="color:var(--ink-dim);display:flex;">${ICO('chevDown',13)}</span><span class="t">${T('Audio','Audio')}</span><span class="ln"></span></button>
-    <div style="padding:8px 14px;display:flex;flex-direction:column;gap:12px;">
-      <canvas id="auWave" width="248" height="56" style="width:100%;height:56px;border-radius:2px;"></canvas>
-      <div class="prow"><span class="lab" style="width:64px;">${T('Volume','Volumen')}</span><input type="range" id="auVol" min="0" max="200" value="${Math.round(vol)}" style="flex:1;height:16px;"><span class="tnum" id="auVolV" style="width:40px;text-align:right;font-size:11px;color:var(--ink-2);">${Math.round(vol)}%</span></div>
-      <div class="prow"><span class="lab" style="width:64px;">${T('Fade in','Entrada')}</span><input type="number" id="auFi" class="tnum" value="${(+(c.fadeIn||0)).toFixed(2)}" min="0" max="60" step="0.1" style="${inp}"><span style="color:var(--ink-dim);font-size:11px;">s</span></div>
-      <div class="prow"><span class="lab" style="width:64px;">${T('Fade out','Salida')}</span><input type="number" id="auFo" class="tnum" value="${(+(c.fadeOut||0)).toFixed(2)}" min="0" max="60" step="0.1" style="${inp}"><span style="color:var(--ink-dim);font-size:11px;">s</span></div>
-      <div class="prow"><span class="lab" style="width:64px;">${T('Waveform','Onda')}</span><label style="display:flex;align-items:center;gap:6px;flex:1;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="auHalf" ${state.tl.waveTopHalf?'checked':''}> ${T('Single-sided (Premiere-style)','Un solo lado (estilo Premiere)')}</label></div>
-      <div style="font-size:11px;color:var(--ink-dim);line-height:1.4;">${T('Zoom the timeline in to see transients in sample detail. Per-clip volume & fades; each copy plays independently.','Acércate en la línea de tiempo para ver transientes con detalle de muestra. Volumen y fundidos por clip; cada copia suena independiente.')}</div>
-    </div>`;
-  const cv=host.querySelector('#auWave'); if(cv&&m&&m.peaks)drawWaveInto(cv,m.peaks,vol/100,m.rms);
-  { const hf=host.querySelector('#auHalf'); if(hf)hf.onchange=()=>{ state.tl.waveTopHalf=hf.checked; redrawAudioWaves(); markDirty(); }; }
-  const vr=host.querySelector('#auVol'), vv=host.querySelector('#auVolV');
-  vr.onpointerdown=()=>{ const cc=selClip(); if(cc)pushUndo(); };
-  vr.oninput=()=>{ const cc=selClip(); if(!cc)return; cc.props.volume=+vr.value; vv.textContent=(+vr.value)+'%'; if(cv&&m&&m.peaks)drawWaveInto(cv,m.peaks,(+vr.value)/100,m.rms); scheduleWaves(); liveAudioGain(cc); };
-  vr.onchange=()=>{ renderTimeline(); markDirty(); };
+    ${hayOnda?`<div style="padding:6px 12px 2px;"><canvas id="auWave" width="248" height="56" style="width:100%;height:56px;border-radius:2px;"></canvas></div>`:''}
+      <div class="prow"><span class="kf" style="cursor:default;"></span><span class="lab">${T('Volume','Volumen')}</span><div class="field" id="auVol"><div class="track"><i style="width:${volPct}%"></i></div><div class="box"><span class="num">${Math.round(vol)}</span><span class="u">%</span></div></div></div>
+      <div class="prow"><span class="kf" style="cursor:default;"></span><span class="lab">${T('Fade in','Entrada')}</span><span style="flex:1;"></span><input type="number" id="auFi" class="tnum" value="${(+(c.fadeIn||0)).toFixed(2)}" min="0" max="60" step="0.1" style="${box42}"><span style="color:var(--ink-dim);font-size:11px;width:14px;text-align:right;">s</span></div>
+      <div class="prow"><span class="kf" style="cursor:default;"></span><span class="lab">${T('Fade out','Salida')}</span><span style="flex:1;"></span><input type="number" id="auFo" class="tnum" value="${(+(c.fadeOut||0)).toFixed(2)}" min="0" max="60" step="0.1" style="${box42}"><span style="color:var(--ink-dim);font-size:11px;width:14px;text-align:right;">s</span></div>
+      <div class="prow" title="${T('Single-sided (Premiere-style)','Un solo lado (estilo Premiere)')}"><span class="kf" style="cursor:default;"></span><span class="lab" style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${T('Single-sided wave','Onda a un lado')}</span><button class="iosw ${state.tl.waveTopHalf?'on':''}" id="auHalf" role="switch" aria-checked="${state.tl.waveTopHalf?'true':'false'}"><i></i></button></div>
+      <div style="padding:2px 12px 10px;font-size:11px;color:var(--ink-dim);line-height:1.4;">${T('Zoom the timeline in to see transients in sample detail. Per-clip volume & fades; each copy plays independently.','Acércate en la línea de tiempo para ver transientes con detalle de muestra. Volumen y fundidos por clip; cada copia suena independiente.')}</div>`;
+  const cv=host.querySelector('#auWave'); if(cv&&hayOnda)drawWaveInto(cv,m.peaks,vol/100,m.rms);
+  { const hf=host.querySelector('#auHalf'); if(hf)hf.onclick=()=>{ state.tl.waveTopHalf=!state.tl.waveTopHalf; hf.classList.toggle('on',state.tl.waveTopHalf); hf.setAttribute('aria-checked',state.tl.waveTopHalf?'true':'false'); redrawAudioWaves(); markDirty(); }; }
+  /* arrastre horizontal sobre el surco, como las demás filas — no se reusa startValDrag porque el volumen necesita
+     además repintar la onda y aplicar la ganancia en vivo sobre el nodo que ya está sonando. */
+  { const fld=host.querySelector('#auVol'); const fill=fld.querySelector('.track>i'), num=fld.querySelector('.num');
+    const set=v=>{ const cc=selClip(); if(!cc)return; v=Math.max(0,Math.min(200,Math.round(v))); cc.props.volume=v;
+      fill.style.width=(v/200*100)+'%'; num.textContent=v; if(cv&&hayOnda)drawWaveInto(cv,m.peaks,v/100,m.rms); scheduleWaves(); liveAudioGain(cc); };
+    fld.addEventListener('pointerdown',e=>{ if(e.button!==0)return; e.preventDefault(); pushUndo();
+      const x0=e.clientX, v0=(selClip()&&selClip().props.volume!=null)?selClip().props.volume:100;
+      const mv=ev=>set(v0+(ev.clientX-x0)*(ev.shiftKey?0.25:ev.altKey?4:1));
+      const up=()=>{ document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up); renderTimeline(); markDirty(); };
+      document.addEventListener('pointermove',mv); document.addEventListener('pointerup',up); }); }
   const fi=host.querySelector('#auFi'), fo=host.querySelector('#auFo');
   fi.onchange=()=>{ const cc=selClip(); if(!cc)return; pushUndo(); cc.fadeIn=Math.max(0,+fi.value||0); renderTimeline(); if(state.playing)startAudio(); markDirty(); };
   fo.onchange=()=>{ const cc=selClip(); if(!cc)return; pushUndo(); cc.fadeOut=Math.max(0,+fo.value||0); renderTimeline(); if(state.playing)startAudio(); markDirty(); };
@@ -3604,10 +3615,14 @@ function buildRows(sel,defs,c){ const host=$(sel); host.innerHTML='';
     field.addEventListener('pointerdown',e=>{ if(e.target.tagName==='INPUT')return; startValDrag(e,p,mn,mx); });
     box.addEventListener('dblclick',e=>{ e.stopPropagation(); editNumberBox(box,p,mn,mx); });
     box.addEventListener('wheel',e=>{ e.preventDefault(); const cc=selClip(); if(!cc)return; const step=(e.shiftKey?0.1:e.altKey?5:1)*(e.deltaY<0?1:-1); const lo=UNBOUNDED_P.has(p)?-1e6:mn, hi=UNBOUNDED_P.has(p)?1e6:mx; pushUndo(); manualEdit(cc,p,Math.max(lo,Math.min(hi,evalP(cc,p,state.playhead)+step))); refreshInspector(); renderTimeline(); render(); },{passive:false}); // Pos X/Y unbounded when driven directly on the number (the fader keeps its visual range)
-    field.addEventListener('contextmenu',e=>{ e.preventDefault(); const cc=selClip(); const def={az:0,el:35,size:55,rot:0,opacity:100,exposure:0,contrast:0,saturation:0,temperature:0,tint:0,glow:0,chroma:0,blur:0,feather:0,crop:0}[p]; if(def==null)return; pushUndo(); if(hasKf(cc,p))setKf(cc,p,state.playhead,def,curEase());else cc.props[p]=def; refreshInspector();renderTimeline();render(); });
+    field.addEventListener('contextmenu',e=>{ e.preventDefault(); const cc=selClip(); const def=P_DEF[p]; if(def==null)return; pushUndo(); if(hasKf(cc,p))setKf(cc,p,state.playhead,def,curEase());else cc.props[p]=def; refreshInspector();renderTimeline();render(); });
   }
 }
 const UNBOUNDED_P=new Set(['x','y']); // params whose typed/wheeled number is not clamped to the fader range (Pos X / Pos Y → infinite)
+/* [R162] Valor de fábrica de cada parámetro. Era un objeto suelto dentro del contextmenu de la fila (clic derecho
+   = restablecer); ahora también lo usa `refreshInspector` para no escribir `NaN` cuando `c.props[p]` no existe —
+   pasa con clips de un `.isp` anterior a que el parámetro se añadiera, y con `rot`/`el` en clips creados sin ellos. */
+const P_DEF={az:0,el:35,size:55,rot:0,x:0,y:0,scale:100,opacity:100,exposure:0,contrast:0,saturation:0,temperature:0,tint:0,glow:0,chroma:0,blur:0,feather:0,crop:0};
 function editNumberBox(box,p,mn,mx){ const c=selClip(); if(!c)return; const cur=evalP(c,p,state.playhead); const num=box.querySelector('.num');
   const inp=document.createElement('input'); inp.type='text'; inp.className='numedit'; inp.value=Math.round(cur*100)/100; num.style.display='none'; box.insertBefore(inp,num); inp.focus(); inp.select();
   let done=false; const commit=ok=>{ if(done)return; done=true; if(ok){ const v=parseFloat(inp.value.replace(',','.')); if(!isNaN(v)){ const lo=UNBOUNDED_P.has(p)?-1e6:mn, hi=UNBOUNDED_P.has(p)?1e6:mx; pushUndo(); manualEdit(c,p,Math.max(lo,Math.min(hi,v))); } } inp.remove(); num.style.display=''; refreshInspector(); renderTimeline(); render(); };
@@ -3639,7 +3654,8 @@ function renderGroupInspector(g){ const host=$('#insGroup'); const n=groupMember
 function refreshInspector(){ const c=selClip(); if(!c)return; const t=state.playhead;
   refreshMotionWet(); refreshModFormula(); // keep the Motion Mix sliders / keyframe dots + the modulation audit line synced to the playhead
   for(const sel of ['#tfRows','#fxRows','#colorRows']) $$(sel+' .prow').forEach(row=>{ const field=row.querySelector('.field'); if(!field||!field.dataset.p)return; const p=field.dataset.p; const def=TF.concat(TF_FLAT).concat(FX).find(d=>d[0]===p); if(!def)return; const [_,__,unit,mn,mx]=def;
-    const v=evalP(c,p,t); const vm=evalR(c,p,t); const md=hasMod(c,p); // [R95·C1] base vs resolved: the number reads the FINAL value, the track keeps the base — like Bitwig's ring over the knob
+    const fb=x=>Number.isFinite(x)?x:(P_DEF[p]!=null?P_DEF[p]:mn); // [R162] sin esto, un props[p] ausente escribía "NaN°" en la caja y dejaba el surco sin relleno
+    const v=fb(evalP(c,p,t)); const vm=fb(evalR(c,p,t)); const md=hasMod(c,p); // [R95·C1] base vs resolved: the number reads the FINAL value, the track keeps the base — like Bitwig's ring over the knob
     row.classList.toggle('modon',!!md);
     row.querySelector('.num').textContent=Math.round((md?vm:v)*10)/10; row.querySelector('.track>i').style.width=((v-mn)/(mx-mn)*100)+'%';
     row.classList.toggle('auto',!!hasKf(c,p)); // [A1] automated state = the row highlight (Ableton-style brighter label); the stopwatch is gone
@@ -6142,7 +6158,10 @@ function vpFits(){ const w=vpWidth();
           qp:w>=VP_BP.qp&&!_vpHide.qp, readout:w>=VP_BP.readout&&!_vpHide.readout}; }
 function updViewCtl(){ _vpHide={}; _updViewCtl();
   const vp=document.querySelector('.vptool'); if(!vp)return;
-  for(const g of ['readout','qp','disp','out']){
+  /* [R162] El orden importa: `readout` se replegaba PRIMERO, y es justo lo que el hueco de cámara existe para
+     sostener — en Orbit acababas con 324px reservados y vacíos mientras Display y Quality se iban al menú. Ahora
+     caen antes esos dos, que sí tienen sitio natural en "More". */
+  for(const g of ['disp','qp','readout','out']){
     if(vp.scrollWidth<=vp.clientWidth+1)break;
     if(_vpHide[g])continue; _vpHide[g]=true; _updViewCtl(); }
 }
@@ -6154,6 +6173,10 @@ function _updViewCtl(){ const is3=state.view.mode==='3d',spec=state.view.three==
   show('#outSep',F.out); show('#outWell',F.out);
   { const mb=$('#vpMoreBtn'); if(mb)mb.style.display=(F.disp&&F.qp&&F.out&&F.readout)?'none':'grid'; }
   // modo (× ancho para las lecturas): Az/El sólo en 2D, DIST sólo en 3D Orbit, FOV+DOLLY sólo en 3D Viewer
+  /* [R162] El hueco de cámara sólo reserva sus 324px en 3D. Su razón de ser es que al alternar Orbit ↔ Viewer no
+     se muevan los botones que persisten; en 2D no hay ningún control de cámara y esos 324px vacíos eran los que
+     empujaban Display y Quality al menú "More" aun sobrando sitio en la barra. */
+  { const cs=$('#camSlot'); if(cs)cs.style.minWidth=is3?'':'0px'; }
   $('#fovCtl').style.display=(is3&&spec)?'inline-flex':'none'; $('#dollyCtl').style.display=(is3&&spec)?'inline-flex':'none';
   { const ro=$('#roomOutBtn'); if(ro){ ro.style.display=(is3&&isRoom())?'inline-flex':'none'; ro.classList.toggle('on',!!state.view.roomOutTex); } }
   if(is3&&spec){ const fr=$('#fovRange'); if(fr){ fr.value=state.view.cam.fov; faderFill(fr); const fl=$('#fovLbl'); if(fl)fl.textContent=Math.round(state.view.cam.fov)+'°'; } const dr2=$('#dollyRange'); if(dr2){ dr2.value=state.view.cam.back; faderFill(dr2); const dl2=$('#dollyLbl'); if(dl2)dl2.textContent=(+state.view.cam.back).toFixed(1); } } // reflect the live FOV/dolly on the sliders when entering Viewer mode
