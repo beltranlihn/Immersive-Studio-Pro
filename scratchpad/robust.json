@@ -1,0 +1,179 @@
+{
+  "pasos": [
+    {
+      "paso": "proyecto denso (nest dentro de nest, ajuste, fx, keyframes)",
+      "ok": true,
+      "detalle": {
+        "clips": 9,
+        "pistas": 5,
+        "medios": 17,
+        "clipsSinMedio": 0,
+        "clipsFueraDePista": 0,
+        "duracionInvalida": 0,
+        "glPerdido": false
+      }
+    },
+    {
+      "paso": "guardar/abrir ×2 (round-trip estable)",
+      "ok": true,
+      "detalle": {
+        "primera": {
+          "clips": 9,
+          "medios": 17,
+          "pistas": 5
+        },
+        "segunda": {
+          "clips": 9,
+          "medios": 17,
+          "pistas": 5
+        },
+        "estable": true
+      }
+    },
+    {
+      "paso": "borrar una pista con clips dentro",
+      "ok": true,
+      "detalle": {
+        "pistasAntes": 5,
+        "clipsAntes": 9,
+        "pidioConfirmacion": true,
+        "capas": [
+          "loadingOv",
+          "confirmOv"
+        ],
+        "clips": 6,
+        "pistas": 4,
+        "medios": 17,
+        "clipsSinMedio": 0,
+        "clipsFueraDePista": 0,
+        "duracionInvalida": 0,
+        "glPerdido": false
+      }
+    },
+    {
+      "paso": "deshacer/rehacer ×30",
+      "ok": true,
+      "detalle": {
+        "volvioAlOrigen": true,
+        "rehizo": true,
+        "clips": 6
+      }
+    },
+    {
+      "paso": "proyecto vacío (render, automatización, inspector, export)",
+      "ok": true,
+      "detalle": {
+        "sinClips": true,
+        "curvasOk": true,
+        "exportFn": true
+      }
+    },
+    {
+      "paso": "duraciones absurdas (0, negativa, fuera de rango)",
+      "ok": true,
+      "detalle": {
+        "sobrevive": true,
+        "clips": 4
+      }
+    },
+    {
+      "paso": "razor en los bordes exactos del clip",
+      "ok": true,
+      "detalle": {
+        "antes": 4,
+        "ahora": 5,
+        "clipsDeDuracionCero": 0
+      }
+    },
+    {
+      "paso": "bucle de secuencia: directo e indirecto, ambos rechazados",
+      "ok": true,
+      "detalle": {
+        "directoRechazado": true,
+        "indirectoRechazado": true,
+        "glPerdido": false
+      }
+    },
+    {
+      "paso": "render en dome / flat / room",
+      "ok": true,
+      "detalle": {
+        "dome": true,
+        "flat": true,
+        "room": "sin sala configurada"
+      }
+    },
+    {
+      "paso": "cambiar la cobertura del domo en caliente (180→200→210→220)",
+      "ok": true,
+      "detalle": {
+        "180": true,
+        "200": true,
+        "210": true,
+        "220": true
+      }
+    },
+    {
+      "paso": "cambiar idioma (EN↔ES) con los paneles abiertos",
+      "ok": true,
+      "detalle": {
+        "filas": 4,
+        "etiquetasVacias": 0,
+        "idioma": "en"
+      }
+    },
+    {
+      "paso": "alt+scroll a los dos extremos (colapso total y máximo)",
+      "ok": true,
+      "detalle": {
+        "minimos": [
+          24,
+          24,
+          24,
+          24,
+          24
+        ],
+        "maximos": [
+          120,
+          120,
+          120,
+          120,
+          120
+        ],
+        "todasPositivas": true
+      }
+    },
+    {
+      "paso": "medio ausente: el clip no debe tumbar el render",
+      "ok": true,
+      "detalle": {
+        "sobrevive": true,
+        "glPerdido": false
+      }
+    },
+    {
+      "paso": "copiar/pegar y duplicar ×10",
+      "ok": true,
+      "detalle": {
+        "antes": 4,
+        "ahora": 14,
+        "invalidos": 0
+      }
+    },
+    {
+      "paso": "cierre: serializar el proyecto maltratado y reabrirlo",
+      "ok": true,
+      "detalle": {
+        "bytesDelProyecto": 15260,
+        "clips": 14,
+        "pistas": 5,
+        "medios": 6,
+        "clipsSinMedio": 0,
+        "clipsFueraDePista": 0,
+        "duracionInvalida": 0,
+        "glPerdido": false
+      }
+    }
+  ],
+  "errores": []
+}

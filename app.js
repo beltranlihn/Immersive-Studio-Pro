@@ -125,12 +125,17 @@ const lanesTopDown = ()=>state.lanes.map((l,i)=>i).reverse();
 /* Alturas de pista — valores del prototipo (RevDomo: trackH 57 por defecto, audio 44, clamp 26..120, colapsada 24).
    Antes eran 82/41 con clamp 34..260, de cuando la timeline tenía otra caja. */
 const LANE_DEF_H=57, LANE_MIN_H=26, LANE_MAX_H=120, LANE_COLLAPSED_H=24;
+/* [R163] Suelo de altura EN MODO AUTOMATIZACIÓN para las pistas de vídeo: por debajo, los dos desplegables de
+   identidad pierden su margen arriba y abajo y acaban tapando el nombre. Es el mismo 52 que la cabecera exige
+   para dibujarlos (`LH>=AUTO_LANE_MIN_H`); antes eran dos números sueltos que podían desincronizarse.
+   Encoger por debajo de este suelo NO deja la pista a medias: la colapsa entera. */
+const AUTO_LANE_MIN_H=52;
 const AUDIO_LANE_H=44; // altura POR DEFECTO del audio (no fija): se redimensiona igual que el vídeo
 /* [R152] Alto de la regla del timeline. Estaba cableado como 22 en el CSS y en TRES sitios de JS (playhead,
    límite de arrastre, brace de work-area); el diseño la pone en 24 y desincronizarlos desalinea todo. Una fuente. */
 const RULER_H=24;
 function laneH(li){ const l=state.lanes[li]; if(!l)return LANE_DEF_H; if(l.collapsed)return LANE_COLLAPSED_H;
-  return Math.max(LANE_MIN_H,Math.min(LANE_MAX_H,l.h||(l.kind==='audio'?AUDIO_LANE_H:LANE_DEF_H))); }
+  return Math.max(laneFloorH(l),Math.min(LANE_MAX_H,l.h||(l.kind==='audio'?AUDIO_LANE_H:LANE_DEF_H))); }
 function duration(){ let d=2; for(const c of state.clips) d=Math.max(d,c.start+c.dur); return d; }
 function frameSnap(t){ const f=state.fps||30; return Math.max(0,Math.round(t*f)/f); } /* [T7] quantize a time to the project frame grid */
 const TL_PPS_MIN=0.1, TL_PPS_MAX=2400; // [T2] timeline zoom range. Max raised 600→2400 so a frame is 40–80px wide at 24–30fps → the per-frame trim snap is clearly visible
@@ -2018,7 +2023,7 @@ function renderTimeline(){ reconcileVinst(); // free private decoders of clips t
     hd.querySelector('[data-m=collapse]').onclick=ev=>{ev.stopPropagation();pushUndo();lane.collapsed=!lane.collapsed;renderTimeline();};
     hd.oncontextmenu=ev=>{ev.preventDefault();openMenu(ev.clientX,ev.clientY,[{label:T('Rename track','Cambiar nombre de pista'),key:'⌘R',fn:()=>renameLane(li)},{label:T('Set track color…','Elegir color de pista…'),fn:()=>openLaneColorPopup(li,ev.clientX,ev.clientY)},...trackCreateItems(lane.kind),{label:T('Duplicate track','Duplicar pista'),fn:()=>duplicateLane(li)},'sep',{label:T('Delete track','Eliminar pista'),danger:true,fn:()=>removeLane(li)}]);};
     // [R93] Ableton: automation mode puts the device+parameter choosers INSIDE the track header rectangle (primary overlay param)
-    if(state.inlineCurves&&!_isAud&&!collapsed&&LH>=52){ const P=laneAutoP(lane,li);
+    if(state.inlineCurves&&!_isAud&&!collapsed&&LH>=AUTO_LANE_MIN_H){ const P=laneAutoP(lane,li); // [R163] misma constante que el suelo de wheelResizeLanes
       const ac=document.createElement('div'); ac.className='autoctl'; // [R94b] just the two choosers + '+' (swatch and A/↻ removed per request — override lives in the inspector)
       ac.style.setProperty('--pc',autoColor(P)); // [R95·E1] side bar in the parameter's hue
       const _sc=selClip(); const _foc=!!(_sc&&_sc.lane===li);
@@ -2974,11 +2979,19 @@ $('#ruler').addEventListener('dblclick',e=>{ const t=Math.max(0,(e.clientX-$('#r
 // [R152] Alt+rueda escala TODAS las pistas, no "las de esta sección": ya no hay secciones (el prototipo hace lo
 // mismo en onWheelH — un único delta sobre todo trackH). Se conserva el default por tipo para las que aún no
 // tienen alto propio, así una pista de audio recién creada no salta a la altura del vídeo.
-function wheelResizeLanes(e){ const f=e.deltaY<0?1.1:1/1.1;
-  for(const l of state.lanes){ if(l.collapsed)l.collapsed=false;
+function wheelResizeLanes(e){ const crece=e.deltaY<0, f=crece?1.1:1/1.1;
+  for(const l of state.lanes){
+    const suelo=laneFloorH(l);
+    /* [R163] Una pista colapsada sólo sale del colapso hacia ARRIBA. Antes se descolapsaba en cualquier
+       dirección, así que seguir bajando la rueda la reabría en vez de mantenerla plegada. */
+    if(l.collapsed){ if(!crece)continue; l.collapsed=false; l.h=suelo; continue; }
     const base=l.h||(l.kind==='audio'?AUDIO_LANE_H:LANE_DEF_H);
-    l.h=Math.max(LANE_MIN_H,Math.min(LANE_MAX_H,Math.round(base*f))); }
+    const nh=Math.round(base*f);
+    if(!crece&&nh<suelo) l.collapsed=true;              // por debajo del suelo se pliega entera, no a medias
+    else l.h=Math.max(suelo,Math.min(LANE_MAX_H,nh)); }
   scheduleTimeline(); }
+/* Suelo de altura de una pista: el general, o el del modo automatización si la pista lleva los desplegables. */
+function laneFloorH(l){ return (state.inlineCurves&&l.kind!=='audio')?AUTO_LANE_MIN_H:LANE_MIN_H; }
 function audioZoneScrollBy(dy){ const az=document.querySelector('#tracks .audiozone'); if(!az)return; az.scrollTop+=dy; state.tl._audioScroll=az.scrollTop; const ah=$('#audioHeadZone'); if(ah)ah.scrollTop=az.scrollTop; } // sync + persist immediately (the 'scroll' event fires async — waiting on it lagged the header column a frame)
 /* [R152] Una sola área de scroll: se fueron las ramas `.audiozone` (ese módulo no existe desde R148, así que
    `inAudio` era siempre false y el código sólo despistaba). Ctrl = zoom horizontal · Alt = alto de pistas ·
@@ -3699,7 +3712,11 @@ const PCOLOR={ az:'#E0954B', el:'#D8C24B', size:'#E0645C', rot:'#C58BD0', x:'#E0
 /* [2] "Curves" no longer opens a window — it toggles the inline automation sub-lanes shown under the clips */
 /* [R94-UT2·U-09] automation mode drives a body class: marks the
    clip title band as the grab zone (CSS in index.html). Called wherever state.inlineCurves changes. */
-function syncAutoUI(){ document.body.classList.toggle('automode',!!state.inlineCurves); }
+function syncAutoUI(){ document.body.classList.toggle('automode',!!state.inlineCurves);
+  /* [R163] Al entrar en automatización, una pista que venía por debajo del suelo quedaría en tierra de nadie:
+     demasiado baja para dibujar los desplegables y sin estar plegada. Se sube al suelo; las que ya estaban
+     colapsadas se quedan como estaban (colapsar es una decisión del usuario, no una consecuencia del modo). */
+  if(state.inlineCurves) for(const l of state.lanes){ if(l.collapsed)continue; const s=laneFloorH(l); if((l.h||(l.kind==='audio'?AUDIO_LANE_H:LANE_DEF_H))<s)l.h=s; } }
 function toggleCurves(){ state.inlineCurves=!state.inlineCurves; $('#curvesBtn').classList.toggle('on',state.inlineCurves); syncAutoUI();
   // [R94b] no teaching flash — the button state is the feedback; the grammar lives in the hover tooltips (1s)
   renderTimeline(); }
@@ -6309,7 +6326,11 @@ function startVCapDrag(e,side){ e.preventDefault(); e.stopPropagation(); // casq
   const mv=ev=>{ const d=ev.clientY-y0;
     // arrastrar el casquete INFERIOR hacia abajo agranda; el SUPERIOR hacia arriba también (gesto simétrico)
     const f=Math.max(0.25,Math.min(4, 1+((side==='b')? d : -d)/Math.max(80,h*0.5)));
-    state.lanes.forEach((l,i)=>{ if(l.collapsed)return; l.h=Math.max(LANE_MIN_H,Math.min(LANE_MAX_H,Math.round(base[i]*f))); });
+    /* [R163] Misma regla que Alt+scroll: el suelo depende del modo (en automatización la pista necesita sitio
+       para los desplegables de identidad) y por debajo de él la pista se pliega entera en vez de quedarse a
+       medias. Antes este camino usaba LANE_MIN_H a pelo y se saltaba el suelo del modo automatización. */
+    state.lanes.forEach((l,i)=>{ if(l.collapsed)return; const suelo=laneFloorH(l); const nh=Math.round(base[i]*f);
+      if(nh<suelo) l.collapsed=true; else l.h=Math.max(suelo,Math.min(LANE_MAX_H,nh)); });
     scheduleTimeline();
     // anclar: el casquete de arriba mantiene fijo el borde INFERIOR del visor y viceversa
     if(side==='t'){ const sh=sc.scrollHeight, ch=sc.clientHeight; sc.scrollTop=Math.max(0,Math.min(Math.max(0,sh-ch), st0*f+(f-1)*ch)); }

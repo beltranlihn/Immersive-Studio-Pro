@@ -1,5 +1,40 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 163 — Pasada de robustez: 15 escenarios de rotura y el suelo del modo automatización
+
+Suite nueva (`scratchpad/robust.mjs`), distinta de la funcional: en vez de recorrer el flujo feliz, intenta
+romper la app. Proyecto denso con nest dentro de nest, guardar/abrir dos veces seguidas, borrar una pista que
+tiene clips, 30 deshacer y 30 rehacer, proyecto vacío, duraciones de 0/negativas/enormes, cortar justo en los
+bordes del clip, bucles de secuencia, render en los tres modos, cobertura de domo en caliente, cambio de idioma
+con los paneles abiertos, Alt+scroll a los dos extremos, medio ausente, copiar/pegar en cadena y un cierre que
+serializa el proyecto maltratado y lo reabre. **15/15, cero errores de consola y cero excepciones.**
+
+**El hallazgo de verdad: en modo automatización las pistas se quedaban a medias.** Al achicar con Alt+scroll
+bajaban hasta 26px, los desplegables de identidad desaparecían (la cabecera los exige a partir de 52) y la pista
+se quedaba ahí: ni utilizable ni plegada. Beltrán lo había pedido explícito — por debajo del mínimo tiene que
+colapsar del todo. Ahora `laneFloorH(l)` es la fuente única del suelo (52 en automatización para vídeo, 26 el
+resto) y la comparten `laneH`, `wheelResizeLanes` y el arrastre de la barra vertical, que antes usaba
+`LANE_MIN_H` a pelo y se saltaba el suelo. Medido: **57 → 52 → plegada**, y al volver hacia arriba
+**plegada → 52 con los desplegables de vuelta → 57 → … → 120**. Dos detalles más: una pista plegada sólo se
+desepliega hacia ARRIBA (antes seguir bajando la rueda la reabría), y al entrar en automatización las pistas que
+vienen por debajo del suelo se suben a él.
+
+**Cuatro sustos que resultó que eran del arnés, no del programa.** Vale la pena dejarlos escritos porque los
+cuatro parecían defectos serios:
+- `laneH()` recibe un **índice**, no el objeto de pista. Llamarlo mal devolvía siempre 57 y parecía que
+  Alt+scroll no hacía nada.
+- `addClip()` recibe el **objeto** media, no el id. Con un id, `isSeqMedia` da false, el guardia de bucles ni
+  se asoma y se crea un clip basura con `mediaId: undefined` — que luego aparecía como "clip huérfano" tras
+  guardar/abrir. Llamado bien, los bucles directo (A dentro de A) e indirecto (A dentro de B, que ya vive en A)
+  se rechazan los dos.
+- Los clips de ajuste llevan `mediaId: null` por diseño; contarlos como huérfanos era un falso positivo.
+- `buildDemoProject()` no colgaba: llama a `newProject`, que llama a `confirmDiscard()`. La app estaba
+  protegiendo trabajo sin guardar y esperando una respuesta que en CDP no llega nunca.
+
+**Y una comprobación que salió bien:** la pantalla de carga (`#loadingOv`, 1600×900, z-index 340) tapa la
+ventana entera al abrir un proyecto, pero se cierra sola en menos de 5s en cuanto el logo completa sus dos
+vueltas, con un tope de 20s por si los medios no terminan.
+
 ## ROUND 162 — Lo que se ve en los pantallazos: cinco defectos reales
 
 Se levantó una escena de mentira (ocho formas repartidas por las pistas, carpetas en Media, un clip de audio,
