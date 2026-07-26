@@ -5164,6 +5164,14 @@ function renderExportFrame(t,res,ss,wall){ const flat=isFlat(); _drawFlat=flat; 
   gl.finish();
 }
 let cancelExport=false;
+let _exStage='idle'; // [R183] miga de pan: en qué etapa está runExport. Un export colgado sin barra ni error es indiagnosticable sin esto.
+/* [R183] Plazo para las etapas de audio. Decodificar el audio de los vídeos y mezclar la banda son las dos
+   únicas etapas de un export que dependen de material ARBITRARIO del usuario, y ninguna de las dos puede tener
+   derecho a congelar el render: un `decodeAudioData` que no llama a ninguno de sus dos callbacks deja el export
+   colgado para siempre, sin barra, sin error y sin archivo. Vencido el plazo se sigue sin audio, que es un
+   resultado degradado pero honesto y visible. */
+function exDeadline(p,ms,tag){ let t; return Promise.race([ Promise.resolve(p).finally(()=>clearTimeout(t)),
+  new Promise((_,rj)=>{ t=setTimeout(()=>rj(new Error('timeout: '+tag)),ms); }) ]); }
 /* suggested H.264 bitrate (Mbps) for a generous ~0.18 bits/pixel — keeps fulldome masters crisp instead of starved */
 function suggestBitrate(res,fps,w,h){ const px=(w&&h)?w*h:res*res; return Math.max(8,Math.min(800,Math.round(px*fps*0.18/1e6))); } // flat passes w,h (rect); dome passes res (square)
 async function pickAvcCodec(w,h,bitrate,fps){
@@ -5256,16 +5264,21 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
   { const glMaxTex=gl.getParameter(gl.MAX_TEXTURE_SIZE)||8192; nestSize=Math.min(qRes*exportSS(qRes), glMaxTex, 8192); }
   let expOut=null; // R82: the written file/folder → offer to reveal it after a successful export
   try{
+    _exStage='audio-decode';
     if(opt.codec!=='still' && !opt.noAudio){ // [R92-T2 C1] decode the audio track of exported VIDEO clips into m._exAudio so it lands in the mix (Chromium's decodeAudioData demuxes MP4/MOV audio). ≤1.5GB source cap: decodeAudioData needs the whole file as one ArrayBuffer. · [R179] noAudio (render-in-place) skips the whole stage — it is the slowest part of a short bake (a 1h source decodes to ~1.4GB of PCM for nothing)
       const vmap=new Map(); (function walk(cs,d){ if(d>6||!cs)return; for(const c of cs){ if(c.disabled)continue; const m=mediaById(c.mediaId); if(!m)continue; if(m.kind==='video'&&m.path&&!vmap.has(m.id))vmap.set(m.id,m); else if(isSeqMedia(m))walk(m.nestClips,d+1); } })(state.clips,0);
       const skipped=[];
       for(const m of vmap.values()){ if(cancelExport)break; if(m._exAudio)continue; try{ const st=await DSP.stat(m.path); if(!st||!st.size)continue;
           if(st.size>15e8){ skipped.push(m.name); continue; }
           if(job&&job.label)job.label(T('Decoding video audio…','Decodificando audio de vídeos…'));
-          const ab=await (await fetch(DSP.toFileURL(m.path))).arrayBuffer(); m._exAudio=await new Promise((res,rej)=>ACTX().decodeAudioData(ab,res,rej)); }
+          const ab=await exDeadline(fetch(DSP.toFileURL(m.path)).then(r=>r.arrayBuffer()),45000,'fetch '+m.name);
+          m._exAudio=await exDeadline(new Promise((res,rej)=>{ const pr=ACTX().decodeAudioData(ab,res,rej); if(pr&&pr.catch)pr.catch(()=>{}); }),45000,'decode '+m.name); } // decodeAudioData atiende los callbacks Y ADEMÁS devuelve una promesa: sin este catch su rechazo salía como excepción no capturada y ensuciaba la consola aunque el error ya estuviera atendido
         catch(e){} } // no audio track / unsupported → the clip simply stays silent, like before
       if(skipped.length) flashStatus(T('Video audio skipped (file >1.5GB): ','Audio de vídeo omitido (archivo >1,5GB): ')+skipped.join(', '),'err'); } // [R94-UT3·U-21]
-    const audioBuf = (opt.codec==='still'||opt.noAudio) ? null : await exportAudioMix(t0,endT); // a still has no audio; neither has a render-in-place bake (opt.noAudio)
+    _exStage='audio-mix';
+    let audioBuf=null;
+    if(!(opt.codec==='still'||opt.noAudio)){ try{ audioBuf=await exDeadline(exportAudioMix(t0,endT),60000,'audio mix'); }
+      catch(e){ console.warn('export audio',e); flashStatus(T('Audio stage skipped — exporting picture only','Etapa de audio omitida — se exporta sólo imagen'),'err'); } } // a still has no audio; neither has a render-in-place bake (opt.noAudio)
     if(opt.codec==='still'){ // single high-quality PNG of the current frame, rendered from ORIGINAL media (seekExport→seekMedia useOrig=true), with SSAA
       const t=state.playhead; await seekExport(t); prepNests(state.clips,t,0); renderExportFrame(t,qRes,exportSS(qRes),wall);
       const blob=await new Promise(r=>glc.toBlob(r,'image/png'));
@@ -5279,7 +5292,7 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
         const dir=await DSP.chooseExportDir();
         if(!dir){ cancelExport=true; }
         else { const sub=dir+'/'+filePre+'_'+dimStr+'_'+fps+'fps'; if(!(await DSP.ensureDir(sub)))throw new Error(T('Cannot create export folder (not writable).','No se pudo crear la carpeta de exportación (sin permiso).'));
-          for(let i=0;i<total;i++){ if(cancelExport)break; const blob=await renderFrame(i); if(!(await DSP.writeBinary(sub+'/'+filePre+'_'+fnum(i)+'.png', new Uint8Array(await blob.arrayBuffer()))))throw new Error(T('Write failed (disk full or folder not writable).','Fallo de escritura (disco lleno o carpeta sin permiso).')); job.prog(i+1,total); }
+          for(let i=0;i<total;i++){ if(cancelExport)break; const blob=await renderFrame(i); if(job.wrote)job.wrote(blob.size); if(!(await DSP.writeBinary(sub+'/'+filePre+'_'+fnum(i)+'.png', new Uint8Array(await blob.arrayBuffer()))))throw new Error(T('Write failed (disk full or folder not writable).','Fallo de escritura (disco lleno o carpeta sin permiso).')); job.prog(i+1,total); await exWaitPause(); }
           if(!cancelExport && audioBuf){ job.label(T('Writing audio…','Escribiendo audio…')); await DSP.writeBinary(sub+'/audio.wav', audioBufferToWav(audioBuf)); }
           if(!cancelExport){ expOut=sub; flashStatus(T('PNG sequence + audio written to folder','Secuencia PNG + audio escritos en carpeta')); } }
       } else { const zip=new Zip();
@@ -5307,11 +5320,11 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
         for(let i=0;i<total;i++){ if(cancelExport||wErr)break;
           const t=t0+i/fps; await seekExport(t); prepNests(state.clips,t,0); renderExportFrame(t,qRes,ssE,wall);
           if(job.frame)job.frame(i,total);
-          const frame=hapFrame(dxtEncodeCanvas(F.tex,eW,eH),opt.codec,chunks);
+          const frame=hapFrame(dxtEncodeCanvas(F.tex,eW,eH),opt.codec,chunks); if(job.wrote)job.wrote(frame.length);
           frames.push({off:put(frame),size:frame.length});
           if(pcm){ const s0=Math.floor(i*aSR/fps), s1=Math.min(aN,Math.floor((i+1)*aSR/fps)); // interleave the audio a frame at a time
             if(s1>s0) aChunks.push({off:put(pcm.slice(s0*aCH*2,s1*aCH*2)),samples:s1-s0}); }
-          job.prog(i+1,total);
+          job.prog(i+1,total); await exWaitPause();
           while(pending>3&&!wErr) await new Promise(r=>setTimeout(r,0)); }
         try{ await wq; }catch(e){ wErr=wErr||e; }
         if(!wErr&&!cancelExport){ job.label(T('Writing index…','Escribiendo el índice…'));
@@ -5323,30 +5336,34 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
         if(wErr) throw new Error(T('Write failed during HAP export (disk full or no permission).','Fallo de escritura durante el export HAP (disco lleno o sin permiso).'));
         if(!cancelExport){ expOut=path; job.label(T('Saved','Guardado')); } }
     } else {
+      _exStage='codec-pick';
       const isHevc=opt.codec==='hevc'; const muxCodec=VCODECS[opt.codec]||'avc'; // [R179] av1 / vp9 / vp910 join h264 / hevc — same muxer, different picker
       const codec=await pickVideoCodec(opt.codec,eW,eH,opt.bitrate,fps);
       if(!codec) throw new Error(isHevc?T('H.265/HEVC is not available at '+res+'² on this build (Chromium caps its HEVC encoder near 1080p). Use AV1 for '+res+'², or PNG sequence (.zip).','H.265/HEVC no está disponible a '+res+'² en esta compilación (Chromium limita su codificador HEVC cerca de 1080p). Usa AV1 para '+res+'², o Secuencia PNG (.zip).'):T('This resolution exceeds the limits of that codec. Use AV1 for '+res+'² (it goes to 8192²), or PNG sequence (.zip).','Esta resolución supera el límite de ese códec. Usa AV1 para '+res+'² (llega a 8192²), o Secuencia PNG (.zip).'));
       const fn=`${filePre}_${dimStr}_${fps}fps.mp4`;
       // STREAMING-TO-DISK path (Electron): muxer output is written straight to the file via random-access fd writes → no multi-GB RAM buffer. (StreamTarget+writeAt reconstructs a byte-identical MP4 — verified in Node against ArrayBufferTarget.)
+      _exStage='save-dialog';
       const canStream=IS_ELEC && !!DSP.fileOpen && !!DSP.saveFile;
       let streamPath=null,fileId=null,wq=Promise.resolve(),wErr=null,pending=0;
       if(canStream){ streamPath=opt.outPath||await DSP.saveFile(fn,'mp4','MP4 video'); if(!streamPath){ if(_ripSaved)state.clips=_ripSaved; try{ if($('#renderMask'))$('#renderMask').classList.remove('on'); }catch(_){} glc.width=oW;glc.height=oH; freeExportFBO(); nestSize=COMP; freeNestPool(); exporting=false; _exportQuality=false; _ncSquare=false; disposeAllVinst(); for(const m of state.media)if(m._exAudio)delete m._exAudio; if(_rsSeq)switchSeq(_rsSeq); resize(); try{scrubRender();}catch(_){} job.done(true); return; } fileId=await DSP.fileOpen(streamPath); } // FULL cleanup on this early return — it used to leak _exportQuality=true (viewer stuck binding heavy originals: "the editor went crazy after export")
       const streaming=canStream && fileId!=null;
       const muxCfg={video:{codec:muxCodec,width:eW,height:eH}};
-      if(streaming){ muxCfg.fastStart=false; muxCfg.target=new Mp4Muxer.StreamTarget({chunked:true,onData:(data,position)=>{ const buf=data.slice(); pending++; wq=wq.then(()=>DSP.fileWriteAt(fileId,position,buf)).then(ok=>{pending--; if(ok===false)wErr=wErr||new Error('disk write failed');},e=>{pending--;wErr=wErr||e;}); }}); }
+      if(streaming){ muxCfg.fastStart=false; muxCfg.target=new Mp4Muxer.StreamTarget({chunked:true,onData:(data,position)=>{ const buf=data.slice(); if(job.wrote)job.wrote(buf.byteLength); pending++; wq=wq.then(()=>DSP.fileWriteAt(fileId,position,buf)).then(ok=>{pending--; if(ok===false)wErr=wErr||new Error('disk write failed');},e=>{pending--;wErr=wErr||e;}); }}); }
       else { muxCfg.fastStart='in-memory'; muxCfg.target=new Mp4Muxer.ArrayBufferTarget(); }
       let wantAudio=false; if(audioBuf && typeof AudioEncoder!=='undefined'){ try{ const sup=await AudioEncoder.isConfigSupported({codec:'mp4a.40.2',sampleRate:audioBuf.sampleRate,numberOfChannels:audioBuf.numberOfChannels,bitrate:192000}); wantAudio=!!(sup&&sup.supported); }catch(e){ wantAudio=false; } } // only declare the AAC track if it will actually encode (else valid silent MP4)
       if(wantAudio) muxCfg.audio={codec:'aac',numberOfChannels:audioBuf.numberOfChannels,sampleRate:audioBuf.sampleRate};
+      _exStage='muxer';
       const mux=new Mp4Muxer.Muxer(muxCfg);
       let encErr=null; const enc=new VideoEncoder({output:(c,m)=>mux.addVideoChunk(c,m),error:e=>{encErr=e;console.error('VideoEncoder:',e);}});
       enc.configure({codec,width:eW,height:eH,bitrate:opt.bitrate,framerate:fps,bitrateMode:'variable',latencyMode:'quality'});
+      _exStage='loop';
       const us=1e6/fps,gop=Math.max(1,Math.round(fps)); const ssE=exportSS(qRes); // supersampling factor (2× when the GPU allows)
       for(let i=0;i<total;i++){ if(cancelExport||encErr||wErr)break; const t=t0+i/fps; await seekExport(t); prepNests(state.clips,t,0); renderExportFrame(t,qRes,ssE,wall);
         if(job.frame)job.frame(i,total); // [R179] live thumbnail for the progress viewer — read glc HERE, while the drawing buffer is still valid (same rule the VideoFrame below lives by)
         if(enc.state!=='configured'){encErr=encErr||new Error('codec closed');break;}
         const vf=new VideoFrame(glc,{timestamp:Math.round(i*us),duration:Math.round(us)});
         try{ enc.encode(vf,{keyFrame:i%gop===0}); }catch(e){ encErr=e; vf.close(); break; }
-        vf.close(); job.prog(i+1,total); while((enc.encodeQueueSize>6||pending>4)&&!encErr&&!wErr)await new Promise(r=>setTimeout(r,0)); } // backpressure: also cap pending disk writes so RAM stays bounded
+        vf.close(); job.prog(i+1,total); await exWaitPause(); while((enc.encodeQueueSize>6||pending>4)&&!encErr&&!wErr)await new Promise(r=>setTimeout(r,0)); } // backpressure: also cap pending disk writes so RAM stays bounded
       try{ if(enc.state==='configured')await enc.flush(); }catch(e){ encErr=encErr||e; }
       try{ enc.close(); }catch(e){}
       if(wantAudio && !cancelExport && !encErr){ job.label(T('Encoding audio…','Codificando audio…')); try{ await muxAudioAAC(mux,audioBuf); }catch(e){ console.warn('audio mux',e); } }
@@ -5361,6 +5378,7 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
         else dlBlob(new Blob([mux.target.buffer],{type:'video/mp4'}),fn); }
     }
   }catch(err){console.error(err); if(job&&job.fail){ job.fail(err); } else appAlert(T('Error export: ','Error de exportación: ')+err.message); } // [R179] a job that declares job.fail owns the error (render-in-place must NOT go on to import a half-written file); everyone else keeps the alert
+  _exStage='done';
   diag('info','export',cancelExport?'cancelled':'done',{codec:opt.codec,res}); diagFlush();
   if(_ripSaved)state.clips=_ripSaved; // [R115] restore the full clip list after an isolated render-in-place
   glc.width=oW;glc.height=oH; try{ if($('#renderMask'))$('#renderMask').classList.remove('on'); }catch(_){} freeExportFBO(); dxtFree(); nestSize=COMP; freeNestPool(); exporting=false; _exportQuality=false; _ncSquare=false; disposeAllVinst(); for(const m of state.media)if(m._exAudio)delete m._exAudio; if(_rsSeq)switchSeq(_rsSeq); resize(); try{scrubRender();}catch(_){} job.done(cancelExport); // _exAudio freed: decoded video audio is export-only (1h ≈ 1.4GB PCM)
@@ -5882,125 +5900,292 @@ function pumpExportQ(){ if(_exbusy||!_exq.length)return; _exbusy=true; const opt
 /* [R94d] which range the export dialog is set to (I/O marks vs the clip extent) + its length in seconds */
 function exRangeMode(){ const io=document.querySelector('#exRange [data-rg=inout]'); return (io&&io.classList.contains('on'))?'inout':'clips'; }
 function exRangeSecs(){ if(exRangeMode()==='inout'&&state.workIn!=null&&state.workOut!=null)return Math.max(0.05,state.workOut-state.workIn); const r=clipExtent(); return Math.max(0.05,r[1]-r[0]); }
+/* ===================== [R183] PANEL DE EXPORT — hoja flotante con monitor de render =====================
+   Recreado del handoff `scratchpad/redesign/export-panel/…/Export Panel - Rev 1.dc.html`.
+   Qué cambia frente al diálogo viejo: deja de ser un overlay a pantalla completa y pasa a ser una HOJA
+   centrada y arrastrable, con un velo ligero para que el editor siga legible detrás; gana un MONITOR que
+   enseña el fotograma que el codificador acaba de escribir; el estado sube a bloque de primera clase; los
+   ajustes van en rejilla de dos columnas; y el selector de resolución se convierte en «tamaño en píxeles»
+   con Igualar a la fuente / Preajuste / Personalizado.
+   La cola (`_exJobs`) sigue viva en el registro; su interfaz vuelve en otra revisión (decisión del handoff). */
+
+let _exPaused=false; // lo sondean los tres bucles de runExport
+async function exWaitPause(){ while(_exPaused&&!cancelExport)await new Promise(r=>setTimeout(r,80)); }
+
+/* px() — LA fuente de verdad del tamaño de salida. El handoff lo pide explícito y con razón: el código viejo
+   multiplicaba `res*res` en CINCO sitios distintos y se desincronizaban entre sí. De aquí salen la estimación,
+   el bitrate automático, los bpp, el recuento de fotogramas, el aspecto del monitor y el nombre del render. */
+function exPx(S){
+  const as=activeSeq()||{}, dome=!isFlat();
+  const sw=Math.max(16,as.w||(dome?4096:1920)), sh=Math.max(16,dome?sw:(as.h||1080));
+  if(S.szMode==='preset'){ const p=Math.max(16,S.szPreset||sw);
+    return dome?{w:p,h:p,src:'preset'}:{w:p,h:Math.max(16,Math.round(p*sh/sw/2)*2),src:'preset'}; }
+  if(S.szMode==='custom'){ const w=Math.max(16,Math.min(16384,S.szW||sw));
+    return {w, h:dome?w:Math.max(16,Math.min(16384,S.szH||sh)), src:'custom'}; }
+  return {w:sw,h:sh,src:'match'};
+}
+function exFmtDur(s){ s=Math.max(0,Math.round(s)); const m=Math.floor(s/60); return (m<10?'0':'')+m+':'+((s%60)<10?'0':'')+(s%60); }
+
 function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the timeline first.','Primero añade clips a la línea de tiempo.'));return;}
-  /* [R102·rev] Si ya está abierto, NO abrir otro. El overlay tapa el ratón pero NO el teclado, así que un
-     segundo Ctrl+Shift+E volvía a llamar aquí y dejaba DOS modales: veías el de arriba, pero `$()` es
-     querySelector = PRIMER match, así que todo el cableado (`#exCodec`, `#exGo`…) se enganchaba al de abajo,
-     el viejo y oculto. Medido: el botón Export del modal visible se quedaba con onclick == null → pulsabas
-     Exportar y no pasaba nada. Lo encontró la revisión de código, no las 55 aserciones: ninguna preguntaba
-     "¿y si lo abre dos veces?". */
-  if(document.getElementById('exOv'))return;
-  const ov=document.createElement('div'); ov.className='overlay'; ov.id='exOv';
-  const _exTitle=isRoom()?T('Export 360 room','Exportar sala 360'):(isFlat()?T('Export 2D master','Exportar máster 2D'):T('Export dome master','Exportar máster del domo'));
-  ov.innerHTML=`<div class="modal"><div class="mh"><span style="color:var(--ink-2);display:flex;">${ICO('share',16)}</span><span class="t">${_exTitle}</span></div>
-   <div class="mb">
-    <div class="frow"><label>${T('Preset','Preajuste')}</label><select id="exPreset" style="flex:1;"><option value="">—</option></select><button class="mbtn" id="exSavePreset" style="height:18px;padding:0 10px;">${T('Save','Guardar')}</button></div>
-    <div class="frow"><label>${T('Codec','Códec')}</label><select id="exCodec"><option value="png" selected>${T('PNG sequence (.zip · alpha, lossless)','Secuencia PNG (.zip · alfa, sin pérdida)')}</option><option value="mp4">MP4 · H.264 (${T('black bg, ≤4K','fondo negro, ≤4K')})</option><option value="hevc">MP4 · H.265 / HEVC (${T('black bg, 4K+','fondo negro, 4K+')})</option><option value="hap">MOV · HAP (${T('live playback — Resolume, disguise, Watchout','reproducción en directo — Resolume, disguise, Watchout')})</option><option value="hapq">MOV · HAP Q (${T('live playback, higher quality, ~2× the size','reproducción en directo, más calidad, ~2× el tamaño')})</option><option value="still">${T('Still frame (PNG · current frame, originals)','Fotograma (PNG · cuadro actual, originales)')}</option></select></div>
-    <div class="frow" id="exChunkRow" style="display:none;"><label>${T('Chunks','Trozos')}</label><select id="exChunks"><option value="auto" selected>${T('Auto','Auto')}</option><option value="1">1</option><option value="2">2</option><option value="4">4</option><option value="8">8</option><option value="16">16</option></select><span class="tnum" style="color:var(--ink-faint);flex:1;" id="exChunkHint"></span></div>
-    <div class="frow"><label>${T('Range','Rango')}</label><div class="kindseg" id="exRange"><button data-rg="clips">${T('Clip extent','Extensión de clips')}</button><button data-rg="inout">${T('In / Out','Entrada / Salida')}</button></div><span class="tnum" id="exRangeTc" style="color:var(--ink-faint);white-space:nowrap;"></span></div>
-    <div id="exRoomRow"></div>
-    <div class="frow"><label>${T('Resolution','Resolución')}</label><select id="exRes"><option>2048</option><option>3072</option><option selected>4096</option><option>6144</option><option>8192</option></select><span class="tnum" style="color:var(--ink-dim);">px²</span></div>
-    <div class="frow"><label>FPS</label><select id="exFps"><option>24</option><option>25</option><option>30</option><option>48</option><option>50</option><option selected>60</option></select></div>
-    <div class="frow" id="exBrRow"><label>${T('Bitrate','Tasa de bits')}</label><input type="number" class="tnum" id="exBr" value="120" min="1" max="800"><span class="tnum" style="color:var(--ink-dim);">Mbps</span><button class="mbtn" id="exBrAuto" style="padding:2px 8px;font-size:11px;" title="${T('Set a generous bitrate for this resolution/fps','Tasa de bits generosa para esta resolución/fps')}">${T('Auto','Auto')}</button></div>
-    <div class="frow"><label>${T('Estimated','Estimado')}</label><span class="tnum" id="exEst" style="color:var(--ink-2);">—</span></div>
-    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px;"><button class="mbtn" id="exClose">${T('Close','Cerrar')}</button><button class="mbtn pri" id="exGo">${ICO('share')} ${T('Add to queue & export','Añadir a la cola y exportar')}</button></div>
-    <div class="queue" id="exQueue" style="display:none;"></div>
-   </div></div>`;
+  if(document.getElementById('exOv'))return; // [R102·rev] nunca dos hojas: `$()` es querySelector y el cableado se enganchaba a la vieja y oculta
+  const as=activeSeq()||{}, dome=!isFlat(), room=isRoom();
+  const S={ szMode:'match', szPreset:(as.w||4096), szW:(as.w||1920), szH:(dome?(as.w||4096):(as.h||1080)),
+            codec:'png', fps:(as.fps||state.fps||60), br:120, brTouched:false, chunks:'auto',
+            roomMode:'strip', floor:true, phase:'idle', pct:0, frame:0, frames:0, t0:0, tPause:0, bytes:0 };
+  { const L=lastExportGet(); if(L){ if(L.codec)S.codec=L.codec; if(L.fps)S.fps=+L.fps; if(L.br)S.br=+L.br;
+      if(L.res){ S.szMode='preset'; S.szPreset=+L.res; } } } // [R102·D-T4] abre con lo último que usaste, no con valores de fábrica
+
+  const ov=document.createElement('div'); ov.className='exs-scrim'; ov.id='exOv';
+  const title=room?T('Export 360 room','Exportar sala 360'):(dome?T('Export dome master','Exportar máster del domo'):T('Export 2D master','Exportar máster 2D'));
+  const roomWalls=(room&&as.room&&as.room.walls&&as.room.walls.length)||0;
+  const hasFloor=!!(room&&as.room&&as.room.floorSeqId&&mediaById(as.room.floorSeqId));
+  ov.innerHTML=`<div class="exs" id="exSheet">
+   <div class="exs-hd" id="exHd"><span class="ic">${ICO('share',13)}</span><span class="t">${title}</span>
+     <span class="exs-chip" id="exChip">${T('Idle','En reposo')}</span>
+     <span class="exs-key">Ctrl+Shift+E</span><button class="exs-x" id="exX" title="${T('Close','Cerrar')}">✕</button></div>
+   <div class="exs-body">
+    <div class="exs-top">
+      <div><div class="exs-lab">${T('Render monitor','Monitor de render')}</div>
+        <div class="exs-well"><div class="exs-screen"><canvas id="exMon" width="160" height="90"></canvas></div>
+          <div class="exs-mfoot"><span class="exs-dot" id="exDot"></span><span id="exProxy">—</span><span id="exFit">—</span><span class="tc" id="exTc">--:--</span></div></div></div>
+      <div class="exs-st">
+        <div class="exs-phase"><span class="p" id="exPhase">${T('Ready','Listo')}</span><span class="pc" id="exPct">0%</span></div>
+        <div class="exs-sub" id="exSub">—</div>
+        <div class="exs-rail" id="exRail"><i></i></div>
+        <div class="exs-cells">
+          <div class="exs-cell"><span class="k">${T('Elapsed','Transcurrido')}</span><span class="v" id="exElapsed">—</span></div>
+          <div class="exs-cell"><span class="k">${T('Remaining','Restante')}</span><span class="v" id="exRemain">—</span></div>
+          <div class="exs-cell"><span class="k">${T('Written','Escrito')}</span><span class="v" id="exWrote">—</span></div></div>
+        <div class="exs-note" id="exNote">${T('Monitor shows the current playhead frame','El monitor muestra el fotograma del cabezal')}</div>
+        <div class="exs-acts" id="exActs" style="display:none;">
+          <button class="exs-btn" id="exPause">${T('Pause','Pausar')}</button>
+          <button class="exs-btn danger" id="exCancel">${T('Cancel','Cancelar')}</button></div>
+      </div>
+    </div>
+    <div class="exs-grid">
+      <div class="exs-row"><label>${T('Preset','Preajuste')}</label><select id="exPreset" style="flex:1;"></select><button class="exs-btn" id="exSavePreset">${T('Save','Guardar')}</button></div>
+      <div class="exs-row"><label>${T('Range','Rango')}</label><div class="exs-seg" id="exRange"><button data-rg="clips">${T('Clip extent','Extensión')}</button><button data-rg="inout">${T('In / Out','Entrada / Salida')}</button></div><span class="exs-hint" id="exRangeTc"></span></div>
+      <div class="exs-row"><label>${T('Codec','Códec')}</label><select id="exCodec" style="flex:1;">
+        <option value="png">${T('PNG sequence · alpha, lossless','Secuencia PNG · alfa, sin pérdida')}</option>
+        <option value="mp4">MP4 · H.264</option><option value="hevc">MP4 · H.265 / HEVC</option>
+        <option value="hap">MOV · HAP</option><option value="hapq">MOV · HAP Q</option>
+        <option value="still">${T('Still frame · PNG','Fotograma · PNG')}</option></select></div>
+      <div class="exs-row"><label>${T('Frame rate','Cuadros/s')}</label><select id="exFps">${[24,25,30,48,50,60].map(f=>`<option value="${f}">${f}</option>`).join('')}</select><span class="exs-unit">fps</span></div>
+      <div class="exs-row span"><label>${T('Pixel size','Tamaño en píxeles')}</label>
+        <div style="display:flex;align-items:center;gap:8px;width:100%;">
+          <div class="exs-seg" id="exSz"><button data-sz="match">${T('Match source','Igualar fuente')}</button><button data-sz="preset">${T('Preset','Preajuste')}</button><button data-sz="custom">${T('Custom','Personalizado')}</button></div>
+          <span id="exSzCtl" style="display:flex;align-items:center;gap:6px;min-width:0;flex:1;"></span></div></div>
+      <div class="exs-row" id="exBrRow"><label>${T('Bitrate','Tasa de bits')}</label><input type="number" id="exBr" min="1" max="800" style="width:66px;"><span class="exs-unit">Mbps</span><button class="exs-btn" id="exBrAuto">${T('Auto','Auto')}</button></div>
+      <div class="exs-row" id="exChunkRow"><label>${T('Chunks','Trozos')}</label><select id="exChunks"><option value="auto">${T('Auto','Auto')}</option><option value="1">1</option><option value="2">2</option><option value="4">4</option><option value="8">8</option><option value="16">16</option></select><span class="exs-hint" id="exChunkHint"></span></div>
+      ${room?`<div class="exs-row" id="exRoomRow"><label>${T('Room','Sala')}</label><div class="exs-seg" id="exRoomMode"><button data-rm="strip" class="on">${T('Full strip','Tira completa')}</button><button data-rm="walls">${T('Per wall','Por muro')} · ${roomWalls}</button></div></div>`:''}
+      ${(room&&hasFloor)?`<div class="exs-row"><label></label><label style="display:flex;align-items:center;gap:6px;font-size:10.5px;color:#8C8C8C;cursor:pointer;"><input type="checkbox" id="exFloor" checked> ${T('Also export the floor','Exportar también el piso')}</label></div>`:''}
+      <div class="exs-est" id="exEst">—</div>
+    </div>
+   </div>
+   <div class="exs-ft"><span class="exs-dest" id="exDest"></span>
+     <button class="exs-btn" id="exClose">${T('Close','Cerrar')}</button>
+     <button class="exs-pri" id="exGo">${ICO('share',12)} <span id="exGoTxt">${T('Export','Exportar')}</span></button></div>
+  </div>`;
   document.body.appendChild(ov);
-  // [R94d] range picker: I/O when marks exist (default then), else the clip extent — and the I/O button is disabled without marks
-  { const hw=state.workIn!=null&&state.workOut!=null&&state.workOut>state.workIn; const rg=$('#exRange');
+  const $$=s=>ov.querySelector(s);
+
+  /* --- arrastrar por la cabecera. El centrado lo hace el grid del velo; el arrastre suma un translate encima. --- */
+  { const hd=$$('#exHd'), sh=$$('#exSheet'); let dx=0,dy=0,ox=0,oy=0,on=false;
+    hd.addEventListener('pointerdown',e=>{ if(e.target.closest('button'))return; on=true; ox=e.clientX-dx; oy=e.clientY-dy;
+      hd.classList.add('drag'); hd.setPointerCapture(e.pointerId); });
+    hd.addEventListener('pointermove',e=>{ if(!on)return; dx=e.clientX-ox; dy=e.clientY-oy; sh.style.transform='translate('+dx+'px,'+dy+'px)'; });
+    const up=e=>{ on=false; hd.classList.remove('drag'); try{hd.releasePointerCapture(e.pointerId);}catch(_){} };
+    hd.addEventListener('pointerup',up); hd.addEventListener('pointercancel',up); }
+
+  /* --- monitor: 160×90 fijos, y el lienzo exportado LETTERBOXEADO dentro, para que domo, 2D y sala compartan
+         una sola pantalla sin deformarse. Nunca se amplía por encima de la caja. --- */
+  const mon=$$('#exMon'), mctx=mon.getContext('2d');
+  function exFit(){ const p=exPx(S), W=mon.width, H=mon.height, ar=p.w/Math.max(1,p.h);
+    let w=W, h=Math.round(W/ar); if(h>H){ h=H; w=Math.round(H*ar); }
+    return {x:Math.round((W-w)/2), y:Math.round((H-h)/2), w:Math.max(1,w), h:Math.max(1,h), p}; }
+  function exDrawMon(){ try{ const f=exFit();
+      mctx.fillStyle='#000'; mctx.fillRect(0,0,mon.width,mon.height);
+      mctx.drawImage(glc,f.x,f.y,f.w,f.h);
+      if(S.phase==='run'){ const x=Math.round((S.frames?S.frame/S.frames:0)*mon.width);
+        mctx.fillStyle='rgba(255,255,255,0.16)'; mctx.fillRect(x,0,1,mon.height); }
+    }catch(e){} } // en try/catch a propósito: un fallo de dibujo NUNCA puede congelar el modelo de progreso
+
+  function exSetPhase(ph){ S.phase=ph;
+    const chip=$$('#exChip'), dot=$$('#exDot'), rail=$$('#exRail'), acts=$$('#exActs');
+    chip.className='exs-chip'+(ph==='run'?' run':ph==='pause'?' pause':ph==='done'?' done':'');
+    chip.textContent=ph==='run'?T('Rendering','Renderizando'):ph==='pause'?T('Paused','En pausa'):ph==='done'?T('Done','Terminado'):T('Idle','En reposo');
+    dot.className='exs-dot'+(ph==='run'?' run':ph==='pause'?' pause':ph==='done'?' done':'');
+    rail.className='exs-rail'+(ph==='pause'?' pause':ph==='done'?' done':'');
+    acts.style.display=(ph==='run'||ph==='pause')?'flex':'none';
+    $$('#exPhase').textContent=ph==='run'?T('Rendering','Renderizando'):ph==='pause'?T('Paused','En pausa'):ph==='done'?T('Finished','Terminado'):T('Ready','Listo');
+    $$('#exGoTxt').textContent=(ph==='run'||ph==='pause')?T('Restart render','Reiniciar render'):ph==='done'?T('Export again','Exportar de nuevo'):T('Export','Exportar');
+  }
+
+  /* --- estimación y validaciones: la lógica del diálogo viejo, ahora leyendo de exPx() --- */
+  function exSecs(){ return exRangeSecs(); }
+  function exFrames(){ return (S.codec==='still')?1:Math.max(1,Math.round(exSecs()*S.fps)); } // un fotograma suelto es UNO, no el rango entero
+  function exEstBytes(){ const p=exPx(S), n=exFrames(), c=S.codec;
+    if(c==='still')return p.w*p.h*1.2;
+    if(c==='png')return p.w*p.h*1.2*n;
+    if(c==='hap'||c==='hapq'){ const F=HAP_FMT[c]; return Math.ceil(p.w/4)*Math.ceil(p.h/4)*F.bpb*16*n*0.85; }
+    return S.br*1e6/8*exSecs(); }
+  function exAutoBr(){ const p=exPx(S); return Math.max(24,Math.min(800,Math.round(p.w*p.h*S.fps*0.11/1e6))); }
+
+  function exPaintSz(){ const host=$$('#exSzCtl'), p=exPx(S), as2=activeSeq()||{};
+    ov.querySelectorAll('#exSz button').forEach(b=>b.classList.toggle('on',b.dataset.sz===S.szMode));
+    if(S.szMode==='match'){ host.innerHTML=`<span class="exs-hint">${p.w} × ${p.h} px · ${T('from the active sequence','de la secuencia activa')}</span>`; return; }
+    if(S.szMode==='preset'){ host.innerHTML=`<select id="exSzP">${[2048,3072,4096,6144,8192].map(v=>`<option value="${v}"${v===S.szPreset?' selected':''}>${v}</option>`).join('')}</select><span class="exs-unit">${dome?'px²':T('px wide','px de ancho')}</span><span class="exs-hint">${p.w} × ${p.h} px</span>`;
+      host.querySelector('#exSzP').onchange=e=>{ S.szPreset=+e.target.value; exUpd(); }; return; }
+    host.innerHTML=`<input type="number" id="exSzW" min="16" max="16384" step="2" value="${p.w}" style="width:74px;"><span class="exs-unit">×</span>`+
+      `<input type="number" id="exSzH" min="16" max="16384" step="2" value="${p.h}" style="width:74px;"${dome?' disabled':''}><span class="exs-unit">px</span>`+
+      `<span class="exs-hint">${dome?T('square — height follows width','cuadrado — el alto sigue al ancho'):(room?T('unwrapped strip','tira desenrollada'):'')}</span>`;
+    const wI=host.querySelector('#exSzW'), hI=host.querySelector('#exSzH');
+    const clamp=v=>Math.max(16,Math.min(16384,Math.round(+v||16)));
+    const commit=()=>{ S.szW=clamp(wI.value); if(dome)S.szH=S.szW; else S.szH=clamp(hI.value); exUpd(); };
+    for(const el of [wI,hI]){ if(!el)continue; el.onkeydown=e=>{ e.stopPropagation();
+        if(e.key==='Enter'){ e.preventDefault(); commit(); } else if(e.key==='Escape'){ e.preventDefault(); exPaintSz(); } };
+      el.onblur=commit; } }
+
+  async function exValidate(){ const go=$$('#exGo'); if(!go)return;
+    const c=S.codec; if(c!=='mp4'&&c!=='hevc'){ go.disabled=false; return; }
+    const p=exPx(S); go.disabled=true;
+    let ok=false; try{ ok=!!(await (c==='hevc'?pickHevcCodec(p.w,p.h,S.br*1e6,S.fps):pickAvcCodec(p.w,p.h,S.br*1e6,S.fps))); }catch(e){}
+    if(!document.getElementById('exGo')||S.codec!==c)return; // obsoleto: se cerró la hoja o cambió la selección
+    go.disabled=!ok;
+    if(!ok){ const est=$$('#exEst'); est.classList.add('warn');
+      est.textContent=(c==='hevc')?T('H.265 is not available at '+p.w+'×'+p.h+' on this build — use AV1-grade sizes or a PNG sequence.','H.265 no está disponible a '+p.w+'×'+p.h+' en esta compilación — usa una secuencia PNG.')
+                                  :T('H.264 tops out near 3072² on this GPU — use H.265 or a PNG sequence for '+p.w+'×'+p.h+'.','H.264 se topa cerca de 3072² en esta GPU — usa H.265 o una secuencia PNG para '+p.w+'×'+p.h+'.'); } }
+
+  function exUpd(){ const p=exPx(S), c=S.codec, isVid=(c==='mp4'||c==='hevc'), isHap=(c==='hap'||c==='hapq');
+    $$('#exCodec').value=c; $$('#exFps').value=String(S.fps);
+    $$('#exBrRow').style.display=isVid?'flex':'none';
+    $$('#exChunkRow').style.display=isHap?'flex':'none';
+    if(!S.brTouched){ S.br=exAutoBr(); }
+    $$('#exBr').value=S.br;
+    exPaintSz();
+    // monitor: proxy real y nota de encaje
+    const f=exFit(); $$('#exProxy').textContent=f.w+'×'+f.h+' '+T('proxy','proxy');
+    $$('#exFit').textContent=(dome?T('Dome 1:1 in 16:9','Domo 1:1 en 16:9'):room?T('Strip in 16:9','Tira en 16:9'):T('16:9 fills the box','16:9 llena la caja'));
+    // estimación
+    const n=exFrames(), est=exEstBytes(); const e=$$('#exEst'); let warn=false;
+    let txt=fmtBytes(est)+' · '+n+' '+T('frames','fotogramas')+' · '+p.w+' × '+p.h;
+    if(isHap){ const F=HAP_FMT[c]; const cv=S.chunks, ch=(cv==='auto')?hapAutoChunks():+cv;
+      $$('#exChunkHint').textContent=(cv==='auto'?ch+' · ':'')+T('parallel decode threads','hilos de decodificación');
+      txt+=' · '+F.label; }
+    else if(isVid){ const bpp=S.br*1e6/(p.w*p.h*S.fps);
+      const q=bpp>=0.15?T('High','Alta'):bpp>=0.08?T('Good','Buena'):T('Low — raise bitrate','Baja — sube el bitrate');
+      txt+=' · '+bpp.toFixed(2)+' bpp · '+q; }
+    else if(c==='png'&&est>1.5e9){ warn=true; txt+=' · '+T('large, high RAM','grande, mucha RAM'); }
+    e.textContent=txt; e.classList.toggle('warn',warn);
+    if(S.phase==='idle'){ $$('#exSub').textContent=n+' '+T('frames','fotogramas')+' · '+exFmtDur(exSecs())+' '+T('of timeline','de la línea de tiempo'); }
+    const fc=$('#fmtChip'); if(fc){ fc._codec=(HAP_FMT[c]?HAP_FMT[c].label:c.toUpperCase()); fc.textContent=(dome?(p.w+'²'):(p.w+'×'+p.h))+' · '+S.fps+'p · '+fc._codec; }
+    exDrawMon(); exValidate();
+    lastExportSet({codec:S.codec,res:(S.szMode==='preset'?S.szPreset:null),fps:S.fps,br:S.br}); }
+
+  /* --- rango: I/O sólo si hay marcas (regla existente) --- */
+  { const hw=state.workIn!=null&&state.workOut!=null&&state.workOut>state.workIn; const rg=$$('#exRange');
     const io=rg.querySelector('[data-rg=inout]'), cl=rg.querySelector('[data-rg=clips]');
-    io.disabled=!hw; setDis(io,!hw,hw?T('Export the I/O range','Exportar el rango de entrada/salida'):T('Set In (I) and Out (O) marks on the timeline first','Marca antes Entrada (I) y Salida (O) en la línea de tiempo'));
-    (hw?io:cl).classList.add('on');
-    const tc=()=>{ const useIO=io.classList.contains('on'); const r=useIO?[state.workIn,state.workOut]:clipExtent(); $('#exRangeTc').textContent=fmtTime(r[0])+' → '+fmtTime(r[1]); };
-    rg.querySelectorAll('button').forEach(b=>b.onclick=()=>{ if(b.disabled)return; rg.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); tc(); upd(); }); tc(); }
-  for(const rec of _exJobs) exJobRow(rec); // [R94-UT3·U-02b] rebuild the queue view from the persistent registry — running/queued jobs reappear with progress + a working Cancel
-  { const as=activeSeq(); if(as){ const ro=$('#exRes').querySelector('option[value="'+as.w+'"]')||[...$('#exRes').options].find(o=>+o.value===as.w); if(ro)$('#exRes').value=as.w; const fo=[...$('#exFps').options].find(o=>+o.value===as.fps); if(fo)$('#exFps').value=as.fps;
-    if(as.mode==='flat'){ $('#exBr').value=suggestBitrate(0,as.fps||60,as.w,as.h); const rl=$('#exRes').parentElement; if(rl){ const rs=rl.querySelector('.tnum'); if(rs)rs.textContent=''; $('#exRes').style.display='none'; const sp=document.createElement('span'); sp.className='tnum'; sp.style.cssText='color:var(--ink-2);flex:1;'; sp.textContent=(as.w||1920)+'×'+(as.h||1080)+' px'; rl.insertBefore(sp,$('#exRes')); } } } } // default to the active sequence's resolution / fps (flat shows W×H, exports at the sequence size)
-  // F5: 360-room export options — full unwrapped strip OR one file per wall (native pxW×pxH), + the floor sequence as its own file
-  if(isRoom()){ const as=activeSeq(), room=as&&as.room; const rr=$('#exRoomRow');
-    const nWalls=(room&&room.walls&&room.walls.length)||0; const hasFloor=!!(room&&room.floorSeqId&&mediaById(room.floorSeqId));
-    rr.innerHTML=`<div class="frow"><label>${T('Room','Sala')}</label><div class="kindseg" id="exRoomMode"><button data-rm="strip" class="on">${T('Full strip','Tira completa')}</button><button data-rm="walls">${T('Per wall','Por muro')} (${nWalls})</button></div></div>`+
-      (hasFloor?`<div class="frow"><label></label><label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="exFloor" checked> ${T('Also export the floor (its own file)','Exportar también el piso (archivo propio)')}</label></div>`:'');
-    rr.querySelectorAll('#exRoomMode button').forEach(b=>b.onclick=()=>rr.querySelectorAll('#exRoomMode button').forEach(x=>x.classList.toggle('on',x===b))); }
-  if(!HAS_WC){ ['mp4','hevc'].forEach(cv=>{ const mo=$('#exCodec').querySelector('option[value="'+cv+'"]'); if(mo){ mo.disabled=true; mo.textContent+=' '+T('(unavailable)','(no disponible)'); } }); }
-  const upd=()=>{ const res=+$('#exRes').value,fps=+$('#exFps').value,br=+$('#exBr').value; const codec=$('#exCodec').value; const isVid=(codec==='mp4'||codec==='hevc'); const isHap=(codec==='hap'||codec==='hapq');
-    $('#exBrRow').style.display=isVid?'flex':'none';
-    $('#exChunkRow').style.display=isHap?'flex':'none';
-    if(isHap){ const F=HAP_FMT[codec], as0=activeSeq(), fl=!!(as0&&flatLikeMode(as0.mode));
-      const W=fl?(as0.w||res):res, H=fl?(as0.h||res):res, nf=Math.round(exRangeSecs()*fps);
-      const per=Math.ceil(W/4)*Math.ceil(H/4)*F.bpb; // HAP is FIXED-RATE: the texture size IS the frame size (Snappy only shaves the flat areas)
-      const cv=$('#exChunks').value, ch=(cv==='auto')?hapAutoChunks():+cv;
-      $('#exChunkHint').textContent=(cv==='auto'?ch+' · ':'')+T('parallel decode threads on the player','hilos de decodificación en paralelo en el reproductor');
-      $('#exEst').textContent=fmtBytes(per*nf*0.85)+' · '+nf+' '+T('frames','fotogramas')+' · '+fmtBytes(per*fps*0.85)+'/s · '+F.label;
-      $('#exEst').style.color=(per*fps>3.5e8)?'#E5B567':'#9AA0A8'; // >~350MB/s of playback needs an SSD that can actually feed it
-      const fcH=$('#fmtChip'); if(fcH){ fcH._codec=F.label; fcH.textContent=(fl?(W+'×'+H):(res+'²'))+' · '+fps+'p · '+F.label; }
-      if($('#exGo')){ $('#exGo').disabled=false; setDis($('#exGo'),false); } return; }
-    if(codec==='still'){ $('#exEst').textContent=res+'×'+res+' PNG · 1 '+T('frame (current playhead, full quality)','fotograma (cabezal actual, máxima calidad)'); const fc0=$('#fmtChip'); if(fc0){ fc0._codec='PNG'; fc0.textContent=res+'² · '+T('still','foto'); } if($('#exGo')){$('#exGo').disabled=false;setDis($('#exGo'),false);} return; } // [R94-UT5·U-30]
-    const secs=exRangeSecs(); const est= isVid? (br*1e6/8*secs) : (res*res*1.2*Math.round(secs*fps)); // [R94d] the estimate follows the Range picker
-    const estWarn=(codec==='png'&&est>1.5e9); // [U-13] readable GB/MB via fmtBytes; amber when the large-RAM warning fires
-    let estTxt=fmtBytes(est)+' · '+Math.round(secs*fps)+' '+T('frames','fotogramas'); if(estWarn)estTxt+=' ⚠ '+T('large — high RAM','grande — mucha RAM');
-    if(isVid){ const bpp=br*1e6/(res*res*fps); const hevcEdge=(codec==='hevc'?0.6:1); const q=bpp>=0.15*hevcEdge?'●●● '+T('High','Alta'):bpp>=0.08*hevcEdge?'●●○ '+T('Good','Buena'):'●○○ '+T('Low — raise bitrate','Baja — sube el bitrate'); estTxt+=' · '+bpp.toFixed(2)+' bpp · '+q+(codec==='hevc'?' · H.265':''); }
-    $('#exEst').textContent=estTxt; $('#exEst').style.color=estWarn?'#E5B567':'#9AA0A8';
-    const fc=$('#fmtChip'); if(fc){ fc._codec=codec.toUpperCase(); fc.textContent=res+'² · '+fps+'p · '+codec.toUpperCase(); }
-    validateRes(); };
-  async function validateRes(){ const codec=$('#exCodec').value, sel=$('#exRes'), go=$('#exGo'); if(!go)return;
-    if(codec!=='mp4'&&codec!=='hevc'){ go.disabled=false; setDis(go,false); return; } // [R94-UT5·U-30]
-    const res=+sel.value, br=(+$('#exBr').value||120)*1e6, fps=+$('#exFps').value, isHevc=(codec==='hevc');
-    go.disabled=true; let ok=false; try{ ok=!!(await (isHevc?pickHevcCodec(res,res,br,fps):pickAvcCodec(res,res,br,fps))); }catch(e){}
-    if(!document.getElementById('exGo')||$('#exCodec').value!==codec||+$('#exRes').value!==res)return; // stale: dialog closed or selection changed
-    /* [R105] El motivo ya existía pero iba SÓLO al texto de estimación: pasabas el ratón por el botón gris y
-       la barra no decía nada. Ahora se lo damos también a setDis → la Info View lo pinta en ámbar. Es el único
-       momento en que el usuario mira ahí, y por tanto el único en que quiere aprender. */
-    const _why=!ok ? (isHevc?T('H.265 unavailable at '+res+'² on this GPU — use PNG sequence.','H.265 no disponible a '+res+'² en esta GPU — usa Secuencia PNG.')
-                            :T('H.264 tops out near 4096² on this GPU — switch to H.265 or PNG for '+res+'².','H.264 se topa cerca de 4096² en esta GPU — cambia a H.265 o PNG para '+res+'².')) : null;
-    go.disabled=!ok; setDis(go,!ok,_why); // [R94-UT5·U-30]
-    if(!ok)$('#exEst').textContent=_why; }
-  let _brTouched=false;
-  const autoBr=()=>{ const as=activeSeq(); $('#exBr').value=(as&&flatLikeMode(as.mode))?suggestBitrate(0,+$('#exFps').value,as.w,as.h):suggestBitrate(+$('#exRes').value,+$('#exFps').value); };
-  $('#exCodec').onchange=upd;
-  $('#exChunks').onchange=upd;
-  $('#exRes').onchange=()=>{ if(!_brTouched)autoBr(); upd(); };
-  $('#exFps').onchange=()=>{ if(!_brTouched)autoBr(); upd(); };
-  $('#exBr').oninput=()=>{ _brTouched=true; upd(); };
-  $('#exBrAuto').onclick=()=>{ _brTouched=false; autoBr(); upd(); };
-  autoBr(); upd(); // start from a resolution-aware suggestion (e.g. 4096²/60 → ~180 Mbps, not a starved 120)
-  $('#exClose').onclick=()=>{ const fc=$('#fmtChip'); if(fc)fc._codec=null; ov.remove(); updFmtChip(); for(let i=_exJobs.length-1;i>=0;i--)if(_exJobs[i].status==='done'||_exJobs[i].status==='cancelled')_exJobs.splice(i,1); }; // restore the chip to the active sequence's format (dialog tweaks shouldn't stick if not exported) · [R94-UT3·U-02] finished/cancelled jobs are pruned on close (live ones persist and reappear on reopen)
-  /* [R102·D-T4] El diálogo abre con LO ÚLTIMO QUE USASTE, no con valores de fábrica.
-     Es la mitad aplicable de "Operate → Adjust" (HIG de Blender: ejecutar con los últimos ajustes en vez de
-     interrogar antes). La otra mitad —disparar sin diálogo— NO aplica al export y no se hizo: su
-     justificación es *"evita popups que te obligan a decidir antes de saber cómo quedará"*, y en un export sí
-     sabes cómo quedará (es tu línea de tiempo) mientras que equivocarte cuesta minutos de render y un fichero
-     escrito. Ni Premiere ni Resolve disparan un export sin diálogo. Inconsistencia deliberada, anotada.
-     Medido antes de tocar: cambiabas a MP4/2048/24, cerrabas, reabrías → PNG/4096/60 otra vez. */
-  { const L=lastExportGet(); if(L){ for(const [id,v] of [['exCodec',L.codec],['exRes',L.res],['exFps',L.fps],['exBr',L.br]]){
-      const e=$('#'+id); if(!e||v==null)continue;
-      if(e.tagName==='SELECT'&&![...e.options].some(o=>o.value===String(v)))continue; // un códec que ya no exista no debe dejar el select en blanco
-      e.value=String(v); }
-    try{ upd(); }catch(_){} } } // asignar .value NO dispara change → sin esto, el bitrate y el aviso de tamaño se quedarían mostrando lo del códec anterior
-  for(const id of ['exCodec','exRes','exFps','exBr']){ const e=$('#'+id); if(!e)continue;
-    e.addEventListener('change',()=>{ lastExportSet({codec:$('#exCodec')?$('#exCodec').value:null, res:$('#exRes')?$('#exRes').value:null,
-      fps:$('#exFps')?$('#exFps').value:null, br:$('#exBr')?$('#exBr').value:null}); }); } // se recuerda al elegir, no al exportar: cerrar sin exportar también es información
-  const ps=$('#exPreset'); function fillPresets(){ ps.innerHTML='<option value="">—</option>'+(state.exportPresets||[]).map((p,i)=>`<option value="${i}">${p.name}</option>`).join(''); } fillPresets();
-  ps.onchange=()=>{ const p=(state.exportPresets||[])[+ps.value]; if(!p)return; $('#exCodec').value=p.codec; $('#exRes').value=p.res; $('#exFps').value=p.fps; if(p.bitrate)$('#exBr').value=Math.round(p.bitrate/1e6); upd(); };
-  $('#exSavePreset').onclick=()=>{ appPrompt(T('Preset name:','Nombre del preajuste:'),$('#exCodec').value.toUpperCase()+' '+$('#exRes').value,name=>{ if(!name)return; state.exportPresets=state.exportPresets||[]; state.exportPresets.push({name,codec:$('#exCodec').value,res:+$('#exRes').value,fps:+$('#exFps').value,bitrate:(+$('#exBr').value)*1e6}); markDirty(); fillPresets(); ps.value=state.exportPresets.length-1; flashStatus(T('Preset saved','Preajuste guardado')); }); };
-  $('#exGo').onclick=()=>{ const codec=$('#exCodec').value,res=+$('#exRes').value,fps=+$('#exFps').value,br=(+$('#exBr').value)*1e6; const range=exRangeMode(); // [R94d] freeze the chosen range into every job queued by this click (the marks may move later)
-    const chunks=$('#exChunks')?$('#exChunks').value:'auto', cLbl=HAP_FMT[codec]?HAP_FMT[codec].label:codec.toUpperCase();
-    const addJob=(extra,labelTxt)=>{ const rec={id:uid(),name:labelTxt,status:'queued',p:0,labelTxt:null,opt:null}; _exJobs.push(rec); exJobRow(rec); // [R94-UT3·U-02] the job lives in the module registry; the row is just its view
-      let _lastStat=0; const stat=(txt)=>{ const now=performance.now(); if(now-_lastStat<500)return; _lastStat=now; const sa=$('#statAuto'); sa.textContent=txt; sa.style.color=''; try{ if(IS_ELEC&&DSP.setProgress)DSP.setProgress(parseFloat(txt)/100||0); }catch(e){} }; // [R92-T5 P2] progress survives the modal: status bar + Windows taskbar
-      const job={prog:(n,tot)=>{rec.p=n/tot; rec.labelTxt=null; exPaintJob(rec); stat(Math.round(rec.p*100)+'% · '+T('Exporting ','Exportando ')+labelTxt);},
-        label:t=>{rec.labelTxt=t; exPaintJob(rec);},
-        done:cx=>{rec.status=cx?'cancelled':'done'; if(!cx)rec.p=1; rec.labelTxt=null; exPaintJob(rec); _lastStat=0; flashStatus(cx?T('Export cancelled','Exportación cancelada'):T('Export finished','Exportación terminada'),cx?'err':undefined); try{ if(IS_ELEC&&DSP.setProgress)DSP.setProgress(-1); }catch(e){} updExportUI();}};
-      const opt=Object.assign({codec,res,fps,bitrate:br,chunks,range,job,_rec:rec},extra||{}); rec.opt=opt; _exq.push(opt); updExportUI(); };
-    const queueJob=()=>{ const as=activeSeq(); const room=isRoom()?(as&&as.room):null;
-      const rm=room?(($('#exRoomMode')&&$('#exRoomMode').querySelector('button.on'))||{dataset:{}}).dataset.rm:null;
-      if(room && rm==='walls'){ const sw=as.w||1, sh=as.h||1; for(const w of room.walls){ addJob({wall:{role:w.role,x0:w.x0,x1:w.x1,pxW:w.pxW,pxH:w.pxH,stripW:sw,stripH:sh}}, roomRoleLabel(w.role).toUpperCase()+' · '+w.pxW+'×'+w.pxH+' '+cLbl); } }
-      else { addJob(null, (room?(T('Walls','Muros')+' · '):'')+(isFlat()?((as.w||res)+'×'+(as.h||res)):(res+'²'))+' '+cLbl); }
-      if(room && $('#exFloor') && $('#exFloor').checked){ const fm=mediaById(room.floorSeqId); if(fm && (fm.nestClips||[]).length){ addJob({seqId:fm.id}, T('Floor','Piso')+' · '+(fm.w||1920)+'×'+(fm.h||1080)+' '+cLbl); } else if(fm){ flashStatus(T('Floor has no clips — skipped','El piso no tiene clips — omitido'),'err'); } } // [R94-UT3·U-21]
+    io.disabled=!hw; (hw?io:cl).classList.add('on');
+    const tc=()=>{ const useIO=io.classList.contains('on'); const r=useIO?[state.workIn,state.workOut]:clipExtent();
+      $$('#exRangeTc').textContent=fmtTime(r[0])+' → '+fmtTime(r[1]); };
+    rg.querySelectorAll('button').forEach(b=>b.onclick=()=>{ if(b.disabled)return;
+      rg.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); tc(); exUpd(); }); tc(); }
+  if(room) ov.querySelectorAll('#exRoomMode button').forEach(b=>b.onclick=()=>{ S.roomMode=b.dataset.rm;
+    ov.querySelectorAll('#exRoomMode button').forEach(x=>x.classList.toggle('on',x===b)); });
+  if(!HAS_WC){ ['mp4','hevc'].forEach(cv=>{ const mo=$$('#exCodec').querySelector('option[value="'+cv+'"]');
+    if(mo){ mo.disabled=true; mo.textContent+=' '+T('(unavailable)','(no disponible)'); } }); }
+
+  ov.querySelectorAll('#exSz button').forEach(b=>b.onclick=()=>{ const m=b.dataset.sz;
+    if(m==='custom'){ const p=exPx(S); S.szW=p.w; S.szH=p.h; } // Personalizado arranca desde el tamaño actual
+    S.szMode=m; exUpd(); });
+  $$('#exCodec').onchange=e=>{ S.codec=e.target.value; S.brTouched=false; exUpd(); };
+  $$('#exFps').onchange=e=>{ S.fps=+e.target.value; S.brTouched=false; exUpd(); };
+  $$('#exBr').oninput=e=>{ S.brTouched=true; S.br=Math.max(1,Math.min(800,+e.target.value||1)); exUpd(); };
+  $$('#exBrAuto').onclick=()=>{ S.brTouched=false; exUpd(); };
+  $$('#exChunks').onchange=e=>{ S.chunks=e.target.value; exUpd(); };
+
+  /* --- preajustes --- */
+  const ps=$$('#exPreset');
+  const fillPresets=()=>{ ps.innerHTML='<option value="">—</option>'+(state.exportPresets||[]).map((p,i)=>`<option value="${i}">${lchEsc(p.name)}</option>`).join(''); };
+  fillPresets();
+  ps.onchange=()=>{ const p=(state.exportPresets||[])[+ps.value]; if(!p)return;
+    S.codec=p.codec; S.fps=+p.fps; if(p.res){ S.szMode='preset'; S.szPreset=+p.res; }
+    if(p.bitrate){ S.br=Math.round(p.bitrate/1e6); S.brTouched=true; } exUpd(); };
+  $$('#exSavePreset').onclick=()=>{ const p=exPx(S);
+    appPrompt(T('Preset name:','Nombre del preajuste:'),S.codec.toUpperCase()+' '+p.w,name=>{ if(!name)return;
+      state.exportPresets=state.exportPresets||[];
+      state.exportPresets.push({name,codec:S.codec,res:p.w,fps:S.fps,bitrate:S.br*1e6});
+      markDirty(); fillPresets(); ps.value=state.exportPresets.length-1; flashStatus(T('Preset saved','Preajuste guardado')); }); };
+
+  /* --- destino --- */
+  $$('#exDest').textContent=T('Destination · chosen when the render starts','Destino · se elige al arrancar el render');
+
+  /* --- cerrar --- */
+  const close=()=>{ const fc=$('#fmtChip'); if(fc)fc._codec=null; ov.remove(); updFmtChip();
+    for(let i=_exJobs.length-1;i>=0;i--)if(_exJobs[i].status==='done'||_exJobs[i].status==='cancelled')_exJobs.splice(i,1);
+    document.removeEventListener('keydown',onKey,true); };
+  const onKey=e=>{ if(e.key!=='Escape')return;
+    const t=e.target; if(t&&t.closest&&t.closest('input,select'))return; // `closest` no existe en `document`: sin esta guarda, Esc lanzaba un TypeError y la hoja no cerraba
+    e.preventDefault(); e.stopPropagation(); close(); };
+  document.addEventListener('keydown',onKey,true);
+  $$('#exX').onclick=close; $$('#exClose').onclick=close;
+
+  /* --- pausa / cancelar --- */
+  $$('#exPause').onclick=()=>{ if(S.phase==='run'){ _exPaused=true; S.tPause=performance.now(); exSetPhase('pause'); $$('#exPause').textContent=T('Resume','Reanudar'); }
+    else if(S.phase==='pause'){ S.t0+=performance.now()-S.tPause; _exPaused=false; exSetPhase('run'); $$('#exPause').textContent=T('Pause','Pausar'); } }; // al reanudar se corrige t0: si no, el tiempo transcurrido pega un salto y la ETA se dispara
+  $$('#exCancel').onclick=()=>{ _exPaused=false; cancelExport=true; };
+
+  /* --- exportar --- */
+  $$('#exGo').onclick=()=>{ const p=exPx(S), n=exFrames();
+    const codec=S.codec, fps=S.fps, br=S.br*1e6, range=exRangeMode();
+    const cLbl=HAP_FMT[codec]?HAP_FMT[codec].label:codec.toUpperCase();
+    S.frames=n; S.frame=0; S.bytes=0; S.t0=performance.now(); _exPaused=false; exSetPhase('run');
+    $$('#exPause').textContent=T('Pause','Pausar');
+    const addJob=(extra,labelTxt)=>{ const rec={id:uid(),name:labelTxt,status:'queued',p:0,labelTxt:null,opt:null};
+      _exJobs.push(rec);
+      let _lastStat=0;
+      const job={
+        prog:(k,tot)=>{ rec.p=k/tot; S.frame=k; S.frames=tot;
+          const el=(performance.now()-S.t0)/1000, f=k/Math.max(1,tot);
+          $$('#exPct').textContent=Math.round(f*100)+'%'; $$('#exRail').firstElementChild.style.width=(f*100).toFixed(1)+'%';
+          $$('#exSub').textContent=T('frame ','fotograma ')+k+' / '+tot+' · '+cLbl+' · '+p.w+'×'+p.h;
+          $$('#exElapsed').textContent=exFmtDur(el);
+          $$('#exRemain').textContent=(k>=3&&k<tot)?exFmtDur(el/k*(tot-k)):'—';
+          $$('#exWrote').textContent=S.bytes?fmtBytes(S.bytes):'—';
+          $$('#exTc').textContent=exFmtDur(k/Math.max(1,S.fps));
+          const fps2=k/Math.max(0.001,el), mbs=S.bytes/Math.max(0.001,el)/1e6;
+          $$('#exNote').textContent=fps2.toFixed(1)+' '+T('fps rendered','fps renderizados')+(S.bytes?(' · '+mbs.toFixed(0)+' MB/s '+T('to disk','a disco')):'');
+          const now=performance.now(); if(now-_lastStat>500){ _lastStat=now; const sa=$('#statAuto');
+            if(sa){ sa.textContent=Math.round(f*100)+'% · '+T('Exporting ','Exportando ')+labelTxt; sa.style.color=''; }
+            try{ if(IS_ELEC&&DSP.setProgress)DSP.setProgress(f); }catch(e){} } },
+        label:t=>{ rec.labelTxt=t; $$('#exPhase').textContent=t; },
+        frame:()=>exDrawMon(),                       // [R179] el mismo enganche que usa el visor del render in place
+        wrote:b=>{ S.bytes+=b||0; },
+        done:cx=>{ rec.status=cx?'cancelled':'done'; if(!cx)rec.p=1;
+          _exPaused=false; exSetPhase(cx?'idle':'done');
+          if(S.bytes)$$('#exWrote').textContent=fmtBytes(S.bytes); // el muxer vuelca por trozos: al principio no hay bytes y la celda se quedaba en «—» hasta el final
+          if(!cx){ $$('#exPct').textContent='100%'; $$('#exRail').firstElementChild.style.width='100%';
+            $$('#exSub').textContent=S.frames+' '+T('frames written','fotogramas escritos')+(S.bytes?(' · '+fmtBytes(S.bytes)):'');
+            $$('#exNote').textContent=T('Saved to the chosen destination','Guardado en el destino elegido'); }
+          else { $$('#exNote').textContent=T('Cancelled · partial output kept','Cancelado · se conserva lo escrito'); }
+          flashStatus(cx?T('Export cancelled','Exportación cancelada'):T('Export finished','Exportación terminada'),cx?'err':undefined);
+          try{ if(IS_ELEC&&DSP.setProgress)DSP.setProgress(-1); }catch(e){} updExportUI(); } };
+      const opt=Object.assign({codec,res:p.w,outW:p.w,outH:p.h,fps,bitrate:br,chunks:S.chunks,range,job,_rec:rec},extra||{});
+      rec.opt=opt; _exq.push(opt); updExportUI(); };
+    const queueJob=()=>{ const rm=room?S.roomMode:null;
+      if(room&&rm==='walls'){ const sw=as.w||1, sh=as.h||1;
+        for(const w of as.room.walls) addJob({wall:{role:w.role,x0:w.x0,x1:w.x1,pxW:w.pxW,pxH:w.pxH,stripW:sw,stripH:sh}}, roomRoleLabel(w.role)+' · '+w.pxW+'×'+w.pxH+' '+cLbl); }
+      else addJob(null,(room?(T('Walls','Muros')+' · '):'')+p.w+'×'+p.h+' '+cLbl);
+      if(room && $$('#exFloor') && $$('#exFloor').checked){ const fm=mediaById(as.room.floorSeqId);
+        if(fm&&(fm.nestClips||[]).length) addJob({seqId:fm.id}, T('Floor','Piso')+' · '+(fm.w||1920)+'×'+(fm.h||1080)+' '+cLbl);
+        else if(fm) flashStatus(T('Floor has no clips — skipped','El piso no tiene clips — omitido'),'err'); }
       pumpExportQ(); };
-    if((codec==='mp4'||codec==='hevc') && !(IS_ELEC && DSP.fileOpen)){ const secs=exRangeSecs(); const estGB=br/8*secs/1e9; // only warn when we can't stream to disk (browser); the .exe streams MP4 chunk-by-chunk
-      if(estGB>1.8){ appConfirm(T('This MP4 is about ','Este MP4 pesa ~')+estGB.toFixed(1)+T(' GB and is assembled in memory before saving — it may run out of RAM. For very long/large renders use a PNG sequence (streamed to disk). Continue anyway?',' GB y se arma en memoria antes de guardar — podría quedarse sin RAM. Para renders muy largos/grandes usa Secuencia PNG (escrita a disco). ¿Continuar igual?'), ok=>{ if(ok)queueJob(); }, {ok:T('Continue anyway','Continuar igual')}); return; } }
+    if((codec==='mp4'||codec==='hevc') && !(IS_ELEC && DSP.fileOpen)){ const estGB=br/8*exSecs()/1e9; // sólo avisa cuando NO se puede escribir en streaming (navegador); el .exe escribe el MP4 trozo a trozo
+      if(estGB>1.8){ appConfirm(T('This MP4 is about ','Este MP4 pesa ~')+estGB.toFixed(1)+T(' GB and is assembled in memory before saving — it may run out of RAM. Use a PNG sequence for very large renders. Continue anyway?',' GB y se arma en memoria antes de guardar — podría quedarse sin RAM. Usa una secuencia PNG para renders muy grandes. ¿Continuar igual?'),
+          ok=>{ if(ok)queueJob(); else exSetPhase('idle'); },{ok:T('Continue anyway','Continuar igual')}); return; } }
     queueJob(); };
+
+  exSetPhase('idle'); exUpd();
 }
 
 /* ===================== PROYECTO: NUEVO / GUARDAR / ABRIR (sin pérdida de datos) ===================== */

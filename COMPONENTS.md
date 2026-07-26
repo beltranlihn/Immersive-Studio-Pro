@@ -106,7 +106,9 @@
 ### 5 · Export, proxies & decode → [detalle](#5--export-proxies--decode-detalle)
 | Componente | Qué hace | Ubicación | Estado | Roadmap |
 |---|---|---|---|---|
-| Diálogo de export | Selector códec/res/fps/rango/chunk + cola | app.js · `openExport` · #exOv | ✅ | [R1],[D2] |
+| Panel de export | **Hoja flotante** arrastrable + monitor de render + bloque de estado | app.js · `openExport` · #exOv.exs-scrim | ✅ | R183 |
+| Monitor de render | 160×90, el fotograma que acaba de escribir el codificador | app.js · `exDrawMon`/`exFit` · #exMon | ✅ | R183 |
+| `exPx()` | Fuente ÚNICA del tamaño de salida | app.js · `exPx` | ✅ | R183 |
 | Cola de export | Registro de jobs uno-a-la-vez | app.js · `pumpExportQ` · #exQueue | ✅ | [D2] |
 | `runExport` | Driver máster PNG/MP4/HEVC/HAP/still | app.js · `runExport` (~L4302) | ✅ | [R1],[R2],[D2] |
 | Render in place | Hornear clip/nest o **selección** → MP4 mudo → pista nueva | app.js · `ripRun`/`renderInPlace`/`renderRangeInPlace` | ✅ | R179 |
@@ -1050,6 +1052,23 @@ Source: `app.js` (~6992 lines). Line numbers verified against the working tree o
 - **Status:** ✅ verificado de extremo a extremo en domo (velocidad 2,6→15,8 fps · encuadre idéntico · invalidación reversible · bypass en export · persistencia · chapa · quitar · interruptor)
 - **UI:** menús de generar/regenerar/quitar (Media + clip) · chapa `Proxy` / `⚠ Proxy stale` en el clip · interruptor global **Comp** en la barra del visor (`#nestCacheToggle`, junto a `Proxy`) que alterna `state.view.useNestCache`.
 - **Roadmap:** aislar el desajuste de encuadre para levantar la restricción de cuadradas; regeneración automática tras un rato de quietud (hoy es manual y a propósito: regenerar en cada cambio secuestraría el editor).
+
+## Panel de export — hoja flotante (R183)
+- **Purpose:** Recreado del handoff `scratchpad/redesign/export-panel/…/Export Panel - Rev 1.dc.html`. Deja de ser un overlay a pantalla completa: es una **hoja de 660px centrada y arrastrable por su cabecera**, con velo `rgba(8,9,10,0.52)` para que el editor siga legible. Añade un **monitor de render**, sube el estado a bloque de primera clase, pone los ajustes en rejilla de dos columnas y sustituye el selector de resolución por **tamaño en píxeles** (Igualar fuente / Preajuste / Personalizado).
+- **Location:** app.js · `openExport()` + `exPx()`/`exDeadline()`/`exWaitPause()`/`exFmtDur()` y `_exPaused`/`_exStage` (módulo). CSS `.exs-*` en index.html.
+- **Key symbols:** **`exPx(S) → {w,h}` es LA fuente de verdad del tamaño**: de ahí salen estimación, bitrate automático, bpp, recuento de fotogramas, aspecto del monitor y el nombre del render. El handoff lo exigía explícito porque el código viejo multiplicaba `res*res` en cinco sitios y se desincronizaban. · `job.frame` (de R179) es lo que alimenta el monitor — el mismo enganche del visor de avance del render in place.
+- **Invariants / gotchas:**
+  - **El monitor se dibuja en `job.frame`, no en un rAF**: así sigue avanzando con la ventana en segundo plano (rAF se estrangula), y `exDrawMon` va en try/catch porque un fallo de dibujo NUNCA puede congelar el modelo de progreso.
+  - **Letterbox en una sola pantalla 16:9**: domo 4096² → proxy 90×90 · 2D 16:9 → 160×90 · sala 5760×1080 → 160×30. Verificado en los tres.
+  - **Pausa**: `_exPaused` lo sondean los TRES bucles de render vía `exWaitPause()`. Al reanudar se corrige `S.t0` con el tiempo pausado, o el transcurrido pega un salto y la ETA se dispara.
+  - **`e.target.closest` no existe en `document`** — el manejador de Esc lo lanzaba y la hoja no cerraba. Guarda `t&&t.closest`.
+  - **Bytes escritos reales**, no estimados: `job.wrote` se alimenta desde el `onData` del muxer, el `writeBinary` del PNG y el `put` del HAP. El muxer vuelca por trozos, así que la celda está en «—» al principio; se rellena también en `done`.
+  - **`decodeAudioData` atiende sus callbacks Y ADEMÁS devuelve una promesa**: sin un `.catch` en esa promesa, su rechazo salía como excepción no capturada aunque el error ya estuviera atendido.
+  - **`exDeadline`** acota las dos etapas de audio (45s decode, 60s mezcla). Se añadió persiguiendo una hipótesis EQUIVOCADA sobre un cuelgue (ver abajo), pero se conserva por su propio mérito: son las únicas etapas que dependen de material arbitrario del usuario y ninguna debe poder colgar un render sin barra, sin error y sin archivo.
+  - **`_exStage`** es una miga de pan con la etapa actual de `runExport`. Fue lo único que localizó el cuelgue de la prueba: **`DSP` viene de `contextBridge` y está CONGELADO**, así que parchear `DSP.saveFile` desde un arnés no surte efecto y se abre el diálogo nativo, que espera a una persona. Para probar exports de punta a punta hay que interceptar `runExport` (global en un script clásico) e inyectarle `outPath`.
+  - La cola (`_exJobs`) sigue viva en el registro; su interfaz vuelve en otra revisión (decisión del handoff), así que `exJobRow`/`exPaintJob` salen solos por su guarda de `#exQueue`.
+- **Status:** ✅ lista de aceptación del handoff completa: hoja centrada no-pantalla-completa, arrastre (120px medidos), ✕/Cerrar/Esc, letterbox en los 3 formatos, monitor por fotograma, %/fotogramas/transcurrido/restante/escrito/fps, pausa que congela y reanuda sin salto, cancelar, Personalizado con Enter/Esc/recorte 16–16384 y cuadrado en domo, filas condicionales (bitrate sólo H.264/H.265, trozos sólo HAP, sala sólo en 360), sin mayúsculas sostenidas ni glifos de macOS, 0 errores de consola. Export real verificado: 640×360 · 30 fotogramas · 1,65 MB reproducible.
+- **Roadmap:** vuelve la interfaz de la cola; `Save` de preajustes no recuerda el modo de tamaño (guarda sólo el ancho).
 
 ## Render in place (RIP) — clip + time-selection
 - **Purpose:** Bake to an MP4 in `<project>/rendered clips/` and drop it on a **new top video track at the same position, without removing anything** — muting or deleting the sources is the editor's call. Always **silent** (a bake is picture only). Two entry points: `renderInPlace(clip)` bakes a SINGLE clip/nest (own fx + automation, external adjustment layers excluded); `renderRangeInPlace()` bakes the FULL composite over the in/out time selection (`state.tl.selA/selB`, or `workIn/workOut`) — a true flatten.
