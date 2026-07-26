@@ -6149,6 +6149,7 @@ function roomPlan(walls){ const by={}; for(const w of walls)by[w.role]=w;
    launcher, donde el diseño pide la rampa MONOCROMÁTICA por orientación; el editor sigue llamando sin `pal` y
    conserva sus colores de siempre. */
 function drawRoomIso(cv,walls,floorOn,activeRole,pal){ if(!cv)return; const ctx=cv.getContext('2d'); const W=cv.width,H=cv.height,U=W/528; ctx.clearRect(0,0,W,H);
+  const _rc=cv.getBoundingClientRect(), TU=(_rc.width>0?W/_rc.width:1); // [R181] ver nota en drawDomeIso: el texto en px CSS, la geometria con U
   const plan=roomPlan(walls); if(!plan.seg.length)return;
   const ca=Math.cos(Math.PI/6),sa=Math.sin(Math.PI/6);
   const line=(A,B,st,lw)=>{ ctx.strokeStyle=st; ctx.lineWidth=lw; ctx.beginPath(); ctx.moveTo(A[0],A[1]); ctx.lineTo(B[0],B[1]); ctx.stroke(); };
@@ -6156,9 +6157,9 @@ function drawRoomIso(cv,walls,floorOn,activeRole,pal){ if(!cv)return; const ctx=
   const quad=plan.poly.length===4;
   const split=Math.round(W*0.58), padT=20*U, pad=13*U;
   line([split,12*U],[split,H-12*U],'rgba(255,255,255,0.07)',1*U); // panel divider
-  ctx.textBaseline='alphabetic'; ctx.textAlign='left'; ctx.font=`600 ${8*U}px Geist,system-ui`; ctx.fillStyle='rgba(150,150,150,0.9)';
+  ctx.textBaseline='alphabetic'; ctx.textAlign='left'; ctx.font=`600 ${8*TU}px Geist,system-ui`; ctx.fillStyle='rgba(150,150,150,0.9)';
   ctx.fillText('3D',13*U,15*U); ctx.fillText('PLAN',split+13*U,15*U); const pw=ctx.measureText('PLAN').width;
-  ctx.font=`500 ${8*U}px Geist,system-ui`; ctx.fillStyle='rgba(109,109,109,0.85)'; ctx.fillText('  cm',split+13*U+pw,15*U);
+  ctx.font=`500 ${8*TU}px Geist,system-ui`; ctx.fillStyle='rgba(109,109,109,0.85)'; ctx.fillText('  cm',split+13*U+pw,15*U);
   // ---- bounds (iso projected · plan world) + centroid ----
   let iMnX=1e9,iMxX=-1e9,iMnY=1e9,iMxY=-1e9;
   for(const s of plan.seg)for(const c of [[s.a[0],s.a[1],0],[s.b[0],s.b[1],0],[s.a[0],s.a[1],s.h],[s.b[0],s.b[1],s.h]]){ const ix=(c[0]-c[1])*ca, iy=(c[0]+c[1])*sa-c[2]; if(ix<iMnX)iMnX=ix; if(ix>iMxX)iMxX=ix; if(iy<iMnY)iMnY=iy; if(iy>iMxY)iMxY=iy; }
@@ -6189,7 +6190,7 @@ function drawRoomIso(cv,walls,floorOn,activeRole,pal){ if(!cv)return; const ctx=
       for(let j=1;j<ROOM_GRID_ROWS;j++) line(wq(0,j/ROOM_GRID_ROWS),wq(1,j/ROOM_GRID_ROWS),'rgba(255,255,255,0.13)',1*U); }
     ctx.strokeStyle=hexA(col,act?1:dim?0.45:0.8); ctx.lineWidth=(act?1.6:1.1)*U; ctx.beginPath(); ctx.moveTo(a0[0],a0[1]); ctx.lineTo(b0[0],b0[1]); ctx.lineTo(bt[0],bt[1]); ctx.lineTo(at[0],at[1]); ctx.closePath(); ctx.stroke();
     const cx=(a0[0]+b0[0]+bt[0]+at[0])/4, cy=(a0[1]+b0[1]+bt[1]+at[1])/4; ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillStyle=dim?'rgba(224,224,224,0.45)':'#EDEFF2'; ctx.font=`600 ${9*U}px Geist,system-ui`; ctx.fillText(roomRoleLabel(s.role).toUpperCase(),cx,cy); }
+    ctx.fillStyle=dim?'rgba(224,224,224,0.45)':'#EDEFF2'; ctx.font=`600 ${9*TU}px Geist,system-ui`; ctx.fillText(roomRoleLabel(s.role).toUpperCase(),cx,cy); }
   // ================= RIGHT · to-scale PLAN =================
   { let p0=PP(plan.poly[0][0],plan.poly[0][1]); ctx.beginPath(); ctx.moveTo(p0[0],p0[1]); for(let i=1;i<plan.poly.length;i++){const q=PP(plan.poly[i][0],plan.poly[i][1]);ctx.lineTo(q[0],q[1]);} if(quad)ctx.closePath(); ctx.fillStyle='rgba(150,170,195,0.06)'; ctx.fill(); }
   if(quad){ const [FL,FR,BR,BL]=plan.poly, GN=4; for(let i=1;i<GN;i++){ const u=i/GN;
@@ -6201,12 +6202,12 @@ function drawRoomIso(cv,walls,floorOn,activeRole,pal){ if(!cv)return; const ctx=
     line(A,B,hexA(col,act?1:dim?0.4:0.85),(act?3:2)*U);
     const mx=(s.a[0]+s.b[0])/2, my=(s.a[1]+s.b[1])/2; let ox=mx-cX, oy=my-cY; const ol=Math.hypot(ox,oy)||1; const sox=ox/ol, soy=-oy/ol; // outward, world→screen (screen Y is flipped)
     const M=PP(mx,my), off=12*U, lx=M[0]+sox*off, ly=M[1]+soy*off; ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillStyle=dim?'rgba(230,232,235,0.4)':'#E6E8EB'; ctx.font=`600 ${8.5*U}px Geist,system-ui`; ctx.fillText(String(wallOf(s.role).wcm), lx, ly-4*U);
-    ctx.fillStyle=dim?'rgba(150,150,150,0.4)':hexA(col,0.95); ctx.font=`600 ${7*U}px Geist,system-ui`; ctx.fillText(roomRoleLabel(s.role).toUpperCase(), lx, ly+5*U); }
+    ctx.fillStyle=dim?'rgba(230,232,235,0.4)':'#E6E8EB'; ctx.font=`600 ${8.5*TU}px Geist,system-ui`; ctx.fillText(String(wallOf(s.role).wcm), lx, ly-4*U);
+    ctx.fillStyle=dim?'rgba(150,150,150,0.4)':hexA(col,0.95); ctx.font=`600 ${7*TU}px Geist,system-ui`; ctx.fillText(roomRoleLabel(s.role).toUpperCase(), lx, ly+5*U); }
   // scale bar (metrically exact for the plan): pick the largest round length that fits ~half the panel
   { let m=1; for(const c of [10,5,2,1,0.5,0.2]){ if(c*sPlan<=availRW*0.5){ m=c; break; } } const bp=m*sPlan, bx=split+pad, by=H-pad*0.7;
     line([bx,by],[bx+bp,by],'rgba(200,200,200,0.7)',1.4*U); line([bx,by-3*U],[bx,by+3*U],'rgba(200,200,200,0.7)',1.4*U); line([bx+bp,by-3*U],[bx+bp,by+3*U],'rgba(200,200,200,0.7)',1.4*U);
-    ctx.textAlign='left'; ctx.textBaseline='middle'; ctx.fillStyle='rgba(170,170,170,0.9)'; ctx.font=`500 ${7.5*U}px Geist,system-ui`; ctx.fillText((m>=1?m+' m':(m*100)+' cm'), bx+bp+5*U, by); } }
+    ctx.textAlign='left'; ctx.textBaseline='middle'; ctx.fillStyle='rgba(170,170,170,0.9)'; ctx.font=`500 ${7.5*TU}px Geist,system-ui`; ctx.fillText((m>=1?m+' m':(m*100)+' cm'), bx+bp+5*U, by); } }
 function getRoomPresets(){ try{ return JSON.parse(localStorage.getItem('iseRoomPresets')||'[]'); }catch(e){ return []; } }
 function saveRoomPresets(a){ try{ localStorage.setItem('iseRoomPresets',JSON.stringify(a)); }catch(e){} }
 /* [F5] the "screen order" canvas: the walls as the summed 2D strip, in order 1..N, each with its resolution + the total width in px */
@@ -6217,9 +6218,11 @@ function saveRoomPresets(a){ try{ localStorage.setItem('iseRoomPresets',JSON.str
    media esfera cuya elevación arranca en −(cov−180)/2, que es lo que hace que un domo de 200/210/220° baje por
    debajo del horizonte — así que la vista previa dice la verdad sobre la cobertura elegida.
    `pal` opcional: color de las etiquetas de orientación (el launcher pasa la rampa monocromática). */
+/* [R181] TU = unidad de TEXTO. `U` escala la GEOMETRIA con el panel, y eso esta bien: un panel mas grande debe dibujar un domo mas grande. Pero el texto no: estos painters se disenaron para los lienzos chicos de los dialogos (U~1) y en los paneles grandes del launcher U llega a ~4, con lo que un rotulo de 9px salia a 18px CSS — el doble que el titulo de la pantalla. El texto se mide en pixeles CSS (solo DPR), como ya hacia drawSeqViz. */
 function drawDomeIso(cv,cov,pal){ if(!cv)return; const ctx=cv.getContext('2d'); const W=cv.width,H=cv.height; ctx.clearRect(0,0,W,H);
+  const _rc=cv.getBoundingClientRect(), TU=(_rc.width>0?W/_rc.width:1);
   const U=Math.min(W,H)/300, cx=W/2, cy=H/2+8*U;
-  const yaw=-0.62, pitch=0.42, dist=3.4, sc=118*U;            // cámara fija: una silueta legible, no una animación
+  const yaw=-0.62, pitch=0.42, dist=3.4, sc=Math.min(W,H)*1.02; // cámara fija: una silueta legible, no una animación. [R181] la escala se ata al LIENZO, no a `U`: con 118*U el domo salía al 21% del ancho del panel — un dibujo diminuto flotando en negro. Ahora ocupa ~2/3.
   const P=(x,y,z)=>{ const cyw=Math.cos(yaw),syw=Math.sin(yaw); const X=x*cyw-z*syw, Z=x*syw+z*cyw;
     const cp=Math.cos(pitch),sp=Math.sin(pitch); const Y2=y*cp-Z*sp, Z2=y*sp+Z*cp;
     const f=sc/Math.max(0.12,dist+Z2); return {x:cx+X*f, y:cy-Y2*f, z:Z2}; };
@@ -6246,14 +6249,15 @@ function drawDomeIso(cv,cov,pal){ if(!cv)return; const ctx=cv.getContext('2d'); 
   ctx.strokeStyle='rgba(232,232,232,0.28)'; ctx.lineWidth=1; ctx.stroke();
   // orientaciones, con la misma rampa que el resto del launcher
   const NAMES=['Front','Right','Back','Left'];
-  ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.font=`600 ${9.5*U}px Geist,system-ui`;
+  ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.font=`600 ${9.5*TU}px Geist,system-ui`;
   NAMES.forEach((n,i)=>{ const p=sph(i*90,Math.max(0,elevMin)+3), q=P(p.x*1.16,p.y,p.z*1.16);
     ctx.fillStyle=(pal&&pal[n])||'#7A7A7A'; ctx.fillText(roomRoleLabel?roomRoleLabel(n):n, q.x, q.y); });
   // cobertura, abajo a la izquierda (mismo sitio que en drawSeqViz)
   ctx.textAlign='left'; ctx.textBaseline='alphabetic'; ctx.fillStyle='rgba(150,150,150,0.9)';
-  ctx.font=`600 ${8*U}px Geist,system-ui`;
+  ctx.font=`600 ${8*TU}px Geist,system-ui`;
   ctx.fillText((cov||180)+'° '+T('coverage','cobertura')+((cov||180)>180?' · '+T('below horizon','bajo el horizonte'):''), 10*U, H-9*U); }
 function drawRoomStrip(cv,walls,floorOn,activeRole,pal){ if(!cv)return; /* [R155] pal = paleta por rol opcional (la usa el launcher para la rampa monocromática) */ const ctx=cv.getContext('2d'); const W=cv.width,H=cv.height,U=W/1056; ctx.clearRect(0,0,W,H);
+  const _rc=cv.getBoundingClientRect(), TU=(_rc.width>0?W/_rc.width:1); // [R181] idem
   const ordered=[...walls].sort((a,b)=>(a.order||0)-(b.order||0)); if(!ordered.length)return;
   const totalPx=ordered.reduce((s,w)=>s+(+w.pxW||0),0)||1; const maxH=Math.max(...ordered.map(w=>+w.pxH||0),1);
   const pad=12*U, gap=3*U, labelH=30*U, availW=W-pad*2-gap*(ordered.length-1), availH=H-pad-labelH;
@@ -6261,11 +6265,11 @@ function drawRoomStrip(cv,walls,floorOn,activeRole,pal){ if(!cv)return; /* [R155
   ordered.forEach((w,i)=>{ const ww=Math.max(6*U, availW*((+w.pxW||0)/totalPx)); const hh=Math.max(4*U, (availH-6*U)*((+w.pxH||0)/maxH)); const col=(pal&&pal[w.role])||ROOM_ROLE_COL[w.role]||'#8892A0'; const act=(w.role===activeRole);
     const y=pad+(availH-hh);
     ctx.fillStyle=hexA(col,act?0.34:0.18); ctx.strokeStyle=act?'#fff':col; ctx.lineWidth=act?1.5:1; ctx.fillRect(x,y,ww,hh); ctx.strokeRect(x+0.5,y+0.5,ww-1,hh-1);
-    ctx.fillStyle=col; ctx.font=`700 ${13*U}px Geist`; ctx.textAlign='center'; ctx.textBaseline='middle'; if(ww>14*U)ctx.fillText(String(i+1), x+ww/2, y+hh/2);
-    ctx.fillStyle='#C9CDD3'; ctx.font=`${10*U}px Geist`; ctx.textBaseline='alphabetic'; ctx.fillText(roomRoleLabel(w.role), x+ww/2, pad+availH+11*U);
-    ctx.fillStyle='#7B828C'; ctx.font=`${9*U}px Geist`; ctx.fillText((+w.pxW||0)+'×'+(+w.pxH||0), x+ww/2, pad+availH+22*U);
+    ctx.fillStyle=col; ctx.font=`700 ${13*TU}px Geist`; ctx.textAlign='center'; ctx.textBaseline='middle'; if(ww>14*U)ctx.fillText(String(i+1), x+ww/2, y+hh/2);
+    ctx.fillStyle='#C9CDD3'; ctx.font=`${10*TU}px Geist`; ctx.textBaseline='alphabetic'; ctx.fillText(roomRoleLabel(w.role), x+ww/2, pad+availH+11*U);
+    ctx.fillStyle='#7B828C'; ctx.font=`${9*TU}px Geist`; ctx.fillText((+w.pxW||0)+'×'+(+w.pxH||0), x+ww/2, pad+availH+22*U);
     x+=ww+gap; });
-  ctx.textAlign='right'; ctx.textBaseline='alphabetic'; ctx.fillStyle='#9AA0A8'; ctx.font=`600 ${10*U}px Geist`;
+  ctx.textAlign='right'; ctx.textBaseline='alphabetic'; ctx.fillStyle='#9AA0A8'; ctx.font=`600 ${10*TU}px Geist`;
   ctx.fillText(T('Total','Total')+': '+totalPx+' × '+maxH+' px', W-pad, H-4*U); ctx.textAlign='left'; }
 function roomSetupDialog(cb,partirDe){ const ov=document.createElement('div'); ov.className='overlay'; ov.style.zIndex='320'; ov.style.alignItems='flex-start';
   const defWall=(role,order)=>({role,order,wcm:(role==='Left'||role==='Right')?400:500,hcm:300,pxW:1920,pxH:1080});
