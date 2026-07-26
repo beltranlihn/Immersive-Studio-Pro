@@ -94,7 +94,7 @@ const state = {
   selId:null, selMediaId:null, selMediaIds:[], selMediaAnchor:null,
   view:{ mode:'2d', three:'orbit', zoom:0.92, pan:[0,0], showGrid:true, showSafe:false, showOutline:true, cull:false, useProxy:true, checkerBg:false,
          cw:400, ch:400, cam:{yaw:0, pitch:0.5, dist:3.0, fov:60, back:0.8} },
-  tl:{ pxPerSec:80, tool:'select', snap:false, tcMode:'timecode', bpm:120, sig:4, gridDiv:0, gridFixed:false, gridFixedBase:1, selA:null, selB:null, audioCollapsed:false }, // [R94c/f] snap to grid OFF by default; simpleClips = Premiere-style whole-clip grab, ON by default. [R110] audioCollapsed = the audio module is compacted to just its bar
+  tl:{ pxPerSec:80, tool:'select', tcMode:'timecode', bpm:120, sig:4, gridDiv:0, gridFixed:false, gridFixedBase:1, selA:null, selB:null, audioCollapsed:false }, // [R161] fuera `snap` (R158 quitó el ajuste a la cuadrícula) y `simpleClips` (R155 dejó sólo el agarre estilo Premiere): nadie los leía. [R110] audioCollapsed = the audio module is compacted to just its bar
   workIn:null, workOut:null,
   prefs:{ reducedMotion:false, snapping:true, grid:true, safe:false, mediaCollapsed:false, inspCollapsed:false, tallInsp:false },
   mediaFilter:'all', mediaQuery:'', mediaGroupBy:'none', collapsedGroups:{}, folders:[], folderColors:{}, mediaView:'list', mediaFolder:null, selFolder:null,
@@ -3647,9 +3647,9 @@ function refreshInspector(){ const c=selClip(); if(!c)return; const t=state.play
   });
 }
 function kfAt(c,p){ if(!hasKf(c,p))return null; const lt=state.playhead-c.start; return c.kf[p].find(k=>Math.abs(k.t-lt)<0.06)||null; }
-function jumpKf(p,dir){ const c=selClip(); if(!hasKf(c,p))return; const lt=state.playhead-c.start; const ks=c.kf[p];
-  let target=null; if(dir>0){for(const k of ks)if(k.t>lt+1e-3){target=k.t;break;}} else {for(let i=ks.length-1;i>=0;i--)if(ks[i].t<lt-1e-3){target=ks[i].t;break;}}
-  if(target!=null){state.playhead=c.start+target;scrubRender();} }
+/* [archivado 20260726 · R161] `jumpKf(p,dir)` — salto por parámetro. Sin llamadores desde que R159 quitó los
+   botones prev/next de la fila del inspector; lo reemplaza `jumpAnyKf`. Copia verbatim en
+   _backup/deprecated/20260726-jump-kf-per-param.js */
 /* [R159] Saltar entre fotogramas SIN los botones prev/next de cada fila: recorre los keyframes de TODOS los
    parámetros automatizados del clip seleccionado y lleva el playhead al más cercano en esa dirección. Es más útil
    que el par por fila —el usuario piensa "el próximo keyframe", no "el próximo de Opacidad"— y libera los 40px
@@ -5754,7 +5754,7 @@ function renderSeqBar(){ const bar=$('#seqTabs'); if(!bar)return; bar.innerHTML=
     t.oncontextmenu=e=>{ e.preventDefault(); openMenu(e.clientX,e.clientY,[{label:T('Rename','Renombrar'),fn:()=>renameSequence(id)},{label:T('Settings…','Ajustes…'),ico:'gear',fn:()=>{ if(id!==state.activeSeqId)switchSeq(id); openSeqSettings(); }},{label:T('Close tab','Cerrar pestaña'),fn:()=>closeSeqTab(id)},'sep',{label:T('Delete sequence','Eliminar secuencia'),danger:true,fn:()=>deleteSequenceMedia(id)}]); };
     bar.appendChild(t); }
   const add=document.createElement('button'); add.className='seqtab seqadd'; add.textContent='＋'; add.title=T('New sequence','Nueva secuencia'); add.onclick=newSequenceDialog; bar.appendChild(add); }
-function serProject(){ saveActiveSeq(); return { app:'DomeStudioPro', v:4, fps:state.fps, lanes:state.lanes, playhead:state.playhead, markers:[], groups:[], clips:[], media:state.media.map(serMedia), workIn:state.workIn, workOut:state.workOut, folders:state.folders, folderColors:state.folderColors||{}, tl:{bpm:state.tl.bpm,sig:state.tl.sig,tcMode:state.tl.tcMode,pxPerSec:state.tl.pxPerSec,inlineCurves:!!state.inlineCurves,audioH:state.tl.audioH||null,snap:!!state.tl.snap,simpleClips:!!state.tl.simpleClips}, exportPresets:state.exportPresets||[], openSeqs:(state.openSeqs||[]).slice(), activeSeqId:state.activeSeqId, seqW:state.seqW, seqH:state.seqH, reactive:state.reactive||null, autoItems:state.autoItems||{} }; } // [R95·D2] the Automation Item library travels with the project (clips reference items by id via kfLink) // v4: the active sequence's clips/markers/groups live in its nest media (serMedia); top-level kept empty to avoid doubling the heaviest data (kf + maskData)
+function serProject(){ saveActiveSeq(); return { app:'DomeStudioPro', v:4, fps:state.fps, lanes:state.lanes, playhead:state.playhead, markers:[], groups:[], clips:[], media:state.media.map(serMedia), workIn:state.workIn, workOut:state.workOut, folders:state.folders, folderColors:state.folderColors||{}, tl:{bpm:state.tl.bpm,sig:state.tl.sig,tcMode:state.tl.tcMode,pxPerSec:state.tl.pxPerSec,inlineCurves:!!state.inlineCurves,audioH:state.tl.audioH||null}, exportPresets:state.exportPresets||[], openSeqs:(state.openSeqs||[]).slice(), activeSeqId:state.activeSeqId, seqW:state.seqW, seqH:state.seqH, reactive:state.reactive||null, autoItems:state.autoItems||{} }; } // [R95·D2] the Automation Item library travels with the project (clips reference items by id via kfLink) // v4: the active sequence's clips/markers/groups live in its nest media (serMedia); top-level kept empty to avoid doubling the heaviest data (kf + maskData)
 async function saveProject(saveAs){ const json=JSON.stringify(serProject());
   if(IS_ELEC){ let p=currentPath; if(saveAs||!p){ p=await DSP.saveDialog(p||((currentTitle()==='Untitled project'?T('untitled','proyecto'):currentTitle())+'.isp')); if(!p)return; }
     try{ const old=await DSP.readText(p); if(old&&old.length>2)await DSP.writeText(p+'.bak',old); }catch(e){} // rotate a .bak of the previous save — protects against a corrupted/interrupted overwrite

@@ -1,5 +1,28 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 161 — Revisión de código sobre R155-R160: los residuos de lo eliminado
+
+Cinco rondas seguidas quitando cosas (Master Grade, modo Ableton, botón de modulación, Snap to Grid, resize
+individual de pista, prev/next de keyframe) dejan un tipo de deuda muy concreto: **referencias huérfanas**. Se
+revisó el acumulado buscando exactamente eso.
+
+**Lo que salió limpio.** Los 266 `#id` que `app.js` consulta existen en el DOM o están guardados con `if(el)` —
+ninguna rama va a encontrarse un `null`. El atajo nuevo **Alt+, / Alt+.** queda por debajo de la guarda de campos
+de texto (no se dispara escribiendo) y por debajo de `Ctrl+,` (Preferences), así que AltGr —que en teclado
+español es Ctrl+Alt— no colisiona con él.
+
+**Lo que había que barrer.**
+- `jumpKf(p,dir)`, el salto por parámetro, se quedó sin llamadores en R159. Archivada.
+- `state.tl.snap` y `state.tl.simpleClips` seguían en el estado por defecto **y se escribían en cada `.isp`**
+  aunque nadie los lee desde R158/R155. Fuera de los dos sitios; el lado de lectura ya los ignoraba.
+- La regla CSS `#snapBtn{height:22px;}` apuntaba a un botón archivado en R158.
+
+**Anotado, no tocado.** `openModPanel`/`closeModPanel`/`_modOutside` y el CSS de `.modpan` quedaron inalcanzables
+al archivarse el botón `.modb` en R155. No se eliminan porque el destino del subsistema de modulación es una
+decisión abierta (misma situación en la que estuvo el Master Grade entre R148 y R150).
+
+Prueba funcional tras el barrido: 22/22 pasos, 0 errores de consola.
+
 ## ROUND 159/160 — El inspector recupera el ancho de sus faders
 
 **Un solo botón por fila.** La fila del prototipo (RevDomo:286-290) es `etiqueta · surco · caja de valor · UN

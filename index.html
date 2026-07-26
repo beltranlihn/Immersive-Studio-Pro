@@ -322,13 +322,12 @@
   .tcbox{display:flex;align-items:center;justify-content:center;gap:var(--sp-8);font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;height:22px;padding:0 11px;border-radius:3px;background:var(--bg-0);border:.5px solid rgba(255,255,255,0.06);box-shadow:inset 0 1px 3px rgba(0,0,0,0.5);}
   .tcbox .tc{font-size:12.5px;font-weight:500;color:var(--ink);letter-spacing:0.02em;display:inline-block;min-width:72px;text-align:center;font-variant-numeric:tabular-nums;}
   .tcbox .du{font-size:11px;color:var(--ink-faint);display:inline-block;min-width:50px;text-align:right;font-variant-numeric:tabular-nums;}
-  /* [AUDITORÍA Rev1 · §5] el well de edición (Simple·Auto·Grid·Fit) era el único segmentado a 18px: pasa a la
+  /* [AUDITORÍA Rev1 · §5] el well de edición (Auto·Grid·Fit) era el único segmentado a 18px: pasa a la
      medida de well del diseño (22px de contenedor, 16px de botón, sin divisores internos), igual que .vseg.
-     #snapBtn vive fuera del well pero en la misma barra → misma altura para que la fila no quede escalonada. */
+     [R161] fuera la regla de #snapBtn: el botón se archivó en R158 con el ajuste a la cuadrícula. */
   .editseg{height:22px;padding:2px;gap:2px;box-sizing:border-box;overflow:visible;background:var(--s2);}
   .editseg button{height:16px;padding:0 8px;font-size:10px;font-weight:600;border-radius:2px;}
   .editseg button+button{border-left:none;}
-  #snapBtn{height:22px;}
   /* [R130] lift/gamma/gain color wheels (primary grade) */
   .cwrap{display:flex;gap:8px;justify-content:space-between;}
   .cwcol{display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;min-width:0;}

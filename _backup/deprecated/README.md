@@ -44,3 +44,4 @@ lo que indique, y actualizá `COMPONENTS.md`. Corré el syntax check.
 <!-- Al archivar, agregá una fila aquí. Ejemplo:
 | 2026-07-22 | 20260722-auto-override.js | app.js · `setAutoOff`/`reenableAuto` · #reEnAll | Reemplazado por modelo After Effects; `evalP` ya lo ignora | [A2]/[D1], ADR-0006 |
 -->
+| 2026-07-26 | `20260726-jump-kf-per-param.js` | app.js · `jumpKf(p,dir)` | Sin llamadores desde que R159 quitó los botones «fotograma anterior / siguiente» de cada fila del inspector (esos 40px eran los que le faltaban al fader para medir como el prototipo: pasó de 53px a 129px). Lo sustituye `jumpAnyKf(dir)` en **Alt+, / Alt+.**, que recorre los keyframes de TODOS los parámetros automatizados del clip. | R159/R161, ADR-0007 |
