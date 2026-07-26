@@ -213,6 +213,10 @@
   .vseg button.on{background:var(--state-on);color:var(--ink);}
   #outputBtn.on{color:var(--auto-live);} /* [REDISEÑO Rev1] Output activo (NDI/Spout emitiendo) */
   /* [R152 · §3] botón "More" de la barra del visor (28×22, prototipo RevDomo:180) */
+  /* [R157] hueco de cámara: ancho fijo para que Orbit↔Viewer no mueva nada de lo que persiste a su derecha */
+  /* min-width = el ancho del caso MÁS ANCHO (3D Viewer: FOV + DOLLY = 321px medidos). Si se queda corto, el
+     colapso por medición repliega otro grupo para hacer sitio y Output se corre — que es justo lo que hay que evitar. */
+  .camslot{display:flex;align-items:center;gap:var(--sp-8);flex-shrink:0;justify-content:flex-end;min-width:324px;}
   .vmore{width:28px;height:22px;display:grid;place-items:center;border:.5px solid rgba(255,255,255,0.1);border-radius:3px;flex-shrink:0;cursor:pointer;font-family:inherit;font-size:12px;font-weight:600;letter-spacing:1px;background:transparent;color:var(--ink-2);padding:0;}
   .vmore:hover{background:var(--state-hover);color:var(--ink);}
   .vmore.on{background:var(--state-on);color:var(--ink);}
@@ -375,7 +379,14 @@
   .trackhdr{width:168px;flex-shrink:0;display:flex;flex-direction:column;background:var(--surface);border-right:.5px solid rgba(0,0,0,0.4);z-index:3;overflow-x:hidden;overflow-y:auto;position:relative;scrollbar-width:none;} /* [REDISEÑO Rev1] 168px (antes 152): los chips de automatización truncaban (nota de revisión del diseño) */ /* [R92-T9] scrolls NATIVELY in sync with #tlscroll so its sticky audio module pins identically · [L2] flex-column so #audioHeadZone (margin-top:auto) pins to the bottom in step with the clip column */
   .trackhdr::-webkit-scrollbar{display:none;}
   .trackhdr .rulerpad{height:24px;flex-shrink:0;box-sizing:border-box;border-bottom:.5px solid rgba(0,0,0,0.4);background:var(--surface);position:sticky;top:0;z-index:6;display:flex;align-items:center;padding:0 10px;} /* [Rev1] flex-shrink:0 → mantiene 22px (=alto del ruler) al quedar vacío, si no colapsa y desalinea headers/lanes 9px */ /* pinned time-bar corner — also holds the VIDEO group label */
-  .lanehdr{position:relative;display:flex;align-items:center;gap:var(--sp-8);padding:0 7px 0 10px;border-bottom:.5px solid rgba(255,255,255,0.05);cursor:pointer;}
+  /* [R157] COLUMNA en flujo, centrada y con padding vertical (RevDomo:542): fila de identidad arriba, chips de
+     automatización abajo, con 4px de aire arriba y abajo y 6px entre las dos. Antes era una fila y los chips
+     iban en `position:absolute; bottom:3px` — pegados al borde por construcción y pisando el nombre al bajar la
+     altura. Los chips sólo se montan a partir de 52px de pista (regla del prototipo), así que el bloque siempre
+     tiene sitio; por debajo desaparecen y la pista sigue achicándose hasta colapsar. */
+  .lanehdr{position:relative;display:flex;flex-direction:column;justify-content:center;gap:6px;padding:4px 8px 4px 10px;border-bottom:.5px solid rgba(255,255,255,0.05);cursor:pointer;overflow:hidden;}
+  .lanehdr .lnrow{display:flex;align-items:center;gap:var(--sp-8);width:100%;min-width:0;flex-shrink:0;}
+  .lanehdr.collapsed{justify-content:center;}
   .lanehdr:hover{background:rgba(255,255,255,0.03);}
   /* [R102·D-T2] Base = standby; con foco en la línea de tiempo, selección plena. El contorno inset completo
      sigue viéndose incluso sobre una pista tintada. */
@@ -447,7 +458,8 @@
   .autohdr{padding-left:9px;} .lanehdr .autoctl{padding-left:7px;}
   .autoduo .aselect{flex:1;min-width:0;height:18px;font-size:11px;color:var(--ink-2);background-color:var(--surface-2);border:.5px solid rgba(255,255,255,0.1);border-radius:2px;padding:0 13px 0 4px;cursor:pointer;}
   .autoduo .adev{flex:0.8;}.autoduo .apar{flex:1.2;} /* [R94-UT2·U-15] the parameter name is the longer of the pair — give it the room */
-  .lanehdr .autoctl{position:absolute;left:20px;right:6px;bottom:3px;display:flex;gap:4px;align-items:center;z-index:4;}
+  /* [R157] en flujo, no anclado abajo: el gap de .lanehdr le da el aire y ya no puede pisar el nombre */
+  .lanehdr .autoctl{position:relative;width:100%;min-width:0;display:flex;gap:4px;align-items:center;flex-shrink:0;}
   .lanehdr .autoctl .asw{width:8px;height:8px;border-radius:2px;flex-shrink:0;}
   .lanehdr .autoctl .abt{width:18px;height:18px;flex-shrink:0;display:grid;place-items:center;border:.5px solid rgba(255,255,255,0.1);border-radius:2px;background:var(--surface-2);color:var(--ink-faint);cursor:pointer;font-size:11px;line-height:1;padding:0;}
   .lanehdr .autoctl .abt:hover{color:var(--ink);background:var(--surface-3);}
@@ -951,7 +963,6 @@
           <button data-q="0.5">½</button>
           <button data-q="0.25">¼</button>
         </div>
-        <div class="vseg" id="proxyToggle" title="Viewport uses proxies (faster). Turn off to preview the original clips."><button data-p="proxy" class="on"><i class="ic" data-ico="bolt"></i> Proxy</button></div>
         <!-- [AUDITORÍA Rev1 · §3] el grupo de cámara 3D va AL FINAL del clúster izquierdo (prototipo RevDomo:154-158),
              no después de #viewModeSeg: así, al aparecer/desaparecer, no empuja overlays ni calidad (antes saltaban +151px). -->
         <div class="vdiv" id="d3sep" style="display:none;"></div>
@@ -960,11 +971,17 @@
           <button data-m="spec"><i class="ic" data-ico="viewer"></i> Viewer</button>
         </div>
         <div style="flex:1;"></div>
+        <!-- [R157] Hueco de cámara de ancho FIJO. Pedido de Beltrán: al pasar de Orbit a Viewer los botones que
+             persisten no se mueven; sólo cambia lo que hay DENTRO de este hueco, y lo nuevo entra por la derecha.
+             El ancho es el del caso más ancho (FOV + DOLLY), así que nunca encoge ni empuja. -->
+        <div class="camslot" id="camSlot">
         <div class="vslab" id="azelReadout"><span class="k">AZ <span class="v" id="azR">0°</span></span><span class="k">EL <span class="v" id="elR">35°</span></span></div>
         <div class="vslab" id="fovCtl" style="display:none;"><span class="k">FOV</span><input type="range" min="40" max="160" value="60" id="fovRange" class="vfader"><span class="v" id="fovLbl" style="width:26px;text-align:right;">60°</span></div>
         <div class="vslab" id="dollyCtl" style="display:none;"><span class="k">DOLLY</span><input type="range" min="-0.9" max="2.4" step="0.01" value="0.8" id="dollyRange" class="vfader"><span class="v" id="dollyLbl" style="width:26px;text-align:right;">0.8</span></div>
         <div class="vslab" id="distCtl" style="display:none;"><span class="k">DIST</span><input type="range" min="1.2" max="12" step="0.1" value="3" id="distRange" class="vfader"><span class="v" id="distLbl" style="width:26px;text-align:right;">3.0</span></div>
-        <div class="vdiv"></div>
+        </div>
+        <div class="vseg" id="proxyToggle" title="Viewport uses proxies (faster). Turn off to preview the original clips."><button data-p="proxy" class="on"><i class="ic" data-ico="bolt"></i> Proxy</button></div>
+        <div class="vdiv" id="zoomSep"></div>
         <div class="vseg">
           <button id="vzOut" style="width:24px;padding:0;justify-content:center;"><i class="ic" data-ico="zoomOut"></i></button>
           <button id="vzReset" class="tnum" style="width:42px;padding:0;justify-content:center;font-size:11px;">100%</button>
@@ -976,7 +993,7 @@
         <!-- [R152 · §3] "More": cuando la columna del visor se angosta, los grupos se repliegan acá en vez de
              pelear por el espacio (breakpoints del prototipo sobre centerW: Output 440 · overlays 620 · calidad 800
              · Az/El y DIST 980). El menú no duplica lógica: reenvía el clic al control real que quedó oculto. -->
-        <button class="vmore" id="vpMoreBtn" title="More viewer controls" style="display:none;">···</button>
+        <button class="vmore" id="vpMoreBtn" title="More viewport controls" style="display:none;">…</button>
       </div>
       <div class="stage" id="stage">
         <div class="checkerbg" id="checkerBg"></div>

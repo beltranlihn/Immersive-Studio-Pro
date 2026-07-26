@@ -1996,11 +1996,15 @@ function renderTimeline(){ reconcileVinst(); // free private decoders of clips t
       if(ovE>ovS+1e-4){ const xf=document.createElement('div'); xf.className='xfade'; xf.style.left=(ovS*pps)+'px'; xf.style.width=((ovE-ovS)*pps)+'px'; row.appendChild(xf); } }
     rowT.appendChild(row);
     const hd=document.createElement('div'); hd.className='lanehdr'+(state.selLane===li?' sel':'')+(collapsed?' collapsed':'')+(_isAud?' aud':''); hd.style.height=LH+'px'; hd.dataset.lane=li; if(lane.color)hd.style.background=hexA(lane.color,state.selLane===li?0.34:0.16); // tint the whole header rectangle; brighter when selected (+ the .sel inset outline gives contrast over any colour)
+    /* [R157] La cabecera es una COLUMNA en flujo (identidad arriba, chips de automatización abajo), como el
+       prototipo (RevDomo:542). Antes los chips iban en `position:absolute; bottom:3px`, o sea pegados al borde
+       por construcción y pisando el nombre cuando la pista era baja. */
     hd.innerHTML=`<span class="bar" style="background:${lane.color||TRACK_COLORS[li%TRACK_COLORS.length]}"></span>
-      <button class="lcol" data-m="collapse" title="${collapsed?T('Expand track','Expandir pista'):T('Collapse track','Contraer pista')}"><span style="display:inline-flex;transform:rotate(${collapsed?-90:0}deg);">${ICO('chevDown',11)}</span></button>
-      <span class="tag"${lane.color?' style="color:'+lane.color+'"':''}>${lane.tag}</span><span class="nm"${lane.color?' style="color:'+lane.color+'"':''}>${lane.name}</span>
-      <button class="ms ${lane.mute?'on':''}" data-m="mute">M</button><button class="ms solo ${lane.solo?'on':''}" data-m="solo">S</button>
-      `;
+      <div class="lnrow">
+        <button class="lcol" data-m="collapse" title="${collapsed?T('Expand track','Expandir pista'):T('Collapse track','Contraer pista')}"><span style="display:inline-flex;transform:rotate(${collapsed?-90:0}deg);">${ICO('chevDown',11)}</span></button>
+        <span class="tag"${lane.color?' style="color:'+lane.color+'"':''}>${lane.tag}</span><span class="nm"${lane.color?' style="color:'+lane.color+'"':''}>${lane.name}</span>
+        <button class="ms ${lane.mute?'on':''}" data-m="mute">M</button><button class="ms solo ${lane.solo?'on':''}" data-m="solo">S</button>
+      </div>`;
     hd.onclick=ev=>{ if(_laneJustDragged||ev.target.isContentEditable||ev.target.closest('[data-m]'))return; clearMediaSel(); state.selLane=li;
       state.selId=null; state.selIds=[]; state.selGroupId=null; renderInspector(); updStatus(); renderTimeline(); }; // [R93] selecting a TRACK deselects the clip (they were simultaneous → Ctrl+D was ambiguous)
     hd.tabIndex=0; hd.setAttribute('aria-label',lane.name); // [R94-UT5·U-10b] Tab reaches the track header; Enter/Space = same selection as a click

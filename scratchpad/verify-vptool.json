@@ -1,0 +1,145 @@
+{
+  "modos": {
+    "2D": {
+      "g": {
+        "viewModeSeg": {
+          "x": 300,
+          "w": 105,
+          "vis": true
+        },
+        "dispSeg": {
+          "x": 421,
+          "w": 331,
+          "vis": true
+        },
+        "qualitySeg": {
+          "x": 769,
+          "w": 92,
+          "vis": true
+        },
+        "threeModeSeg": {
+          "x": 0,
+          "w": 0,
+          "vis": false
+        },
+        "camSlot": {
+          "x": 991,
+          "w": 324,
+          "vis": true
+        },
+        "proxyToggle": {
+          "x": 1323,
+          "w": 68,
+          "vis": true
+        },
+        "outWell": {
+          "x": 1524,
+          "w": 88,
+          "vis": true
+        },
+        "vpMoreBtn": {
+          "x": 0,
+          "w": 0,
+          "vis": false
+        }
+      },
+      "desborda": false
+    },
+    "3D Orbit": {
+      "g": {
+        "viewModeSeg": {
+          "x": 300,
+          "w": 105,
+          "vis": true
+        },
+        "dispSeg": {
+          "x": 421,
+          "w": 331,
+          "vis": true
+        },
+        "qualitySeg": {
+          "x": 0,
+          "w": 0,
+          "vis": false
+        },
+        "threeModeSeg": {
+          "x": 769,
+          "w": 135,
+          "vis": true
+        },
+        "camSlot": {
+          "x": 1031,
+          "w": 324,
+          "vis": true
+        },
+        "proxyToggle": {
+          "x": 0,
+          "w": 0,
+          "vis": false
+        },
+        "outWell": {
+          "x": 1488,
+          "w": 88,
+          "vis": true
+        },
+        "vpMoreBtn": {
+          "x": 1584,
+          "w": 28,
+          "vis": true
+        }
+      },
+      "desborda": false
+    },
+    "3D Viewer": {
+      "g": {
+        "viewModeSeg": {
+          "x": 300,
+          "w": 105,
+          "vis": true
+        },
+        "dispSeg": {
+          "x": 421,
+          "w": 331,
+          "vis": true
+        },
+        "qualitySeg": {
+          "x": 0,
+          "w": 0,
+          "vis": false
+        },
+        "threeModeSeg": {
+          "x": 769,
+          "w": 135,
+          "vis": true
+        },
+        "camSlot": {
+          "x": 1031,
+          "w": 324,
+          "vis": true
+        },
+        "proxyToggle": {
+          "x": 0,
+          "w": 0,
+          "vis": false
+        },
+        "outWell": {
+          "x": 1488,
+          "w": 88,
+          "vis": true
+        },
+        "vpMoreBtn": {
+          "x": 1584,
+          "w": 28,
+          "vis": true
+        }
+      },
+      "desborda": false
+    }
+  },
+  "movidos": [
+    {
+      "control": "outWell",
+      "x": "2D:1524 · 3D Orbit:1488 · 3D Viewer:1488"
+    }
+  ]
+}
