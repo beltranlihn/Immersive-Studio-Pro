@@ -5705,9 +5705,16 @@ function drawRoomStrip(cv,walls,floorOn,activeRole,pal){ if(!cv)return; /* [R155
     x+=ww+gap; });
   ctx.textAlign='right'; ctx.textBaseline='alphabetic'; ctx.fillStyle='#9AA0A8'; ctx.font=`600 ${10*U}px Geist`;
   ctx.fillText(T('Total','Total')+': '+totalPx+' × '+maxH+' px', W-pad, H-4*U); ctx.textAlign='left'; }
-function roomSetupDialog(cb){ const ov=document.createElement('div'); ov.className='overlay'; ov.style.zIndex='320'; ov.style.alignItems='flex-start';
+function roomSetupDialog(cb,partirDe){ const ov=document.createElement('div'); ov.className='overlay'; ov.style.zIndex='320'; ov.style.alignItems='flex-start';
   const defWall=(role,order)=>({role,order,wcm:(role==='Left'||role==='Right')?400:500,hcm:300,pxW:1920,pxH:1080});
+  /* [R166] `partirDe` = la sala ACTUAL. Sin esto el diálogo abría siempre con la sala por defecto (4 muros de
+     500/400×300 a 1920×1080), así que entrar a retocar un muro sobrescribía en silencio todos los demás. Sólo lo
+     usa "Geometría de la sala…"; "Nueva sala 360…" sigue partiendo de los valores por defecto, que es lo suyo. */
   let n=4, floor=true, walls=[defWall('Front',1),defWall('Right',2),defWall('Back',3),defWall('Left',4)];
+  if(partirDe&&partirDe.walls&&partirDe.walls.length){
+    walls=partirDe.walls.slice().sort((a,b)=>a.order-b.order)
+      .map((w,i)=>({role:w.role,order:i+1,wcm:w.wcm,hcm:w.hcm,pxW:w.pxW,pxH:w.pxH}));
+    n=walls.length; floor=!!partirDe.floor; }
   const well=(v,kk,mn,mx,unit)=>`<label class="rs-well"><input type="number" class="tnum" data-k="${kk}" value="${v}" min="${mn||1}" max="${mx||99999}">${unit?`<span class="u">${unit}</span>`:''}</label>`;
   let activeRole=null;
   ov.innerHTML=`<div class="modal" style="width:560px;margin-top:56px;"><div class="mh"><span style="color:var(--ink-2);display:flex;">${ICO('ring',16)}</span><span class="t">${T('New 360 room','Nueva sala 360')}</span></div><div class="mb">
@@ -6639,7 +6646,7 @@ function openAppMenu(which,btn){ const r=btn.getBoundingClientRect(); const x=r.
     items=[ {label:T('Sequence settings…','Ajustes de secuencia…'),ico:'gear',fn:()=>openSeqSettings()} ];
     if(mode==='dome') items.push({label:T('Dome coverage (FOV)…','Cobertura del domo (FOV)…'),fn:()=>openSeqSettings()});
     if(mode==='room') items.push({label:T('Room geometry…','Geometría de la sala…'),
-      fn:()=>roomSetupDialog(cfg=>{ hideLanding(); applyRoomGeometry(cfg); })}); // [R165] reconfigura; NO crea un proyecto nuevo (ver applyRoomGeometry)
+      fn:()=>{ const as=activeSeq(); roomSetupDialog(cfg=>{ hideLanding(); applyRoomGeometry(cfg); }, as&&as.room); }}); // [R165] reconfigura, NO crea un proyecto nuevo · [R166] partiendo de la sala actual
     items.push('sep',
       {label:T('New sequence…','Nueva secuencia…'),ico:'plus',fn:()=>newSequenceDialog()},
       'sep',

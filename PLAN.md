@@ -1,5 +1,17 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 166b — El diálogo de la sala arranca con TU sala
+
+Defecto de lo entregado en R165 el mismo día: "Geometría de la sala…" abría `roomSetupDialog`, que siempre parte
+de la sala por DEFECTO (4 muros de 500/400×300 a 1920×1080). O sea que entrar a retocar un muro sobrescribía en
+silencio todos los demás — se había quitado la destrucción del proyecto, pero el diálogo seguía mintiendo sobre el
+estado actual. Ahora acepta un segundo argumento `partirDe` con la sala viva; "Nueva sala 360…" sigue partiendo de
+los valores por defecto, que es lo suyo. Verificado sobre una sala no estándar de 3 muros (640/310/310cm): el
+diálogo abre con esos valores, y tras reconfigurar sobreviven los clips, los medios, la máscara por muro y el
+enlace del piso, con la tira recalculada (5040→5280px).
+
+También corregida una podredumbre de `NEXT.md`: daba por pendiente el panel de domo 3D del launcher, cerrado en R155.
+
 ## ROUND 166 — Los últimos checkboxes nativos, y el título del demo que vivía en la pista de audio
 
 Cerrado el item de `NEXT.md`: los tres checkboxes que se habían quedado fuera del sistema de interruptores del

@@ -24,7 +24,7 @@
       `scratchpad/redesign/design_handoff_launcher_splash/` (`Loading Splash - Rev 1.dc.html` + README).
 - [x] **Etapa 6b · Launcher (landing)** — hecho _(R153)_ con los **visores reales del editor** (`drawSeqViz`,
       `drawRoomIso`, `drawRoomStrip`) en vez de los SVGs del prototipo. Alto estable en los tres tipos y sin scroll,
-      verificado. **Falta:** el segundo panel de Domo (domo 3D) — es WebGL sobre `#gl` y extraerlo no es directo.
+      verificado. El segundo panel de Domo (domo 3D) se cerró en **R155** con `drawDomeIso` (pintor 2D propio, no WebGL) y responde al ángulo 180/200/210/220.
 - [ ] Etapa **7 · variantes por formato** (360 / 2D) del editor.
 
 ## Arranque (wins rápidos) 🟢
