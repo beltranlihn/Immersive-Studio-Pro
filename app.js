@@ -94,7 +94,7 @@ const state = {
   selId:null, selMediaId:null, selMediaIds:[], selMediaAnchor:null,
   view:{ mode:'2d', three:'orbit', zoom:0.92, pan:[0,0], showGrid:true, showSafe:false, showOutline:true, cull:false, useProxy:true, checkerBg:false,
          cw:400, ch:400, cam:{yaw:0, pitch:0.5, dist:3.0, fov:60, back:0.8} },
-  tl:{ pxPerSec:80, tool:'select', snap:false, tcMode:'timecode', bpm:120, sig:4, gridDiv:0, gridFixed:false, gridFixedBase:1, selA:null, selB:null, audioCollapsed:false, simpleClips:true }, // [R94c/f] snap to grid OFF by default; simpleClips = Premiere-style whole-clip grab, ON by default. [R110] audioCollapsed = the audio module is compacted to just its bar
+  tl:{ pxPerSec:80, tool:'select', snap:false, tcMode:'timecode', bpm:120, sig:4, gridDiv:0, gridFixed:false, gridFixedBase:1, selA:null, selB:null, audioCollapsed:false }, // [R94c/f] snap to grid OFF by default; simpleClips = Premiere-style whole-clip grab, ON by default. [R110] audioCollapsed = the audio module is compacted to just its bar
   workIn:null, workOut:null,
   prefs:{ reducedMotion:false, snapping:true, grid:true, safe:false, mediaCollapsed:false, inspCollapsed:false, tallInsp:false },
   mediaFilter:'all', mediaQuery:'', mediaGroupBy:'none', collapsedGroups:{}, folders:[], folderColors:{}, mediaView:'list', mediaFolder:null, selFolder:null,
@@ -2178,11 +2178,14 @@ const LCH_ICO={
    (Front #E4E7E9 · Right #B9C0C6 · Back #98A1A8 · Left #7C858D). Acá se usan los colores REALES del editor
    (`ROOM_ROLE_COL`), porque el visor de la derecha es el del editor y pinta los muros con ellos: con la rampa del
    diseño, el chip de una orientación y su muro en el visor saldrían de colores distintos. Entre "más lindo" y
-   "lo que ves es lo que hay", gana lo segundo — que es justamente por lo que se reusan los visores.
-   OJO: `ROOM_ROLE_COL` se define mucho más abajo en el archivo, así que se lee PEREZOSAMENTE (dentro de una
-   función) y no en una constante de nivel superior — si no, salta la zona muerta temporal al cargar. */
-const lchFacings=()=>ROOM_ROLES.map(n=>({n,c:ROOM_ROLE_COL[n]}));
-const lchColor=n=>ROOM_ROLE_COL[n]||'#8892A0';
+   "lo que ves es lo que hay", gana lo segundo.
+   [R155] Beltrán decidió: en el LANDING va la rampa MONOCROMÁTICA del diseño — tanto en la selección de muros
+   como en los textos del lienzo 2D y del 3D. Así que el launcher pasa esta paleta a los painters (que aceptan un
+   `pal` opcional) y la coherencia se mantiene igual: chip y muro comparten color, sólo que el gris del diseño.
+   El EDITOR sigue con `ROOM_ROLE_COL` — ahí el color por muro es información de trabajo, no decoración. */
+const LCH_PAL={Front:'#E4E7E9',Right:'#B9C0C6',Back:'#98A1A8',Left:'#7C858D'};
+const lchFacings=()=>ROOM_ROLES.map(n=>({n,c:LCH_PAL[n]}));
+const lchColor=n=>LCH_PAL[n]||'#8892A0';
 const LCH_TYPES=[
   {k:'dome',name:'Dome',sub:'Fulldome fisheye',viewer:'Dome viewer',icon:'M3.5 17.5a8.5 8.5 0 0 1 17 0 M2 17.5h20 M12 9v8.5 M7.6 11.2h8.8'},
   {k:'flat',name:'2D Flat',sub:'Screens & LED',viewer:'Canvas viewer',icon:'M3 5.5h18v13H3z M3 15l4.5-3.5 3.5 2.5 3-2 7 5'},
@@ -2356,7 +2359,11 @@ function renderLauncher(){ const ov=document.getElementById('landingOv'); if(!ov
   const pane=(cap,id,extra)=>`<div class="lch-pane${extra?' hasdata':''}"><canvas id="${id}"></canvas><span class="lch-cap">${cap}</span>${extra||''}</div>`;
   const dataStrip=(d1,d2)=>`<div class="lch-data"><span class="d1">${lchEsc(d1)}</span><span class="sep"></span><span class="d2">${lchEsc(d2)}</span></div>`;
   let panes='';
-  if(isDome) panes=`<div class="lch-panes one">${pane(T('Fisheye master','Máster fisheye'),'lchCvDome',dataStrip(S.domeRes+' × '+S.domeRes+' px',lchMP(S.domeRes,S.domeRes)+' · '+S.domeCov+'° · '+S.fps+' fps'))}</div>`;
+  // [R155] Domo con DOS paneles, como el diseño: el máster fisheye (lo que se exporta) y el domo en 3D (la forma
+  // que tiene esa cobertura). Con 200/210/220° el segundo panel muestra la superficie bajando del horizonte.
+  if(isDome) panes=`<div class="lch-panes two">`
+    +pane(T('Fisheye master','Máster fisheye'),'lchCvDome',dataStrip(S.domeRes+' × '+S.domeRes+' px',lchMP(S.domeRes,S.domeRes)+' · '+S.domeCov+'° · '+S.fps+' fps'))
+    +pane(T('Dome · 3D','Domo · 3D'),'lchCvDome3d')+`</div>`;
   else if(isFlat) panes=`<div class="lch-panes one">${pane(T('Flat canvas','Lienzo plano'),'lchCvFlat',dataStrip(S.flatW+' × '+S.flatH+' px',lchMP(S.flatW,S.flatH)+' · '+lchAspect(S.flatW,S.flatH)+' · '+S.fps+' fps'))}</div>`;
   else { const aw=lchActiveWalls(), tw=aw.reduce((a,w)=>a+w.pxW,0), th=aw.reduce((a,w)=>Math.max(a,w.pxH),0), tp=aw.reduce((a,w)=>a+w.pxW*w.pxH,0);
     // El visor de sala del editor ya trae 3D Y planta cenital en el MISMO canvas (el diseño los pedía como dos
@@ -2401,11 +2408,12 @@ function lchPaintNow(){ const ov=document.getElementById('landingOv'); if(!ov||!
     const dpr=Math.min(2,window.devicePixelRatio||1); cv.width=Math.round(r.width*dpr); cv.height=Math.round(r.height*dpr);
     cv.style.width='100%'; cv.style.height='100%'; return cv; };
   const S=_lch;
-  if(S.ptype==='dome'){ const cv=fit(ov.querySelector('#lchCvDome')); if(cv)try{ drawSeqViz(cv,'dome',{cov:S.domeCov}); }catch(e){} }
+  if(S.ptype==='dome'){ const cv=fit(ov.querySelector('#lchCvDome')); if(cv)try{ drawSeqViz(cv,'dome',{cov:S.domeCov}); }catch(e){}
+    const c3=fit(ov.querySelector('#lchCvDome3d')); if(c3)try{ drawDomeIso(c3,S.domeCov,LCH_PAL); }catch(e){} }
   else if(S.ptype==='flat'){ const cv=fit(ov.querySelector('#lchCvFlat')); if(cv)try{ drawSeqViz(cv,'flat',{w:S.flatW,h:S.flatH}); }catch(e){} }
   else { const w=lchCfgWalls();
-    const a=fit(ov.querySelector('#lchCvIso')); if(a)try{ drawRoomIso(a,w,S.roomFloor,null); }catch(e){}
-    const b=fit(ov.querySelector('#lchCvStrip')); if(b)try{ drawRoomStrip(b,w,S.roomFloor,null); }catch(e){} }
+    const a=fit(ov.querySelector('#lchCvIso')); if(a)try{ drawRoomIso(a,w,S.roomFloor,null,LCH_PAL); }catch(e){}
+    const b=fit(ov.querySelector('#lchCvStrip')); if(b)try{ drawRoomStrip(b,w,S.roomFloor,null,LCH_PAL); }catch(e){} }
 }
 
 function lchRenderRecents(){ const host=document.getElementById('lchRecents'); if(!host)return;
@@ -2652,13 +2660,14 @@ $('#tracks').addEventListener('pointerdown',e=>{
   if(tool==='zoom'){ tlZoomAt(e,e.altKey?-1:1); return; }
   // Ableton: only the TITLE banner selects/moves the clip. Clicking the clip BODY places the playhead (white line) like empty area — without selecting the clip.
   // [R94c] Simple clip view (Premiere): the WHOLE clip is the grab/select surface — the body no longer starts a range selection (that only works outside clips).
-  if(!isTitle&&!isL&&!isR&&!isFade&&!state.tl.simpleClips){ startTimeSelect(e); return; }
   // title / trim handle / fade handle → select the clip, then drag
   if(e.shiftKey){ const i=state.selIds.indexOf(id); if(i>=0)state.selIds.splice(i,1); else state.selIds.push(id); if(!state.selIds.includes(id))state.selId=state.selIds[state.selIds.length-1]||null; else state.selId=id; }
   else if(!state.selIds.includes(id)){ state.selIds=[id]; state.selId=id; }
   else { state.selId=id; }
   state.selGroupId=null; laneDesel(); renderInspector(); $$('.clip').forEach(x=>x.classList.toggle('sel',state.selIds.includes(+x.dataset.clip))); updStatus(); ensureClipVisible(c); // [R94-UT2·U-01]
-  if(isFade){ startFadeDrag(e,c,e.target.classList.contains('fadeR')?'fadeOut':'fadeIn'); return; }
+  // [R155] el fade no se toca en modo automatización (el CSS ya los oculta; esta guarda cubre un nodo que quedara
+  // de un render anterior, para que no arranque un arrastre invisible encima de la curva)
+  if(isFade){ if(state.inlineCurves)return; startFadeDrag(e,c,e.target.classList.contains('fadeR')?'fadeOut':'fadeIn'); return; }
   // pushUndo is deferred until the drag actually changes something (avoids dead undo entries from a plain click)
   drag={id,mode:isL?'trimL':isR?'trimR':'move',x0:e.clientX,y0:e.clientY,start0:c.start,dur0:c.dur,inP0:c.inP,lane0:c.lane,_undone:false,
     items:state.selIds.map(sid=>{const sc=clipById(sid);return sc?{id:sid,start0:sc.start,dur0:sc.dur,inP0:sc.inP,kf0:JSON.parse(JSON.stringify(sc.kf||{})),anim0:sc.anim?JSON.parse(JSON.stringify(sc.anim)):null}:null;}).filter(Boolean)};
@@ -2712,9 +2721,9 @@ function toggleSnap(){ state.tl.snap=!state.tl.snap; const b=$('#snapBtn'); if(b
 /* [R94c] Simple clip view (Premiere): drag/select the clip from anywhere on it; the timeline range selection then
    works only OUTSIDE clips (over a clip the gesture grabs the block instead). Off = Ableton model (title band grabs,
    body drags a range). View-only state — persisted with the project, no undo entry. */
-function toggleSimpleClips(){ state.tl.simpleClips=!state.tl.simpleClips; syncSimpleUI(); markDirty();
-  flashStatus(state.tl.simpleClips?T('Simple clips — drag from anywhere · range selection outside clips','Clips simples — arrastra desde cualquier punto · selección de rango fuera de los clips'):T('Clip body drags a range again','El cuerpo del clip vuelve a seleccionar rango')); }
-function syncSimpleUI(){ const b=$('#simpleClipBtn'); if(b)b.classList.toggle('on',!!state.tl.simpleClips); document.body.classList.toggle('simpleclips',!!state.tl.simpleClips); applyToolCursor(); }
+/* [R155] Sólo queda el agarre estilo Premiere (arrastrar el clip desde cualquier punto). La clase se fija una
+   vez y para siempre, en vez de borrarla de todas las reglas de CSS que dependen de ella. */
+function syncSimpleUI(){ document.body.classList.add('simpleclips'); applyToolCursor(); }
 function applySnap(val,exceptId){ const px=9/state.tl.pxPerSec; // clip-edge/playhead/marker snapping is ALWAYS on (R80b) — the Snap button gates only the GRID (Alt bypasses everything at the call sites)
   let best=null,bd=px; for(const tg of snapTargets(exceptId)){const d=Math.abs(tg-val);if(d<bd){bd=d;best=tg;}}
   const st=snapGrid(); if(st>0){ const g=Math.round(val/st)*st; const d=Math.abs(g-val); if(d<bd){bd=d;best=g;} }
@@ -2982,7 +2991,7 @@ $('#tlscroll').addEventListener('pointerdown',e=>{ if(e.button!==1)return; e.pre
   const mv=ev=>{ sl.scrollLeft=sx-(ev.clientX-x0); sl.scrollTop=sy-(ev.clientY-y0); }; const up=()=>{ sl.style.cursor=''; window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up); }; window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); });
 const RAZOR_CUR="url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"22\" height=\"22\" viewBox=\"0 0 22 22\"><line x1=\"11\" y1=\"1\" x2=\"11\" y2=\"21\" stroke=\"%233CE0D6\" stroke-width=\"2\"/><path d=\"M7 1 L11 5 L15 1 Z\" fill=\"%233CE0D6\"/></svg>') 11 11, crosshair";
 function applyToolCursor(){ const cur={select:'default',trackselect:'e-resize',hand:'grab',razor:RAZOR_CUR,zoom:'zoom-in',trim:'col-resize'}[state.tl.tool]; $('#tracks').style.cursor=cur; $('#ruler').style.cursor='pointer';
-  const sel=(state.tl.tool==='select'); $$('.clip').forEach(c=>c.style.cursor=sel?(state.tl.simpleClips?'grab':'default'):cur); } // select: body = arrow (the .tt headband keeps grab via CSS → hand only on the title bar) · [R94c] simple-clip view: the whole block grabs (inline style beats the CSS rule, so it must be set here)
+  const sel=(state.tl.tool==='select'); $$('.clip').forEach(c=>c.style.cursor=sel?'grab':cur); } // [R155] el clip siempre se agarra // select: body = arrow (the .tt headband keeps grab via CSS → hand only on the title bar) · [R94c] simple-clip view: the whole block grabs (inline style beats the CSS rule, so it must be set here)
 
 /* media drag to timeline */
 function startMediaDrag(e,m){ const ghost=e.currentTarget.cloneNode(true); ghost.style.cssText='position:fixed;pointer-events:none;z-index:80;opacity:.85;width:200px;left:'+e.clientX+'px;top:'+e.clientY+'px;background:var(--s1);border-radius:2px;padding:6px;';document.body.appendChild(ghost);
@@ -3573,11 +3582,9 @@ function buildRows(sel,defs,c){ const host=$(sel); host.innerHTML='';
     const row=document.createElement('div'); row.className='prow'+(hasKf(c,p)?' auto':''); // .auto = param already automated → brighter label (Ableton-style)
     row.style.setProperty('--pc', autoColor(p)); // [REDISEÑO Rev1] hue del parámetro → fader fill + diamante (mismo color que la curva del timeline)
     row.innerHTML=`<span class="lab">${propLabel(p)}</span>
-      <div class="field" data-p="${p}"><div class="track"><i style="width:0%"></i></div><div class="modarc"></div><div class="box"><span class="num">0</span><span class="u">${unit}</span></div></div>
-      <button class="modb" data-p="${p}" title="${T('Modulation — LFO · audio · dome space','Modulación — LFO · audio · espacio del domo')}">${ICO('react',11)}</button>
+      <div class="field" data-p="${p}"><div class="track"><i style="width:0%"></i></div><div class="box"><span class="num">0</span><span class="u">${unit}</span></div></div>
       <div class="nav"><button data-k="prev" title="${T('Previous keyframe','Fotograma anterior')}">${ICO('kfprev',12)}</button><button data-k="add" title="${T('Add / remove keyframe here · right-click to clear automation','Añadir / quitar fotograma aquí · clic derecho borra la automatización')}">${ICO('diamond',12)}</button><button data-k="next" title="${T('Next keyframe','Fotograma siguiente')}">${ICO('kfnext',12)}</button></div>`;
     host.appendChild(row);
-    row.querySelector('.modb').onclick=ev=>{ ev.stopPropagation(); openModPanel(selClip(),p,ev.currentTarget); }; // [R95·C1] the modulation stack lives behind this button
     // [A1] single point button: the diamond toggles a keyframe at the playhead (add if none / remove if on one); the first one reveals the curve on the track; right-click clears the whole automation
     row.querySelector('[data-k=add]').onclick=()=>{ const cc=selClip(); if(!cc)return; if(state.playhead<cc.start-1e-6||state.playhead>cc.start+cc.dur+1e-6){flashStatus(T('The playhead is outside this clip','El cabezal está fuera de este clip'),'err');return;}
       const wasAuto=hasKf(cc,p), onKf=kfAt(cc,p); pushUndo();
@@ -3628,8 +3635,6 @@ function refreshInspector(){ const c=selClip(); if(!c)return; const t=state.play
     const v=evalP(c,p,t); const vm=evalR(c,p,t); const md=hasMod(c,p); // [R95·C1] base vs resolved: the number reads the FINAL value, the track keeps the base — like Bitwig's ring over the knob
     row.classList.toggle('modon',!!md);
     row.querySelector('.num').textContent=Math.round((md?vm:v)*10)/10; row.querySelector('.track>i').style.width=((v-mn)/(mx-mn)*100)+'%';
-    if(md){ const arc=row.querySelector('.modarc'); if(arc){ const a=Math.max(0,Math.min(100,(v-mn)/(mx-mn)*100)), b=Math.max(0,Math.min(100,(vm-mn)/(mx-mn)*100));
-      arc.style.setProperty('--m0',Math.min(a,b)+'%'); arc.style.setProperty('--m1',Math.max(a,b)+'%'); } } // the span between base and modulated = what the modulation is doing right now
     row.classList.toggle('auto',!!hasKf(c,p)); // [A1] automated state = the row highlight (Ableton-style brighter label); the stopwatch is gone
     const ab=row.querySelector('[data-k=add]'); if(ab)ab.classList.toggle('on',!!kfAt(c,p)); // filled diamond = the playhead sits on a keyframe of this param
   });
@@ -5323,7 +5328,11 @@ function isSeqMedia(m){ return !!(m&&m.kind==='nest'); }
 function seqReaches(rootId,targetId){ const seen=new Set(); const walk=id=>{ if(id===targetId)return true; if(seen.has(id))return false; seen.add(id); const mm=mediaById(id); return !!(mm&&isSeqMedia(mm)&&(mm.nestClips||[]).some(c=>walk(c.mediaId))); }; return walk(rootId); } // does sequence rootId (transitively) already contain targetId?
 function activeSeq(){ return mediaById(state.activeSeqId); }
 function seqDur(m){ let e=0; for(const c of (m&&m.nestClips||[]))e=Math.max(e,c.start+c.dur); return Math.max(0.1,e); }
-function defLanes(){ return [{id:uid(),name:'Video 1',tag:'V1',kind:'video'},{id:uid(),name:'Video 2',tag:'V2',kind:'video'},{id:uid(),name:'Video 3',tag:'V3',kind:'video'},{id:uid(),name:'Video 4',tag:'V4',kind:'video'},{id:uid(),name:'Audio 1',tag:'A1',kind:'audio'}]; } // [R92-T9] 4 video + 1 audio
+/* [R155] El orden de pantalla es el array AL REVÉS (índice 0 = pista de más abajo), y desde R152 ya no se
+   reordena por tipo. Así que para que el proyecto NAZCA con el audio abajo —la convención de siempre— tiene que
+   ir PRIMERO en el array. Antes iba último y, sin la partición que lo bajaba a la fuerza, aparecía arriba de todo.
+   Que sea el orden inicial no lo fija: el audio se puede arrastrar a donde se quiera. */
+function defLanes(){ return [{id:uid(),name:'Audio 1',tag:'A1',kind:'audio'},{id:uid(),name:'Video 1',tag:'V1',kind:'video'},{id:uid(),name:'Video 2',tag:'V2',kind:'video'},{id:uid(),name:'Video 3',tag:'V3',kind:'video'},{id:uid(),name:'Video 4',tag:'V4',kind:'video'}]; } // 4 vídeo + 1 audio
 function newSeqMedia(name,fps,w,h,clips,lanes,mode,cov){ return {id:uid(),kind:'nest',name:name||'Sequence',fps:fps||60,w:w||4096,h:h||4096,mode:mode||'dome',cov:((mode||'dome')==='dome'?(cov||180):null),color:clipColorFor('nest'),thumb:null,
   nestClips:clips||[], nestLanes:lanes||defLanes(), nestMarkers:[], nestGroups:[], nestPlayhead:0, nestWorkIn:null, nestWorkOut:null, dur:6 }; }
 function ensureSequences(){ let seqs=state.media.filter(isSeqMedia);
@@ -5464,11 +5473,14 @@ function roomPlan(walls){ const by={}; for(const w of walls)by[w.role]=w;
 /* Two synced schematics of the room: a 3D iso (left) for shape/orientation and a to-scale top-down PLAN
    (right, with a metre bar) for exact footprint measurements. The wall under edit lights up in both. Drawn
    at ~2× for crispness; fonts sized to the app's scale via U = W/528 (so N*U renders at ~N screen px). */
-function drawRoomIso(cv,walls,floorOn,activeRole){ if(!cv)return; const ctx=cv.getContext('2d'); const W=cv.width,H=cv.height,U=W/528; ctx.clearRect(0,0,W,H);
+/* [R155] `pal` opcional: un mapa rol→color que reemplaza a ROOM_ROLE_COL sólo para este dibujo. Lo usa el
+   launcher, donde el diseño pide la rampa MONOCROMÁTICA por orientación; el editor sigue llamando sin `pal` y
+   conserva sus colores de siempre. */
+function drawRoomIso(cv,walls,floorOn,activeRole,pal){ if(!cv)return; const ctx=cv.getContext('2d'); const W=cv.width,H=cv.height,U=W/528; ctx.clearRect(0,0,W,H);
   const plan=roomPlan(walls); if(!plan.seg.length)return;
   const ca=Math.cos(Math.PI/6),sa=Math.sin(Math.PI/6);
   const line=(A,B,st,lw)=>{ ctx.strokeStyle=st; ctx.lineWidth=lw; ctx.beginPath(); ctx.moveTo(A[0],A[1]); ctx.lineTo(B[0],B[1]); ctx.stroke(); };
-  const roleCol=r=>ROOM_ROLE_COL[r]||'#8892A0', wallOf=r=>walls.find(x=>x.role===r)||{wcm:0,hcm:0};
+  const roleCol=r=>(pal&&pal[r])||ROOM_ROLE_COL[r]||'#8892A0', wallOf=r=>walls.find(x=>x.role===r)||{wcm:0,hcm:0};
   const quad=plan.poly.length===4;
   const split=Math.round(W*0.58), padT=20*U, pad=13*U;
   line([split,12*U],[split,H-12*U],'rgba(255,255,255,0.07)',1*U); // panel divider
@@ -5526,12 +5538,55 @@ function drawRoomIso(cv,walls,floorOn,activeRole){ if(!cv)return; const ctx=cv.g
 function getRoomPresets(){ try{ return JSON.parse(localStorage.getItem('iseRoomPresets')||'[]'); }catch(e){ return []; } }
 function saveRoomPresets(a){ try{ localStorage.setItem('iseRoomPresets',JSON.stringify(a)); }catch(e){} }
 /* [F5] the "screen order" canvas: the walls as the summed 2D strip, in order 1..N, each with its resolution + the total width in px */
-function drawRoomStrip(cv,walls,floorOn,activeRole){ if(!cv)return; const ctx=cv.getContext('2d'); const W=cv.width,H=cv.height,U=W/1056; ctx.clearRect(0,0,W,H);
+/* [R155] Domo en 3D sobre canvas 2D — hermano de `drawRoomIso`, para el visor del launcher.
+   El 3D del editor es WebGL sobre `#gl` (malla + programa P3 + cámara), y sacarlo a un canvas suelto obligaría a
+   montar un segundo contexto GL sólo para una vista previa estática. Acá se usa la misma técnica que ya usa
+   `drawRoomIso` para la sala: proyectar a mano y pintar en 2D. La geometría es la del contrato del domo —
+   media esfera cuya elevación arranca en −(cov−180)/2, que es lo que hace que un domo de 200/210/220° baje por
+   debajo del horizonte — así que la vista previa dice la verdad sobre la cobertura elegida.
+   `pal` opcional: color de las etiquetas de orientación (el launcher pasa la rampa monocromática). */
+function drawDomeIso(cv,cov,pal){ if(!cv)return; const ctx=cv.getContext('2d'); const W=cv.width,H=cv.height; ctx.clearRect(0,0,W,H);
+  const U=Math.min(W,H)/300, cx=W/2, cy=H/2+8*U;
+  const yaw=-0.62, pitch=0.42, dist=3.4, sc=118*U;            // cámara fija: una silueta legible, no una animación
+  const P=(x,y,z)=>{ const cyw=Math.cos(yaw),syw=Math.sin(yaw); const X=x*cyw-z*syw, Z=x*syw+z*cyw;
+    const cp=Math.cos(pitch),sp=Math.sin(pitch); const Y2=y*cp-Z*sp, Z2=y*sp+Z*cp;
+    const f=sc/Math.max(0.12,dist+Z2); return {x:cx+X*f, y:cy-Y2*f, z:Z2}; };
+  const rad=d=>d*Math.PI/180;
+  const sph=(a,e)=>({x:Math.cos(rad(e))*Math.sin(rad(a)), y:Math.sin(rad(e)), z:Math.cos(rad(e))*Math.cos(rad(a))});
+  const elevMin=-((cov||180)-180)/2, AZ=18, EL=8;
+  const quads=[];
+  for(let i=0;i<AZ;i++) for(let j=0;j<EL;j++){
+    const a0=i*360/AZ, a1=(i+1)*360/AZ;
+    const e0=elevMin+j*(90-elevMin)/EL, e1=elevMin+(j+1)*(90-elevMin)/EL;
+    const pts=[[a0,e0],[a1,e0],[a1,e1],[a0,e1]].map(c=>{ const p=sph(c[0],c[1]); return P(p.x,p.y,p.z); });
+    const n=sph((a0+a1)/2,(e0+e1)/2);
+    const lam=Math.max(0, n.x*-0.42 + n.y*0.78 + n.z*0.46);   // Lambert contra una luz alta: da volumen sin texturas
+    const v=Math.round(15+lam*42);
+    quads.push({pts, fill:'rgb('+v+','+(v+2)+','+(v+5)+')', z:(pts[0].z+pts[1].z+pts[2].z+pts[3].z)/4});
+  }
+  quads.sort((a,b)=>b.z-a.z);                                  // pintor: de atrás hacia adelante, sin z-buffer
+  for(const q of quads){ ctx.beginPath(); ctx.moveTo(q.pts[0].x,q.pts[0].y);
+    for(let k=1;k<4;k++)ctx.lineTo(q.pts[k].x,q.pts[k].y); ctx.closePath();
+    ctx.fillStyle=q.fill; ctx.fill(); ctx.strokeStyle='rgba(255,255,255,0.055)'; ctx.lineWidth=0.7; ctx.stroke(); }
+  // anillo del horizonte: donde termina la cobertura
+  ctx.beginPath();
+  for(let i=0;i<=64;i++){ const p=sph(i*360/64,elevMin), q=P(p.x,p.y,p.z); i?ctx.lineTo(q.x,q.y):ctx.moveTo(q.x,q.y); }
+  ctx.strokeStyle='rgba(232,232,232,0.28)'; ctx.lineWidth=1; ctx.stroke();
+  // orientaciones, con la misma rampa que el resto del launcher
+  const NAMES=['Front','Right','Back','Left'];
+  ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.font=`600 ${9.5*U}px Geist,system-ui`;
+  NAMES.forEach((n,i)=>{ const p=sph(i*90,Math.max(0,elevMin)+3), q=P(p.x*1.16,p.y,p.z*1.16);
+    ctx.fillStyle=(pal&&pal[n])||'#7A7A7A'; ctx.fillText(roomRoleLabel?roomRoleLabel(n):n, q.x, q.y); });
+  // cobertura, abajo a la izquierda (mismo sitio que en drawSeqViz)
+  ctx.textAlign='left'; ctx.textBaseline='alphabetic'; ctx.fillStyle='rgba(150,150,150,0.9)';
+  ctx.font=`600 ${8*U}px Geist,system-ui`;
+  ctx.fillText((cov||180)+'° '+T('coverage','cobertura')+((cov||180)>180?' · '+T('below horizon','bajo el horizonte'):''), 10*U, H-9*U); }
+function drawRoomStrip(cv,walls,floorOn,activeRole,pal){ if(!cv)return; /* [R155] pal = paleta por rol opcional (la usa el launcher para la rampa monocromática) */ const ctx=cv.getContext('2d'); const W=cv.width,H=cv.height,U=W/1056; ctx.clearRect(0,0,W,H);
   const ordered=[...walls].sort((a,b)=>(a.order||0)-(b.order||0)); if(!ordered.length)return;
   const totalPx=ordered.reduce((s,w)=>s+(+w.pxW||0),0)||1; const maxH=Math.max(...ordered.map(w=>+w.pxH||0),1);
   const pad=12*U, gap=3*U, labelH=30*U, availW=W-pad*2-gap*(ordered.length-1), availH=H-pad-labelH;
   let x=pad;
-  ordered.forEach((w,i)=>{ const ww=Math.max(6*U, availW*((+w.pxW||0)/totalPx)); const hh=Math.max(4*U, (availH-6*U)*((+w.pxH||0)/maxH)); const col=ROOM_ROLE_COL[w.role]||'#8892A0'; const act=(w.role===activeRole);
+  ordered.forEach((w,i)=>{ const ww=Math.max(6*U, availW*((+w.pxW||0)/totalPx)); const hh=Math.max(4*U, (availH-6*U)*((+w.pxH||0)/maxH)); const col=(pal&&pal[w.role])||ROOM_ROLE_COL[w.role]||'#8892A0'; const act=(w.role===activeRole);
     const y=pad+(availH-hh);
     ctx.fillStyle=hexA(col,act?0.34:0.18); ctx.strokeStyle=act?'#fff':col; ctx.lineWidth=act?1.5:1; ctx.fillRect(x,y,ww,hh); ctx.strokeRect(x+0.5,y+0.5,ww-1,hh-1);
     ctx.fillStyle=col; ctx.font=`700 ${13*U}px Geist`; ctx.textAlign='center'; ctx.textBaseline='middle'; if(ww>14*U)ctx.fillText(String(i+1), x+ww/2, y+hh/2);
@@ -5751,7 +5806,7 @@ function loadProject(obj){ try{ showLoadingScreen(T('Loading project…','Cargan
   if(obj.tl){ if(obj.tl.bpm)state.tl.bpm=obj.tl.bpm; if(obj.tl.sig)state.tl.sig=obj.tl.sig; if(obj.tl.tcMode)state.tl.tcMode=obj.tl.tcMode; if(obj.tl.pxPerSec)state.tl.pxPerSec=obj.tl.pxPerSec;
     state.tl.audioCollapsed=!!obj.tl.audioCollapsed; state.tl._audioScroll=0; // [R110] the audio module reopens collapsed if it was saved collapsed
     state.tl.snap=!!obj.tl.snap; { const sb=$('#snapBtn'); if(sb)sb.classList.toggle('on',state.tl.snap); } // [R94c] snap to grid + simple-clip view reopen as saved (both default off)
-    state.tl.simpleClips=(obj.tl.simpleClips!=null)?!!obj.tl.simpleClips:true; syncSimpleUI(); // [R94f] projects saved before the flag existed open in Simple (the new default)
+    syncSimpleUI(); // [R155] el modo de agarre ya no es una preferencia: un `tl.simpleClips` guardado se ignora
     state.inlineCurves=!!obj.tl.inlineCurves; const cb=$('#curvesBtn'); if(cb)cb.classList.toggle('on',state.inlineCurves); syncAutoUI(); } // [R92-T4] the automation view (and each track's lane layout, in lanes[]._auto) reopens as saved · [R94-UT2·U-05/U-09] legend + grab-band state restored too
   state.seqW=obj.seqW||4096; state.seqH=obj.seqH||4096;
   // SEQUENCES (unified: sequences are nest media). v4: openSeqs/activeSeqId. Back-compat: v3 obj.sequences[] → convert; v≤2 single timeline → one sequence.
@@ -6162,7 +6217,6 @@ $('#curvesBtn').onclick=toggleCurves; // [R93] single Automation button — the 
   if(bi){ bi.onclick=()=>setWorkIn(); bi.addEventListener('contextmenu',e=>{e.preventDefault();clearWork();}); }
   if(bo){ bo.onclick=()=>setWorkOut(); bo.addEventListener('contextmenu',e=>{e.preventDefault();clearWork();}); } }
 $('#snapBtn').onclick=()=>toggleSnap();
-{ const b=$('#simpleClipBtn'); if(b)b.onclick=()=>toggleSimpleClips(); } // [R94c]
 /* [U6] gridReadout button removed — grid spacing stays adjustable via Ctrl+1/2 (narrower/wider), Ctrl+5 (fixed/adaptive), Ctrl+4 (snap) */
 /* loop brace: drag the top strip to move the loop, the ends to resize (snaps to grid) */
 (function wireLoopBrace(){ const w=$('#workArea'); if(!w)return; w.addEventListener('pointerdown',e=>{ if(e.button!==0)return; if(state.workIn==null||state.workOut==null)return; e.stopPropagation(); e.preventDefault();
@@ -6222,7 +6276,7 @@ $('#toolRail').querySelectorAll('button').forEach(b=>b.onclick=()=>setTool(b.dat
    (RevDomo:645: "Select (V) — click a clip to select · drag its title to move"). Se escribe con el mismo
    contrato de tooltip que ya parsea setInfo ("Nombre (ATAJO) — descripción"), así que no hay parser nuevo. */
 const TOOL_HINTS={
-  select:      ()=>T('Select (V) — click a clip to select · drag its title to move','Seleccionar (V) — clic en un clip para seleccionarlo · arrastra su título para moverlo'),
+  select:      ()=>T('Select (V) — click a clip to select · drag it from anywhere to move','Seleccionar (V) — clic en un clip para seleccionarlo · arrástralo desde cualquier punto para moverlo'), // [R155] ya no hay modo Ableton: se agarra desde cualquier parte
   trackselect: ()=>T('Track select — selects the clip and everything to its right','Seleccionar pista — toma el clip y todo lo que está a su derecha'),
   hand:        ()=>T('Hand (H) — drag to pan the timeline','Mano (H) — arrastra para desplazar la línea de tiempo'),
   trim:        ()=>T('Trim (T) — the zone under the cursor picks ripple / roll / slip / slide','Recortar (T) — la zona bajo el cursor elige ripple / roll / slip / slide'),
@@ -6411,6 +6465,19 @@ function openAppMenu(which,btn){ const r=btn.getBoundingClientRect(); const x=r.
     {label:T('Ripple delete','Eliminación con arrastre'),key:'⇧⌫',danger:true,fn:rippleDelete},
     'sep',
     {label:T('Nest selection','Anidar selección'),fn:nestSelection} ];
+  /* [R155] Menú "Project": la configuración del proyecto ACTIVO, que hasta ahora sólo se alcanzaba por el chip de
+     formato o el menú de la pestaña de secuencia. Las entradas cambian según el formato, porque no es lo mismo
+     reconfigurar un domo (ángulo/resolución, en vivo) que una sala (geometría de muros). */
+  else if(which==='project'){ const as=activeSeq(); const mode=(as&&as.mode)||'dome';
+    items=[ {label:T('Sequence settings…','Ajustes de secuencia…'),ico:'gear',fn:()=>openSeqSettings()} ];
+    if(mode==='dome') items.push({label:T('Dome coverage (FOV)…','Cobertura del domo (FOV)…'),fn:()=>openSeqSettings()});
+    if(mode==='room') items.push({label:T('Rebuild room geometry…','Rehacer la geometría de la sala…'),
+      fn:()=>roomSetupDialog(cfg=>{ hideLanding(); newRoomProject(cfg); })}); // rehace la sala: newRoomProject ya pide confirmación si hay cambios sin guardar
+    items.push('sep',
+      {label:T('New sequence…','Nueva secuencia…'),ico:'plus',fn:()=>newSequenceDialog()},
+      'sep',
+      {label:T('Preferences…','Preferencias…'),ico:'gear',fn:()=>openPrefs()});
+  }
   else items=[
     {label:(state.prefs.mediaCollapsed?'':'✓  ')+T('Media panel','Panel de medios'),fn:()=>{ const c=!state.prefs.mediaCollapsed; state.prefs.mediaCollapsed=c; setPaneCollapsed('#mediaPane',c); }},
     {label:(state.prefs.inspCollapsed?'':'✓  ')+T('Inspector panel','Panel de inspector'),fn:()=>{ const c=!state.prefs.inspCollapsed; state.prefs.inspCollapsed=c; setPaneCollapsed('#inspPane',c); }},
@@ -6539,7 +6606,7 @@ function commandList(){ const c1=T('Transport','Reproducción'),c2=T('File','Arc
   [c5,T('Split at selection / playhead','Dividir en la selección / cabezal'),'⌘E',splitAtSelection],
   [c5,T('Set clip start (seconds)…','Inicio del clip (segundos)…'),'',()=>{const c=selClip();if(!c){flashStatus(T('Select a clip','Selecciona un clip'));return;}appPrompt(T('Start time (seconds):','Inicio (segundos):'),(+c.start).toFixed(2),v=>{if(v!=null&&v!==''&&!isNaN(+v)){pushUndo();c.start=Math.max(0,+v);renderTimeline();render();flashStatus(T('Clip moved','Clip movido'));}});}],
   [c5,T('Nudge clip ±1 frame / ±1 s','Desplazar clip ±1 frame / ±1 s'),'Alt+←/→',()=>flashStatus(T('Alt+Arrow nudges the selected clip (add Shift for 1 s)','Alt+Flecha desplaza el clip seleccionado (Shift = 1 s)'))],
-  [c5,T('Toggle Snap to Grid','Activar/desactivar ajuste a la cuadrícula'),'S',()=>$('#snapBtn').click()],[c5,T('Toggle simple clips (Premiere-style)','Activar/desactivar clips simples (estilo Premiere)'),'',toggleSimpleClips],[c5,T('Zoom in','Acercar'),'+',()=>$('#tlZoomIn').click()],[c5,T('Zoom out','Alejar'),'−',()=>$('#tlZoomOut').click()],
+  [c5,T('Toggle Snap to Grid','Activar/desactivar ajuste a la cuadrícula'),'S',()=>$('#snapBtn').click()],[c5,T('Zoom in','Acercar'),'+',()=>$('#tlZoomIn').click()],[c5,T('Zoom out','Alejar'),'−',()=>$('#tlZoomOut').click()],
   [c6,T('Add locator','Añadir localizador'),'M',addMarker],[c6,T('Next','Siguiente'),'.',()=>jumpMarker(1)],[c6,T('Previous','Anterior'),',',()=>jumpMarker(-1)],
   [c1,T('Shuttle back (J · press again = 2×/4×/8×)','Retroceder (J · repetir = 2×/4×/8×)'),'J',()=>shuttleKey(-1)],
   [c1,T('Shuttle forward (L · press again = 2×/4×/8×)','Avanzar (L · repetir = 2×/4×/8×)'),'L',()=>shuttleKey(1)],
@@ -6572,7 +6639,7 @@ function openPrefs(){ closeMenu(); const ov=document.createElement('div'); ov.cl
   const sw=(id,on,label)=>`<div class="frow" style="justify-content:space-between;"><label style="width:auto;">${label}</label><button class="iosw ${on?'on':''}" data-sw="${id}"><i></i></button></div>`;
   ov.innerHTML=`<div class="modal" style="width:380px;"><div class="mh"><span style="color:var(--ink-2);display:flex;">${ICO('gear',16)}</span><span class="t">${T('Preferences','Preferencias')}</span></div><div class="mb">
     <div class="frow" style="justify-content:space-between;"><label style="width:auto;">${T('Language','Idioma')}</label><div class="kindseg" id="prefLang" style="width:auto;flex:0 0 auto;"><button data-l="en" class="${state.lang==='en'?'on':''}" style="flex:0 0 auto;padding:0 14px;">English</button><button data-l="es" class="${state.lang==='es'?'on':''}" style="flex:0 0 auto;padding:0 14px;">Español</button></div></div>
-    ${sw('reducedMotion',state.prefs.reducedMotion,T('Reduced motion','Movimiento reducido'))}${sw('snapping',state.tl.snap,T('Snap to Grid','Ajustar a la cuadrícula'))}${sw('simpleclips',state.tl.simpleClips,T('Simple clips (Premiere-style)','Clips simples (estilo Premiere)'))}${sw('grid',state.view.showGrid,T('Reference grid','Cuadrícula de referencia'))}${sw('safe',state.view.showSafe,T('Safe-zone overlay','Superposición de zona segura'))}
+    ${sw('reducedMotion',state.prefs.reducedMotion,T('Reduced motion','Movimiento reducido'))}${sw('snapping',state.tl.snap,T('Snap to Grid','Ajustar a la cuadrícula'))}${sw('grid',state.view.showGrid,T('Reference grid','Cuadrícula de referencia'))}${sw('safe',state.view.showSafe,T('Safe-zone overlay','Superposición de zona segura'))}
     <div class="frow" style="justify-content:space-between;margin-top:6px;"><label style="width:auto;">${T('Project FPS','FPS del proyecto')}</label><select id="prefFps" style="flex:0 0 90px;"><option>24</option><option>25</option><option>30</option><option>48</option><option>50</option><option selected>60</option></select></div>
     <div style="display:flex;justify-content:flex-end;margin-top:10px;"><button class="mbtn pri" id="prefClose">${T('Close','Cerrar')}</button></div></div></div>`;
   document.body.appendChild(ov); $('#prefFps').value=state.fps;
@@ -6580,7 +6647,6 @@ function openPrefs(){ closeMenu(); const ov=document.createElement('div'); ov.cl
   ov.querySelectorAll('[data-sw]').forEach(b=>b.onclick=()=>{ const k=b.dataset.sw; b.classList.toggle('on');
     if(k==='reducedMotion'){state.prefs.reducedMotion=b.classList.contains('on');document.body.classList.toggle('rm-on',state.prefs.reducedMotion);try{localStorage.setItem('domeProRM',state.prefs.reducedMotion?'1':'0');}catch(e){}}
     if(k==='snapping'){state.tl.snap=b.classList.contains('on');$('#snapBtn').classList.toggle('on',state.tl.snap);}
-    if(k==='simpleclips'){state.tl.simpleClips=b.classList.contains('on');syncSimpleUI();markDirty();} // [R94c]
     if(k==='grid'){state.view.showGrid=b.classList.contains('on');$('#dispSeg button[data-d=grid]').classList.toggle('on',state.view.showGrid);render();}
     if(k==='safe'){state.view.showSafe=b.classList.contains('on');$('#dispSeg button[data-d=safe]').classList.toggle('on',state.view.showSafe);render();} });
   $('#prefFps').onchange=e=>{state.fps=+e.target.value; const as=activeSeq(); if(as)as.fps=state.fps; markDirty(); updFmtChip(); positionPlayhead();renderTimeline();}; // [U-11] persist to the active sequence + dirty flag — no more silent revert on seq switch
@@ -6880,7 +6946,6 @@ function applyLang(){ const L=state.lang; document.documentElement.lang=L;
   txt('#tcModeSeg button[data-t="frames"]','Frames','Fotogramas'); txt('#tcModeSeg button[data-t="bars"]','Bars','Compases');
   ttl('#markIn','Mark In · I (right-click clears the range)','Marcar entrada · I (clic derecho borra el rango)'); ttl('#markOut','Mark Out · O (right-click clears the range)','Marcar salida · O (clic derecho borra el rango)'); // [R94e]
   ttl('#snapBtn','Snap to Grid · S','Ajustar a la cuadrícula · S'); // [U1] icon-only
-  tn('#simpleClipBtn','Simple','Simple'); ttl('#simpleClipBtn','Simple clips (Premiere-style): drag and select a clip from anywhere on it — range selection works outside clips only','Clips simples (estilo Premiere): arrastra y selecciona el clip desde cualquier punto — la selección de rango solo funciona fuera de los clips'); // [R94c]
   ttl('#curvesBtn','Show/hide automation (clip parameters + reactive FX) · A','Mostrar/ocultar automatización (parámetros del clip + FX reactivos) · A'); // [U1] icon-only
   ttl('#tlZoomOut','Zoom out timeline','Alejar línea de tiempo'); ttl('#tlZoomIn','Zoom in timeline','Acercar línea de tiempo');
   ttl('#toolRail button[data-t="select"]','Select (V)','Seleccionar (V)'); ttl('#toolRail button[data-t="hand"]','Hand / Pan (H)','Mano / Desplazar (H)'); ttl('#toolRail button[data-t="razor"]','Razor (B / C)','Cuchilla (B / C)'); ttl('#toolRail button[data-t="zoom"]','Zoom (Z)','Zoom (Z)');
@@ -7621,7 +7686,7 @@ $$('#inspTabs .instab').forEach(b=>{ b.onclick=()=>{ state.inspTab=b.dataset.tab
 
 /* ===================== INIT ===================== */
 function init(){
-  loadWorkspace(); applyLang(); syncSimpleUI(); // [R94f] Simple clips is the default → light the button + set body.simpleclips on boot
+  loadWorkspace(); applyLang(); syncSimpleUI(); // [R155] fija el agarre estilo Premiere (único modo)
   bootMark(54); // [arranque] preferencias + espacio de trabajo + idioma aplicados
   ensureSequences(); renderSeqBar();
   renderMedia(); bootMark(68); // [arranque] panel de medios reconstruido

@@ -1,0 +1,17 @@
+import { targets } from './cdp.mjs';
+import fs from 'fs';
+const wait = ms => new Promise(r => setTimeout(r, ms));
+const l = await targets(9222);
+const idx = l.find(t => t.type === 'page' && /index\.html/.test(t.url || ''));
+const ws = new WebSocket(idx.webSocketDebuggerUrl);
+await new Promise((res, rej) => { ws.onopen = res; ws.onerror = () => rej(new Error('ws')); });
+let _id = 0;
+const send = (m, p) => new Promise((res, rej) => { const id = ++_id; const h = ev => { const x = JSON.parse(ev.data); if (x.id !== id) return; ws.removeEventListener('message', h); x.error ? rej(new Error(JSON.stringify(x.error))) : res(x.result); }; ws.addEventListener('message', h); ws.send(JSON.stringify({ id, method: m, params: p })); });
+const evl = async e => (await send('Runtime.evaluate', { expression: e, returnByValue: true })).result.value;
+await send('Page.enable', {});
+const box = await evl(`(()=>{ const cd=document.querySelector('#tracks .clip'); const b=cd.getBoundingClientRect();
+  return {x:Math.round(b.x)-6,y:Math.round(b.y)-6,width:Math.round(b.width)+12,height:Math.round(b.height)+12}; })()`);
+const c = await send('Page.captureScreenshot', { format: 'png', clip: { ...box, scale: 3 } });
+fs.writeFileSync('scratchpad/clip-zoom.png', Buffer.from(c.data, 'base64'));
+console.log('scratchpad/clip-zoom.png', JSON.stringify(box));
+ws.close();

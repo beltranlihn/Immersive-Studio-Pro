@@ -1,5 +1,45 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 155 — Poda de modos duplicados, visores 3D en el launcher y menú Project
+
+Tanda dirigida por Beltrán sobre la marcha.
+
+**Fuera el botón de modulación del inspector.** La fila del prototipo es etiqueta(60) · surco · caja de valor · UN
+botón de keyframe. El `.modb` y su arco `.modarc` se archivan. **Ojo:** el motor de modulación sigue vivo, así que
+queda en el mismo estado en que estuvo el Master Grade entre R148 y R150 — sin UI para crearla, pero evaluando la
+que traiga un `.isp` viejo. Anotado para decidir.
+
+**Fuera el modo Ableton de agarre de clip.** Convivían dos modelos y un botón para alternarlos; queda sólo el de
+Premiere (arrastrar desde cualquier punto). Se van `state.tl.simpleClips`, `toggleSimpleClips`, la rama del
+hit-test que hacía selección de rango sobre el cuerpo del clip, el interruptor de Preferences, la entrada de la
+paleta y el botón `Simple` del transport. `body.simpleclips` se fija al arrancar y no se conmuta más.
+
+**El fade no se toca en modo automatización.** Los cuadraditos viven en la misma esquina superior donde se agarran
+los keyframes: arrastrar uno era una lotería. Se ocultan por CSS y hay una guarda en el hit-test por si queda un
+nodo de un render anterior. Verificado: 0 handles visibles con `body.automode`.
+
+**El audio vuelve a nacer abajo.** Al quitar la partición por tipo en R152, `defLanes()` —que ponía el audio último
+en el array— lo hacía aparecer **arriba de todo**, porque el orden de pantalla es el array al revés. Ahora va
+primero en el array. Es sólo el orden INICIAL: se sigue pudiendo arrastrar a donde se quiera.
+
+**Visores 3D en el launcher.** Nuevo `drawDomeIso(cv,cov,pal)`, hermano de `drawRoomIso`: media esfera proyectada a
+mano sobre canvas 2D, con sombreado Lambert y orden de pintor. El 3D del editor es WebGL sobre `#gl` y sacarlo a un
+canvas suelto obligaba a montar un segundo contexto sólo para una vista previa estática. **Se adapta al ángulo**:
+la elevación arranca en −(cov−180)/2, así que a 200/210/220° la superficie baja del horizonte. Medido en píxeles
+pintados bajo el centro: 180°→103, 200°→200, 220°→268. El domo pasa a tener dos paneles, como el diseño.
+
+**Paleta monocromática en el launcher.** Beltrán la eligió para el landing: `drawRoomIso`/`drawRoomStrip`/`drawDomeIso`
+aceptan un `pal` opcional (mapa rol→color) y el launcher les pasa la rampa neutra del diseño. El **editor** sigue con
+`ROOM_ROLE_COL` — ahí el color por muro es información de trabajo, no decoración.
+
+**Menú "Project".** La configuración del proyecto activo sólo se alcanzaba por el chip de formato o el menú de la
+pestaña de secuencia. Ahora hay un menú propio en la barra, con entradas según el formato: ajustes de secuencia
+siempre, cobertura del domo si es domo, rehacer la geometría si es sala, más nueva secuencia y preferencias.
+
+**Un tropiezo propio:** un `.Replace` de PowerShell convirtió `$$('.clip')` en `$('.clip')` — en una cadena de
+reemplazo de JS, `$$` significa un `$` literal. Rompió `applyToolCursor` en runtime (no en `node --check`). Lo
+cazó la primera captura.
+
 ## ROUND 154 — Auditoría completa región por región, y sus arreglos
 
 Barrido exhaustivo del editor contra el prototipo, midiendo en vez de mirando: se extrajeron del `.dc.html` las

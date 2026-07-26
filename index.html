@@ -401,12 +401,7 @@
   #ndiBtn.on::after,#spoutBtn.on::after{content:'';position:absolute;top:1px;right:1px;width:5px;height:5px;border-radius:50%;background:var(--auto-live);box-shadow:0 0 5px var(--auto-live);animation:recpulse 1.4s ease-in-out infinite;}
   body.rm-on #ndiBtn.on::after,body.rm-on #spoutBtn.on::after{animation:none;}
   /* ===== [R95·C1] Modulation: the state lives ON the control (Bitwig), the stack in a panel, the audit line in plain text ===== */
-  .prow .modb{width:20px;height:20px;flex-shrink:0;display:grid;place-items:center;border:.5px solid rgba(255,255,255,0.1);border-radius:2px;background:var(--s2);color:var(--ink-faint);cursor:pointer;padding:0;}
-  .prow .modb:hover{color:var(--ink);background:var(--surface-3);}
-  .prow.modon .modb{color:var(--auto-live);border-color:rgba(79,195,232,0.55);} /* cyan = this parameter is driven live */
   .prow .field{position:relative;}
-  .prow .modarc{position:absolute;left:0;right:0;bottom:-1px;height:2px;pointer-events:none;display:none;border-radius:1px;}
-  .prow.modon .modarc{display:block;background:linear-gradient(90deg,transparent var(--m0,0%),var(--auto-live) var(--m0,0%),var(--auto-live) var(--m1,0%),transparent var(--m1,0%));} /* the modulated span, drawn OVER the base track — base and modulation never merge */
   .prow.modon .num{color:var(--auto-live);}
   .modpan{position:fixed;z-index:9000;width:360px;background:var(--surface);border:.5px solid rgba(255,255,255,0.16);border-radius:3px;box-shadow:0 8px 26px rgba(0,0,0,0.6);font-size:11px;color:var(--ink-2);}
   .modpan .mph{display:flex;align-items:center;gap:6px;padding:7px 9px;border-bottom:.5px solid rgba(255,255,255,0.08);}
@@ -548,6 +543,7 @@
   /* [R95·E3] with automation on, the material steps back so the envelope is the subject (Ableton dims the waveform) */
   body.automode .clip .fill{opacity:.35;} body.automode .clip .cthumb{opacity:.3;} body.automode .clip .scrim{opacity:.5;}
   /* [R94c] Simple clip view (Premiere): the whole block grabs — the title band stops being the only handle */
+  /* [R155] `simpleclips` ya no es un modo conmutable: se fija al arrancar y es el único agarre (Premiere). */
   body.simpleclips .clip{cursor:grab;} body.simpleclips .clip:active{cursor:grabbing;}
   body.simpleclips .clip .tt{box-shadow:none;}
   body.automode .clip .tt:active{cursor:grabbing;}
@@ -572,6 +568,10 @@
   .clip .fadeh.fadeL{transform:translateX(-50%);} .clip .fadeh.fadeL::after{left:1px;}
   .clip .fadeh.fadeR{transform:translateX(50%);} .clip .fadeh.fadeR::after{right:1px;}
   .clip .fadeh:hover::after{background:var(--ink-2);}
+  /* [R155] En modo automatización el cuerpo del clip ES la curva: los cuadraditos de fade viven en la misma
+     esquina superior donde se agarran los keyframes, así que arrastrar uno era una lotería. Se ocultan; el fade
+     se sigue editando desde el inspector (Clip · Fade in / Fade out) y volviendo a modo normal. */
+  body.automode .clip .fadeh{display:none;pointer-events:none;}
   .xfade{position:absolute;top:4px;bottom:4px;z-index:3;pointer-events:none;background-color:rgba(201,205,211,0.10);background-image:linear-gradient(to top right,transparent 48%,rgba(201,205,211,0.55) 50%,transparent 52%),linear-gradient(to bottom right,transparent 48%,rgba(201,205,211,0.55) 50%,transparent 52%);}
   .clip .fadeenv{position:absolute;inset:0;z-index:3;pointer-events:none;overflow:visible;}
   .clip .fadeenv polyline{fill:none;stroke:var(--ink-2);stroke-width:1.4;vector-effect:non-scaling-stroke;opacity:.92;}
@@ -872,6 +872,8 @@
     <div class="menubar" id="menubar">
       <button class="menubtn" data-menu="file" data-t="menuFile">File</button>
       <button class="menubtn" data-menu="edit" data-t="menuEdit">Edit</button>
+      <!-- [R155] configuración del proyecto activo (ángulo del domo, geometría de la sala, preferencias) -->
+      <button class="menubtn" data-menu="project" data-t="menuProject">Project</button>
       <button class="menubtn" data-menu="window" data-t="menuWindow">Window</button>
     </div>
     <div style="flex:1;"></div>
@@ -1054,7 +1056,6 @@
     <button class="togbtn2" id="snapBtn" title="Snap to Grid · S / Ctrl+4"><i class="ic" data-ico="snap"></i></button>
     <!-- [REDISEÑO Rev1] well de edición: Simple · Auto · Grid · Fit (diseño §5) -->
     <div class="editseg" id="tlEditSeg">
-      <button id="simpleClipBtn" title="Simple clips (Premiere-style): drag and select a clip from anywhere on it — range selection works outside clips only"><i class="ic" data-ico="clip"></i> Simple</button>
       <button id="curvesBtn" title="Show/hide automation (clip parameters + reactive FX) · A"><i class="ic" data-ico="curves"></i> Auto</button>
       <button id="tlGridBtn" title="Grid — show/hide the timeline grid lines">Grid</button>
       <button id="fitAllBtn" title="Fit the whole timeline to the visible width">Fit</button><!-- [AUDITORÍA Rev1] el tooltip prometía "(H·W)": fitAll() sólo ajusta el eje horizontal (la altura la da el V-zoom) -->
