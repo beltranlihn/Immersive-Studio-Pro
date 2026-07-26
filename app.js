@@ -6868,7 +6868,13 @@ let _menu=null;
 function closeMenu(){ if(_menu){_menu.remove();_menu=null;} document.querySelectorAll('.menubtn.on').forEach(b=>b.classList.remove('on')); } // [R135] clear the app-menu highlight when any menu closes
 /* [R92-T5] shortcut glyphs per platform: menus/palette said ⌘R/⇧⌘S on a Windows app while tooltips said Ctrl+ — one formatter for all */
 function fmtKey(s){ if(!s)return s; if(navigator.platform&&/mac/i.test(navigator.platform))return s; return String(s).replace(/⇧⌘/g,'Ctrl+Shift+').replace(/⌘/g,'Ctrl+').replace(/⇧/g,'Shift+').replace(/⌥/g,'Alt+').replace(/⌫/g,'Del'); }
-function openMenu(x,y,items){ closeMenu(); const m=document.createElement('div'); m.className='menu'; m.setAttribute('role','menu'); m.style.left=x+'px'; m.style.top=y+'px'; // [R94-UT5·U-10a]
+function openMenu(x,y,items){
+  /* [R172] ¿este clic es el que acaba de cerrar el menú, sobre el mismo botón que lo abrió? Entonces era un
+     cierre, no una reapertura. Ver el bloque de `_menuOwnerPrev` junto al pointerdown global. */
+  if(_menuPrevRect && _ptrBtn===0 && performance.now()-_menuPrevAt<600 && dentroDe(_menuPrevRect,_ptrPt)){
+    _menuPrevRect=null; _menuOwnerRect=null; closeMenu(); return; }
+  _menuPrevRect=null;
+  closeMenu(); _menuOwnerRect=rectDe(_ptrPt); const m=document.createElement('div'); m.className='menu'; m.setAttribute('role','menu'); m.style.left=x+'px'; m.style.top=y+'px'; // [R94-UT5·U-10a]
   for(const it of items){ if(it==='sep'){const s=document.createElement('div');s.className='sep';m.appendChild(s);continue;}
     if(it.swatches){ const row=document.createElement('div'); row.style.cssText='display:flex;gap:6px;padding:6px 11px;flex-wrap:wrap;max-width:150px;align-items:center;'; // R90b: inline colour row INSIDE the menu (no extra popup)
       LANE_PALETTE.forEach(col=>{ const b=document.createElement('button'); b.title=col; b.style.cssText='width:16px;height:16px;border-radius:3px;border:.5px solid rgba(255,255,255,0.25);background:'+col+';cursor:pointer;padding:0;flex:0 0 auto;'+(it.swatches.cur===col?'box-shadow:0 0 0 2px #E8EAED;':''); b.onclick=e=>{ e.stopPropagation(); closeMenu(); it.swatches.onPick(col); }; row.appendChild(b); });
@@ -6887,7 +6893,25 @@ function openMenu(x,y,items){ closeMenu(); const m=document.createElement('div')
     else if(e.key==='Escape'){ e.preventDefault(); closeMenu(); } });
   document.body.appendChild(m); const r=m.getBoundingClientRect(); if(r.right>innerWidth)m.style.left=(x-r.width)+'px'; if(r.bottom>innerHeight)m.style.top=(y-r.height)+'px'; _menu=m;
   { const fb=m.querySelector('button:not(:disabled)'); if(fb)fb.focus(); } } // [R94-UT5·U-10a] focus lands on the first enabled item on open
-window.addEventListener('pointerdown',e=>{ if(_menu&&!_menu.contains(e.target)&&!(e.target.closest&&e.target.closest('.menubtn')))closeMenu(); },true); // [R135] a menubtn manages its own open/close
+/* [R172] Segundo clic en el MISMO botón = cerrar el desplegable.
+   Los botones de la barra de menús ya se alternaban solos (miran su clase `on`), y por eso este manejador los
+   excluye. Ningún OTRO botón desplegable lo hacía: este `pointerdown` cerraba el menú y el `click` siguiente
+   —del propio botón— lo volvía a abrir, así que parecía que no se cerraba nunca.
+   Se recuerda QUIÉN abrió el menú y qué se estaba pulsando al cerrarlo; si es el mismo botón, `openMenu` no
+   reabre. Sólo con el botón izquierdo: el clic derecho sobre el mismo sitio debe volver a abrir su menú
+   contextual, no cerrarlo. */
+let _menuOwnerRect=null, _menuPrevRect=null, _menuPrevAt=0, _ptrPt=null, _ptrBtn=0;
+window.addEventListener('pointerdown',e=>{ _ptrPt={x:e.clientX,y:e.clientY}; _ptrBtn=e.button;
+  if(_menu&&!_menu.contains(e.target)&&!(e.target.closest&&e.target.closest('.menubtn'))){
+    _menuPrevRect=_menuOwnerRect; _menuPrevAt=performance.now(); closeMenu(); } },true); // [R135] a menubtn manages its own open/close
+/* Se compara por POSICIÓN, no por nodo: abrir el menú de un chip de automatización re-dibuja la cabecera de la
+   pista, así que en el segundo clic el elemento ya es OTRO y cualquier comparación por identidad falla. El
+   rectángulo del disparador, en cambio, sigue donde estaba — y distingue chips iguales de pistas distintas, que
+   una firma por clase y texto confundiría. */
+function dentroDe(r,p){ return !!(r&&p && p.x>=r.x-2 && p.x<=r.x+r.w+2 && p.y>=r.y-2 && p.y<=r.y+r.h+2); }
+function rectDe(pt){ if(!pt)return null; const el=document.elementFromPoint(pt.x,pt.y); if(!el)return null;
+  const b=(el.closest&&el.closest('button,[data-menu],.achip,.chip,.alab,.autoduo'))||el;
+  const r=b.getBoundingClientRect(); return {x:r.x,y:r.y,w:r.width,h:r.height}; }
 /* [R135·D3] application menu bar (File / Edit / Window) — reuses existing commands; the menu is just another access path. */
 function openAppMenu(which,btn){ const r=btn.getBoundingClientRect(); const x=r.left, y=r.bottom+3; let items;
   if(which==='file') items=[
@@ -6935,7 +6959,12 @@ function openAppMenu(which,btn){ const r=btn.getBoundingClientRect(); const x=r.
     'sep',
     {label:T('Guided tour','Recorrido guiado'),ico:'flag',fn:()=>startTour()}, // [D7] re-launch the onboarding overlay on demand
     {label:T('All commands & shortcuts','Todos los comandos y atajos'),key:'F1',fn:()=>{ const h=$('#helpBtn'); if(h)h.click(); }} ];
-  document.querySelectorAll('.menubtn').forEach(b=>b.classList.toggle('on',b===btn)); openMenu(x,y,items); }
+  /* [R172] El resaltado se pone DESPUÉS de abrir. Antes iba delante, y como `openMenu` arranca con `closeMenu()`
+     —que quita `.on` de todos los botones de la barra— la clase se borraba en el acto. Consecuencias: el botón
+     nunca se veía activo, y su propio alternador (`if(btn.classList.contains('on')) closeMenu()`) no entraba
+     jamás, así que el segundo clic reabría el menú en vez de cerrarlo. */
+  openMenu(x,y,items);
+  document.querySelectorAll('.menubtn').forEach(b=>b.classList.toggle('on',b===btn)); }
 document.querySelectorAll('#menubar .menubtn').forEach(btn=>{ const which=btn.dataset.menu;
   btn.onclick=e=>{ e.stopPropagation(); if(btn.classList.contains('on')){ closeMenu(); return; } openAppMenu(which,btn); };
   btn.onmouseenter=()=>{ if(_menu)openAppMenu(which,btn); }; }); // hover switches menus while the bar is open (standard menubar behaviour)

@@ -1,5 +1,32 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 172 — Los desplegables se cierran al segundo clic
+
+Beltrán: los menús abren al pulsar, pero pulsar otra vez no los cierra.
+
+**Dos causas distintas, y la segunda llevaba ahí desde R135.**
+
+La general: un `pointerdown` global cierra el menú al pulsar fuera, y acto seguido el `click` del propio botón lo
+vuelve a abrir. Neto: no se cierra nunca. Ahora `openMenu` recuerda el RECTÁNGULO del disparador y, si el
+pointerdown que cerró el menú cae dentro de él, no reabre. **Se compara por posición y no por nodo** porque abrir
+el menú de un chip de automatización re-dibuja la cabecera de la pista: en el segundo clic el elemento ya es otro
+y cualquier comparación por identidad falla. El rectángulo, además, distingue chips iguales de pistas distintas,
+que una firma por clase y texto confundiría. Sólo con el botón izquierdo: un clic derecho repetido debe reabrir
+su menú contextual, no cerrarlo.
+
+La otra apareció al probar: **los cuatro botones de la barra de menús tampoco cerraban**, y ésos sí tenían su
+propio alternador. `openAppMenu` ponía el resaltado `.on` ANTES de llamar a `openMenu`, y `openMenu` arranca con
+`closeMenu()`, que quita `.on` de todos los botones de la barra: la clase se borraba en el acto. Así que el botón
+nunca se veía activo y su comprobación `if(classList.contains(on)) closeMenu()` no entraba jamás. El resaltado
+pasa a ponerse DESPUÉS de abrir — y de paso vuelve a verse, que tampoco funcionaba.
+
+Barrido automático sobre todo lo pulsable de las barras, con eventos de ratón REALES (el arreglo depende del
+orden pointerdown → click, que un `.click()` sintético no reproduce): **7 disparadores de menú, los 7 cierran**
+—File, Edit, Project, Window, orden de medios, zoom y Output— más los tres chips de identidad del modo
+automatización, que se probaron aparte porque sólo existen ahí.
+
+Pruebas: funcional 22/22, robustez 15/15, enlace A/V 6/6, cero errores de consola.
+
 ## ROUND 171 — Tres ajustes del timeline
 
 Sobre la captura que mandó Beltrán tras probar los clips enlazados.

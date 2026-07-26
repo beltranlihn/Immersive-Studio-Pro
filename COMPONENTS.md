@@ -234,6 +234,12 @@
 - **Invariants / gotchas:** sólo recortar NO vale: al enlazar audio se puede crear una pista nueva (A2) y quedaría fuera de vista, que es peor que la banda vacía que se quería quitar.
 - **Status:** ✅
 
+### Menús desplegables — `openMenu` / `closeMenu` (app.js ~L6871)
+- **Purpose:** todo desplegable se abre al pulsar su disparador y se CIERRA al pulsarlo otra vez.
+- **[R172]** El `pointerdown` global cerraba el menú y el `click` siguiente —del mismo botón— lo reabría, así que no se cerraba nunca. `openMenu` guarda ahora el RECTÁNGULO del disparador; si el pointerdown que cerró el menú cae dentro de ese rectángulo y llega en menos de 600ms con el botón izquierdo, no reabre.
+- **Invariants / gotchas:** se compara por POSICIÓN, no por nodo: abrir el menú de un chip de automatización re-dibuja la cabecera de pista y en el segundo clic el elemento ya es OTRO. Sólo con el botón IZQUIERDO — un clic derecho repetido debe reabrir su menú contextual. Y en `openAppMenu` el resaltado `.on` se pone DESPUÉS de `openMenu`: delante lo borraba el `closeMenu()` interno.
+- **Status:** ✅
+
 ## Deuda técnica & gaps detectados en el mapeo
 
 - **🗄️ Automatización legacy — ARCHIVADO (R137).** Las funciones muertas (`_autoOff` override/re-enable + perform-and-bake `recWrite`/`bakeRecorded` + `#autoRecBtn`) se sacaron del software y viven en `_backup/deprecated/20260722-automation-override-and-perform-bake.js` (recuperables). Verificado por CDP: motor de automatización intacto. **Barrido menor HECHO (R137):** removidos los reads no-op de `_autoOff` en sepAuto, returnToDefault, `drawAutoCurve` (var `off`), fxKfToggle y borrado de fx — solo queda `_autoOff` en un comentario (app.js L463). Curva renderiza OK (verificado por píxel).
