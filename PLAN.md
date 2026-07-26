@@ -1,5 +1,40 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 174 — La barra del visor, botón por botón contra el handoff
+
+Beltrán mandó dos capturas —la nuestra y la del prototipo— con las tres vistas (2D · Orbit · Viewer) y el encargo
+de mirar cada botón. Se extrajo la lista ORDENADA de botones de los tres handoffs, y ahí estaba todo:
+
+| | Handoff | Nuestra app |
+|---|---|---|
+| Superposiciones | **4**: Grid · Outline · Horizon/Center/Seam · Alpha, **sólo icono** | 5, con **Safe**, y con texto |
+| En 3D | siguen visibles | desaparecían enteras |
+| Viewer | sólo **FOV** | FOV **+ DOLLY** |
+| Orbit | DIST | DIST |
+
+El prototipo dibuja las superposiciones sólo con icono porque su `vpLbl` nace en `'icons'` y el rótulo va con
+`display:none`; el texto sólo aparece en la variante que vive dentro del panel "More" —y es ahí, y sólo ahí, donde
+el handoff menciona "Safe"—. Beltrán zanjó las dos dudas sobre la marcha: **«Safe no va. Se elimina»** y
+**«también se elimina el fader de DIST; sólo se queda FOV en Viewer»**.
+
+**Aplicado:** fuera Safe (botón, estado, espejo en "More", interruptor de Preferences y tooltip; las guías de zona
+segura —rectángulos del plano y anillos por elevación del domo, con su aviso de cenit— quedan archivadas en
+`_backup/deprecated/20260726-safe-zone-overlay.js`). Fuera DIST y DOLLY. Superposiciones sólo icono, con el rótulo
+envuelto en `.vlbl` para que el espejo de "More" lo siga leyendo.
+
+**Y dos cosas que aparecieron al medir:**
+- El grupo de superposiciones no desaparecía en 3D por decisión, sino por FALTA DE SITIO: el hueco de cámara
+  reservaba 324px para FOV+DOLLY y la barra replegaba las superposiciones a "More". Con DOLLY y DIST fuera, el
+  hueco baja a 150 y caben en los tres estados.
+- `Orbit|Viewer` sólo se mostraba dentro del manejador de CLIC del botón 3D. Llegar a 3D por cualquier otra vía
+  —abrir un proyecto, cambiar de secuencia, restaurar el espacio de trabajo— dejaba el grupo escondido. Su
+  visibilidad pasa a `_updViewCtl`, que es lo que gobierna la barra.
+
+Medido en los tres estados: 2D → `2D|3D · 4 iconos · Full ½ ¼ · Proxy · zoom · Output`; Orbit y Viewer añaden
+`Orbit|Viewer`, y Viewer además `FOV`. Cero rótulos de texto en las superposiciones, cero Safe, cero DIST/DOLLY.
+
+Pruebas: funcional 22/22, robustez 15/15, cero errores de consola.
+
 ## ROUND 173 — Los cinco agujeros del arreglo de menús de R172
 
 La revisión de código señaló que R172 tapaba el caso feliz —pulsar dos veces el mismo píxel— y dejaba cinco

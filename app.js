@@ -92,12 +92,12 @@ const state = {
   clips:[],
   playhead:0, playing:false, loop:false, follow:false,
   selId:null, selMediaId:null, selMediaIds:[], selMediaAnchor:null,
-  view:{ mode:'2d', three:'orbit', zoom:0.92, pan:[0,0], showGrid:true, showSafe:false, showOutline:true, cull:false, useProxy:true, checkerBg:false,
+  view:{ mode:'2d', three:'orbit', zoom:0.92, pan:[0,0], showGrid:true, showOutline:true, cull:false, useProxy:true, checkerBg:false,
          showCenter:false, showSeam:true, // [R168·Etapa 7] guías de centro (2D) y costuras de muro (sala): el tercer hueco de superposición por formato. La costura nace encendida porque en la sala orienta, igual que el horizonte en el domo.
          cw:400, ch:400, cam:{yaw:0, pitch:0.5, dist:3.0, fov:60, back:0.8} },
   tl:{ pxPerSec:80, tool:'select', tcMode:'timecode', bpm:120, sig:4, gridDiv:0, gridFixed:false, gridFixedBase:1, selA:null, selB:null, audioCollapsed:false }, // [R161] fuera `snap` (R158 quitó el ajuste a la cuadrícula) y `simpleClips` (R155 dejó sólo el agarre estilo Premiere): nadie los leía. [R110] audioCollapsed = the audio module is compacted to just its bar
   workIn:null, workOut:null,
-  prefs:{ reducedMotion:false, snapping:true, grid:true, safe:false, mediaCollapsed:false, inspCollapsed:false, tallInsp:false },
+  prefs:{ reducedMotion:false, snapping:true, grid:true, mediaCollapsed:false, inspCollapsed:false, tallInsp:false },
   mediaFilter:'all', mediaQuery:'', mediaGroupBy:'none', collapsedGroups:{}, folders:[], folderColors:{}, mediaView:'list', mediaFolder:null, selFolder:null,
   useProxies:true, previewQuality:1, markers:[], selMarkerId:null, clipboard:null,
   groups:[], selGroupId:null, dirty:false, selLane:null, selIds:[], openSeqs:[], activeSeqId:null, seqW:4096, seqH:4096, seqMode:'dome', seqCov:180, /* [archivado 20260725] state.seqGrade → _backup/deprecated/20260725-master-grade-engine.js */
@@ -1314,11 +1314,6 @@ function flatMap(){ const A=(state.seqW||16)/(state.seqH||9), wa=view.cw/view.ch
 function drawFlatFrame(){ const M=flatMap(); const a=M.px(-1,1), b=M.px(1,-1); const x0=a[0],y0=a[1],w=b[0]-a[0],h=b[1]-a[1];
   gx.lineWidth=1; gx.strokeStyle='rgba(255,255,255,0.30)'; gx.strokeRect(x0,y0,w,h);
   if(state.view.showGrid && !isRoom()){ gx.strokeStyle='rgba(255,255,255,0.09)'; for(let i=1;i<3;i++){ const xx=x0+w*i/3; gx.beginPath();gx.moveTo(xx,y0);gx.lineTo(xx,y0+h);gx.stroke(); const yy=y0+h*i/3; gx.beginPath();gx.moveTo(x0,yy);gx.lineTo(x0+w,yy);gx.stroke(); } } // room uses the per-wall grid (drawRoomGrid2D) instead of the generic thirds
-  if(state.view.showSafe){ /* [R106] action-safe (inner 93%) + title-safe (inner 90%), broadcast convention, labelled */
-    const rect=(inset,dash,col,lbl,bottom)=>{ const mx=w*inset,my=h*inset; gx.lineWidth=1; gx.strokeStyle=col; gx.setLineDash(dash); gx.strokeRect(x0+mx,y0+my,w-2*mx,h-2*my); gx.setLineDash([]);
-      gx.font='10px Geist'; gx.textAlign='left'; gx.textBaseline='alphabetic'; const tx=x0+mx+4, ty=bottom?(y0+h-my-4):(y0+my+12), tw=gx.measureText(lbl).width; gx.fillStyle='rgba(6,7,9,0.6)'; gx.fillRect(tx-3,ty-10,tw+6,13); gx.fillStyle=col; gx.fillText(lbl,tx,ty); };
-    rect(0.035,[5,4],'rgba(201,205,211,0.55)',T('ACTION SAFE','ACCIÓN'),false);
-    rect(0.05 ,[3,4],'rgba(201,205,211,0.34)',T('TITLE SAFE','TÍTULOS'),true); }
   /* [R168·Etapa 7] Guías de CENTRO — el hueco que en el domo ocupa el desvanecido de horizonte. Una cruz por el
      medio exacto del lienzo con un hueco central para no tapar lo que se está encuadrando. No es la cuadrícula
      de tercios (ésa la da Grid): aquí lo que importa es el eje exacto. Sólo 2D plano; la sala usa su costura. */
@@ -1367,13 +1362,6 @@ function drawGrid2D(){
     gx.font='11px Geist'; gx.fillStyle=UI.ink2;
     for(const [t,a,el,col] of card){const f=azel2f(a, el); const p=f2pix(f[0]*1.07,f[1]*1.07); gx.fillStyle=col; gx.fillText(t,p[0],p[1]);}
   }
-  if(state.view.showSafe){ /* [R106] fulldome delivery guides: rings by ELEVATION (azimuthal-equidistant, like the grid), labelled. Keep critical action off the rim / edge-blend zone, titles tighter, and flag the neck-straining zenith. */
-    const ring=(E,dash,col,lbl)=>{ const r=(90-E)/curCovDeg()*R; gx.lineWidth=1; gx.strokeStyle=col; gx.setLineDash(dash); gx.beginPath(); gx.arc(c0[0],c0[1],r,0,7); gx.stroke(); gx.setLineDash([]);
-      if(lbl){ gx.font='10px Geist'; gx.textAlign='center'; gx.textBaseline='alphabetic'; const ly=c0[1]-r-4, tw=gx.measureText(lbl).width; gx.fillStyle='rgba(6,7,9,0.6)'; gx.fillRect(c0[0]-tw/2-3,ly-10,tw+6,13); gx.fillStyle=col; gx.fillText(lbl,c0[0],ly); } };
-    ring(5 ,[5,4],'rgba(201,205,211,0.55)',T('ACTION SAFE','ACCIÓN')); /* rim / projector edge-blend margin */
-    ring(15,[3,4],'rgba(201,205,211,0.34)',T('TITLE SAFE','TÍTULOS')); /* comfortable reading band */
-    /* zenith caution: content within ~10° of straight-up makes the audience crane their necks */
-    const rz=(90-80)/curCovDeg()*R; gx.strokeStyle='rgba(229,181,103,0.5)'; gx.setLineDash([2,3]); gx.beginPath(); gx.arc(c0[0],c0[1],rz,0,7); gx.stroke(); gx.setLineDash([]); }
   if(state.view.showOutline) drawOutline2D();
 }
 function drawOutline2D(){
@@ -6537,16 +6525,20 @@ function _updViewCtl(){ const is3=state.view.mode==='3d',spec=state.view.three==
   show('#dispSep',F.disp); show('#dispSeg',F.disp);
   show('#qpSep',F.qp); show('#qualitySeg',F.qp); show('#proxyToggle',F.qp);
   show('#outSep',F.out); show('#outWell',F.out);
+  /* [R174] Orbit|Viewer se mostraba SÓLO dentro del manejador de clic del botón 3D, así que llegar a 3D por
+     cualquier otra vía —abrir un proyecto, cambiar de secuencia, restaurar el espacio de trabajo— dejaba el
+     grupo escondido. Su visibilidad pertenece aquí, que es lo que gobierna la barra. */
+  show('#d3sep',is3); { const tm=$('#threeModeSeg'); if(tm)tm.style.display=is3?'inline-flex':'none'; }
   { const mb=$('#vpMoreBtn'); if(mb)mb.style.display=(F.disp&&F.qp&&F.out&&F.readout)?'none':'grid'; }
   // modo (× ancho para las lecturas): Az/El sólo en 2D, DIST sólo en 3D Orbit, FOV+DOLLY sólo en 3D Viewer
   /* [R162] El hueco de cámara sólo reserva sus 324px en 3D. Su razón de ser es que al alternar Orbit ↔ Viewer no
      se muevan los botones que persisten; en 2D no hay ningún control de cámara y esos 324px vacíos eran los que
      empujaban Display y Quality al menú "More" aun sobrando sitio en la barra. */
   { const cs=$('#camSlot'); if(cs)cs.style.minWidth=is3?'':'0px'; }
-  $('#fovCtl').style.display=(is3&&spec)?'inline-flex':'none'; $('#dollyCtl').style.display=(is3&&spec)?'inline-flex':'none';
+  $('#fovCtl').style.display=(is3&&spec)?'inline-flex':'none'; $('#dollyCtl').style.display='none'; /* [R174] DOLLY retirado: el handoff sólo lleva FOV en Viewer */
   { const ro=$('#roomOutBtn'); if(ro){ ro.style.display=(is3&&isRoom())?'inline-flex':'none'; ro.classList.toggle('on',!!state.view.roomOutTex); } }
   if(is3&&spec){ const fr=$('#fovRange'); if(fr){ fr.value=state.view.cam.fov; faderFill(fr); const fl=$('#fovLbl'); if(fl)fl.textContent=Math.round(state.view.cam.fov)+'°'; } const dr2=$('#dollyRange'); if(dr2){ dr2.value=state.view.cam.back; faderFill(dr2); const dl2=$('#dollyLbl'); if(dl2)dl2.textContent=(+state.view.cam.back).toFixed(1); } } // reflect the live FOV/dolly on the sliders when entering Viewer mode
-  const dc=$('#distCtl'); if(dc){ dc.style.display=(is3&&!spec&&F.readout)?'inline-flex':'none'; const dr=$('#distRange'); if(dr){ dr.value=state.view.cam.dist; faderFill(dr); const dl=$('#distLbl'); if(dl)dl.textContent=(+state.view.cam.dist).toFixed(1); } } } // orbit: on-screen DIST (zoom) slider
+  const dc=$('#distCtl'); if(dc){ dc.style.display='none'; /* [R174] DIST retirado a petición de Beltrán */ const dr=$('#distRange'); if(dr){ dr.value=state.view.cam.dist; faderFill(dr); const dl=$('#distLbl'); if(dl)dl.textContent=(+state.view.cam.dist).toFixed(1); } } } // orbit: on-screen DIST (zoom) slider
 /* Menú "More": NO duplica controles — reenvía el clic al botón real que quedó oculto, así el estado (clase .on,
    handlers, i18n) sigue viviendo en un solo lugar. Sólo muestra las secciones que efectivamente se replegaron. */
 function openVpMore(){ const F=vpFits(); closeMenu();
@@ -6559,7 +6551,7 @@ function openVpMore(){ const F=vpFits(); closeMenu();
     b.textContent=label; b.style.cssText='height:22px;padding:0 9px;border:.5px solid rgba(255,255,255,0.1);border-radius:3px;cursor:pointer;font-family:inherit;font-size:10px;font-weight:600;background:'+(srcBtn.classList.contains('on')?'var(--state-on)':'transparent')+';color:'+(srcBtn.classList.contains('on')?'var(--ink)':'var(--ink-2)')+';';
     b.onclick=()=>{ srcBtn.click(); close(); }; row.appendChild(b); };
   if(!F.disp){ const r=sec(T('Overlays','Superposiciones'));
-    [['grid',T('Grid','Cuadrícula')],['safe',T('Safe','Zona segura')],['outline',T('Outline','Contornos')],['hfade',T('Horizon','Horizonte')],['checker',T('Alpha','Alfa')]]
+    [['grid',T('Grid','Cuadrícula')],['outline',T('Outline','Contornos')],['hfade',T('Horizon','Horizonte')],['checker',T('Alpha','Alfa')]]
       .forEach(([d,lab])=>mirror(r,document.querySelector('#dispSeg button[data-d="'+d+'"]'),lab)); }
   if(!F.qp){ const r=sec(T('Quality','Calidad'));
     [['1','Full'],['0.5','½'],['0.25','¼']].forEach(([q,lab])=>mirror(r,document.querySelector('#qualitySeg button[data-q="'+q+'"]'),lab));
@@ -6588,7 +6580,7 @@ $('#dispSeg').querySelectorAll('button').forEach(b=>b.onclick=()=>{ const d=b.da
     else if(isFlat()){ state.view.showCenter=!state.view.showCenter; flashStatus(state.view.showCenter?T('Center guides on','Guías de centro activadas'):T('Center guides off','Guías de centro desactivadas')); }
     else { state.view.hfade=!state.view.hfade; flashStatus(state.view.hfade?T('Horizon fade on','Desvanecido de horizonte activado'):T('Horizon fade off','Desvanecido de horizonte desactivado')); } }
   if(d==='checker'){ state.view.checkerBg=!state.view.checkerBg; const cb=$('#checkerBg'); if(cb)cb.classList.toggle('on',state.view.checkerBg); flashStatus(state.view.checkerBg?T('Alpha checkerboard on','Cuadrícula de alpha activada'):T('Alpha checkerboard off','Cuadrícula de alpha desactivada')); } // [F8]
-  b.classList.toggle('on', d==='grid'?state.view.showGrid:d==='safe'?state.view.showSafe:d==='outline'?state.view.showOutline:d==='checker'?state.view.checkerBg:state.view.hfade); render(); });
+  b.classList.toggle('on', d==='grid'?state.view.showGrid:d==='outline'?state.view.showOutline:d==='checker'?state.view.checkerBg:state.view.hfade); render(); });
 /* [R105] La calidad de previsualización se persiste entre sesiones. NO era el bug de coherencia que creí
    (verificado: newProject y cambiar de modo la respetan, y el botón siempre dice la verdad) — el hueco real
    es que no sobrevivía al reinicio y volvía a Full. Se guarda en localStorage, como el último export. */
@@ -7153,7 +7145,7 @@ function openPrefs(){ closeMenu(); const ov=document.createElement('div'); ov.cl
     if(k==='reducedMotion'){state.prefs.reducedMotion=b.classList.contains('on');document.body.classList.toggle('rm-on',state.prefs.reducedMotion);try{localStorage.setItem('domeProRM',state.prefs.reducedMotion?'1':'0');}catch(e){}}
     
     if(k==='grid'){state.view.showGrid=b.classList.contains('on');$('#dispSeg button[data-d=grid]').classList.toggle('on',state.view.showGrid);render();}
-    if(k==='safe'){state.view.showSafe=b.classList.contains('on');$('#dispSeg button[data-d=safe]').classList.toggle('on',state.view.showSafe);render();} });
+  });
   $('#prefFps').onchange=e=>{state.fps=+e.target.value; const as=activeSeq(); if(as)as.fps=state.fps; markDirty(); updFmtChip(); positionPlayhead();renderTimeline();}; // [U-11] persist to the active sequence + dirty flag — no more silent revert on seq switch
   $('#prefClose').onclick=()=>ov.remove(); ov.addEventListener('pointerdown',e=>{if(e.target===ov)ov.remove();}); }
 
@@ -7434,7 +7426,7 @@ function applyLang(){ const L=state.lang; document.documentElement.lang=L;
   // largo, que sí se traduce, va al tooltip y lo pone updModeUI según el modo.
   try{ updModeUI(); }catch(e){}
   tn('#threeModeSeg button[data-m="spec"]','Viewer','Espectador'); tn('#threeModeSeg button[data-m="orbit"]','Orbit','Órbita');
-  ttl('#dispSeg button[data-d="grid"]','Reference grid','Cuadrícula de referencia'); ttl('#dispSeg button[data-d="safe"]','Safe-zone overlay','Zona segura'); ttl('#dispSeg button[data-d="outline"]','Clip outlines','Contornos de clip'); ttl('#dispSeg button[data-d="hfade"]','Fade near the dome horizon','Atenuar cerca del horizonte'); ttl('#dispSeg button[data-d="checker"]','Alpha checkerboard','Tablero de fondo alfa'); // [REDISEÑO Rev1] overlays icon-only → tooltips
+  ttl('#dispSeg button[data-d="grid"]','Reference grid','Cuadrícula de referencia'); ttl('#dispSeg button[data-d="outline"]','Clip outlines','Contornos de clip'); ttl('#dispSeg button[data-d="hfade"]','Fade near the dome horizon','Atenuar cerca del horizonte'); ttl('#dispSeg button[data-d="checker"]','Alpha checkerboard','Tablero de fondo alfa'); // [REDISEÑO Rev1] overlays icon-only → tooltips
   ttl('#qualitySeg','Preview quality (does not affect export)','Calidad de previsualización (no afecta la exportación)');
   ttl('#proxyToggle','Viewport uses proxies (faster). Turn off to preview the original clips.','El visor usa proxies (más rápido). Desactiva para ver los clips originales.');
   ttl('#popoutBtn','Open a viewer-only window — drag it to a second screen','Abrir una ventana solo-visor — arrástrala a una segunda pantalla');

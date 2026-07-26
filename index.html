@@ -216,7 +216,13 @@
   /* [R157] hueco de cámara: ancho fijo para que Orbit↔Viewer no mueva nada de lo que persiste a su derecha */
   /* min-width = el ancho del caso MÁS ANCHO (3D Viewer: FOV + DOLLY = 321px medidos). Si se queda corto, el
      colapso por medición repliega otro grupo para hacer sitio y Output se corre — que es justo lo que hay que evitar. */
-  .camslot{display:flex;align-items:center;gap:var(--sp-8);flex-shrink:0;justify-content:flex-end;min-width:324px;}
+  /* [R174] Antes 324px, el ancho de FOV+DOLLY. Retirados DOLLY y DIST, sólo tiene que caber FOV: reservar 324
+     dejaba un hueco vacío que empujaba las superposiciones fuera de la barra en 3D. */
+  .camslot{display:flex;align-items:center;gap:var(--sp-8);flex-shrink:0;justify-content:flex-end;min-width:150px;}
+  /* [R174] Superposiciones SOLO ICONO, como el prototipo (su `vpLbl` nace en 'icons'). El texto sigue existiendo
+     en el DOM —lo lee el espejo del panel "More", donde sí se lee— pero no se pinta en la barra. */
+  .vseg.iconly .vlbl{display:none;}
+  .vseg.iconly button{padding:0 7px;}
   .vmore{width:28px;height:22px;display:grid;place-items:center;border:.5px solid rgba(255,255,255,0.1);border-radius:3px;flex-shrink:0;cursor:pointer;font-family:inherit;font-size:12px;font-weight:600;letter-spacing:1px;background:transparent;color:var(--ink-2);padding:0;}
   .vmore:hover{background:var(--state-hover);color:var(--ink);}
   .vmore.on{background:var(--state-on);color:var(--ink);}
@@ -950,13 +956,13 @@
           <button data-v="3d" title="3D preview"><i class="ic" data-ico="view3d"></i> 3D</button>
         </div>
         <div class="vdiv" id="dispSep"></div>
-        <!-- [REDISEÑO Rev1] overlays icon-only (tooltip) -->
-        <div class="vseg" id="dispSeg">
-          <button data-d="grid" class="on" title="Grid overlay"><i class="ic" data-ico="grid"></i> Grid</button>
-          <button data-d="safe" title="Safe-zone overlay"><i class="ic" data-ico="safe"></i> Safe</button>
-          <button data-d="outline" title="Clip outlines"><i class="ic" data-ico="outline"></i> Outline</button>
-          <button data-d="hfade" title="Fade content near the dome horizon (spring line)"><i class="ic" data-ico="cull"></i> Horizon</button>
-          <button data-d="checker" title="Checkerboard background (alpha)"><i class="ic" data-ico="alpha"></i> Alpha</button><!-- [R164] icono propio, no la rejilla de Grid -->
+        <!-- [R174] El prototipo las dibuja SOLO ICONO por defecto: su `vpLbl` nace en 'icons' y el rótulo va
+             con display:none. El texto sólo aparece en el panel "More", donde sí hace falta leerlo. -->
+        <div class="vseg iconly" id="dispSeg">
+          <button data-d="grid" class="on" title="Grid overlay"><i class="ic" data-ico="grid"></i><span class="vlbl">Grid</span></button>
+          <button data-d="outline" title="Clip outlines"><i class="ic" data-ico="outline"></i><span class="vlbl">Outline</span></button>
+          <button data-d="hfade" title="Fade content near the dome horizon (spring line)"><i class="ic" data-ico="cull"></i><span class="vlbl">Horizon</span></button>
+          <button data-d="checker" title="Checkerboard background (alpha)"><i class="ic" data-ico="alpha"></i><span class="vlbl">Alpha</span></button><!-- [R164] icono propio, no la rejilla de Grid -->
         </div>
         <div class="vdiv" id="qpSep"></div>
         <div class="vseg" id="qualitySeg" title="Preview quality (does not affect export)">
@@ -977,8 +983,8 @@
              El ancho es el del caso más ancho (FOV + DOLLY), así que nunca encoge ni empuja. -->
         <div class="camslot" id="camSlot">
         <div class="vslab" id="fovCtl" style="display:none;"><span class="k">FOV</span><input type="range" min="40" max="160" value="60" id="fovRange" class="vfader"><span class="v" id="fovLbl" style="width:26px;text-align:right;">60°</span></div>
-        <div class="vslab" id="dollyCtl" style="display:none;"><span class="k">DOLLY</span><input type="range" min="-0.9" max="2.4" step="0.01" value="0.8" id="dollyRange" class="vfader"><span class="v" id="dollyLbl" style="width:26px;text-align:right;">0.8</span></div>
-        <div class="vslab" id="distCtl" style="display:none;"><span class="k">DIST</span><input type="range" min="1.2" max="12" step="0.1" value="3" id="distRange" class="vfader"><span class="v" id="distLbl" style="width:26px;text-align:right;">3.0</span></div>
+        <div class="vslab" id="dollyCtl" hidden data-retirado="R174" style="display:none;"><span class="k">DOLLY</span><input type="range" min="-0.9" max="2.4" step="0.01" value="0.8" id="dollyRange" class="vfader"><span class="v" id="dollyLbl" style="width:26px;text-align:right;">0.8</span></div>
+        <div class="vslab" id="distCtl" hidden data-retirado="R174" style="display:none;"><span class="k">DIST</span><input type="range" min="1.2" max="12" step="0.1" value="3" id="distRange" class="vfader"><span class="v" id="distLbl" style="width:26px;text-align:right;">3.0</span></div>
         </div>
         <div class="vseg" id="proxyToggle" title="Viewport uses proxies (faster). Turn off to preview the original clips."><button data-p="proxy" class="on"><i class="ic" data-ico="bolt"></i> Proxy</button></div>
         <div class="vdiv" id="zoomSep"></div>
