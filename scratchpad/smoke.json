@@ -101,8 +101,10 @@
     },
     {
       "paso": "capa de ajuste",
-      "ok": false,
-      "detalle": "ReferenceError: makeAdjustMedia is not defined\n    at <anonymous>:1:21\n    at <anonymous>:1:125"
+      "ok": true,
+      "detalle": {
+        "ajuste": true
+      }
     },
     {
       "paso": "nueva secuencia + cambiar",
@@ -142,7 +144,7 @@
       "detalle": {
         "clipsAntes": 4,
         "clipsDespues": 4,
-        "media": 7
+        "media": 8
       }
     },
     {

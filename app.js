@@ -3255,9 +3255,10 @@ function _renderInspectorMain(){
     /* [AUDITORÍA Rev1 · §4] Source pasa de checkboxes nativos a los TOGGLES del diseño (26×15, verde al on —
        prototipo RevDomo:315-316). Forma de fila del diseño: etiqueta · descripción apagada · switch a la derecha.
        El .iosw ya existía (se usaba sólo en Preferences); acá se reutiliza, no se duplica. */
-    const swRow=(id,label,desc,on)=>{ const r=document.createElement('div'); r.className='prow';
-      r.innerHTML=`<span class="kf" style="cursor:default;"></span><span class="lab">${label}</span>`
-        +`<span style="flex:1;min-width:0;font-size:11px;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${desc}</span>`
+    /* [R160] La fila de interruptor es SÓLO título + switch: la descripción se comía el ancho, obligaba a la
+       etiqueta a partirse en dos líneas y rompía la diagramación del inspector. Pasa a tooltip de la fila. */
+    const swRow=(id,label,desc,on)=>{ const r=document.createElement('div'); r.className='prow'; r.title=desc;
+      r.innerHTML=`<span class="kf" style="cursor:default;"></span><span class="lab" style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${label}</span>`
         +`<button class="iosw ${on?'on':''}" id="${id}" role="switch" aria-checked="${on?'true':'false'}"><i></i></button>`;
       $('#sourceRows').appendChild(r); return r; };
     const swBind=(row,id,apply)=>{ const b=row.querySelector('#'+id);
@@ -3361,9 +3362,8 @@ function _renderInspectorMain(){
   // Loopable toggle — video / audio / sequence clips only: the source repeats, and the right edge can be dragged out forever (R81)
   if(m && (m.kind==='video'||m.kind==='audio'||isSeqMedia(m))){
     /* [AUDITORÍA Rev1 · §4] Playback también con TOGGLE en vez de checkbox (misma forma de fila que Source) */
-    const pbRow=(id,label,desc,on)=>{ const r=document.createElement('div'); r.className='prow';
-      r.innerHTML=`<span class="kf" style="cursor:default;"></span><span class="lab">${label}</span>`
-        +`<span style="flex:1;min-width:0;font-size:11px;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${desc}</span>`
+    const pbRow=(id,label,desc,on)=>{ const r=document.createElement('div'); r.className='prow'; r.title=desc; // [R160] título + switch (ver swRow)
+      r.innerHTML=`<span class="kf" style="cursor:default;"></span><span class="lab" style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${label}</span>`
         +`<button class="iosw ${on?'on':''}" id="${id}" role="switch" aria-checked="${on?'true':'false'}"><i></i></button>`;
       $('#playbackRows').appendChild(r); return r; };
     const lrow=pbRow('loopToggle',T('Loop','Loop'),T('Extend the clip to repeat','Extender el clip para repetir'),!!c.loop);
@@ -3589,7 +3589,7 @@ function buildRows(sel,defs,c){ const host=$(sel); host.innerHTML='';
     row.style.setProperty('--pc', autoColor(p)); // [REDISEÑO Rev1] hue del parámetro → fader fill + diamante (mismo color que la curva del timeline)
     row.innerHTML=`<span class="lab">${propLabel(p)}</span>
       <div class="field" data-p="${p}"><div class="track"><i style="width:0%"></i></div><div class="box"><span class="num">0</span><span class="u">${unit}</span></div></div>
-      <div class="nav"><button data-k="prev" title="${T('Previous keyframe','Fotograma anterior')}">${ICO('kfprev',12)}</button><button data-k="add" title="${T('Add / remove keyframe here · right-click to clear automation','Añadir / quitar fotograma aquí · clic derecho borra la automatización')}">${ICO('diamond',12)}</button><button data-k="next" title="${T('Next keyframe','Fotograma siguiente')}">${ICO('kfnext',12)}</button></div>`;
+      <div class="nav"><button data-k="add" title="${T('Add / remove keyframe here · right-click clears the automation · Alt+, / Alt+. jump between keyframes','Añadir / quitar fotograma aquí · clic derecho borra la automatización · Alt+, / Alt+. saltan entre fotogramas')}">${ICO('diamond',12)}</button></div>`;
     host.appendChild(row);
     // [A1] single point button: the diamond toggles a keyframe at the playhead (add if none / remove if on one); the first one reveals the curve on the track; right-click clears the whole automation
     row.querySelector('[data-k=add]').onclick=()=>{ const cc=selClip(); if(!cc)return; if(state.playhead<cc.start-1e-6||state.playhead>cc.start+cc.dur+1e-6){flashStatus(T('The playhead is outside this clip','El cabezal está fuera de este clip'),'err');return;}
@@ -3598,7 +3598,8 @@ function buildRows(sel,defs,c){ const host=$(sel); host.innerHTML='';
       else { setKf(cc,p,state.playhead,evalP(cc,p,state.playhead),curEase()); if(!wasAuto)openAuto(cc,p); } // first point reveals the single automation overlay on the track
       renderInspector();renderTimeline();render();markDirty(); };
     row.querySelector('[data-k=add]').oncontextmenu=e=>{ e.preventDefault(); const cc=selClip(); if(!cc||!hasKf(cc,p))return; const v=evalP(cc,p,state.playhead); pushUndo(); clearKf(cc,p); cc.props[p]=v; flashStatus(T('Automation cleared — Ctrl+Z restores it','Automatización borrada — Ctrl+Z la restaura')); renderInspector();renderTimeline();render();markDirty(); }; // [A1] right-click the diamond = remove the whole curve (freezes at the current value)
-    row.querySelector('[data-k=prev]').onclick=()=>jumpKf(p,-1); row.querySelector('[data-k=next]').onclick=()=>jumpKf(p,1);
+    /* [R159] prev/next salieron de la fila (el prototipo tiene un solo botón y esos 40px eran los que le faltaban
+       al fader). El salto entre fotogramas vive ahora en Alt+, / Alt+. — ver jumpAnyKf. */
     const field=row.querySelector('.field'); const box=row.querySelector('.box');
     field.addEventListener('pointerdown',e=>{ if(e.target.tagName==='INPUT')return; startValDrag(e,p,mn,mx); });
     box.addEventListener('dblclick',e=>{ e.stopPropagation(); editNumberBox(box,p,mn,mx); });
@@ -3649,6 +3650,18 @@ function kfAt(c,p){ if(!hasKf(c,p))return null; const lt=state.playhead-c.start;
 function jumpKf(p,dir){ const c=selClip(); if(!hasKf(c,p))return; const lt=state.playhead-c.start; const ks=c.kf[p];
   let target=null; if(dir>0){for(const k of ks)if(k.t>lt+1e-3){target=k.t;break;}} else {for(let i=ks.length-1;i>=0;i--)if(ks[i].t<lt-1e-3){target=ks[i].t;break;}}
   if(target!=null){state.playhead=c.start+target;scrubRender();} }
+/* [R159] Saltar entre fotogramas SIN los botones prev/next de cada fila: recorre los keyframes de TODOS los
+   parámetros automatizados del clip seleccionado y lleva el playhead al más cercano en esa dirección. Es más útil
+   que el par por fila —el usuario piensa "el próximo keyframe", no "el próximo de Opacidad"— y libera los 40px
+   que le faltaban al fader para quedar como el prototipo. Atajo: Alt+, / Alt+. */
+function jumpAnyKf(dir){ const c=selClip(); if(!c||!c.kf)return; const lt=state.playhead-c.start;
+  let best=null;
+  for(const p in c.kf){ const ks=c.kf[p]; if(!ks||!ks.length)continue;
+    for(const k of ks){ if(dir>0){ if(k.t>lt+1e-3&&(best==null||k.t<best))best=k.t; }
+                        else { if(k.t<lt-1e-3&&(best==null||k.t>best))best=k.t; } } }
+  if(best!=null){ state.playhead=Math.max(0,c.start+best); scrubRender();
+    flashStatus(T('Keyframe','Fotograma')+' · '+fmtTime(state.playhead)); }
+  else flashStatus(dir>0?T('No further keyframes','No hay más fotogramas adelante'):T('No earlier keyframes','No hay fotogramas antes')); }
 function startValDrag(e,p,mn,mx){ e.preventDefault(); const c=selClip(); const x0=e.clientX; const v0=evalP(c,p,state.playhead); const span=(mx-mn);
   const mv=ev=>{ let sp=span/300; if(ev.shiftKey)sp/=5; if(ev.altKey)sp*=4; let nv=Math.max(mn,Math.min(mx,v0+(ev.clientX-x0)*sp));
     if(!startValDrag._pushed){pushUndo();startValDrag._pushed=true;} manualEdit(c,p,nv); refreshInspector(); renderTimeline(); render(); };
@@ -5962,8 +5975,6 @@ function updEnable(){ const hasSel=!!selClip(), hasClips=state.clips.length>0, h
   const setBtn=(sel,on,tOn,tOff)=>{ const el=$(sel); if(!el)return; setDis(el,!on,on?tOn:tOff); };
   const impFirst=T('Import images or videos first','Importa imágenes o vídeos primero'); // [R94-UT3·U-12] los botones bloqueados se explican en el cursor, no sólo con un flash lejano
   const noMk=T('No locators yet — add one with M','Aún no hay localizadores — añade uno con M');
-  setBtn('#prevMk',hasMk,T('Previous locator · ,','Localizador anterior · ,'),noMk);
-  setBtn('#nextMk',hasMk,T('Next locator · .','Localizador siguiente · .'),noMk);
   setBtn('#exportBtn',hasClips,T('Export · Ctrl+Shift+E','Exportar · Ctrl+Shift+E'),T('Add clips to the timeline first','Añade clips a la línea de tiempo primero'));
   setBtn('#ringBtn',hasVis,T('Create composition (ring / grid / random)','Crear composición (anillo / cuadrícula / aleatorio)'),impFirst);
   setBtn('#adjLayerBtn',hasVis,T('Create an adjustment layer — its Reactive FX affect everything below it','Crear una capa de ajuste — sus FX reactivos afectan todo lo de debajo'),impFirst); }
@@ -6244,7 +6255,7 @@ $('#curvesBtn').onclick=toggleCurves; // [R93] single Automation button — the 
 function deleteSel(){ const ids=(state.selIds&&state.selIds.length)?state.selIds.slice():(state.selId!=null?[state.selId]:[]); if(!ids.length)return; diag('info','clip','delete',{n:ids.length}); pushUndo(); if(state.autoSel&&ids.includes(state.autoSel.cid))state.autoSel=null; for(const _id of ids){ try{freeFxHistFor(_id);}catch(e){} } // free per-clip FX feedback buffers
   for(const c of state.clips)if(ids.includes(c.id)&&c.maskTex){try{gl.deleteTexture(c.maskTex);}catch(e){}}
   state.clips=state.clips.filter(x=>!ids.includes(x.id)); state.selId=null; state.selIds=[]; renderTimeline();renderInspector();render();updStatus(); reschedAudio(); }
-$('#prevMk').onclick=()=>jumpMarker(-1); $('#addMk').onclick=addMarker; $('#nextMk').onclick=()=>jumpMarker(1);
+$('#addMk').onclick=addMarker; // [R159] prev/next de localizadores viven en , y . (el diseño tiene un solo botón)
 /* [REDISEÑO Rev1] V-zoom lateral (diseño §6): el thumb refleja la altura media de pista y arrastrarlo la escala
    (abajo = más altas, igual que el handle de resize por-pista). Reutiliza lane.h + los topes LANE_MIN_H/MAX_H. */
 function _laneDefH(l){ return l.h || (l.kind==='audio'?AUDIO_LANE_H:LANE_DEF_H); }
@@ -6416,6 +6427,10 @@ window.addEventListener('keydown',e=>{ const tag=(e.target.tagName||'').toLowerC
   if(e.key==='ArrowLeft'){ e.preventDefault(); if(e.altKey){nudgeSel(-(e.shiftKey?1:1/state.fps),e.repeat);} else {const f=state.fps||30;state.playhead=Math.max(0,(Math.round(state.playhead*f)-1)/f);scrubRender();positionPlayhead();} } /* [T7] frame-exact step (preventDefault: no page scroll) */
   if(e.key==='ArrowRight'){ e.preventDefault(); if(e.altKey){nudgeSel(e.shiftKey?1:1/state.fps,e.repeat);} else {const f=state.fps||30;state.playhead=(Math.round(state.playhead*f)+1)/f;scrubRender();positionPlayhead();} }
   if(e.key==='m'||e.key==='M')addMarker(); // [R97] marker moved L→M (the industry-standard key) so L can be the shuttle
+  // [R159] Alt+, / Alt+. = fotograma anterior/siguiente del clip seleccionado (reemplazan a los botones que
+  // salieron de la fila del inspector). Sin Alt siguen siendo los localizadores, como siempre.
+  if(e.altKey&&e.key===','){ e.preventDefault(); jumpAnyKf(-1); return; }
+  if(e.altKey&&e.key==='.'){ e.preventDefault(); jumpAnyKf(1); return; }
   if(e.key===',')jumpMarker(-1); if(e.key==='.')jumpMarker(1);
   if(e.key==='i'||e.key==='I')setWorkIn(); if(e.key==='o'||e.key==='O')setWorkOut(); if(e.key==='x'||e.key==='X')clearWork();
 });
@@ -6965,7 +6980,7 @@ function applyLang(){ const L=state.lang; document.documentElement.lang=L;
   { const secLbl=(sec,en,es)=>{const h=document.querySelector('#insCtl .sechead[data-sec="'+sec+'"] .t'); if(h)h.textContent=T(en,es);}; secLbl('tf',isFlat()?'Transform':'Dome · Transform',isFlat()?'Transformar':'Domo · Transformar'); secLbl('clip','Clip','Clip'); secLbl('color','Color','Color'); secLbl('motion','Motion','Movimiento'); }
   tn('#mirrorBtn','Mirror','Reflejar');
   ttl('#toStart','Go to start · Home','Ir al inicio · Inicio'); ttl('#playBtn','Play / Pause · Space','Reproducir / Pausar · Espacio'); ttl('#toEnd','Go to end · End','Ir al final · Fin'); ttl('#loopBtn','Loop selection · Ctrl+L','Bucle de selección · Ctrl+L');
-  ttl('#prevMk','Previous locator · ,','Localizador anterior · ,'); ttl('#addMk','Add locator · L','Añadir localizador · L'); ttl('#nextMk','Next locator · .','Localizador siguiente · .');
+  ttl('#addMk','Add locator · L','Añadir localizador · L');
   ttl('#bpmBox','Tempo — drag to change','Tempo — arrastra para cambiar');
   txt('#tcModeSeg button[data-t="frames"]','Frames','Fotogramas'); txt('#tcModeSeg button[data-t="bars"]','Bars','Compases');
   ttl('#markIn','Mark In · I (right-click clears the range)','Marcar entrada · I (clic derecho borra el rango)'); ttl('#markOut','Mark Out · O (right-click clears the range)','Marcar salida · O (clic derecho borra el rango)'); // [R94e]

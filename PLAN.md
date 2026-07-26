@@ -1,5 +1,52 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 159/160 — El inspector recupera el ancho de sus faders
+
+**Un solo botón por fila.** La fila del prototipo (RevDomo:286-290) es `etiqueta · surco · caja de valor · UN
+botón de 20×20`. Nosotros teníamos tres (anterior · diamante · siguiente), y esos 40px de más salían del surco:
+el fader medía 53px contra los ~125 del diseño. Se quedan sólo el diamante. Medido después del cambio:
+fila 299 · etiqueta 60 · **fader 129** · caja 42 · nav 20 (1 botón). Calcado.
+
+**El salto entre keyframes no se pierde, cambia de sitio.** `jumpAnyKf(dir)` recorre todos los parámetros
+automatizados del clip seleccionado y salta al fotograma anterior/siguiente; va en **Alt+,** / **Alt+.**. El
+tooltip del diamante lo anuncia. En el transport pasa lo mismo con los localizadores: el diseño tiene un único
+botón "Add locator" y `,` / `.` ya navegaban entre ellos, así que `#prevMk` / `#nextMk` sobran.
+
+**Filas de interruptor: título y switch, nada más** (R160). Las de Source (Fulldome src · Equirect 360° ·
+Fisheye) y las de Playback llevaban una descripción entre la etiqueta y el interruptor. Se comía el ancho, la
+etiqueta se partía en dos líneas y la fila crecía a 31px mientras sus vecinas medían 24. La descripción pasa a
+tooltip de la fila y las tres quedan a 24px, alineadas con el resto del inspector.
+
+Prueba funcional tras el cambio: 22/22 pasos, 0 errores de consola.
+
+## ROUND 158 — Fuera "Snap to Grid" y fuera la lectura AZ/EL del visor
+
+El imán a la rejilla y el de los objetos convivían en el mismo botón. Como en Premiere, queda **sólo el imán
+entre clips y objetos**: `applySnap()` pierde su rama de rejilla, `snapGrid()` se renombra a `gridStepSec()`
+(sigue dibujando la rejilla del timeline, que es lo que era en realidad: un paso, no un imán) y el botón
+desaparece de la barra. Verificado: pedir 8.02s sigue pegando a 8.00 por el clip vecino.
+
+Del visor sale la lectura de azimut/elevación, que el prototipo no tiene y ocupaba el hueco que necesitaba la
+barra para no desbordar.
+
+## ROUND 157 — Cabecera de pista con márgenes y barra del visor con hueco de cámara fijo
+
+La cabecera pasa a dos filas en columna (`.lnrow` + `.autoctl`) con `padding:4px 8px 4px 10px`: en modo
+automatización los desplegables de identidad ya no tapan el nombre ni quedan pegados al borde. La altura mínima
+de pista en ese modo se limita para que quepan con margen; por debajo, la pista **colapsa entera**.
+
+En la barra del visor, el hueco de cámara se fija en 324px (lo que mide FOV+DOLLY): al alternar Orbit ↔ Viewer
+los botones que persisten ya no se desplazan, los nuevos se añaden a la derecha.
+
+## ROUND 156 — Pistas: sin resize individual, audio colapsable, y cabecera que no se rompe al seleccionar
+
+Se elimina el redimensionado pista a pista. Queda el triángulo de colapsar (**también en las de audio**, que lo
+tenían oculto por CSS desde R110) y **Alt+scroll** como única forma de agrandar o achicar, y afecta a todas a la
+vez. La extensión vertical del timeline se topa según la cantidad de pistas (`tlMaxH()`).
+
+Al seleccionar una pista, los `<select>` altos de `autoDuo` reemplazaban a las fichas y rompían la cabecera;
+ahora las fichas son siempre fichas y abren su menú con `openMenu`.
+
 ## ROUND 155 — Poda de modos duplicados, visores 3D en el launcher y menú Project
 
 Tanda dirigida por Beltrán sobre la marcha.

@@ -132,7 +132,7 @@
 | `renderInspector` | Reconstruye + sincroniza el inspector | app.js · `renderInspector`/`refreshInspector` | ✅ | [I1]/[I2] |
 | 6 secciones colapsables | Transform/Clip/**Source**/**Playback**/Color/Motion | app.js · `applySecCollapse` · #fxRows/#sourceRows/#playbackRows/#colorRows/#motionFx | ✅ | Rev1 §4 |
 | Toggles de Source/Playback | Switch `.iosw` (26×15, verde al on) — fila: etiqueta · descripción · switch | app.js · `swRow`/`swBind` (Source ~L2966) y `pbRow` (Playback ~L3072) | ✅ | R149 |
-| Filas de parámetro | Fader + diamante + arco de mod | app.js · `buildRows`/`startValDrag` · `.prow` | ✅ | [A1] |
+| Filas de parámetro | Fader (129px) + caja + UN diamante | app.js · `buildRows`/`startValDrag` · `.prow` | ✅ | R159 |
 | Máscara dropdown + PNG | Máscara shape/PNG + tamaño | app.js · `MASK_IDX` · #maskSel | ✅ | — |
 | Máscaras pen-tool | Multi máscara por puntos, invert/feather | app.js · `buildPenMaskUI`/`rasterizePenMasks` | ✅ | [I3] |
 | Editor de texto | Fuente/peso/alineación/fuentes propias | app.js · `renderTextMedia`/`loadCustomFont` | ✅ | [U8] |
@@ -489,10 +489,10 @@ separate subsystem — only cross-references appear here.
 - **Roadmap:** —
 
 ## Transport bar
-- **Purpose:** Playback + edit controls above the timeline: mark in/out, play, go start/end, automation REC, follow-playhead, timecode readout, TC/Frames toggle, loop, locator prev/add/next, Snap, Simple-clip, automation (curves) toggle, zoom in/out.
-- **Location:** index.html `.transport`. Handlers: `#tlZoomIn/#tlZoomOut`, `#prevMk/#addMk/#nextMk`, `#snapBtn`→`toggleSnap()` (L2346), `#simpleClipBtn`→`toggleSimpleClips()` (L2350), `#tlGridBtn` (~L5822), `#fitAllBtn`→`fitAll()` (~L5820).
-- **State owned:** `state.tl.pxPerSec`, `state.tl.snap`, `state.tl.simpleClips`, `state.tl.gridOn`, `state.loop`
-- **Key symbols:** `#seqTabs` (sequences, LEFT zone since R148), `#markIn/#markOut`, `#playBtn`, `#followBtn`, `#tc/#bbt`, `#tcModeSeg`, `#loopBtn`; edit well `#tlEditSeg` = `#simpleClipBtn` (Simple) · `#curvesBtn` (Auto, key A) · `#tlGridBtn` (Grid) · `#fitAllBtn` (Fit); `#snapBtn` sits outside the well.
+- **Purpose:** Playback + edit controls above the timeline: mark in/out, play, go start/end, automation REC, follow-playhead, timecode readout, TC/Frames toggle, loop, add locator, automation (curves) toggle, Fit, zoom in/out.
+- **Location:** index.html `.transport`. Handlers: `#tlZoomIn/#tlZoomOut`, `#addMk`, `#tlGridBtn`, `#fitAllBtn`→`fitAll()`.
+- **State owned:** `state.tl.pxPerSec`, `state.tl.gridOn`, `state.loop`
+- **Key symbols:** `#seqTabs` (sequences, LEFT zone since R148), `#markIn/#markOut`, `#playBtn`, `#followBtn`, `#tc/#bbt`, `#tcModeSeg`, `#loopBtn`; edit well `#tlEditSeg` = `#curvesBtn` (Auto, key A) · `#tlGridBtn` (Grid) · `#fitAllBtn` (Fit). **[R155]** `#simpleClipBtn` archived (Ableton grab mode gone). **[R158]** `#snapBtn` archived (grid snap gone). **[R159]** `#prevMk`/`#nextMk` gone — the design has one "Add locator"; `,` / `.` already navigate.
 - **Invariants / gotchas:** Zoom buttons clamp `pxPerSec` to [TL_PPS_MIN, TL_PPS_MAX]. `#curvesBtn` toggles `state.inlineCurves` (automation subsystem). **[R148 · Rev1]** design §5 layout = 3 zones: sequences (left) · transport (centre) · Simple/Auto/Grid/Fit + zoom (right). `state.tl.gridOn===false` hides the timeline grid lines (default = on, so old projects are unchanged); `fitAll()` fits the whole duration to the visible WIDTH only — track height is the V-zoom's job (the tooltip used to promise "H·W"; fixed R149). **[R149 · auditoría]** the bar is 28px on `--bar` (#242424 — the ONLY bar with that surface); `#tlEditSeg`, `.zoomgrp` and `#snapBtn` are all 22px wells with 16px buttons.
 - **Status:** ✅
 - **Roadmap:** [U1] (minimalist labels: Snap→"S" etc.), [U6] frames button removal
@@ -616,11 +616,11 @@ separate subsystem — only cross-references appear here.
 - **Roadmap:** —
 
 ## Snap — applySnap / snapTargets / grid
-- **Purpose:** Snapping of clip edges, playhead, markers to other clip edges / playhead / markers (always on) and to the grid (gated by the Snap button). Alt bypasses at call sites.
-- **Location:** app.js · `applySnap()` (L2353–2356), `snapTargets()` (L2335), `snapGrid()` (L2340), `showSnap()` (L2357), `gridSec()`/`gridBaseAdaptive()`/`gridLabel()` (L2337–2341), `toggleSnap()` (L2346). Grid controls `gridNarrow/gridWiden/gridToggleFixed` (L2343–2345).
-- **State owned:** `state.tl.snap` (default false, L80), `state.tl.gridDiv/gridFixed/gridFixedBase`
+- **Purpose:** Snapping of clip edges, playhead and markers to other clip edges / playhead / markers. Always on, like Premiere — **[R158]** there is no grid snap and no Snap button any more. Alt bypasses at call sites.
+- **Location:** app.js · `applySnap()`, `snapTargets()`, `showSnap()`, `gridStepSec()` (ex-`snapGrid`: it is the timeline grid STEP, not a snap), `gridSec()`/`gridBaseAdaptive()`/`gridLabel()`. Grid controls `gridNarrow/gridWiden/gridToggleFixed`.
+- **State owned:** `state.tl.gridDiv/gridFixed/gridFixedBase` (grid drawing only; `state.tl.snap` retired in R158)
 - **Key symbols:** snap tolerance `9/pxPerSec` px; `#snapline` (`.free` variant). Adaptive grid steps array (frame-aware).
-- **Invariants / gotchas:** Edge/playhead/marker snap is ALWAYS on ([R80b]); the Snap button gates ONLY the grid. `snapGrid` returns bars-grid unconditionally in bars mode, else grid only when `state.tl.snap`.
+- **Invariants / gotchas:** Edge/playhead/marker snap is ALWAYS on ([R80b], [R158]) and ungated. Tolerance stays `9/pxPerSec`. `gridStepSec()` only feeds the ruler/grid drawing — never `applySnap`.
 - **Status:** ✅
 - **Roadmap:** [T2] micro-snap-to-frame at extreme zoom
 
@@ -656,7 +656,7 @@ separate subsystem — only cross-references appear here.
 - **Purpose:** Named time markers drawn as dashed lines across tracks + labelled flags on the ruler; add / jump / rename / delete.
 - **Location:** app.js · `addMarker()` (L2196), `jumpMarker()` (L2206), marker lines in `renderTimeline` (L1981), inline rename `renameLocatorInline` (L2549), transport buttons (L5646), ruler context menu (L5930).
 - **State owned:** `state.markers[]` (`{id,time,name,color}`), `state.selMarkerId`
-- **Key symbols:** `#prevMk/#addMk/#nextMk`; dashed line z-index 5.
+- **Key symbols:** `#addMk` (single button, as in the design); `,` / `.` jump prev/next locator; dashed line z-index 5.
 - **Invariants / gotchas:** Markers are a snap target. Add drops straight into inline rename (deferred a tick so the triggering key doesn't type into the field). NOTE: `serProject` currently serializes `markers:[]` at top level (L5230) — active-sequence markers live in the nest media.
 - **Status:** ✅
 - **Roadmap:** —
@@ -1177,11 +1177,11 @@ El detalle de abajo queda como **historia** de cómo funcionaba, no como descrip
 - **Roadmap:** [I1]/[I2]
 
 ## Per-param rows (buildRows / value drag / keyframe diamond)
-- **Purpose:** Render one `.prow` per automatable parameter with a fader track, modulation-arc ring, number box, modulation button, and prev/diamond/next keyframe nav.
+- **Purpose:** Render one `.prow` per automatable parameter: label (60px) · fader track (~129px) · number box (42px) · ONE 20px keyframe diamond — the prototype row (RevDomo:286-290).
 - **Location:** app.js · `buildRows` L3164-3187 · `UNBOUNDED_P` L3188 · `editNumberBox` L3189-3193 · `startValDrag` L3233-3237 · `refreshInspector` value sync L3219-3227.
 - **State/data:** param defs from `TF`/`TF_FLAT`/`FX` (`[key,label,unit,min,max]`). `c.kf[p]` keyframe arrays, `c.props[p]` base values.
-- **Key symbols:** row markup `.lab/.field[data-p]/.track>i/.modarc/.box>.num/.modb/.nav`. Diamond `[data-k=add]`: click toggles keyframe at playhead (first reveals overlay via `openAuto`); right-click clears whole curve via `clearKf`+`closeAuto` (L3179). `startValDrag` drags the field (shift=fine, alt=coarse). `editNumberBox` dbl-click inline edit. Wheel on box steps value; field right-click resets to per-param default (L3185). `UNBOUNDED_P={x,y}` unclamped when typed/wheeled.
-- **Invariants / gotchas:** `.auto` class = param automated (Ableton-style bright label; stopwatch removed). Filled diamond = playhead on a keyframe (`kfAt`). `hasKf()` returns undefined not false → toggles use `!!`. Modulation ring (`.modarc --m0/--m1`) spans base vs resolved value.
+- **Key symbols:** row markup `.lab/.field[data-p]/.track>i/.box>.num/.nav>button[data-k=add]`. Diamond `[data-k=add]`: click toggles keyframe at playhead (first reveals overlay via `openAuto`); right-click clears whole curve via `clearKf`+`closeAuto` (L3179). `startValDrag` drags the field (shift=fine, alt=coarse). `editNumberBox` dbl-click inline edit. Wheel on box steps value; field right-click resets to per-param default (L3185). `UNBOUNDED_P={x,y}` unclamped when typed/wheeled.
+- **Invariants / gotchas:** `.auto` class = param automated (Ableton-style bright label; stopwatch removed). Filled diamond = playhead on a keyframe (`kfAt`). `hasKf()` returns undefined not false → toggles use `!!`. **[R155]** the modulation button/arc are archived (engine still evaluates modulation loaded from old `.isp`). **[R159]** prev/next keyframe buttons are gone — those 40px were what the fader was missing; jumping lives in `jumpAnyKf(dir)` on **Alt+, / Alt+.**, which walks every automated param of the selected clip.
 - **Status:** ✅
 - **Roadmap:** [A1]
 
