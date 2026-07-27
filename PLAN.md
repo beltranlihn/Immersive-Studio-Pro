@@ -1,5 +1,31 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 193 — El proxy baja a 2048, y aparece la limitación de verdad: no tiene alfa
+
+Beltrán: «el proxy lo ideal es que sea en baja calidad, si es para que corra rápido». Tiene razón, y además
+desbloquea lo importante: **«lienzo completo» era una petición sobre el ENCUADRE, no sobre los píxeles**, y R186
+las había juntado en una. El proxy conserva el encuadre entero pero baja la resolución con tope de 2048 en el
+lado largo. A 4096² esta máquina sólo ofrecía AV1/VP9 por software; a 2048² entra **H.264 por hardware**, y el
+visor no pasa de ~1000 px en pantalla, así que no se pierde nada visible.
+
+**Y midiendo eso apareció otra cosa.** Tres de cinco posiciones daban ~70 dB (perfectas) y dos daban 32 dB con
+desviación ~200. Reproducible en dos pasadas. Descarté por medición, una a una:
+
+- **Compresión** — horneado con el triple de bitrate: 32,23 → 32,25 dB. No es eso.
+- **Desfase de fotograma** — barrido de ±2 fotogramas: el mejor parecido está en 0. No es eso.
+- **Reencuadre** — el desplazamiento del centro de masa es de 2 px sobre 256. Tampoco.
+
+Volqué las imágenes y se vio a la primera: **el contenido y el encuadre son idénticos; lo que cambia es el
+fondo**. Sin proxy, fuera de los clips la composición es transparente. Con proxy, el disco entero es negro
+opaco. Un MP4 no lleva canal alfa, así que al hornear todo lo transparente se vuelve negro.
+
+Consecuencia real: **si el nido va encima de otra capa, el proxy la tapa**. Si es la capa de abajo o va sobre
+negro, no se nota — que es el caso de las composiciones en anillo. El arreglo de verdad es hornear con alfa
+(VP9 y AV1 lo admiten; también HAP Q Alpha).
+
+Anotado también el método: los tres primeros diagnósticos fueron hipótesis mías y los tres eran falsos. Lo
+resolvió mirar las dos imágenes, que costó menos que cualquiera de ellos.
+
 ## ROUND 192 — El proxy de composición vuelve: lo que estaba roto era mi forma de medirlo
 
 R186 retiró el proxy de composición de la interfaz porque, tras pasarlo a lienzo completo, medí una discrepancia

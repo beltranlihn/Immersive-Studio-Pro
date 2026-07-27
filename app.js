@@ -5713,8 +5713,18 @@ function ncBitrate(w,h,fps){ return Math.round(Math.max(8,Math.min(220, w*h*fps*
 /* [R186] El proxy es SIEMPRE el lienzo COMPLETO del nest. Antes ofrecía 1/2, 1/3 y 1/4, pero Beltrán lo va a
    usar siempre a tamaño completo y una opción que nadie toca es una decisión que le cobras al usuario por nada.
    Además desaparece la clase entera de errores de escala entre el caché y la composición recompuesta. */
-function ncFullSize(m){ const w=Math.max(16,Math.round((m.w||1920)/2)*2), h=Math.max(16,Math.round((m.h||1080)/2)*2);
-  return {w,h,s:Math.max(16,Math.round(Math.max(w,h)/2)*2)}; }
+/* [R193] El proxy conserva el ENCUADRE completo del lienzo pero baja la RESOLUCIÓN, con tope de 2048 en el lado
+   largo (nunca amplía). Son dos cosas distintas que R186 confundió en una: «lienzo completo» era una petición
+   sobre el encuadre, no sobre los píxeles. Bajar la resolución es lo que hace que el proxy cumpla su oficio:
+   · A 4096² esta máquina sólo ofrece AV1/VP9 POR SOFTWARE (medido: un nido de 20 s tarda ~200 s en hornearse).
+     A 2048² entra H.264 por HARDWARE, que es otra liga.
+   · Y no se pierde nada visible: el visor del domo no pasa de ~1000 px en pantalla, así que 2048² ya va sobrado.
+   El máster no se entera — `ncUsable()` es falso durante el export y todo se recompone desde las fuentes. */
+const NC_MAX=2048;
+function ncFullSize(m){ const cw=m.w||1920, ch=m.h||1080;
+  const k=Math.min(1, NC_MAX/Math.max(cw,ch));
+  const w=Math.max(16,Math.round(cw*k/2)*2), h=Math.max(16,Math.round(ch*k/2)*2);
+  return {w,h,s:Math.max(16,Math.round(Math.max(w,h)/2)*2),lienzo:cw+' × '+ch}; }
 async function ncDialog(m,opts){ return new Promise(resolve=>{
   const fps=m.fps||state.fps||60, dur=m.dur||1;
   const est=o=>{ const mb=ncBitrate(o.s,o.s,fps)/8*dur/1e6; return mb>=1000?(mb/1000).toFixed(2)+' GB':Math.max(1,Math.round(mb))+' MB'; };
@@ -5724,7 +5734,8 @@ async function ncDialog(m,opts){ return new Promise(resolve=>{
   ov.innerHTML=`<div class="modal" style="width:430px;"><div class="mh"><span style="color:var(--ink-2);display:flex;">${ICO('layers',16)}</span><span class="t">${T('Nest proxy','Proxy de composición')}</span></div><div class="mb">
     <div class="frow"><label>${T('Composition','Composición')}</label><span class="tnum" style="color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${(m.name||'').slice(0,34)}</span></div>
     <div class="frow"><label>${T('Length','Duración')}</label><span class="tnum" style="color:var(--ink-2);">${dur.toFixed(2)} s · ${fps} fps · ${(m.nestClips||[]).length} ${T('clips','clips')}</span></div>
-    <div class="frow"><label>${T('Proxy','Proxy')}</label><span class="tnum" style="color:var(--ink-2);">${opts.w} × ${opts.h} px · ${T('full canvas','lienzo completo')}${opts.codLabel?(' · '+opts.codLabel):''}</span></div>
+    <div class="frow"><label>${T('Proxy','Proxy')}</label><span class="tnum" style="color:var(--ink-2);">${opts.w} × ${opts.h} px${opts.codLabel?(' · '+opts.codLabel):''}</span></div>
+    <div class="frow"><label></label><span class="tnum" style="color:var(--ink-dim);font-size:11px;">${T('Full framing of the ','Encuadre completo del lienzo ')}${opts.lienzo||''}${T(' canvas, at lower resolution.',', a menor resolución.')}</span></div>
     ${opts.blando?`<div class="frow"><label></label><span style="color:#D89B3C;font-size:11px;line-height:1.45;">${T('At this size only software encoders are available, so baking is slow — measured about 10× the length of the composition. It runs once; after that the composition plays as a single video.','A este tamaño sólo hay codificadores por software, así que hornear es lento — medido, unas 10 veces la duración de la composición. Se hace una vez; después la composición se reproduce como un solo vídeo.')}</span></div>`:''}
     <div class="frow"><label></label><span id="ncInfo" class="tnum" style="color:var(--ink-dim);font-size:11px;"></span></div>
     <div style="font-size:11px;color:var(--ink-dim);margin-top:2px;line-height:1.5;">${T('Used only while editing, so the composition plays as ONE video instead of decoding every clip inside it. The final export always rebuilds it from the original sources — a PNG sequence stays lossless.','Se usa sólo mientras editas, para que la composición se reproduzca como UN vídeo en vez de decodificar cada clip de dentro. El export final siempre la reconstruye desde las fuentes originales — una secuencia PNG sigue siendo sin pérdida.')}</div>

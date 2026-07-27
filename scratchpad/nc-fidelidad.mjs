@@ -75,8 +75,10 @@ console.log('b · dos tiempos distintos (debe DIFERIR):', await evl(`(async()=>{
 // ---------- PASO 1: hornear el proxy ----------
 console.log('\n=== PASO 1 · hornear el proxy ===');
 console.log('codificadores disponibles a 4096²:', await evl(`(async()=>{ const c=await ripCodecOptions(4096,4096,60); return JSON.stringify(c.map(x=>x.kind+' ('+x.label+')')); })()`));
+const BPP = Number(process.argv[2] || 0);   // 0 = el bitrate que usa el programa; si se pasa otro, se fuerza
 console.log(await evl(`(async()=>{ const m=NC.nest();
   window.ncDialog=async(mm,opts)=>opts;                       // se acepta el dialogo sin persona delante
+  if(${BPP}>0){ window.ncBitrate=(w,h,f)=>Math.round(w*h*f*${BPP}/1e6)*1e6; }
   let usado=null; const orig=runExport; window.runExport=function(o){ usado=o.codec+' @ '+o.outW+'x'+o.outH; return orig(o); };
   const t0=performance.now(); await ncBuild(m); window.runExport=orig;
   const seg=(performance.now()-t0)/1000, n=Math.round((m.dur||1)*(m.fps||60));
@@ -85,14 +87,44 @@ console.log(await evl(`(async()=>{ const m=NC.nest();
 
 // ---------- PASO 2: la comparacion real ----------
 console.log('\n=== PASO 2 · con proxy vs recompuesto ===');
-for (const t of [0.3, 0.7, 1.1]) {
-  console.log('t=' + t + ':', await evl(`(async()=>{
-    state.view.useNestCache=false; disposeAllVinst(); const sin=await NC.cap(${t});
-    state.view.useNestCache=true;  disposeAllVinst(); const con=await NC.cap(${t});
-    return JSON.stringify({ sinCache:{conTex:sin.conTex,cacheEnUso:sin.cacheEnUso,luz:sin.luz},
-      conCache:{conTex:con.conTex,cacheEnUso:con.cacheEnUso,vidListo:con.vidListo,luz:con.luz},
-      cmp:NC.cmp(sin,con) }); })()`));
+/* Cada posición se mide DOS veces: una diferencia que aparece en una pasada y no en la otra es una carrera del
+   visor, no un defecto del proxy, y hay que saber cuál de las dos cosas es antes de opinar. */
+for (const t of [0.30, 0.50, 0.70, 0.90, 1.10]) {
+  console.log('t=' + t.toFixed(2) + ':', await evl(`(async()=>{
+    const una=async()=>{ state.view.useNestCache=false; disposeAllVinst(); const sin=await NC.cap(${t});
+                         state.view.useNestCache=true;  disposeAllVinst(); const con=await NC.cap(${t});
+                         return {c:NC.cmp(sin,con), v:con.vidListo, ct:con.conTex}; };
+    const a=await una(), b=await una();
+    const r=x=>x.c.psnr+' dB · maxDif '+x.c.maxDif+' · despl '+x.c.desplazamiento.x+'/'+x.c.desplazamiento.y;
+    return JSON.stringify({pasada1:r(a), pasada2:r(b),
+      veredicto:(Math.abs((+a.c.maxDif)-(+b.c.maxDif))>30)?'INTERMITENTE (carrera del arnes o del visor)':'estable'}); })()`));
 }
+
+/* ¿Es «otro encuadre» o «otro fotograma»? Se compara el proxy en t contra la composición recompuesta en
+   t-1/60, t y t+1/60. Si el mejor parecido NO está en t, el proxy va desfasado en el tiempo, no en el espacio. */
+console.log('\n=== PASO 3 · ¿desfase temporal? proxy en t vs recompuesto en t-1, t, t+1 ===');
+for (const t of [0.70, 0.90, 0.30]) {
+  console.log('t=' + t.toFixed(2) + ':', await evl(`(async()=>{
+    state.view.useNestCache=true; disposeAllVinst(); const con=await NC.cap(${t});
+    state.view.useNestCache=false; disposeAllVinst();
+    const out={};
+    for(const d of [-2,-1,0,1,2]){ const s=await NC.cap(${t}+d/60); out[(d>0?'+':'')+d]=NC.cmp(s,con).psnr; }
+    let mejor=null,mv=-1; for(const k in out){ const v=(out[k]==='INFINITO')?999:+out[k]; if(v>mv){mv=v;mejor=k;} }
+    return JSON.stringify({psnrPorFotograma:out, mejorEn:mejor,
+      veredicto:(mejor==='0')?'alineado':'DESFASE DE '+mejor+' FOTOGRAMA(S)'}); })()`));
+}
+
+/* Un PSNR no dice si el defecto es un matiz o un desastre. Se vuelcan las dos imágenes para mirarlas. */
+console.log('\n=== PASO 4 · volcado de imagenes (t bueno y t malo) ===');
+console.log(await evl(`(async()=>{
+  const guarda=async(nom)=>{ const N=640; const cv=document.createElement('canvas'); cv.width=N; cv.height=N;
+    cv.getContext('2d').drawImage(glc,0,0,N,N);
+    const b=await new Promise(r=>cv.toBlob(r,'image/png'));
+    await DSP.writeBinary('${WORK.replace(/\\/g, '\\\\')}\\\\'+nom+'.png', new Uint8Array(await b.arrayBuffer())); };
+  for(const t of [0.30,0.70]){
+    state.view.useNestCache=false; disposeAllVinst(); await NC.cap(t,64); await guarda('t'+t+'_SIN_proxy');
+    state.view.useNestCache=true;  disposeAllVinst(); await NC.cap(t,64); await guarda('t'+t+'_CON_proxy'); }
+  return 'escritas 4 imagenes'; })()`));
 
 console.log('\nerrores:', errs.length ? errs.slice(0, 8) : 'ninguno');
 try { ws.close(); } catch (_) { } try { p.kill('SIGKILL'); } catch (_) { }
