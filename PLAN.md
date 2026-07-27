@@ -1,5 +1,35 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 192 — El proxy de composición vuelve: lo que estaba roto era mi forma de medirlo
+
+R186 retiró el proxy de composición de la interfaz porque, tras pasarlo a lienzo completo, medí una discrepancia
+de encuadre contra la composición recompuesta: PSNR 26,6 y 7 px de desplazamiento. Con clientes entrando, una
+previsualización que reencuadra es peor que no tener el acelerador, así que lo escondí.
+
+**Esa medición era falsa.** Mi captura escribía `state.t` para mover el cabezal, y esa variable no existe — el
+cabezal es `state.playhead`. Las tres «posiciones» que comparaba eran el mismo fotograma congelado. Es la tercera
+vez que este componente me hace culpar al código teniendo el fallo en el test.
+
+Rehecho con un arnés que **se valida a sí mismo antes de comparar nada**: misma configuración dos veces debe dar
+capturas idénticas, y —esto es lo que faltaba— **dos instantes distintos deben dar capturas distintas**; si no,
+se aborta en vez de medir. Con esa red puesta, sobre el nido real de 6 clips en domo 4096², en tres posiciones:
+
+| | R186 (mal medido) | R192 (medido bien) |
+|---|---|---|
+| PSNR proxy vs recompuesto | 26,6 dB | **58 dB** |
+| Desplazamiento del centro de masa | 7 px sobre 32 | **≤ 0,22 px sobre 256** |
+
+Lo que queda es pérdida del códec, no reencuadre. **Repuestas las dos entradas de menú**, con la restricción a
+composiciones **cuadradas** ahora explícita en los menús y cerrada también dentro de `ncBuild`.
+
+**Y un coste que había que decir.** A 4096² esta máquina sólo ofrece AV1 y VP9, que codifican por software: un
+nido de 20 segundos tarda unos 200 en hornearse. El códec se elige antes de abrir el diálogo para poder
+anunciarlo ahí; sin ese aviso, quien pulsa «Generar» cree que el programa se ha colgado.
+
+Las composiciones no cuadradas siguen bloqueadas. Queda una pista concreta y sin verificar: la rama `flat` de
+`renderExportFrame` recorta el letterbox sin comprobar `_ncSquare`, aunque el comentario de encima dice que al
+hornear un nido hay que conservarlo.
+
 ## ROUND 191 — H.265 vuelve, y los límites se dicen en vez de esconderse
 
 Beltrán quiere poder sacar un MP4 ligero para revisar. R185 había retirado H.265 del todo y, además, **ocultaba**
