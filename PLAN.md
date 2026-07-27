@@ -1,5 +1,55 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 189 — El export deja de reposicionar vídeos: 90→1037 ms se convierte en 1 ms plano
+
+**El dato de Beltrán.** «Exporté 3 segundos de un compose con 24 clips y se demoró casi 22 minutos.» Son 180
+fotogramas en 1320 s: **7,3 s por fotograma**, o **~305 ms por clip y fotograma**. Encajaba exactamente con la
+curva medida en R188, y explicaba por qué la deduplicación de R188 no le sirvió: sólo agrupa clips que piden el
+MISMO fotograma del MISMO archivo (un anillo de copias). Veinticuatro clips distintos no comparten nada.
+
+**La causa, que ya estaba anotada sin arreglar.** `<video>.currentTime = t` redecodifica desde el fotograma
+clave anterior en cada llamada. Como el export avanza en orden, la distancia a ese fotograma clave crece con
+cada fotograma y el coste con ella: O(n²) por GOP, multiplicado por cada clip dibujado.
+
+**El arreglo: el export decodifica por WebCodecs secuencial** (`_exCD`). Es el motor de R108, que llevaba
+apagado desde entonces porque el bucle de reproducción de 60 fps hambrea sus bombas de decodificación en el
+hilo principal. Ese motivo no existe en el export: no hay plazo, avanza un fotograma y espera, así que puede
+bombear cuanto haga falta. Cada muestra del archivo se lee una vez.
+
+**Medido — 24 clips distintos, 4096²@60, 60 fotogramas:**
+
+| | `<video>` | WebCodecs |
+|---|---|---|
+| posicionamiento, fotograma 1 | 90 ms | 652 ms (arranque) |
+| posicionamiento, fotograma 60 | 1037 ms | **1 ms** |
+| media por fotograma | 895 ms | 207 ms |
+| fps | 1,12 | 4,83 |
+
+Lo que queda (207 ms) es comprimir el PNG y componer: trabajo real, no espera.
+
+**Tres trampas encontradas midiendo, no razonando.** Ninguna se habría visto sin comparar los másters:
+
+1. **Aceptar el fotograma «suficientemente cercano» daba másters distintos entre pasadas.** Cuando el fotograma
+   correcto aún no ha salido del decodificador, el anterior cumple la tolerancia y se escribe en su lugar. La
+   única condición válida es que el fotograma exacto ya esté decodificado.
+2. **`<video>` no elige «el último fotograma que empieza antes de t».** Trunca el instante a microsegundos
+   enteros y lo compara con el arranque **exacto** del fotograma: al pedir 33333,33 devuelve el fotograma 1, no
+   el 2. Dos reglas más sencillas desalineaban uno de cada tres fotogramas.
+3. **Un anillo corto se bloquea solo.** El decodificador por hardware retiene fotogramas antes de emitir el
+   primero; alimentaba 6 muestras y esperaba para siempre una salida que nunca llegaba.
+
+**Y un cuelgue latente, encontrado al revisar el propio cambio.** `seekExport` pide todos los clips dibujados de
+un fotograma a la vez, pero el tope de instancias vivas era 32: con una composición de más de 32 clips
+simultáneos, el bucle desalojaba instancias que estaba esperando en ese mismo instante. Por el camino de
+`<video>` eso no ralentiza el export, lo **cuelga para siempre**. Llevaba ahí desde antes de esta ronda. El tope
+pasa a ser el que ese fotograma necesita. Probado con 40 clips: ambos caminos terminan.
+
+**Fidelidad verificada, no supuesta.** Cuatro exports (dos por camino) comparados por PSNR fotograma a
+fotograma: cada camino es determinista consigo mismo y entre caminos todo sale idéntico salvo diferencias de un
+nivel, el mismo ruido que `<video>` tiene contra sí mismo. HEVC 10 bits comprobado aparte textura contra
+textura: idéntico. Repliegue a `<video>` (lento pero correcto) si la pista viene rotada por metadatos, el
+contenedor no se entiende, el decodificador muere o pasan 10 s sin fotograma.
+
 ## ROUND 180 — El proxy de composición: 2,6 → 15,8 fps
 
 **La herramienta equivocada.** Beltrán quería render-in-place para que una composición de domo con 15 clips

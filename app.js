@@ -4902,6 +4902,13 @@ async function demuxMP4(path){
     let stbl=null,mdhd=null;
     for(const trak of boxes(moov.hs,moov.size).filter(b=>b.t==='trak')){
       const mdia=kid(trak,'mdia'); if(!mdia)continue; const hdlr=kid(mdia,'hdlr'); if(!hdlr||fc(mv,hdlr.d+8)!=='vide')continue;
+      /* [R189] `<video>` aplica la matriz de presentación del contenedor; este demuxador entrega las muestras
+         crudas, así que un clip grabado en vertical (girado 90° por metadatos, como los de móvil) saldría
+         tumbado. Si la matriz no es la identidad se rechaza el medio y se decodifica por <video>, que es lento
+         pero respeta la orientación. */
+      const tkhd=kid(trak,'tkhd');
+      if(tkhd){ const mo=tkhd.d+4+((dv.getUint8(tkhd.d)===1)?32:20)+16; // v0: creation+modification+trackID+reserved+duration = 20 · v1 = 32 · luego reserved(8)+layer+altGroup+volume+reserved = 16
+        if(mo+36<=tkhd.e && !(dv.getInt32(mo)===0x10000 && dv.getInt32(mo+4)===0 && dv.getInt32(mo+12)===0 && dv.getInt32(mo+16)===0x10000)) throw new Error('rotated track'); }
       mdhd=kid(mdia,'mdhd'); const minf=kid(mdia,'minf'); const s=minf&&kid(minf,'stbl'); if(s){ stbl=s; break; } }
     if(!stbl||!mdhd) throw new Error('no video track');
     const timescale=(dv.getUint8(mdhd.d)===1)?dv.getUint32(mdhd.d+20):dv.getUint32(mdhd.d+12);
@@ -4920,7 +4927,10 @@ async function demuxMP4(path){
     const cto=new Array(sc).fill(0); if(ctts){ let ne=dv.getUint32(ctts.d+4),o=ctts.d+8,si=0; for(let e=0;e<ne;e++){ const cnt=dv.getUint32(o),off=dv.getInt32(o+4); o+=8; for(let k=0;k<cnt&&si<sc;k++)cto[si++]=off; } }
     const spcFor=(ci)=>{ let spc=sE[0].spc; for(const e of sE){ if((e.first-1)<=ci)spc=e.spc; else break; } return spc; };
     const offs=new Array(sc); { let si=0; for(let ci=0;ci<chn&&si<sc;ci++){ let off=choff[ci]; const spc=spcFor(ci); for(let k=0;k<spc&&si<sc;k++){ offs[si]=off; off+=sizes[si]; si++; } } }
-    const samples=new Array(sc); for(let i=0;i<sc;i++)samples[i]={offset:offs[i],size:sizes[i],key:key.has(i),pts:Math.round((dts[i]+cto[i])*1e6/timescale)};
+    /* [R189] `pts` (microsegundo entero) es lo que hay que entregarle al decodificador, pero REDONDEA: a 60 fps el
+       fotograma 2 arranca en 33333,33 y se guarda como 33333. `ptsExact` conserva el valor sin redondear, que es
+       el único con el que se puede reproducir la elección de fotograma de <video> (ver `keyForTime`). */
+    const samples=new Array(sc); for(let i=0;i<sc;i++){ const x=(dts[i]+cto[i])*1e6/timescale; samples[i]={offset:offs[i],size:sizes[i],key:key.has(i),pts:Math.round(x),ptsExact:x}; }
     const durSec=((dts[sc-1]||0))/timescale; const fps=(sc>1&&durSec>0)?((sc-1)/durSec):30;
     return { path, codec, fmt, description, codedWidth, codedHeight, timescale, fps, samples,
              readSample:(i)=>rd(samples[i].offset,samples[i].size), readRange:(pos,len)=>rd(pos,len), close:()=>{ try{ DSP.closeRead(id); }catch(e){} } };
@@ -4932,12 +4942,29 @@ async function demuxMP4(path){
    evicts behind; seeks reset to the keyframe before the target; a run of decode errors marks it dead → the caller
    falls back to <video>. Measured: 4 concurrent on the same HEVC10 1080p60 source → 97–100% frame-hit, <1-frame
    lag, ~10 frames cached each. This is what lets us play 4 walls with NO proxy where <video> collapsed at the 4th. */
-function makeClipDecoder(d){
+function makeClipDecoder(d,ex){
   const N=d.samples.length;
   const order=Array.from({length:N},(_,i)=>i).sort((a,b)=>d.samples[a].pts-d.samples[b].pts);
   const dispPts=order.map(i=>d.samples[i].pts);
+  /* [R189] `keyForTime` reproduce EXACTAMENTE cómo elige fotograma `<video>.currentTime = t`, que no es un simple
+     "el último que empiece antes de t". MEDIDO sobre el archivo real (60 fps, 10 instantes): <video> TRUNCA el
+     instante pedido a microsegundos enteros y lo compara con el arranque EXACTO (sin redondear) del fotograma.
+     Por eso al pedir 33333,33 µs devuelve el fotograma 1 y no el 2: trunca a 33333, que cae justo por debajo del
+     arranque real del 2 (33333,33). Cualquier otra regla desalinea uno de cada tres fotogramas — probado con dos
+     variantes previas, ambas con PSNR 45-50 dB contra <video> en distintos fotogramas.
+     Devuelve el `pts` REDONDEADO, que es la clave con la que el decodificador etiqueta sus fotogramas. */
+  const dispX=order.map(i=>d.samples[i].ptsExact), baseX=dispX.length?dispX[0]:0;
+  const keyForTime=(t0)=>{ const tt=Math.floor(t0); let lo=0,hi=N-1,res=0;
+    while(lo<=hi){ const mid=(lo+hi)>>1; if(dispX[mid]-baseX<=tt){ res=mid; lo=mid+1; } else hi=mid-1; } return dispPts[res]; };
   const frameDur=Math.max(1,Math.round(1e6/(d.fps||30)));
-  const AHEAD=18*frameDur, BEHIND=16*frameDur, CAP=72, GOP_SKIP=90; // BEHIND ~0.25s tolerates GPU-shared decode latency (NVDEC vs WebGL) so delayed frames survive eviction
+  /* [R189] anillo CORTO en export: allí puede haber 24 decodificadores vivos a la vez y el anillo de
+     previsualización (72 fotogramas) serían ~9 GB de VideoFrame. El export tampoco necesita colchón: avanza
+     un fotograma por vez y espera, así que le basta con ver un poco por delante.
+     MINC es imprescindible: el decodificador por hardware retiene varios fotogramas antes de emitir el primero,
+     así que un anillo corto por SÍ SOLO se bloquea (medido: alimenta 6 muestras, se detiene por AHEAD y espera
+     para siempre una salida que nunca llega). Alimentar mientras la caché esté por debajo de MINC rompe ese
+     bloqueo sin depender de cuánto retenga el decodificador. */
+  const AHEAD=(ex?6:18)*frameDur, BEHIND=(ex?2:16)*frameDur, CAP=(ex?24:72), MINC=(ex?6:0), GOP_SKIP=90; // BEHIND ~0.25s tolerates GPU-shared decode latency (NVDEC vs WebGL) so delayed frames survive eviction
   const keyBefore=(di)=>{ for(let i=di;i>=0;i--)if(d.samples[i].key)return i; return 0; };
   const decIdxForTime=(t)=>{ let lo=0,hi=N-1,res=0; while(lo<=hi){const m=(lo+hi)>>1; if(dispPts[m]<=t){res=m;lo=m+1;}else hi=m-1;} return order[res]; };
   const cache=new Map(); let dec=null, feed=0, feedBase=0, feedBasePts=0, lastFedPts=-1, closed=false, dead=false, targetUs=0, err=null, fails=0, prevT=0;
@@ -4969,7 +4996,7 @@ function makeClipDecoder(d){
     else if(back && targetUs<feedBasePts-frameDur){ let have=false; for(const ts of cache.keys()){ if(ts<=targetUs&&ts>=targetUs-2*frameDur){have=true;break;} } if(!have)resetTo(decIdxForTime(targetUs)); } // backward BEFORE our decode start → reset only if the frame isn't still cached
     prevT=targetUs;
     let n=0;
-    while(feed<N && dec.decodeQueueSize<12 && (lastFedPts<0||lastFedPts<targetUs+AHEAD) && n<96){
+    while(feed<N && dec.decodeQueueSize<12 && (lastFedPts<0||lastFedPts<targetUs+AHEAD||cache.size<MINC) && n<96){
       const s=d.samples[feed]; if(!inBuf(s))break;                                                  // buffer exhausted → the keeper refills; resume next call
       const data=bufData.subarray(s.offset-bufStart, s.offset+s.size-bufStart);
       try{ dec.decode(new EncodedVideoChunk({type:s.key?'key':'delta',timestamp:s.pts,data})); }catch(e){ err=String(e); }
@@ -4977,14 +5004,24 @@ function makeClipDecoder(d){
     }
     evict(); };
   (async function keeper(){ while(!closed){ try{
-    if(!dead && dec && feed<N && !inBuf(d.samples[feed]) && (lastFedPts<0||lastFedPts<targetUs+AHEAD)){ await ensureBuf(feed); if(closed)break; }
+    if(!dead && dec && feed<N && !inBuf(d.samples[feed]) && (lastFedPts<0||lastFedPts<targetUs+AHEAD||cache.size<MINC)){ await ensureBuf(feed); if(closed)break; } // misma cláusula MINC que el feed: si no, el relleno del búfer se bloquea por el mismo motivo
     step();
   }catch(e){ err=String(e); await delay(20); } await delay(4); } })();
   return {
     width:d.codedWidth, height:d.codedHeight, fps:d.fps, codec:d.codec,
-    setTarget:(t)=>{ targetUs=Math.max(0,t); },
+    setTarget:(t)=>{ targetUs=keyForTime(Math.max(0,t)); },
     pump:()=>{ try{ step(); }catch(e){} },
-    frameAt:(t)=>{ let best=-1; for(const ts of cache.keys()){ if(ts<=t&&ts>best)best=ts; } return best>=0?cache.get(best):null; },
+    frameAt:(t0)=>{ const k=keyForTime(Math.max(0,t0)); const f=cache.get(k); if(f)return f;
+      let best=-1; for(const ts of cache.keys()){ if(ts<=k&&ts>best)best=ts; } return best>=0?cache.get(best):null; },
+    /* [R189] para el EXPORT, donde entregar el fotograma equivocado en silencio es inaceptable, se sabe con
+       nombre y apellido QUÉ fotograma toca (`keyForTime`), así que no hay que adivinar:
+       · `passed(t)` = ese fotograma exacto ya está decodificado (o se acabó el archivo y la cola está vacía).
+       · `frameNear(t)` = ese fotograma; los repliegues sólo entran si el archivo se terminó. */
+    frameDurUs:frameDur,
+    passed:(t0)=>{ if(cache.has(keyForTime(Math.max(0,t0))))return true; return feed>=N && !!dec && dec.decodeQueueSize===0; },
+    frameNear:(t0)=>{ const k=keyForTime(Math.max(0,t0)); const f=cache.get(k); if(f)return f;
+      let b=-1, fw=Infinity; for(const ts of cache.keys()){ if(ts<=k){ if(ts>b)b=ts; } else if(ts<fw)fw=ts; }
+      if(b>=0)return cache.get(b); return fw<Infinity?cache.get(fw):null; },
     isDead:()=>dead, stats:()=>({cache:cache.size, feed, dead, err, resets}),
     close:()=>{ closed=true; if(dec){try{dec.close();}catch(e){}} for(const[,f]of cache){try{f.close();}catch(e){}} cache.clear(); try{d.close();}catch(e){} }
   };
@@ -5004,10 +5041,19 @@ function _vinstUrl(m){ if(m&&m.kind==='nest') return ncUsable(m)?m.ncUrl:null; /
 /* [R108·E4] use the WebCodecs ClipDecoder when this clip would otherwise decode the ORIGINAL heavy file through a
    <video> element (no usable proxy) — the exact case where the 4th <video> decoder collapses. Proxied playback keeps
    the proven <video> path; a demux/codec failure sets m._cdFail → permanent fallback to <video> for that media. */
-function _useCD(m){ if(!state.view.wcDecode)return false; // [R108] engine complete + verified in isolation (4× HEVC10 @60fps, ring full), but the in-app playback loop starves the decode pumps on the main thread → OFF by default until that's moved off-thread (worker) / root-caused. Flip state.view.wcDecode=true to try it.
-  if(!(IS_ELEC && HAS_WEBCODECS && !_exportQuality))return false;
+/* [R189] El EXPORT lo usa SIEMPRE (`_exCD`), que es justo al revés que la previsualización. El motivo por el que
+   R108 quedó apagado —"el bucle de reproducción hambrea las bombas de decodificación en el hilo principal"— no
+   existe aquí: el export no tiene plazo de 60fps, avanza un fotograma y ESPERA, así que puede bombear el
+   decodificador todo lo que haga falta. Y es exactamente el caso que mata a `<video>`: fijar `currentTime` obliga
+   a redecodificar DESDE EL FOTOGRAMA CLAVE ANTERIOR en cada llamada, de modo que el coste crece dentro de cada GOP
+   (medido: 90 ms en el fotograma 1 → ~900 ms en el 24) y se multiplica por cada clip dibujado. El decodificador
+   secuencial lee cada muestra UNA vez. */
+let _exCD=false;
+function _useCD(m){ if(!(_exCD||state.view.wcDecode))return false; // [R108] engine complete + verified in isolation (4× HEVC10 @60fps, ring full), but the in-app playback loop starves the decode pumps on the main thread → OFF by default until that's moved off-thread (worker) / root-caused. Flip state.view.wcDecode=true to try it.
+  if(!(IS_ELEC && HAS_WEBCODECS && (_exCD || !_exportQuality)))return false;
   if(!m||m.kind!=='video'||!m.path||m._cdFail)return false;
   if(/\.dsp-proxy-\w+\.mp4$/i.test(m.path))return false;                                   // a proxy is light — <video> handles it
+  if(_exCD)return true;                                                                    // en export no hay proxy que valga: se entrega desde el original
   const usingProxy=(state.view.useProxy!==false && m.proxyReady && m.proxyUrl); return !usingProxy; }
 function vinstEnsure(c,m){ if(!m||(m.kind!=='video' && !(m.kind==='nest'&&ncUsable(m))))return null; const url=_vinstUrl(m); if(!url)return null; // [R180] nests cacheados incluidos (_useCD exige kind==='video', así que van por <video>, que es lo correcto para un archivo ligero)
   let vi=_vinst.get(c.id);
@@ -5015,7 +5061,8 @@ function vinstEnsure(c,m){ if(!m||(m.kind!=='video' && !(m.kind==='nest'&&ncUsab
   vi.last=++_vinstClock;
   if(_useCD(m)){ // WebCodecs path: kick off the demux once; the <video> stays unbound (no second decoder competing)
     if(!vi.cd && !vi.cdPending){ vi.cdPending=true;
-      vi.cdReadyP=demuxMP4(m.path).then(dd=>{ if(_vinst.get(c.id)!==vi){ try{dd.close();}catch(e){} return; } vi.cd=makeClipDecoder(dd); }).catch(e=>{ m._cdFail=true; }).finally(()=>{ vi.cdPending=false; }); } // [R108-rev M1] compare IDENTITY not has(): a recycled vi (LRU dispose + re-add mid-demux) would orphan a zombie decoder (fd + VideoFrame leak + spinning pump)
+      const exNow=_exCD;
+      vi.cdReadyP=demuxMP4(m.path).then(dd=>{ if(_vinst.get(c.id)!==vi){ try{dd.close();}catch(e){} return; } vi.cd=makeClipDecoder(dd,exNow); }).catch(e=>{ m._cdFail=true; }).finally(()=>{ vi.cdPending=false; }); } // [R108-rev M1] compare IDENTITY not has(): a recycled vi (LRU dispose + re-add mid-demux) would orphan a zombie decoder (fd + VideoFrame leak + spinning pump)
   } else {
     if(vi.cd){ try{vi.cd.close();}catch(e){} vi.cd=null; }                                  // fell back to <video> (proxy became ready / export)
     if(vi.vsrc!==url){ vi.vsrc=url; vi.ready=false; try{vi.vel.pause();}catch(e){} vi.vel.src=url;
@@ -5023,7 +5070,13 @@ function vinstEnsure(c,m){ if(!m||(m.kind!=='video' && !(m.kind==='nest'&&ncUsab
   }
   vinstCap();
   return vi; }
-function vinstCap(){ if(_vinst.size<=VINST_MAX)return; const arr=[..._vinst.entries()].sort((a,b)=>a[1].last-b[1].last); for(let i=0;i<arr.length&&_vinst.size>VINST_MAX;i++) vinstDispose(arr[i][0]); }
+/* [R189] El tope es MAYOR durante el export: `seekExport` pide todos los clips dibujados de un fotograma A LA VEZ,
+   así que si hay más de VINST_MAX el propio bucle destruye instancias que está esperando en ese mismo instante.
+   Por el camino de <video> eso CUELGA el export para siempre (el `seeked` que se espera nunca llega porque el
+   elemento se desmontó); por el de WebCodecs sería un reintento dando vueltas. `seekExport` sube el tope a lo que
+   ese fotograma necesita y el final del export lo devuelve a VINST_MAX. */
+let _vinstCap=VINST_MAX;
+function vinstCap(){ if(_vinst.size<=_vinstCap)return; const arr=[..._vinst.entries()].sort((a,b)=>a[1].last-b[1].last); for(let i=0;i<arr.length&&_vinst.size>_vinstCap;i++) vinstDispose(arr[i][0]); }
 function vinstDispose(id){ const vi=_vinst.get(id); if(!vi)return; if(vi.cd){try{vi.cd.close();}catch(e){} vi.cd=null;} if(vi.vf&&vi.vel&&vi.vel.cancelVideoFrameCallback){try{vi.vel.cancelVideoFrameCallback(vi.vf);}catch(e){}} try{vi.vel.pause();}catch(e){} try{vi.vel.removeAttribute('src');vi.vel.load();}catch(e){} if(vi.ael){try{vi.ael.pause();vi.ael.removeAttribute('src');vi.ael.load();}catch(e){}} if(vi.vtex){try{gl.deleteTexture(vi.vtex);}catch(e){}} _vinst.delete(id); }
 /* [R92-T2 C1] per-clip <audio> element for PREVIEW sound of video clips. Always bound to the ORIGINAL file
    (proxies carry no audio track); decodes only the audio stream, so it's cheap even on a 12GB movie.
@@ -5044,9 +5097,36 @@ function disposeAllVinst(){ for(const id of [..._vinst.keys()]) vinstDispose(id)
 function reconcileVinst(){ if(!_vinst.size)return; const live=new Set(); for(const c of state.clips)live.add(c.id); for(const s of state.media)if(s.kind==='nest'&&s.nestClips)for(const c of s.nestClips)live.add(c.id); for(const id of [..._vinst.keys()])if(!live.has(id))vinstDispose(id); }
 function vinstSeek(c,m,local){ const vi=vinstEnsure(c,m); if(!vi)return Promise.resolve();
   if(vi.cd||vi.cdPending){ // [R108·E5] WebCodecs scrub: point the decoder at the target and wait (briefly) for the frame
-    const seekCD=()=>{ if(vi.cd&&vi.cd.isDead()){ try{vi.cd.close();}catch(e){} vi.cd=null; m._cdFail=true; } if(!vi.cd)return Promise.resolve(); const tus=Math.max(0,(local||0)*1e6); vi.cd.setTarget(tus); // [R108-rev M2] a decoder that died while paused/scrubbing must be torn down + flagged for <video> fallback (driveCD only runs while playing)
+    const seekCD=()=>{ if(vi.cd&&vi.cd.isDead()){ try{vi.cd.close();}catch(e){} vi.cd=null; m._cdFail=true; } // [R108-rev M2] a decoder that died while paused/scrubbing must be torn down + flagged for <video> fallback (driveCD only runs while playing)
+      if(!vi.cd)return _exCD?vinstSeekVideo(c,m,local):Promise.resolve();
+      if(_exCD)return seekCDExport(vi,c,m,local);
+      const tus=Math.max(0,(local||0)*1e6); vi.cd.setTarget(tus);
       return new Promise(res=>{ let n=0; const tick=()=>{ if(!vi.cd){res();return;} const f=vi.cd.frameAt(tus); if(f){ upTex(vi.vtex,f); vi.ready=true; res(); } else if(++n>90){ res(); } else requestAnimationFrame(tick); }; tick(); }); };
     return (vi.cd?Promise.resolve():(vi.cdReadyP||Promise.resolve())).then(seekCD); }
+  return vinstSeekVideo(c,m,local); }
+/* [R189] Espera ESTRICTA para el export. La rama de previsualización se rinde tras 90 rAF y resuelve SIN fotograma:
+   en reproducción eso es un salto, pero en un máster sería un fotograma equivocado escrito en silencio, que es
+   inaceptable. Aquí no se acepta nada hasta que la decodificación haya REBASADO el instante pedido (`passed`), que
+   es lo que garantiza que el mejor fotograma ≤ t ya es definitivo. Si el decodificador muere o se atasca, no se
+   entrega un fotograma dudoso: se marca el medio y se rehace el posicionamiento por <video>, que es lento pero
+   correcto. */
+function seekCDExport(vi,c,m,local){
+  const cd=vi.cd, tus=Math.max(0,(local||0)*1e6); cd.setTarget(tus); const t0=performance.now();
+  const rendirse=(res)=>{ try{cd.close();}catch(e){} if(vi.cd===cd)vi.cd=null; m._cdFail=true; res(vinstSeekVideo(c,m,local)); };
+  return new Promise(res=>{ const tick=()=>{
+    if(vi.cd!==cd){ res(vinstSeek(c,m,local)); return; }                      // el decodificador fue reemplazado bajo nuestros pies → reintentar por la puerta principal (vinstSeekVideo no serviría: se desentiende si hay un decodificador vivo)
+    try{ cd.pump(); }catch(e){}
+    if(cd.isDead()){ rendirse(res); return; }
+    /* La ÚNICA condición de aceptación es `passed`. Se intentó además un atajo por cercanía ("si el fotograma
+       en caché está a menos de 1,5 de distancia, vale") y era falso: cuando el fotograma correcto todavía no ha
+       salido del decodificador, el anterior cumple esa distancia y se escribía en su lugar. Medido: el mismo
+       export daba másters DISTINTOS entre pasadas (PSNR 36-40 dB, desviación máxima 240) — un desfase de un
+       fotograma. Con `passed` a secas: idéntico a <video>, bit a bit. */
+    const f=cd.passed(tus)?cd.frameNear(tus):null;
+    if(f){ try{ upTex(vi.vtex,f); vi.ready=true; res(); return; }catch(e){ rendirse(res); return; } }
+    if(performance.now()-t0>10000){ rendirse(res); return; }                  // 10 s sin fotograma = está roto, no lento
+    setTimeout(tick,0); }; tick(); }); }
+function vinstSeekVideo(c,m,local){ const vi=vinstEnsure(c,m); if(!vi||vi.cd)return Promise.resolve();
   return (vi.loadP||Promise.resolve()).then(()=>new Promise(res=>{ const v=vi.vel; if(!v){res();return;}
     const t=Math.max(0,Math.min((v.duration||0)-1e-3, local||0));
     if(Math.abs(v.currentTime-t)<1e-3 && v.readyState>=2){ upTex(vi.vtex,v); vi.ready=true; requestAnimationFrame(()=>res()); return; }
@@ -5147,6 +5227,7 @@ function ploop(){ if(!state.playing)return; const now=performance.now(),dt=(now-
    reposicionar un vídeo ~80. Si los tiempos locales difieren no hay grupo y el comportamiento es el de siempre. */
 async function seekExport(t){
   const drawn=collectDrawnVideoClips(state.clips,state.lanes,t,0,[]);
+  if(drawn.length+2>_vinstCap)_vinstCap=drawn.length+2;   // [R189] ninguna instancia que este fotograma necesita puede ser desalojada mientras se la espera
   const grupos=new Map();
   for(const d of drawn){ const k=d.m.id+'@'+Math.round((d.local||0)*1000); // milésima: dos clips en el mismo fotograma son el mismo fotograma
     let g=grupos.get(k); if(!g){ g=[]; grupos.set(k,g); } g.push(d); }
@@ -5293,7 +5374,12 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
   if(opt.outW&&opt.outH&&!wall){ eW=Math.max(16,Math.round(opt.outW/2)*2); eH=Math.max(16,Math.round(opt.outH/2)*2); qRes=Math.max(eW,eH); dimStr=eW+'x'+eH; } // [R180] salida a escala: el caché de un nest se hornea a media resolución (o menos) — es material de trabajo, no de entrega
   const filePre=wall?('wall_'+String(wall.role||'').toLowerCase()):(flat?'2d':'dome');
   const job=opt.job; const oW=glc.width,oH=glc.height; if(state.playing)pause(); // never export over a live transport — the playback rAF loop and the export seeker would fight over the media elements
-  exporting=true; _exportQuality=true; _ncSquare=!!opt.squareNest; try{ if($('#renderMask'))$('#renderMask').classList.add('on'); }catch(_){} // [R2] mask the viewport while glc is resized to export dims (else it shows a stretched stale frame)
+  exporting=true; _exportQuality=true; _ncSquare=!!opt.squareNest;
+  /* [R189] el export decodifica por WebCodecs secuencial, no por <video>. Se tiran las instancias de
+     previsualización PRIMERO: si no, cada clip arrastraría su <video> ya cargado (memoria muerta) junto al
+     decodificador nuevo. */
+  _exCD=(IS_ELEC && HAS_WEBCODECS && opt.wcDecode!==false); if(_exCD)disposeAllVinst();
+  try{ if($('#renderMask'))$('#renderMask').classList.add('on'); }catch(_){} // [R2] mask the viewport while glc is resized to export dims (else it shows a stretched stale frame)
   _drawFlat=flat; _roomWrap=isRoom(); _compAspect=(state.seqW||1)/(state.seqH||1); glc.width=eW;glc.height=eH; try{fxResetHistory();}catch(e){} // fresh feedback buffers → export is byte-deterministic regardless of prior scrub state
   /* Los nests se componen a la resolución del export (×SSAA, con tope del límite de la GPU) para que los
      rellenos de domo y las retículas no queden capados a 2048 y luego ampliados.
@@ -5412,7 +5498,7 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
       _exStage='save-dialog';
       const canStream=IS_ELEC && !!DSP.fileOpen && !!DSP.saveFile;
       let streamPath=null,fileId=null,wq=Promise.resolve(),wErr=null,pending=0;
-      if(canStream){ streamPath=opt.outPath||await DSP.saveFile(fn,'mp4','MP4 video'); if(!streamPath){ if(_ripSaved)state.clips=_ripSaved; try{ if($('#renderMask'))$('#renderMask').classList.remove('on'); }catch(_){} glc.width=oW;glc.height=oH; freeExportFBO(); nestSize=COMP; freeNestPool(); exporting=false; _exportQuality=false; _ncSquare=false; disposeAllVinst(); for(const m of state.media)if(m._exAudio)delete m._exAudio; if(_rsSeq)switchSeq(_rsSeq); resize(); try{scrubRender();}catch(_){} job.done(true); return; } fileId=await DSP.fileOpen(streamPath); } // FULL cleanup on this early return — it used to leak _exportQuality=true (viewer stuck binding heavy originals: "the editor went crazy after export")
+      if(canStream){ streamPath=opt.outPath||await DSP.saveFile(fn,'mp4','MP4 video'); if(!streamPath){ if(_ripSaved)state.clips=_ripSaved; try{ if($('#renderMask'))$('#renderMask').classList.remove('on'); }catch(_){} glc.width=oW;glc.height=oH; freeExportFBO(); nestSize=COMP; freeNestPool(); exporting=false; _exportQuality=false; _exCD=false; _vinstCap=VINST_MAX; _ncSquare=false; disposeAllVinst(); for(const m of state.media)if(m._exAudio)delete m._exAudio; if(_rsSeq)switchSeq(_rsSeq); resize(); try{scrubRender();}catch(_){} job.done(true); return; } fileId=await DSP.fileOpen(streamPath); } // FULL cleanup on this early return — it used to leak _exportQuality=true (viewer stuck binding heavy originals: "the editor went crazy after export")
       const streaming=canStream && fileId!=null;
       const muxCfg={video:{codec:muxCodec,width:eW,height:eH}};
       if(streaming){ muxCfg.fastStart=false; muxCfg.target=new Mp4Muxer.StreamTarget({chunked:true,onData:(data,position)=>{ const buf=data.slice(); if(job.wrote)job.wrote(buf.byteLength); pending++; wq=wq.then(()=>DSP.fileWriteAt(fileId,position,buf)).then(ok=>{pending--; if(ok===false)wErr=wErr||new Error('disk write failed');},e=>{pending--;wErr=wErr||e;}); }}); }
@@ -5448,7 +5534,7 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
   _exStage='done';
   diag('info','export',cancelExport?'cancelled':'done',{codec:opt.codec,res}); diagFlush();
   if(_ripSaved)state.clips=_ripSaved; // [R115] restore the full clip list after an isolated render-in-place
-  glc.width=oW;glc.height=oH; try{ if($('#renderMask'))$('#renderMask').classList.remove('on'); }catch(_){} freeExportFBO(); dxtFree(); nestSize=COMP; freeNestPool(); exporting=false; _exportQuality=false; _ncSquare=false; disposeAllVinst(); for(const m of state.media)if(m._exAudio)delete m._exAudio; if(_rsSeq)switchSeq(_rsSeq); resize(); try{scrubRender();}catch(_){} job.done(cancelExport); // _exAudio freed: decoded video audio is export-only (1h ≈ 1.4GB PCM)
+  glc.width=oW;glc.height=oH; try{ if($('#renderMask'))$('#renderMask').classList.remove('on'); }catch(_){} freeExportFBO(); dxtFree(); nestSize=COMP; freeNestPool(); exporting=false; _exportQuality=false; _exCD=false; _vinstCap=VINST_MAX; _ncSquare=false; disposeAllVinst(); for(const m of state.media)if(m._exAudio)delete m._exAudio; if(_rsSeq)switchSeq(_rsSeq); resize(); try{scrubRender();}catch(_){} job.done(cancelExport); // _exAudio freed: decoded video audio is export-only (1h ≈ 1.4GB PCM)
   if(!cancelExport && expOut && !opt.silent && IS_ELEC && DSP.revealPath){ appConfirm(T('Export complete. Open the folder?','Exportación completa. ¿Abrir la carpeta?'),ok=>{ if(ok)try{DSP.revealPath(expOut);}catch(e){} },{ok:T('Open folder','Abrir carpeta'),cancel:T('Close','Cerrar')}); } // R82: offer to reveal the exported file/folder
 }
 /* ===================== R115 · RENDER IN PLACE ===================== */
