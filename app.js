@@ -5137,7 +5137,30 @@ function ploop(){ if(!state.playing)return; const now=performance.now(),dt=(now-
   positionPlayhead(); followPlayhead(); refreshInspector(); render(); meters(); _phLast=state.playhead; playRaf=requestAnimationFrame(ploop); }
 
 /* ===================== EXPORT ===================== */
-async function seekExport(t){ const drawn=collectDrawnVideoClips(state.clips,state.lanes,t,0,[]); await Promise.all(drawn.map(({c,m,local})=>vinstSeek(c,m,local))); } // per-CLIP original-source decode (via _exportQuality) so duplicated clips export at their OWN local time, not last-decode-wins
+/* Decodificación por CLIP desde el original (vía `_exportQuality`) para que los clips duplicados exporten en SU
+   propio tiempo local y no gane el último.
+   [R188] Pero cuando varios clips piden EL MISMO medio EN EL MISMO instante —que es exactamente lo que hace una
+   composición en anillo: duplicar un plano N veces— se estaban reposicionando N decodificadores para obtener el
+   mismo fotograma. Medido en el proyecto de Beltrán (anillo de 6 sobre 2 archivos): `seekExport` se llevaba el
+   **80%** del tiempo de export (498 ms de 625 por fotograma) mientras la GPU hacía 0 ms. Ahora se reposiciona UNO
+   por grupo y su fotograma ya decodificado se sube a la textura de los demás: subir una textura cuesta ~1 ms,
+   reposicionar un vídeo ~80. Si los tiempos locales difieren no hay grupo y el comportamiento es el de siempre. */
+async function seekExport(t){
+  const drawn=collectDrawnVideoClips(state.clips,state.lanes,t,0,[]);
+  const grupos=new Map();
+  for(const d of drawn){ const k=d.m.id+'@'+Math.round((d.local||0)*1000); // milésima: dos clips en el mismo fotograma son el mismo fotograma
+    let g=grupos.get(k); if(!g){ g=[]; grupos.set(k,g); } g.push(d); }
+  await Promise.all([...grupos.values()].map(async g=>{
+    const jefe=g[0];
+    await vinstSeek(jefe.c,jefe.m,jefe.local);
+    if(g.length<2)return;
+    const vj=_vinst.get(jefe.c.id), src=vj&&vj.ready&&vj.vel&&vj.vel.readyState>=2?vj.vel:null;
+    for(let i=1;i<g.length;i++){ const d=g[i];
+      const vi=src?vinstEnsure(d.c,d.m):null;
+      if(vi&&vi.vtex){ try{ upTex(vi.vtex,src); vi.ready=true; continue; }catch(e){} } // si el jefe va por el decodificador WebCodecs no hay <video> del que copiar → cada uno se reposiciona como antes
+      await vinstSeek(d.c,d.m,d.local); }
+  }));
+}
 function dlBlob(b,n){const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=n;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),6000);}
 /* ---- export supersampling (SSAA): render the dome at ss×res into an offscreen FBO, then box-downsample to res.
    Kills the texture-minification aliasing of the fisheye warp (clean edges + far more compressible → the requested
@@ -5169,6 +5192,12 @@ function renderExportFrame(t,res,ss,wall){ const flat=isFlat(); _drawFlat=flat; 
   gl.finish();
 }
 let cancelExport=false;
+/* [R188] Cuántas compresiones PNG pueden ir en vuelo mientras se pinta el fotograma siguiente.
+   MEDIDO en el proyecto de Beltrán (domo 4096², 24 fotogramas): 1→769 ms/fot · 2→838 · 3→817. Solapar NO
+   ayuda, porque el cuello no es comprimir: es el reposicionamiento del vídeo, que se degrada igual con
+   cualquier tope (90 ms al empezar → ~900 al acabar). Se deja en 1 —el más simple y el que menos RAM usa— y
+   la tubería se conserva porque empezará a rendir en cuanto el reposicionamiento deje de dominar. */
+let EX_PNG_INFLIGHT=1;
 const EX_AUDIO_MS=180000; // 3 min. El plazo existe para distinguir COLGADO de LENTO; 45s no distinguia (1,5GB desde un disco lento tarda mas sin estar roto)
 let _exStage='idle'; // [R183] miga de pan: en qué etapa está runExport. Un export colgado sin barra ni error es indiagnosticable sin esto.
 /* [R183] Plazo para las etapas de audio. Decodificar el audio de los vídeos y mezclar la banda son las dos
@@ -5306,12 +5335,31 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
         else dlBlob(blob,fn); }
       job.prog(1,1);
     } else if(opt.codec==='png'){ const pad=Math.max(6,String(total).length), fnum=i=>String(i+1).padStart(pad,'0'); // [R96] IMERSA/AFDI Dome Master Spec: 6-digit frame number STARTING AT 1 ("Name_000001.png"). We shipped base-0 with a padding that shrank with the take length ("dome_000.png") — a planetarium can't ingest that without renaming every frame, and two exports of different lengths sorted inconsistently.
-      const renderFrame=async i=>{ const t=t0+i/fps; await seekExport(t); prepNests(state.clips,t,0); if(flat){ renderExportFrame(t,qRes,1,wall); } else { composite(t,res,false); gl.finish(); } if(job.frame)job.frame(i,total); return await new Promise(r=>glc.toBlob(r,'image/png')); };
+      const renderFrame=async i=>{ const t=t0+i/fps; await seekExport(t); prepNests(state.clips,t,0); if(flat){ renderExportFrame(t,qRes,ssExport,wall); } else { composite(t,res,false); gl.finish(); } if(job.frame)job.frame(i,total); return await new Promise(r=>glc.toBlob(r,'image/png')); };
+      /* [R188] Sólo pinta el lienzo; comprimir y escribir se lanzan aparte y NO se esperan. Medido: comprimir el
+         PNG se lleva el 59% del fotograma (152 ms de 257) y mientras tanto la GPU y el disco están parados. Como
+         `toBlob` trabaja sobre una INSTANTÁNEA del lienzo, se puede empezar el fotograma siguiente sin esperarla. */
+      const pintar=async i=>{ const t=t0+i/fps; await seekExport(t); prepNests(state.clips,t,0);
+        if(flat){ renderExportFrame(t,qRes,ssExport,wall); } else { composite(t,res,false); gl.finish(); }
+        if(job.frame)job.frame(i,total); };
       if(IS_ELEC && DSP.chooseExportDir){ // stream to disk, no RAM buildup (handles 75-min 4K+)
-        const dir=await DSP.chooseExportDir();
+        const dir=opt.outDir||await DSP.chooseExportDir();   // [R188] `outDir` salta el diálogo nativo: simetría con el `outPath` que ya usa el MP4, y sin él la secuencia PNG no se puede probar de punta a punta
         if(!dir){ cancelExport=true; }
         else { const sub=dir+'/'+filePre+'_'+dimStr+'_'+fps+'fps'; if(!(await DSP.ensureDir(sub)))throw new Error(T('Cannot create export folder (not writable).','No se pudo crear la carpeta de exportación (sin permiso).'));
-          for(let i=0;i<total;i++){ if(cancelExport)break; const blob=await renderFrame(i); if(job.wrote)job.wrote(blob.size); if(!(await DSP.writeBinary(sub+'/'+filePre+'_'+fnum(i)+'.png', new Uint8Array(await blob.arrayBuffer()))))throw new Error(T('Write failed (disk full or folder not writable).','Fallo de escritura (disco lleno o carpeta sin permiso).')); job.prog(i+1,total); await exWaitPause(); }
+          const comprimirYEscribir=i=>new Promise((res,rej)=>{ glc.toBlob(async b=>{ try{
+              if(!b)throw new Error(T('PNG encoding failed.','Falló la codificación PNG.'));
+              if(job.wrote)job.wrote(b.size);
+              if(await DSP.writeBinary(sub+'/'+filePre+'_'+fnum(i)+'.png', new Uint8Array(await b.arrayBuffer()))===false)
+                throw new Error(T('Write failed (disk full or folder not writable).','Fallo de escritura (disco lleno o carpeta sin permiso).'));
+              res(); }catch(e){ rej(e); } },'image/png'); });
+          const enVuelo=[]; let falloPng=null;
+          for(let i=0;i<total;i++){ if(cancelExport||falloPng)break;
+            await pintar(i);
+            enVuelo.push(comprimirYEscribir(i).catch(e=>{ falloPng=falloPng||e; }));
+            if(enVuelo.length>=EX_PNG_INFLIGHT) await enVuelo.shift();   // tope de solapamiento (ver EX_PNG_INFLIGHT)
+            job.prog(i+1,total); await exWaitPause(); }
+          await Promise.all(enVuelo);                       // ningún fotograma queda a medio escribir
+          if(falloPng)throw falloPng;
           if(!cancelExport && audioBuf){ job.label(T('Writing audio…','Escribiendo audio…')); await DSP.writeBinary(sub+'/audio.wav', audioBufferToWav(audioBuf)); }
           if(!cancelExport){ expOut=sub; flashStatus(T('PNG sequence + audio written to folder','Secuencia PNG + audio escritos en carpeta')); } }
       } else { const zip=new Zip();
