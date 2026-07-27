@@ -649,7 +649,11 @@
   .status .ok{color:var(--ink-2);}
 
   /* modals */
-  .overlay{position:fixed;inset:0;background:rgba(6,7,9,0.66);display:flex;align-items:center;justify-content:center;z-index:50;animation:overIn .12s;}
+  /* [R190] z-index 9600, no 50: un diálogo (appPrompt/appConfirm/appAlert) va SIEMPRE por encima de todo lo demás,
+     porque es modal — quien lo abre está bloqueado hasta contestarlo. Con 50 quedaba por DEBAJO del panel de export
+     (.exs-scrim, 60) y de los paneles flotantes (.modpan, 9000): guardar un preajuste desde el panel de export abría
+     un diálogo invisible e imposible de contestar. */
+  .overlay{position:fixed;inset:0;background:rgba(6,7,9,0.66);display:flex;align-items:center;justify-content:center;z-index:9600;animation:overIn .12s;}
   /* [R134] branded square splash — the 1080×1080 logo loop shown a couple of seconds on startup + project open (responsive, capped at the native 1080²) */
   /* [archivado 20260725] CSS del splash dentro del documento → _backup/deprecated/20260725-in-page-splash.js
      (el splash ahora es splash.html, en su propia ventana de 1080²) */

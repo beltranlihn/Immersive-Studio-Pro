@@ -5535,7 +5535,10 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
   diag('info','export',cancelExport?'cancelled':'done',{codec:opt.codec,res}); diagFlush();
   if(_ripSaved)state.clips=_ripSaved; // [R115] restore the full clip list after an isolated render-in-place
   glc.width=oW;glc.height=oH; try{ if($('#renderMask'))$('#renderMask').classList.remove('on'); }catch(_){} freeExportFBO(); dxtFree(); nestSize=COMP; freeNestPool(); exporting=false; _exportQuality=false; _exCD=false; _vinstCap=VINST_MAX; _ncSquare=false; disposeAllVinst(); for(const m of state.media)if(m._exAudio)delete m._exAudio; if(_rsSeq)switchSeq(_rsSeq); resize(); try{scrubRender();}catch(_){} job.done(cancelExport); // _exAudio freed: decoded video audio is export-only (1h ≈ 1.4GB PCM)
-  if(!cancelExport && expOut && !opt.silent && IS_ELEC && DSP.revealPath){ appConfirm(T('Export complete. Open the folder?','Exportación completa. ¿Abrir la carpeta?'),ok=>{ if(ok)try{DSP.revealPath(expOut);}catch(e){} },{ok:T('Open folder','Abrir carpeta'),cancel:T('Close','Cerrar')}); } // R82: offer to reveal the exported file/folder
+  /* [R190] Al terminar se abre la carpeta DIRECTAMENTE. Antes preguntaba con un `appConfirm`, y la respuesta era
+     siempre la misma: un clic de más entre tú y el archivo que acabas de esperar. Sólo en el ÚLTIMO trabajo: una
+     sala por muro encola 4 + piso, y abrir cinco ventanas del explorador sería peor que preguntar. */
+  if(!cancelExport && expOut && !opt.silent && !_exq.length && IS_ELEC && DSP.revealPath){ try{DSP.revealPath(expOut);}catch(e){} } // R82: reveal the exported file/folder
 }
 /* ===================== R115 · RENDER IN PLACE ===================== */
 /* Bake a clip/nest (its own fx + automation, at the layout size) to a light MP4 in <project>/rendered clips/ and
@@ -6171,7 +6174,13 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
     rail.className='exs-rail'+(ph==='pause'?' pause':ph==='done'?' done':'');
     acts.style.display=(ph==='run'||ph==='pause')?'flex':'none';
     $$('#exPhase').textContent=ph==='run'?T('Rendering','Renderizando'):ph==='pause'?T('Paused','En pausa'):ph==='done'?T('Finished','Terminado'):T('Ready','Listo');
-    $$('#exGoTxt').textContent=(ph==='run'||ph==='pause')?T('Restart render','Reiniciar render'):ph==='done'?T('Export again','Exportar de nuevo'):T('Export','Exportar');
+    /* [R190] Mientras corre, «Exportar» queda BLOQUEADO. Antes decía «Reiniciar render» y relanzaba encima de un
+       render vivo — un clic de más y perdías el trabajo hecho. Para rehacerlo hay que cancelar primero, que es
+       explícito. Y «Cerrar» pasa a cancelar mientras corre: si te vas, el render no se queda trabajando solo. */
+    const corriendo=(ph==='run'||ph==='pause'), go=$$('#exGo');
+    go.disabled=corriendo; go.style.opacity=corriendo?'0.4':''; go.style.pointerEvents=corriendo?'none':'';
+    $$('#exGoTxt').textContent=ph==='done'?T('Export again','Exportar de nuevo'):T('Export','Exportar');
+    $$('#exClose').textContent=corriendo?T('Cancel and close','Cancelar y cerrar'):T('Close','Cerrar');
   }
 
   /* --- estimación y validaciones: la lógica del diálogo viejo, ahora leyendo de exPx() --- */
@@ -6298,18 +6307,22 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
   const close=()=>{ const fc=$('#fmtChip'); if(fc)fc._codec=null; ov.remove(); updFmtChip();
     for(let i=_exJobs.length-1;i>=0;i--)if(_exJobs[i].status==='done'||_exJobs[i].status==='cancelled')_exJobs.splice(i,1);
     document.removeEventListener('keydown',onKey,true); };
+  /* [R190] Cerrar con un render vivo lo CANCELA antes de irse. Antes se cerraba el panel y el render seguía a
+     ciegas: sin monitor, sin barra y sin forma de pararlo salvo reabrir. Terminado o en reposo, cierra y ya. */
+  const cerrarOCancelar=()=>{ if(S.phase==='run'||S.phase==='pause')cancelarRender(); close(); };
   const onKey=e=>{ if(e.key!=='Escape')return;
     const t=e.target; if(t&&t.closest&&t.closest('input,select'))return; // `closest` no existe en `document`: sin esta guarda, Esc lanzaba un TypeError y la hoja no cerraba
-    e.preventDefault(); e.stopPropagation(); close(); };
+    e.preventDefault(); e.stopPropagation(); cerrarOCancelar(); };
   document.addEventListener('keydown',onKey,true);
-  $$('#exX').onclick=close; $$('#exClose').onclick=close;
+  $$('#exX').onclick=cerrarOCancelar; $$('#exClose').onclick=cerrarOCancelar;
 
   /* --- pausa / cancelar --- */
   $$('#exPause').onclick=()=>{ if(S.phase==='run'){ _exPaused=true; S.tPause=performance.now(); exSetPhase('pause'); $$('#exPause').textContent=T('Resume','Reanudar'); }
     else if(S.phase==='pause'){ S.t0+=performance.now()-S.tPause; _exPaused=false; exSetPhase('run'); $$('#exPause').textContent=T('Pause','Pausar'); } }; // al reanudar se corrige t0: si no, el tiempo transcurrido pega un salto y la ETA se dispara
-  $$('#exCancel').onclick=()=>{ _exPaused=false; cancelExport=true;
+  const cancelarRender=()=>{ _exPaused=false; cancelExport=true;
     if(_exq.length){ for(const o of _exq)if(o._rec)o._rec.status='cancelled'; _exq.length=0; } // vacía la cola: si no, cancelar un muro dejaba corriendo los tres siguientes
     updExportUI(); };
+  $$('#exCancel').onclick=cancelarRender;
 
   /* --- exportar --- */
   $$('#exGo').onclick=()=>{ const p=exPx(S), n=exFrames();

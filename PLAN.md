@@ -1,5 +1,25 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 190 — Tres arreglos del panel de export
+
+Pedidos por Beltrán tras usarlo en producción.
+
+**«Reiniciar render» fuera; «Exportar» bloqueado mientras corre.** El botón principal se convertía en «Reiniciar
+render» durante el render y relanzaba encima del que estaba corriendo: un clic de más y perdías el trabajo hecho.
+Ahora queda bloqueado hasta que termine o se cancele; para rehacerlo hay que cancelar primero, que es explícito.
+
+**Cerrar cancela.** Cerrar el panel con un render vivo lo dejaba corriendo a ciegas — sin monitor, sin barra y sin
+forma de pararlo salvo reabrir. Con render en marcha, Cerrar (y la X, y Esc) cancelan antes de irse; terminado o
+en reposo, cierran y ya.
+
+**La carpeta se abre sola al terminar.** Antes preguntaba con un diálogo cuya respuesta era siempre la misma.
+Sólo en el último trabajo del lote: una sala por muro encola cuatro muros más el piso, y serían cinco ventanas
+del explorador.
+
+**Y el diálogo invisible.** Guardar un preajuste desde el panel abría un `appPrompt` que aparecía DETRÁS y no se
+podía contestar. Los diálogos estaban en z-index 50, por debajo del panel de export (60) y de los paneles
+flotantes (9000). Pasan a 9600: un modal bloquea a quien lo abre, así que tiene que estar por encima de todo.
+
 ## ROUND 189 — El export deja de reposicionar vídeos: 90→1037 ms se convierte en 1 ms plano
 
 **El dato de Beltrán.** «Exporté 3 segundos de un compose con 24 clips y se demoró casi 22 minutos.» Son 180
