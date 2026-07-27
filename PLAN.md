@@ -1,5 +1,33 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 194 — Los seis hallazgos de la revisión de código
+
+**1. Fotogramas duplicados al final de cada clip.** Un `VideoDecoder` retiene una cola de reordenación: haberle
+dado la última muestra y ver su cola de entrada vacía NO significa que haya emitido todo. `passed()` daba el
+visto bueno antes de tiempo y `frameNear` devolvía un fotograma anterior, así que los últimos fotogramas de un
+clip se escribían **duplicados en el máster, en silencio** — justo lo que `passed` existe para impedir. Ahora se
+pide `flush()` y no se da por cerrado el archivo hasta que resuelve.
+
+**2. Un cuelgue sin plazo ni error.** El repliegue a `<video>` puede recibir una instancia que nunca llegó a
+enlazarse a su archivo. Fijar `currentTime` sobre un elemento sin origen **no dispara `seeked` jamás**, y
+`seekExport` se quedaba esperando para siempre. Ahora se enlaza el origen si falta, y si no hay, se sigue.
+
+**3. El proxy no cuadrado seguía usándose.** R192 puso la restricción en `ncBuild` y en los menús, pero no en
+`ncUsable`, que es la única puerta que decide de verdad: un proxy guardado en un `.isp` anterior seguía
+enlazándose con el desencuadre que R192 vino a cerrar. Y de paso, **«Quitar proxy» estaba detrás de la misma
+condición que impide generarlo**, así que un proxy heredado quedaba imposible de borrar.
+
+**4. La sala por muros no se podía exportar.** El panel sondeaba el códec contra la tira entera (8192×2048) en
+vez de contra el muro que de verdad se codifica (2048²), así que daba H.264 por imposible y bloqueaba Exportar
+cuando cada muro cabía de sobra.
+
+**5. Cada tecla del campo bitrate relanzaba la escalera de sondeos** — 12 peldaños × 2 códecs, y cada uno prueba
+varios niveles por dentro — porque el bitrate entraba en la clave del caché aunque el techo no depende de él.
+
+**6. Un hueco donde Exportar seguía pulsable.** Entre cambiar el tamaño y recibir la respuesta del codificador,
+`S.codecOk` conservaba el valor anterior; un clic ahí encolaba un trabajo que moría en `codec-pick`. Ahora, un
+códec de vídeo se da por no válido mientras se sondea.
+
 ## ROUND 193 — El proxy baja a 2048, y aparece la limitación de verdad: no tiene alfa
 
 Beltrán: «el proxy lo ideal es que sea en baja calidad, si es para que corra rápido». Tiene razón, y además

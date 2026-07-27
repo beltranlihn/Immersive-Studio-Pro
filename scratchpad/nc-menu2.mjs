@@ -28,10 +28,24 @@ console.log('CUADRADO 4096²:', await evl(`(()=>{ const m=state.media.filter(x=>
   const it=${dump}; document.querySelectorAll('.menu').forEach(x=>x.remove());
   return JSON.stringify({nest:m.name+' '+m.w+'x'+m.h, proxy:it.filter(t=>/proxy de composici|nest proxy/i.test(t)), totalEntradas:it.length}); })()`));
 
-console.log('\nNO CUADRADO 1920x1080:', await evl(`(()=>{ const m=state.media.filter(x=>x.kind==='nest').pop(); m.w=1920; m.h=1080;
+console.log('\nNO CUADRADO 1920x1080, sin proxy:', await evl(`(()=>{ const m=state.media.filter(x=>x.kind==='nest').pop(); m.w=1920; m.h=1080;
   document.querySelectorAll('.menu').forEach(x=>x.remove()); openMediaCtx({preventDefault(){},clientX:200,clientY:200},m);
   const it=${dump}; document.querySelectorAll('.menu').forEach(x=>x.remove());
   const r=it.filter(t=>/proxy de composici|nest proxy/i.test(t));
-  return JSON.stringify({proxy:r, veredicto:r.length?'SE OFRECE — MAL':'no se ofrece, correcto'}); })()`));
+  return JSON.stringify({proxy:r, veredicto:r.length?'SE OFRECE GENERAR — MAL':'no se ofrece generar, correcto'}); })()`));
+
+// [R194] un proxy heredado en una composición no cuadrada TIENE que poder quitarse
+console.log('\nNO CUADRADO con proxy heredado:', await evl(`(()=>{ const m=state.media.filter(x=>x.kind==='nest').pop();
+  m.w=1920; m.h=1080; m.ncPath='C:\\\\viejo.mp4';
+  document.querySelectorAll('.menu').forEach(x=>x.remove()); openMediaCtx({preventDefault(){},clientX:200,clientY:200},m);
+  const it=${dump}; document.querySelectorAll('.menu').forEach(x=>x.remove());
+  const r=it.filter(t=>/proxy de composici|nest proxy/i.test(t));
+  const gen=r.some(t=>/generar|generate|regenerar|regenerate/i.test(t)), quit=r.some(t=>/quitar|remove/i.test(t));
+  return JSON.stringify({entradas:r, veredicto:(!gen&&quit)?'solo Quitar, correcto':'MAL'}); })()`));
+
+console.log('\n¿un proxy no cuadrado se usaria en previsualizacion?', await evl(`(()=>{ const m=state.media.filter(x=>x.kind==='nest').pop();
+  m.w=1920; m.h=1080; m.ncReady=true; m.ncUrl='file:///x.mp4'; m.ncStale=false;
+  const usable=ncUsable(m); m.w=4096; m.h=4096; const usableCuadrado=ncUsable(m);
+  return JSON.stringify({noCuadrado:usable, cuadrado:usableCuadrado, veredicto:(!usable&&usableCuadrado)?'correcto':'MAL'}); })()`));
 
 try { ws.close(); } catch (_) { } try { p.kill('SIGKILL'); } catch (_) { }

@@ -918,7 +918,10 @@ function freeNestPool(){ for(const e of _nestPool){ try{gl.deleteTexture(e.tex);
    EL CACHÉ SÓLO EXISTE EN PREVISUALIZACIÓN. `runExport` pone `_exportQuality=true`, `ncUsable()` pasa a ser
    false en los cuatro sitios que lo consultan (imagen, sonido, enlace de instancias y URL), y todo vuelve a
    componerse desde las fuentes reales. El máster nunca sale del caché — es material de trabajo, no de entrega. */
-function ncUsable(m){ return !_exportQuality && state.view.useNestCache!==false && !!(m && m.kind==='nest' && m.ncReady && m.ncUrl && !m.ncStale); }
+/* [R194] La restricción a composiciones CUADRADAS se añadió en R192 a `ncBuild` y a los dos menús, pero no aquí,
+   que es la única puerta que de verdad decide si el caché se usa: un proxy no cuadrado guardado en un `.isp`
+   anterior seguía enlazándose en previsualización con el desencuadre que R192 vino a cerrar. */
+function ncUsable(m){ return !_exportQuality && state.view.useNestCache!==false && !!(m && m.kind==='nest' && m.w===m.h && m.ncReady && m.ncUrl && !m.ncStale); }
 function _r4(v){ return Math.round((+v||0)*1e4)/1e4; }
 function _fnv(s){ let h=2166136261>>>0; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619)>>>0; } return h.toString(36); }
 /* Firma del CONTENIDO del nest. Es lo único que decide si el caché sigue valiendo, y se compara en vez de
@@ -2036,8 +2039,11 @@ function openMediaCtx(e,m){ e.preventDefault(); const seq=isSeqMedia(m); const i
      sí mismo (dos capturas iguales → idénticas; dos instantes distintos → distintos, si no se aborta):
      **PSNR 58 dB y desplazamiento del centro de masa ≤ 0,22 px sobre 256** en las tres posiciones probadas. Lo
      que queda es pérdida del códec, no reencuadre. Sigue restringido a composiciones CUADRADAS. */
-  if(seq&&IS_ELEC&&(m.w===m.h)){ items.push({label:m.ncPath?(m.ncStale?T('Nest proxy is out of date — regenerate','El proxy está desactualizado — regenerar'):T('Regenerate nest proxy…','Regenerar proxy de composición…')):T('Generate nest proxy…','Generar proxy de composición…'),ico:'layers',fn:()=>ncBuild(m)}); // [R180]
-    if(m.ncPath) items.push({label:T('Remove nest proxy','Quitar proxy de composición'),ico:'trash',fn:()=>{ ncDetach(m,true); flashStatus(T('Nest proxy removed','Proxy de composición eliminado')); }}); }
+  if(seq&&IS_ELEC&&(m.w===m.h)) items.push({label:m.ncPath?(m.ncStale?T('Nest proxy is out of date — regenerate','El proxy está desactualizado — regenerar'):T('Regenerate nest proxy…','Regenerar proxy de composición…')):T('Generate nest proxy…','Generar proxy de composición…'),ico:'layers',fn:()=>ncBuild(m)}); // [R180]
+  /* [R194] Quitar NO lleva la restricción de cuadradas: un proxy heredado de un proyecto antiguo en una
+     composición no cuadrada quedaba imposible de borrar, porque la única entrada que lo hacía estaba detrás
+     de la misma condición que impide generarlo. */
+  if(seq&&IS_ELEC&&m.ncPath) items.push({label:T('Remove nest proxy','Quitar proxy de composición'),ico:'trash',fn:()=>{ ncDetach(m,true); flashStatus(T('Nest proxy removed','Proxy de composición eliminado')); }});
   if(IS_ELEC && (m.kind==='video'||m.kind==='audio'||m.kind==='image')) items.push({label:T('Replace media…','Reemplazar medio…'),fn:()=>replaceMedia(m)});
   if(m.missing&&IS_ELEC) items.push({label:T('Locate file…','Localizar archivo…'),ico:'upload',fn:async()=>{ try{ const p=await DSP.pickMedia(); if(p){ m.path=p; await reloadMedia(m); flashStatus(T('Media re-linked','Medio re-vinculado')); } }catch(e){} }});
   if(state.folders.length){ items.push('sep'); const tgt=()=>selectedMediaIds().includes(m.id)?selectedMediaIds():[m.id]; // move the whole multi-selection (R88 audit) + undo/dirty via moveMediaTo
@@ -4969,6 +4975,12 @@ function makeClipDecoder(d,ex){
   const keyBefore=(di)=>{ for(let i=di;i>=0;i--)if(d.samples[i].key)return i; return 0; };
   const decIdxForTime=(t)=>{ let lo=0,hi=N-1,res=0; while(lo<=hi){const m=(lo+hi)>>1; if(dispPts[m]<=t){res=m;lo=m+1;}else hi=m-1;} return order[res]; };
   const cache=new Map(); let dec=null, feed=0, feedBase=0, feedBasePts=0, lastFedPts=-1, closed=false, dead=false, targetUs=0, err=null, fails=0, prevT=0;
+  /* [R194] Un VideoDecoder retiene una cola de reordenación: haberle dado la última muestra y ver
+     `decodeQueueSize===0` NO significa que haya emitido todos los fotogramas. Sin `flush()`, la rama de fin de
+     archivo de `passed()` daba el visto bueno antes de tiempo y `frameNear` devolvía un fotograma anterior →
+     los ÚLTIMOS fotogramas de un clip se escribían DUPLICADOS en el máster, en silencio, que es justo lo que
+     `passed` existe para impedir. */
+  let vaciando=false, vaciado=false;
   /* bulk read-ahead: reading one sample per IPC round-trip caps decode at ~60fps (disk+IPC latency) and starves the
      ring after a seek. One ~4MB range read covers dozens of samples in decode order (mdat is decode-ordered), so the
      decoder runs at full speed (measured 196fps) and can outrun the playhead to fill the ring. */
@@ -4978,7 +4990,7 @@ function makeClipDecoder(d,ex){
     const data=await d.readRange(a, Math.max(s.size, READAHEAD)); if(!data)return false; bufData=data; bufStart=a; bufEnd=a+data.length; return inBuf(s); };
   const mkDec=()=>{ dec=new VideoDecoder({output:f=>{ if(closed){f.close();return;} const o=cache.get(f.timestamp); if(o&&o!==f){try{o.close();}catch(e){}} cache.set(f.timestamp,f); fails=0; }, error:e=>{ err=String((e&&e.message)||e); }}); dec.configure({codec:d.codec,description:d.description}); };
   let resets=0;
-  const resetTo=(di)=>{ resets++; if(dec){try{dec.close();}catch(e){}} for(const[,f]of cache){try{f.close();}catch(e){}} cache.clear(); mkDec(); feed=keyBefore(di); feedBase=feed; feedBasePts=d.samples[feed].pts; lastFedPts=-1; err=null; };
+  const resetTo=(di)=>{ resets++; if(dec){try{dec.close();}catch(e){}} for(const[,f]of cache){try{f.close();}catch(e){}} cache.clear(); mkDec(); feed=keyBefore(di); feedBase=feed; feedBasePts=d.samples[feed].pts; lastFedPts=-1; err=null; vaciando=false; vaciado=false; }; // el decodificador es NUEVO: su cola de reordenación vuelve a estar por vaciar
   const evict=()=>{ const lo=targetUs-BEHIND; for(const[ts,f]of cache){ if(ts<lo){try{f.close();}catch(e){} cache.delete(ts);} }
     if(cache.size>CAP){ const ks=[...cache.keys()].sort((a,b)=>a-b); for(const k of ks){ if(cache.size<=CAP)break; if(k<targetUs-frameDur){try{cache.get(k).close();}catch(e){} cache.delete(k);} } } };
   const delay=ms=>new Promise(r=>setTimeout(r,ms));
@@ -5003,6 +5015,11 @@ function makeClipDecoder(d,ex){
       try{ dec.decode(new EncodedVideoChunk({type:s.key?'key':'delta',timestamp:s.pts,data})); }catch(e){ err=String(e); }
       lastFedPts=s.pts; feed++; n++;
     }
+    /* Alimentadas TODAS las muestras, se pide el vaciado: hasta que resuelva, la cola de reordenación puede
+       seguir guardando fotogramas y `passed()` no puede dar por cerrado el archivo. */
+    if(feed>=N && dec && !vaciando && !vaciado){ vaciando=true;
+      try{ dec.flush().then(()=>{ vaciado=true; vaciando=false; },()=>{ vaciado=true; vaciando=false; }); }
+      catch(e){ vaciado=true; vaciando=false; } }
     evict(); };
   (async function keeper(){ while(!closed){ try{
     if(!dead && dec && feed<N && !inBuf(d.samples[feed]) && (lastFedPts<0||lastFedPts<targetUs+AHEAD||cache.size<MINC)){ await ensureBuf(feed); if(closed)break; } // misma cláusula MINC que el feed: si no, el relleno del búfer se bloquea por el mismo motivo
@@ -5019,7 +5036,7 @@ function makeClipDecoder(d,ex){
        · `passed(t)` = ese fotograma exacto ya está decodificado (o se acabó el archivo y la cola está vacía).
        · `frameNear(t)` = ese fotograma; los repliegues sólo entran si el archivo se terminó. */
     frameDurUs:frameDur,
-    passed:(t0)=>{ if(cache.has(keyForTime(Math.max(0,t0))))return true; return feed>=N && !!dec && dec.decodeQueueSize===0; },
+    passed:(t0)=>{ if(cache.has(keyForTime(Math.max(0,t0))))return true; return feed>=N && vaciado; }, // [R194] `vaciado`, no `decodeQueueSize===0`: ver la nota sobre la cola de reordenación
     frameNear:(t0)=>{ const k=keyForTime(Math.max(0,t0)); const f=cache.get(k); if(f)return f;
       let b=-1, fw=Infinity; for(const ts of cache.keys()){ if(ts<=k){ if(ts>b)b=ts; } else if(ts<fw)fw=ts; }
       if(b>=0)return cache.get(b); return fw<Infinity?cache.get(fw):null; },
@@ -5066,8 +5083,7 @@ function vinstEnsure(c,m){ if(!m||(m.kind!=='video' && !(m.kind==='nest'&&ncUsab
       vi.cdReadyP=demuxMP4(m.path).then(dd=>{ if(_vinst.get(c.id)!==vi){ try{dd.close();}catch(e){} return; } vi.cd=makeClipDecoder(dd,exNow); }).catch(e=>{ m._cdFail=true; }).finally(()=>{ vi.cdPending=false; }); } // [R108-rev M1] compare IDENTITY not has(): a recycled vi (LRU dispose + re-add mid-demux) would orphan a zombie decoder (fd + VideoFrame leak + spinning pump)
   } else {
     if(vi.cd){ try{vi.cd.close();}catch(e){} vi.cd=null; }                                  // fell back to <video> (proxy became ready / export)
-    if(vi.vsrc!==url){ vi.vsrc=url; vi.ready=false; try{vi.vel.pause();}catch(e){} vi.vel.src=url;
-      vi.loadP=new Promise(r=>{ const on=()=>{ vi.vel.removeEventListener('loadeddata',on); r(); }; vi.vel.addEventListener('loadeddata',on); try{vi.vel.load();}catch(e){} if(vi.vel.readyState>=2){ vi.vel.removeEventListener('loadeddata',on); r(); } }); }
+    bindVideoSrc(vi,url);
   }
   vinstCap();
   return vi; }
@@ -5077,6 +5093,13 @@ function vinstEnsure(c,m){ if(!m||(m.kind!=='video' && !(m.kind==='nest'&&ncUsab
    elemento se desmontó); por el de WebCodecs sería un reintento dando vueltas. `seekExport` sube el tope a lo que
    ese fotograma necesita y el final del export lo devuelve a VINST_MAX. */
 let _vinstCap=VINST_MAX;
+/* [R194] Enlazar el `<video>` a su origen, extraído de `vinstEnsure` porque `vinstSeekVideo` TAMBIÉN lo necesita:
+   si el camino de WebCodecs se cae hacia `<video>` con una instancia que nunca llegó a enlazarse, fijar
+   `currentTime` sobre un elemento sin origen NO dispara `seeked` y la promesa no resuelve jamás — `seekExport`
+   se quedaba colgado sin plazo ni error. */
+function bindVideoSrc(vi,url){ if(!vi||!url||vi.vsrc===url)return;
+  vi.vsrc=url; vi.ready=false; try{vi.vel.pause();}catch(e){} vi.vel.src=url;
+  vi.loadP=new Promise(r=>{ const on=()=>{ vi.vel.removeEventListener('loadeddata',on); r(); }; vi.vel.addEventListener('loadeddata',on); try{vi.vel.load();}catch(e){} if(vi.vel.readyState>=2){ vi.vel.removeEventListener('loadeddata',on); r(); } }); }
 function vinstCap(){ if(_vinst.size<=_vinstCap)return; const arr=[..._vinst.entries()].sort((a,b)=>a[1].last-b[1].last); for(let i=0;i<arr.length&&_vinst.size>_vinstCap;i++) vinstDispose(arr[i][0]); }
 function vinstDispose(id){ const vi=_vinst.get(id); if(!vi)return; if(vi.cd){try{vi.cd.close();}catch(e){} vi.cd=null;} if(vi.vf&&vi.vel&&vi.vel.cancelVideoFrameCallback){try{vi.vel.cancelVideoFrameCallback(vi.vf);}catch(e){}} try{vi.vel.pause();}catch(e){} try{vi.vel.removeAttribute('src');vi.vel.load();}catch(e){} if(vi.ael){try{vi.ael.pause();vi.ael.removeAttribute('src');vi.ael.load();}catch(e){}} if(vi.vtex){try{gl.deleteTexture(vi.vtex);}catch(e){}} _vinst.delete(id); }
 /* [R92-T2 C1] per-clip <audio> element for PREVIEW sound of video clips. Always bound to the ORIGINAL file
@@ -5128,6 +5151,8 @@ function seekCDExport(vi,c,m,local){
     if(performance.now()-t0>10000){ rendirse(res); return; }                  // 10 s sin fotograma = está roto, no lento
     setTimeout(tick,0); }; tick(); }); }
 function vinstSeekVideo(c,m,local){ const vi=vinstEnsure(c,m); if(!vi||vi.cd)return Promise.resolve();
+  if(!vi.vsrc)bindVideoSrc(vi,_vinstUrl(m));   // [R194] llegamos aquí desde el repliegue de WebCodecs: puede no estar enlazado todavía
+  if(!vi.vsrc)return Promise.resolve();        // sin origen no hay nada que buscar — mejor seguir que colgarse
   return (vi.loadP||Promise.resolve()).then(()=>new Promise(res=>{ const v=vi.vel; if(!v){res();return;}
     const t=Math.max(0,Math.min((v.duration||0)-1e-3, local||0));
     if(Math.abs(v.currentTime-t)<1e-3 && v.readyState>=2){ upTex(vi.vtex,v); vi.ready=true; requestAnimationFrame(()=>res()); return; }
@@ -5330,15 +5355,29 @@ const VCODECS={ h264:'avc', hevc:'hevc', av1:'av1', vp9:'vp9', vp910:'vp9' };
    ligero para revisar no puede pedirlo si el desplegable se lo oculta. Se consulta sólo cuando el tamaño actual NO
    cabe, y se cachea: la escalera son ~12 sondeos y cada `pickVideoCodec` prueba varios niveles por dentro. */
 const EX_LADDER=[4320,3840,3456,3072,2880,2560,2160,1920,1440,1080,720,480];
+/* [R194] El techo NO depende del bitrate (medido: 3200² se niega a cualquier bitrate), así que el bitrate NO
+   entra en la clave del caché ni en el sondeo: se usa uno automático derivado del tamaño. Con el bitrate dentro,
+   cada tecla pulsada en el campo Mbps disparaba la escalera entera —12 peldaños × 2 códecs, y cada
+   `pickVideoCodec` prueba varios niveles por dentro— y `_cdTok` sólo cancela la escritura en el DOM, no el
+   sondeo, así que las llamadas se acumulaban. */
+const exBrSonda=(w,h,fps)=>Math.max(24e6,Math.min(800e6,Math.round(w*h*fps*0.11/1e6)*1e6));
 const _exTope=new Map();
-async function exTopeCodec(kind,ar,fps,br){
-  const k=kind+'|'+ar.toFixed(4)+'|'+fps+'|'+Math.round(br/1e6);
+async function exTopeCodec(kind,ar,fps){
+  const k=kind+'|'+ar.toFixed(4)+'|'+fps;
   if(_exTope.has(k))return _exTope.get(k);
   let r=null;
   for(const hh of EX_LADDER){ const H=Math.max(16,Math.round(hh/2)*2), W=Math.max(16,Math.round(H*ar/2)*2);
-    let ok=false; try{ ok=!!(await pickVideoCodec(kind,W,H,br,fps)); }catch(e){}
+    let ok=false; try{ ok=!!(await pickVideoCodec(kind,W,H,exBrSonda(W,H,fps),fps)); }catch(e){}
     if(ok){ r={w:W,h:H}; break; } }
   _exTope.set(k,r); return r;
+}
+/* Mismo motivo para el sondeo de «¿cabe a ESTE tamaño?»: se cachea por tamaño+fps y con bitrate automático, o
+   volvía a preguntar al codificador en cada pulsación. */
+const _exCabe=new Map();
+async function exCabeCodec(kind,w,h,fps){ const k=kind+'|'+w+'x'+h+'|'+fps;
+  if(_exCabe.has(k))return _exCabe.get(k);
+  let ok=false; try{ ok=!!(await pickVideoCodec(kind,w,h,exBrSonda(w,h,fps),fps)); }catch(e){}
+  _exCabe.set(k,ok); return ok;
 }
 function pickVideoCodec(kind,w,h,bitrate,fps){
   if(kind==='hevc')return pickHevcCodec(w,h,bitrate,fps);
@@ -6273,13 +6312,23 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
     {v:'still',kind:null,   lbl:()=>T('Still frame · PNG','Fotograma · PNG')},
   ];
   let _cdTok=0;
-  async function exCodecList(){ const tok=++_cdTok, p=exPx(S), sel=$$('#exCodec'); if(!sel)return;
-    const ar=p.w/Math.max(1,p.h), br=S.br*1e6, filas=[];
+  async function exCodecList(){ const tok=++_cdTok, sel=$$('#exCodec'); if(!sel)return;
+    /* [R194] Lo que hay que sondear es lo que se va a CODIFICAR, no lo que se ve en el panel. En la sala por
+       muros cada muro se codifica por separado a `pxW×pxH`; sondear la tira entera (p. ej. 8192×2048) daba
+       H.264 por imposible y bloqueaba Exportar, cuando cada muro de 2048² cabe de sobra. */
+    let p=exPx(S);
+    if(room && S.roomMode==='walls' && as.room && as.room.walls && as.room.walls.length){
+      let mw=0,mh=0; for(const q of as.room.walls){ mw=Math.max(mw,q.pxW||0); mh=Math.max(mh,q.pxH||0); }
+      if(mw&&mh)p={w:mw,h:mh}; }
+    /* Mientras se sondea, un códec de vídeo se da por NO válido: si no, entre el cambio de tamaño y la
+       respuesta del codificador Exportar seguía pulsable y encolaba un trabajo que moría en `codec-pick`. */
+    { const selC=EX_CODECS.find(c=>c.v===S.codec); if(selC&&selC.kind){ S.codecOk=false; exGoGate(); } }
+    const ar=p.w/Math.max(1,p.h), filas=[];
     for(const c of EX_CODECS){
       if(!c.kind){ filas.push({c,cabe:true,tope:null}); continue; }   // PNG/HAP sólo dependen de MAX_TEXTURE_SIZE
       if(!HAS_WC){ filas.push({c,cabe:false,tope:null}); continue; }
-      let cabe=false; try{ cabe=!!(await pickVideoCodec(c.kind,p.w,p.h,br,S.fps)); }catch(e){}
-      filas.push({c,cabe,tope:cabe?null:await exTopeCodec(c.kind,ar,S.fps,br)});
+      const cabe=await exCabeCodec(c.kind,p.w,p.h,S.fps);
+      filas.push({c,cabe,tope:cabe?null:await exTopeCodec(c.kind,ar,S.fps)});
     }
     if(tok!==_cdTok||!document.getElementById('exCodec'))return;   // obsoleto: el tamaño cambió mientras se sondeaba
     sel.innerHTML=filas.map(f=>{ let t=f.c.lbl();
@@ -7905,9 +7954,10 @@ $('#tracks').addEventListener('contextmenu',e=>{ const cd=e.target.closest('.cli
     {label:T('Nest selection','Anidar selección'),ico:'ring',fn:nestSelection},
     ...((()=>{const cc=clipById(id),mm=cc&&mediaById(cc.mediaId);return (mm&&isSeqMedia(mm))?[{label:T('Open sequence','Abrir secuencia'),ico:'panel',fn:()=>openSeq(mm.id)},{label:T('Make unique','Convertir en único'),ico:'ring',fn:()=>{const c2=clipById(id);if(c2)makeClipUnique(c2);}}]:[];})()),
     ...((()=>{const cc=clipById(id),mm=cc&&mediaById(cc.mediaId);return (mm&&mm.kind!=='audio')?[{label:T('Render in place…','Renderizar en el sitio…'),ico:'layers',fn:()=>{const c2=clipById(id);if(c2)renderInPlace(c2);}}]:[];})()),
-    ...((()=>{const cc=clipById(id),mm=cc&&mediaById(cc.mediaId); if(!(mm&&mm.kind==='nest'&&IS_ELEC&&mm.w===mm.h))return []; // [R180] el proxy de composición, también a mano en el clip · [R192] repuesto, y sólo en cuadradas (ver renderMedia)
-      const out=[{label:mm.ncPath?(mm.ncStale?T('Nest proxy is out of date — regenerate','El proxy está desactualizado — regenerar'):T('Regenerate nest proxy…','Regenerar proxy de composición…')):T('Generate nest proxy…','Generar proxy de composición…'),ico:'layers',fn:()=>ncBuild(mm)}];
-      if(mm.ncPath)out.push({label:T('Remove nest proxy','Quitar proxy de composición'),ico:'trash',fn:()=>{ ncDetach(mm,true); flashStatus(T('Nest proxy removed','Proxy de composición eliminado')); }});
+    ...((()=>{const cc=clipById(id),mm=cc&&mediaById(cc.mediaId); if(!(mm&&mm.kind==='nest'&&IS_ELEC))return []; // [R180] el proxy de composición, también a mano en el clip · [R192] repuesto, y generar sólo en cuadradas (ver renderMedia)
+      const out=[];
+      if(mm.w===mm.h)out.push({label:mm.ncPath?(mm.ncStale?T('Nest proxy is out of date — regenerate','El proxy está desactualizado — regenerar'):T('Regenerate nest proxy…','Regenerar proxy de composición…')):T('Generate nest proxy…','Generar proxy de composición…'),ico:'layers',fn:()=>ncBuild(mm)});
+      if(mm.ncPath)out.push({label:T('Remove nest proxy','Quitar proxy de composición'),ico:'trash',fn:()=>{ ncDetach(mm,true); flashStatus(T('Nest proxy removed','Proxy de composición eliminado')); }}); // quitar SIEMPRE disponible: ver renderMedia
       return out; })()),
     ...((()=>{ const sA=state.tl.selA,sB=state.tl.selB; return (sA!=null&&sB!=null&&Math.abs(sB-sA)>1e-3)?[{label:T('Render selection in place…','Renderizar la selección en el sitio…'),ico:'layers',fn:renderRangeInPlace}]:[]; })()), // [R1] bake the in/out time selection → new top track
     'sep',
