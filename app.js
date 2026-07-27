@@ -5266,8 +5266,16 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
   const job=opt.job; const oW=glc.width,oH=glc.height; if(state.playing)pause(); // never export over a live transport — the playback rAF loop and the export seeker would fight over the media elements
   exporting=true; _exportQuality=true; _ncSquare=!!opt.squareNest; try{ if($('#renderMask'))$('#renderMask').classList.add('on'); }catch(_){} // [R2] mask the viewport while glc is resized to export dims (else it shows a stretched stale frame)
   _drawFlat=flat; _roomWrap=isRoom(); _compAspect=(state.seqW||1)/(state.seqH||1); glc.width=eW;glc.height=eH; try{fxResetHistory();}catch(e){} // fresh feedback buffers → export is byte-deterministic regardless of prior scrub state
-  // render nests/compositions at the export resolution (×SSAA, capped to the GPU limit) so dome-fills/ring grids aren't capped at 2048 then upscaled
-  { const glMaxTex=gl.getParameter(gl.MAX_TEXTURE_SIZE)||8192; nestSize=Math.min(qRes*exportSS(qRes), glMaxTex, 8192); }
+  /* Los nests se componen a la resolución del export (×SSAA, con tope del límite de la GPU) para que los
+     rellenos de domo y las retículas no queden capados a 2048 y luego ampliados.
+     [R187] El SSAA se decide UNA vez y se usa para las dos cosas — el tamaño de los nests Y el render del
+     fotograma —, que antes podían discrepar: el camino PNG nunca supersamplea (`renderExportFrame(...,1,...)`
+     y `composite(t,res,false)`) pero `nestSize` se reservaba igualmente al DOBLE. A 4096² eso son ranuras de
+     nest de 8192² = 268 MB CADA UNA para un fotograma que se dibuja a 4096: cuatro veces la VRAM necesaria,
+     y con un par de nests a la vista basta para tumbar el controlador (el «GPU reset» que reportó Beltrán).
+     Se pierde el suavizado extra que daba componer el nest al doble y reducir; a cambio el export termina. */
+  const ssExport = (opt.codec==='png') ? 1 : exportSS(qRes);
+  { const glMaxTex=gl.getParameter(gl.MAX_TEXTURE_SIZE)||8192; nestSize=Math.min(qRes*ssExport, glMaxTex, 8192); }
   let expOut=null; // R82: the written file/folder → offer to reveal it after a successful export
   try{
     _exStage='audio-decode';
@@ -5291,7 +5299,7 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
                                   :T('No audio in this export — the mix failed. The picture is unaffected.','Este export sale sin audio — falló la mezcla. La imagen no se ve afectada.');
         flashStatus(msg,'err'); if(job&&job.warn)job.warn(msg); } } // a still has no audio; neither has a render-in-place bake (opt.noAudio)
     if(opt.codec==='still'){ // single high-quality PNG of the current frame, rendered from ORIGINAL media (seekExport→seekMedia useOrig=true), with SSAA
-      const t=state.playhead; await seekExport(t); prepNests(state.clips,t,0); renderExportFrame(t,qRes,exportSS(qRes),wall);
+      const t=state.playhead; await seekExport(t); prepNests(state.clips,t,0); renderExportFrame(t,qRes,ssExport,wall);
       const blob=await new Promise(r=>glc.toBlob(r,'image/png'));
       if(!cancelExport && blob){ const fn=`${filePre}_still_${dimStr}_${TC(t).replace(/:/g,'-')}.png`;
         if(IS_ELEC && DSP.saveFile){ const p=await DSP.saveFile(fn,'png','PNG image'); if(p){ job.label(T('Saving…','Guardando…')); const ok=await DSP.writeBinary(p, new Uint8Array(await blob.arrayBuffer())); if(ok===false)throw new Error(T('Write failed (disk full, locked, or no permission).','Fallo de escritura (disco lleno, bloqueado o sin permiso).')); expOut=p; } }
@@ -5325,7 +5333,7 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
         put(movFtyp());
         const mdatStart=pos; put(_bytes(16,(dv,b)=>{ dv.setUint32(0,1); b.set(_fcc('mdat'),4); })); // size=1 → 64-bit largesize, patched once we know it
         const chunks=(opt.chunks==='auto'||opt.chunks==null)?hapAutoChunks():(+opt.chunks||1);
-        const ssE=exportSS(qRes);
+        const ssE=ssExport;
         const pcm=audioBuf?audioPCM16(audioBuf):null, aSR=audioBuf?audioBuf.sampleRate:0, aCH=audioBuf?audioBuf.numberOfChannels:0, aN=audioBuf?audioBuf.length:0;
         const frames=[], aChunks=[];
         for(let i=0;i<total;i++){ if(cancelExport||wErr)break;
@@ -5368,7 +5376,7 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
       let encErr=null; const enc=new VideoEncoder({output:(c,m)=>mux.addVideoChunk(c,m),error:e=>{encErr=e;console.error('VideoEncoder:',e);}});
       enc.configure({codec,width:eW,height:eH,bitrate:opt.bitrate,framerate:fps,bitrateMode:'variable',latencyMode:'quality'});
       _exStage='loop';
-      const us=1e6/fps,gop=Math.max(1,Math.round(fps)); const ssE=exportSS(qRes); // supersampling factor (2× when the GPU allows)
+      const us=1e6/fps,gop=Math.max(1,Math.round(fps)); const ssE=ssExport; // supersampling factor (2× when the GPU allows)
       for(let i=0;i<total;i++){ if(cancelExport||encErr||wErr)break; const t=t0+i/fps; await seekExport(t); prepNests(state.clips,t,0); renderExportFrame(t,qRes,ssE,wall);
         if(job.frame)job.frame(i,total); // [R179] live thumbnail for the progress viewer — read glc HERE, while the drawing buffer is still valid (same rule the VideoFrame below lives by)
         if(enc.state!=='configured'){encErr=encErr||new Error('codec closed');break;}
@@ -6006,7 +6014,15 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
   function exFit(){ const p=exPx(S), W=mon.width, H=mon.height, ar=p.w/Math.max(1,p.h);
     let w=W, h=Math.round(W/ar); if(h>H){ h=H; w=Math.round(H*ar); }
     return {x:Math.round((W-w)/2), y:Math.round((H-h)/2), w:Math.max(1,w), h:Math.max(1,h), p}; }
-  function exDrawMon(){ try{ const f=exFit();
+  /* [R187] Limitado a ~6 fps. `drawImage()` sobre un lienzo WebGL fuerza una instantánea del búfer de dibujo:
+     a 4096² es una lectura GPU→CPU COMPLETA, y el camino PNG ya hace otra con `toBlob()`. Hacerlo en cada
+     fotograma para pintar 160×90 es trabajo tirado, y en un domo grande es carga suficiente para provocar un
+     reinicio del controlador. El visor del render in place ya iba limitado; aquí se me quedó sin limitar. */
+  let _monT=0;
+  function exDrawMon(forzar){ const ahora=performance.now();
+    if(!forzar && S.phase==='run' && ahora-_monT<160) return;
+    _monT=ahora;
+    try{ const f=exFit();
       mctx.fillStyle='#000'; mctx.fillRect(0,0,mon.width,mon.height);
       mctx.drawImage(glc,f.x,f.y,f.w,f.h);
       if(S.phase==='run'){ const x=Math.round((S.frames?S.frame/S.frames:0)*mon.width);
@@ -6097,7 +6113,7 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
     e.textContent=txt; e.classList.toggle('warn',warn);
     if(S.phase==='idle'){ $$('#exSub').textContent=n+' '+T('frames','fotogramas')+' · '+exFmtDur(exSecs())+' '+T('of timeline','de la línea de tiempo'); }
     const fc=$('#fmtChip'); if(fc){ fc._codec=(HAP_FMT[c]?HAP_FMT[c].label:c.toUpperCase()); fc.textContent=(dome?(p.w+'²'):(p.w+'×'+p.h))+' · '+S.fps+'p · '+fc._codec; }
-    exDrawMon(); exCodecList();
+    exDrawMon(true); exCodecList();
     lastExportSet({codec:S.codec,res:(S.szMode==='preset'?S.szPreset:null),fps:S.fps,br:S.br}); }
 
   /* --- rango: I/O sólo si hay marcas (regla existente) --- */
@@ -6179,6 +6195,7 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
       let _lastStat=0;
       const job={
         prog:(k,tot)=>{ rec.p=k/tot; S.frame=k; S.frames=tot;
+          if(S.phase==='run')$$('#exPhase').textContent=T('Rendering','Renderizando'); // [R187] `label` deja escrito «Decodificando audio…» y nadie lo devolvía: la fase mentía durante TODO el render
           S.batch[myIx].frac=k/Math.max(1,tot);
           const el=(performance.now()-S.t0)/1000;
           const f=(S.batchDone+S.batch[myIx].frac)/Math.max(1,nBatch());
@@ -6194,7 +6211,7 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
             if(sa){ sa.textContent=Math.round(f*100)+'% · '+T('Exporting ','Exportando ')+labelTxt; sa.style.color=''; }
             try{ if(IS_ELEC&&DSP.setProgress)DSP.setProgress(f); }catch(e){} } },
         label:t=>{ rec.labelTxt=t; $$('#exPhase').textContent=t; },
-        frame:()=>exDrawMon(),                       // [R179] el mismo enganche que usa el visor del render in place
+        frame:(i,tot)=>exDrawMon(i===0||i===tot-1),   // [R179] el mismo enganche que usa el visor del render in place · [R187] el primero y el último siempre
         wrote:b=>{ S.bytes+=b||0; },
         /* Un aviso NO es un `flashStatus`: perder el audio de un plano y enterarte al reproducir el máster es
            el peor final posible. Se queda escrito en el panel hasta que se cierre, y sobrevive al «Terminado». */
