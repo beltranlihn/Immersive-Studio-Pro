@@ -5323,6 +5323,22 @@ async function pickVp9Codec(w,h,bitrate,fps,ten){ if(typeof VideoEncoder==='unde
 }
 /* Codec families runExport understands for the MP4 path: our key → [muxer codec, picker]. */
 const VCODECS={ h264:'avc', hevc:'hevc', av1:'av1', vp9:'vp9', vp910:'vp9' };
+/* [R191] Techo REAL de cada codificador en ESTE equipo, medido preguntándole a él, no escrito a mano: se baja por
+   la escalera de alturas manteniendo la proporción hasta que uno acepta. Sirve para DECIR el límite en la interfaz
+   («H.265 · máx. 1920×1080 aquí») en vez de esconder la opción, que era lo que hacía R185: quien quiere un MP4
+   ligero para revisar no puede pedirlo si el desplegable se lo oculta. Se consulta sólo cuando el tamaño actual NO
+   cabe, y se cachea: la escalera son ~12 sondeos y cada `pickVideoCodec` prueba varios niveles por dentro. */
+const EX_LADDER=[4320,3840,3456,3072,2880,2560,2160,1920,1440,1080,720,480];
+const _exTope=new Map();
+async function exTopeCodec(kind,ar,fps,br){
+  const k=kind+'|'+ar.toFixed(4)+'|'+fps+'|'+Math.round(br/1e6);
+  if(_exTope.has(k))return _exTope.get(k);
+  let r=null;
+  for(const hh of EX_LADDER){ const H=Math.max(16,Math.round(hh/2)*2), W=Math.max(16,Math.round(H*ar/2)*2);
+    let ok=false; try{ ok=!!(await pickVideoCodec(kind,W,H,br,fps)); }catch(e){}
+    if(ok){ r={w:W,h:H}; break; } }
+  _exTope.set(k,r); return r;
+}
 function pickVideoCodec(kind,w,h,bitrate,fps){
   if(kind==='hevc')return pickHevcCodec(w,h,bitrate,fps);
   if(kind==='av1') return pickAv1Codec(w,h,bitrate,fps);
@@ -5492,7 +5508,10 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
       _exStage='codec-pick';
       const isHevc=opt.codec==='hevc'; const muxCodec=VCODECS[opt.codec]||'avc'; // [R179] av1 / vp9 / vp910 join h264 / hevc — same muxer, different picker
       const codec=await pickVideoCodec(opt.codec,eW,eH,opt.bitrate,fps);
-      if(!codec) throw new Error(isHevc?T('H.265/HEVC is not available at '+res+'² on this build (Chromium caps its HEVC encoder near 1080p). Use AV1 for '+res+'², or PNG sequence (.zip).','H.265/HEVC no está disponible a '+res+'² en esta compilación (Chromium limita su codificador HEVC cerca de 1080p). Usa AV1 para '+res+'², o Secuencia PNG (.zip).'):T('This resolution exceeds the limits of that codec. Use AV1 for '+res+'² (it goes to 8192²), or PNG sequence (.zip).','Esta resolución supera el límite de ese códec. Usa AV1 para '+res+'² (llega a 8192²), o Secuencia PNG (.zip).'));
+      /* [R191] El panel ya bloquea Exportar cuando el códec no alcanza el tamaño, así que llegar aquí significa
+         otro camino (render in place, un trabajo encolado antes de cambiar el tamaño). El mensaje sólo propone
+         salidas que la interfaz OFRECE de verdad: antes recomendaba AV1, que no está en la lista de export. */
+      if(!codec) throw new Error(isHevc?T('H.265/HEVC does not reach '+eW+' × '+eH+' on this machine (Chromium caps its HEVC encoder near 1080p — it is not a GPU limit). Lower the size, or use a PNG sequence.','H.265/HEVC no llega a '+eW+' × '+eH+' en este equipo (Chromium limita su codificador HEVC cerca de 1080p — no es límite de la GPU). Baja el tamaño, o usa una secuencia PNG.'):T('H.264 does not reach '+eW+' × '+eH+' on this machine. Lower the size, or use a PNG sequence.','H.264 no llega a '+eW+' × '+eH+' en este equipo. Baja el tamaño, o usa una secuencia PNG.'));
       const fn=`${filePre}_${dimStr}_${fps}fps.mp4`;
       // STREAMING-TO-DISK path (Electron): muxer output is written straight to the file via random-access fd writes → no multi-GB RAM buffer. (StreamTarget+writeAt reconstructs a byte-identical MP4 — verified in Node against ArrayBufferTarget.)
       _exStage='save-dialog';
@@ -6083,7 +6102,7 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
   const S={ szMode:'match', szPreset:(as.w||4096), szW:(as.w||1920), szH:(dome?(as.w||4096):(as.h||1080)),
             codec:'png', fps:(as.fps||state.fps||60), br:120, brTouched:false, chunks:'auto',
             roomMode:'strip', floor:true, phase:'idle', pct:0, frame:0, frames:0, t0:0, tPause:0, bytes:0, warns:[], batch:[], batchDone:0 };
-  { const L=lastExportGet(); if(L){ if(L.codec&&L.codec!=='hevc')S.codec=L.codec; /* H.265 se retiró: una memoria vieja no debe resucitarlo */ if(L.fps)S.fps=+L.fps; if(L.br)S.br=+L.br;
+  { const L=lastExportGet(); if(L){ if(L.codec)S.codec=L.codec; if(L.fps)S.fps=+L.fps; if(L.br)S.br=+L.br; // [R191] H.265 vuelve a la lista, así que una memoria vieja con 'hevc' ya es válida
       if(L.res){ S.szMode='preset'; S.szPreset=+L.res; } } } // [R102·D-T4] abre con lo último que usaste, no con valores de fábrica
 
   const ov=document.createElement('div'); ov.className='exs-scrim'; ov.id='exOv';
@@ -6118,6 +6137,7 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
       <div class="exs-row"><label>${T('Preset','Preajuste')}</label><select id="exPreset" style="flex:1;"></select><button class="exs-btn" id="exSavePreset">${T('Save','Guardar')}</button></div>
       <div class="exs-row"><label>${T('Range','Rango')}</label><div class="exs-seg" id="exRange"><button data-rg="clips">${T('Clip extent','Extensión')}</button><button data-rg="inout">${T('In / Out','Entrada / Salida')}</button></div><span class="exs-hint" id="exRangeTc"></span></div>
       <div class="exs-row"><label>${T('Codec','Códec')}</label><select id="exCodec" style="flex:1;"></select></div>
+      <div class="exs-row" id="exCodecHintRow" style="display:none;"><label></label><span class="exs-hint" id="exCodecHint" style="color:#D89B3C;line-height:1.45;"></span></div>
       <div class="exs-row"><label>${T('Frame rate','Cuadros/s')}</label><select id="exFps">${[24,25,30,48,50,60].map(f=>`<option value="${f}">${f}</option>`).join('')}</select><span class="exs-unit">fps</span></div>
       <div class="exs-row span"><label>${T('Pixel size','Tamaño en píxeles')}</label>
         <div style="display:flex;align-items:center;gap:8px;width:100%;">
@@ -6177,11 +6197,16 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
     /* [R190] Mientras corre, «Exportar» queda BLOQUEADO. Antes decía «Reiniciar render» y relanzaba encima de un
        render vivo — un clic de más y perdías el trabajo hecho. Para rehacerlo hay que cancelar primero, que es
        explícito. Y «Cerrar» pasa a cancelar mientras corre: si te vas, el render no se queda trabajando solo. */
-    const corriendo=(ph==='run'||ph==='pause'), go=$$('#exGo');
-    go.disabled=corriendo; go.style.opacity=corriendo?'0.4':''; go.style.pointerEvents=corriendo?'none':'';
+    const corriendo=(ph==='run'||ph==='pause');
+    exGoGate();
     $$('#exGoTxt').textContent=ph==='done'?T('Export again','Exportar de nuevo'):T('Export','Exportar');
     $$('#exClose').textContent=corriendo?T('Cancel and close','Cancelar y cerrar'):T('Close','Cerrar');
   }
+  /* [R191] El botón se bloquea por DOS motivos y hay que combinarlos en un sitio: hay un render corriendo, o el
+     códec elegido no alcanza este tamaño. Si cada sitio lo tocara por su cuenta, el último en escribir ganaría. */
+  function exGoGate(){ const go=$$('#exGo'); if(!go)return;
+    const off=(S.phase==='run'||S.phase==='pause')||(S.codecOk===false);
+    go.disabled=off; go.style.opacity=off?'0.4':''; go.style.pointerEvents=off?'none':''; }
 
   /* --- estimación y validaciones: la lógica del diálogo viejo, ahora leyendo de exPx() --- */
   function exSecs(){ return exRangeSecs(); }
@@ -6208,32 +6233,46 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
         if(e.key==='Enter'){ e.preventDefault(); commit(); } else if(e.key==='Escape'){ e.preventDefault(); exPaintSz(); } };
       el.onblur=commit; } }
 
-  /* [R185] La lista de códecs ofrece SÓLO lo que este equipo acepta a ESTE tamaño. Antes listaba opciones que
-     fallaban al pulsar Exportar: H.265 no pasa de 1080p en esta compilación (retirado del todo) y H.264 se cae
-     por encima de ~8,3 Mpx, justo donde vive un domo 4096². Un desplegable que ofrece lo imposible le cuesta al
-     cliente un render entero para descubrirlo. PNG/HAP sólo dependen de MAX_TEXTURE_SIZE, así que van siempre. */
+  /* [R191] La lista ofrece SIEMPRE los cinco formatos, cada uno CON SU LÍMITE ESCRITO al lado. Antes (R185)
+     escondía lo que no cabía al tamaño actual, que resolvía un problema real —ofrecer lo imposible le cuesta al
+     cliente un render entero para descubrirlo— pero creaba otro: un MP4 ligero para revisar es una petición
+     legítima, y si el desplegable lo oculta no hay forma de pedirlo. Ahora se ve, dice hasta dónde llega en este
+     equipo y, si no cabe, Exportar queda bloqueado con el motivo escrito, que es honesto sin ser mudo.
+     Techos MEDIDOS aquí (Chromium 148 + RTX): H.264 se cae por encima de ~9,4 Mpx (3072² sí, 3200² no, a
+     cualquier bitrate; 4096×2160 sí) · H.265 no pasa de ~1080p, y NO es límite de la GPU (NVENC llega a 8192²),
+     es el codificador HEVC de Chromium en Windows. La interfaz no repite esos números: los vuelve a preguntar. */
   const EX_CODECS=[
-    {v:'png',  probe:false, lbl:()=>T('PNG sequence · alpha, lossless','Secuencia PNG · alfa, sin pérdida')},
-    {v:'mp4',  probe:true,  lbl:()=>'MP4 · H.264'},
-    {v:'hap',  probe:false, lbl:()=>'MOV · HAP'},
-    {v:'hapq', probe:false, lbl:()=>'MOV · HAP Q'},
-    {v:'still',probe:false, lbl:()=>T('Still frame · PNG','Fotograma · PNG')},
+    {v:'png',  kind:null,   lbl:()=>T('PNG sequence · alpha, lossless','Secuencia PNG · alfa, sin pérdida')},
+    {v:'mp4',  kind:'h264', lbl:()=>'MP4 · H.264'},
+    {v:'hevc', kind:'hevc', lbl:()=>'MP4 · H.265 / HEVC'},
+    {v:'hap',  kind:null,   lbl:()=>'MOV · HAP'},
+    {v:'hapq', kind:null,   lbl:()=>'MOV · HAP Q'},
+    {v:'still',kind:null,   lbl:()=>T('Still frame · PNG','Fotograma · PNG')},
   ];
   let _cdTok=0;
   async function exCodecList(){ const tok=++_cdTok, p=exPx(S), sel=$$('#exCodec'); if(!sel)return;
-    const ok=[];
+    const ar=p.w/Math.max(1,p.h), br=S.br*1e6, filas=[];
     for(const c of EX_CODECS){
-      if(!c.probe){ ok.push(c); continue; }
-      if(!HAS_WC)continue;
-      let can=false; try{ can=!!(await pickAvcCodec(p.w,p.h,S.br*1e6,S.fps)); }catch(e){}
-      if(can)ok.push(c);
+      if(!c.kind){ filas.push({c,cabe:true,tope:null}); continue; }   // PNG/HAP sólo dependen de MAX_TEXTURE_SIZE
+      if(!HAS_WC){ filas.push({c,cabe:false,tope:null}); continue; }
+      let cabe=false; try{ cabe=!!(await pickVideoCodec(c.kind,p.w,p.h,br,S.fps)); }catch(e){}
+      filas.push({c,cabe,tope:cabe?null:await exTopeCodec(c.kind,ar,S.fps,br)});
     }
     if(tok!==_cdTok||!document.getElementById('exCodec'))return;   // obsoleto: el tamaño cambió mientras se sondeaba
-    sel.innerHTML=ok.map(c=>`<option value="${c.v}">${c.lbl()}</option>`).join('');
-    if(!ok.some(c=>c.v===S.codec)){ S.codec='png';                // el elegido dejó de caber → al estándar, y se DICE
-      flashStatus(T('H.264 does not reach '+p.w+' × '+p.h+' — switched to PNG sequence','H.264 no llega a '+p.w+' × '+p.h+' — se cambió a secuencia PNG'),'err'); }
-    sel.value=S.codec; }
-  function exUpd(){ const p=exPx(S), c=S.codec, isVid=(c==='mp4'), isHap=(c==='hap'||c==='hapq');
+    sel.innerHTML=filas.map(f=>{ let t=f.c.lbl();
+      if(!f.cabe) t+=' — '+(f.tope?(T('max ','máx. ')+f.tope.w+' × '+f.tope.h+T(' here',' aquí')):T('not available here','no disponible aquí'));
+      return `<option value="${f.c.v}">${t}</option>`; }).join('');
+    sel.value=S.codec;
+    const mio=filas.find(f=>f.c.v===S.codec); S.codecOk=!mio||mio.cabe;
+    const row=$$('#exCodecHintRow'), hint=$$('#exCodecHint');
+    if(row&&hint){ if(S.codecOk){ row.style.display='none'; hint.textContent=''; }
+      else { row.style.display='flex';
+        const nom=(mio.c.v==='hevc')?'H.265':'H.264';
+        hint.textContent=mio.tope
+          ? nom+T(' does not reach ',' no llega a ')+p.w+' × '+p.h+T(' on this machine (max ',' en este equipo (máx. ')+mio.tope.w+' × '+mio.tope.h+T('). Lower the size or pick another format.','). Baja el tamaño o elige otro formato.')
+          : nom+T(' is not available on this machine.',' no está disponible en este equipo.'); } }
+    exGoGate(); }
+  function exUpd(){ const p=exPx(S), c=S.codec, isVid=(c==='mp4'||c==='hevc'), isHap=(c==='hap'||c==='hapq'); // [R191] H.265 también es vídeo con bitrate: sin él, la fila del bitrate desaparecía y se exportaba con el último valor a ciegas
     $$('#exFps').value=String(S.fps);
     $$('#exBrRow').style.display=isVid?'flex':'none';
     $$('#exChunkRow').style.display=isHap?'flex':'none';
@@ -6387,7 +6426,7 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
         if(fm&&(fm.nestClips||[]).length) addJob({seqId:fm.id}, T('Floor','Piso')+' · '+(fm.w||1920)+'×'+(fm.h||1080)+' '+cLbl);
         else if(fm) flashStatus(T('Floor has no clips — skipped','El piso no tiene clips — omitido'),'err'); }
       pumpExportQ(); };
-    if(codec==='mp4' && !(IS_ELEC && DSP.fileOpen)){ const estGB=br/8*exSecs()/1e9; // sólo avisa cuando NO se puede escribir en streaming (navegador); el .exe escribe el MP4 trozo a trozo
+    if((codec==='mp4'||codec==='hevc') && !(IS_ELEC && DSP.fileOpen)){ const estGB=br/8*exSecs()/1e9; // sólo avisa cuando NO se puede escribir en streaming (navegador); el .exe escribe el MP4 trozo a trozo
       if(estGB>1.8){ appConfirm(T('This MP4 is about ','Este MP4 pesa ~')+estGB.toFixed(1)+T(' GB and is assembled in memory before saving — it may run out of RAM. Use a PNG sequence for very large renders. Continue anyway?',' GB y se arma en memoria antes de guardar — podría quedarse sin RAM. Usa una secuencia PNG para renders muy grandes. ¿Continuar igual?'),
           ok=>{ if(ok)queueJob(); else exSetPhase('idle'); },{ok:T('Continue anyway','Continuar igual')}); return; } }
     queueJob(); };

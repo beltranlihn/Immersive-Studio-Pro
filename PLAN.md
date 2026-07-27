@@ -1,5 +1,25 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 191 — H.265 vuelve, y los límites se dicen en vez de esconderse
+
+Beltrán quiere poder sacar un MP4 ligero para revisar. R185 había retirado H.265 del todo y, además, **ocultaba**
+del desplegable cualquier códec que no alcanzara el tamaño elegido. Eso resolvía un problema real —ofrecer lo
+imposible le cuesta al cliente un render entero para descubrirlo— pero creaba otro: si el formato que quieres no
+aparece, no hay forma de pedirlo, ni de saber por qué falta.
+
+**Ahora se ven los cinco formatos siempre, cada uno con su límite escrito al lado:** «MP4 · H.265 / HEVC — máx.
+1080 × 1080 aquí». Si el elegido no alcanza el tamaño, Exportar queda bloqueado con el motivo en una línea ámbar,
+y se desbloquea solo al bajar el tamaño.
+
+**Los límites no están escritos a mano: se le preguntan al codificador.** Una escalera de alturas manteniendo la
+proporción, cacheada, y sólo cuando el tamaño actual no cabe. Medido así en esta máquina: H.264 llega a 3072×3072
+en cuadrado y 3840×2160 en 16:9; H.265 a 1080×1080 y 1920×1080. Coincide con lo que ya estaba anotado, pero ahora
+la interfaz lo vuelve a medir en vez de repetirlo, así que no envejece con la máquina ni con Chromium.
+
+El motor ya entendía H.265; faltaban la entrada del desplegable, contarlo como vídeo (si no, desaparecía la fila
+del bitrate y se exportaba con el último valor a ciegas) y dejar de filtrarlo al releer el último export usado.
+Export real verificado con ffprobe: `hevc / Main / 1024×1024 / 30 fotogramas`.
+
 ## ROUND 190 — Tres arreglos del panel de export
 
 Pedidos por Beltrán tras usarlo en producción.
