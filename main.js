@@ -9,6 +9,38 @@ const { exec } = require('child_process');
 // --- Prefer the dedicated GPU (NVIDIA RTX) safely, without the Chromium flags that black out the 3D view.
 // On Windows we register a per-app "High performance" GPU preference (HKCU, no admin) so the OS hands this
 // app the discrete GPU. Harmless if the machine has a single GPU.
+/* [R206] MENÚ DE macOS — el único obstáculo para que Cmd haga lo mismo que Ctrl.
+   `win.removeMenu()` vale en Windows pero en macOS no hace nada: allí el menú es de la APLICACIÓN, así que
+   Electron instala el suyo por defecto y sus atajos se atienden ANTES de que la tecla llegue a la página.
+   Eso traía tres choques: **Cmd+R = Recargar**, que en un programa que guarda el proyecto en memoria significa
+   perder el trabajo sin guardar; Cmd+Z/X/C/V/A capturados por los papeles del menú Edición, que sólo actúan
+   sobre campos de texto y dejarían muertos el deshacer y el copiar/pegar de clips; y Cmd+0/± haciendo zoom de
+   toda la interfaz.
+   Solución: un menú propio SIN el menú Ver —no hay nada que recargar ni que ampliar— con Aplicación y Ventana
+   estándar (Cmd+Q, Cmd+M, Cmd+W, como espera un Mac) y un menú Edición cuyas entradas NO usan los papeles del
+   sistema: reenvían la orden a la página, que decide según dónde esté el foco. Así no se cambia ni un atajo
+   respecto a Windows y no se pierde ninguno. */
+function menuMac(win){ if(process.platform!=='darwin')return;
+  const { Menu } = require('electron');
+  const ed=(id,label,acc)=>({ label, accelerator:acc, click:()=>{ try{ if(win&&!win.isDestroyed())win.webContents.send('dsp:edit',id); }catch(_){} } });
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    { role: 'appMenu' },                       // Acerca de · Ocultar · Salir (Cmd+Q)
+    { label: 'Edit', submenu: [
+      ed('undo','Undo','CommandOrControl+Z'),
+      ed('redo','Redo','Shift+CommandOrControl+Z'),
+      { type: 'separator' },
+      ed('cut','Cut','CommandOrControl+X'),
+      ed('copy','Copy','CommandOrControl+C'),
+      ed('paste','Paste','CommandOrControl+V'),
+      ed('selectAll','Select All','CommandOrControl+A')
+    ]},
+    { role: 'windowMenu' }                     // Minimizar · Zoom · Cerrar (el guardián de cambios sin guardar sigue en win.on('close'))
+  ]));
+}
+/* Edición NATIVA (la que harían los papeles del menú) — la pide la página cuando el foco está en un campo de
+   texto. `webContents.paste()` es imprescindible: `document.execCommand('paste')` está prohibido en la web. */
+ipcMain.handle('dsp:nativeEdit', (e, id) => { try { const wc = e.sender;
+  if (['undo','redo','cut','copy','paste','selectAll'].includes(id) && typeof wc[id] === 'function') { wc[id](); return true; } } catch (_) {} return false; });
 function preferHighPerfGPU(){ if(process.platform!=='win32')return; try{ const exe=process.execPath.replace(/"/g,'');
   exec(`reg add "HKCU\\Software\\Microsoft\\DirectX\\UserGpuPreferences" /v "${exe}" /t REG_SZ /d "GpuPreference=2;" /f`, ()=>{}); }catch(e){} }
 preferHighPerfGPU();
@@ -146,7 +178,8 @@ function createWindow() {
       backgroundThrottling: false // keep rendering at full speed when not focused
     }
   });
-  win.removeMenu();
+  win.removeMenu(); // Windows/Linux: quita la barra de menú de la ventana. En macOS NO hace nada (el menú es de la APP) → menuMac()
+  menuMac(win);
 
   // Pop-out viewer window (window.open('domeViewer')): allow it as a native, movable/resizable, menu-less black window
   win.webContents.setWindowOpenHandler(({ frameName }) => {

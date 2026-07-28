@@ -1,5 +1,36 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 206 — Los atajos, iguales en Mac: Cmd hace lo que hace Ctrl
+
+Beltrán preguntó si Ctrl+T y Ctrl+D funcionarían con Command, y pidió lo **más simple** que no le hiciera perder
+ningún comando ni trabajo. Lo más simple resultó ser **no cambiar ni un atajo**: el manejador de teclado ya mira
+`ctrlKey || metaKey`, y no hay ni un `ctrlKey` suelto en todo el archivo. Así que Command ya hacía lo mismo.
+
+El obstáculo estaba en otro sitio. El programa llama a `win.removeMenu()` para quitarse el menú nativo, y eso
+vale en Windows pero **en macOS no hace nada**: allí el menú es de la aplicación, no de la ventana. Electron
+habría instalado el suyo por defecto, y los atajos de un menú nativo se atienden **antes** de que la tecla llegue
+a la página. El choque grave era **Cmd+R = Recargar**: en un programa que guarda el proyecto en memoria, eso es
+perder el trabajo sin guardar, y está a una tecla del Cmd+T que él va a usar. Además Cmd+Z, Cmd+C, Cmd+V y Cmd+A
+habrían quedado capturados por los papeles del menú Edición —que sólo actúan sobre campos de texto—, dejando
+muertos el deshacer y el copiar/pegar de clips.
+
+Ahora hay un menú propio para macOS: **Aplicación** y **Ventana** estándar, para que Cmd+Q, Cmd+M y Cmd+W sean lo
+que un Mac espera, y **sin menú Ver**, que es donde vivían Recargar y el zoom. El menú **Edición** se queda —en
+macOS hace falta para que copiar y pegar funcionen dentro de los campos de texto— pero sus entradas **no usan los
+papeles del sistema**: reenvían la orden a la página, que decide según dónde esté el foco. En un campo de texto,
+edición nativa; en cualquier otro sitio, **se sintetiza la misma pulsación que en Windows**.
+
+Ese último detalle es deliberado: sintetizar la tecla en vez de llamar a `undo()` o `copyClip()` directamente deja
+**una sola lógica de atajos**. El manejador ya sabe distinguir los casos con matiz —copiar puntos de automatización
+frente a copiar un clip, Cmd+A sobre una pista de automatización— y así no hay una segunda versión que pueda
+desincronizarse cuando se toque la primera.
+
+Verificado lo verificable desde Windows: Cmd solo (sin Ctrl) duplica un clip y crea una pista; el enrutado del
+menú toma copiar, pegar y deshacer —y los ejecuta de verdad: el clip se pega y el deshacer lo quita— mientras que
+Cortar, que no tiene atajo propio, cae al sistema como debe; y con el foco en un campo de texto la orden se manda
+a la edición nativa. En Windows nada de esto se activa: el puente está expuesto pero nadie emite la orden.
+**El menú en sí sólo se puede ver en un Mac.**
+
 ## ROUND 205b — Los cuatro hallazgos de la revisión sobre R205
 
 **Sólo había arreglado el vídeo.** Audio e imagen seguían resolviendo antes de leer el archivo, así que reemplazar

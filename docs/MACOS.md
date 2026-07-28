@@ -63,6 +63,29 @@ Todo lo anterior degrada **solo**: `preload.js` carga los addons en `try/catch` 
   en Apple Silicon podría no aplicar. Hay que comprobarlo en la máquina antes de darlo por bueno.
 - **Doble clic en un `.isp`.** `main.js` ya trae el `app.on('open-file')`, que es la vía de macOS.
 
+## Atajos de teclado
+
+**No cambia ninguno: Cmd hace en el Mac exactamente lo que hace Ctrl en Windows.** El manejador de teclado mira
+`e.ctrlKey || e.metaKey`, así que Cmd+T, Cmd+D, Cmd+Z, Cmd+S, Cmd+E, Cmd+K… responden igual. Un solo juego de
+costumbres para las dos máquinas.
+
+Lo que **sí** hubo que resolver (R206) es el menú nativo. `win.removeMenu()` vale en Windows pero **en macOS no
+hace nada**: allí el menú es de la APLICACIÓN, así que Electron instalaba el suyo por defecto y los atajos de un
+menú nativo se atienden **antes** de que la tecla llegue a la página. Traía tres choques:
+
+| Choque | Consecuencia |
+|---|---|
+| **Cmd+R = Recargar** | El peor con diferencia: recarga la aplicación y, como el proyecto vive en memoria, **se pierde lo no guardado**. En el programa Cmd+R es «renombrar». |
+| **Cmd+Z/X/C/V/A** | Capturados por los papeles del menú Edición, que sólo actúan sobre campos de texto → deshacer y copiar/pegar de clips quedarían muertos. |
+| **Cmd+0 / Cmd+± ** | Zoom de toda la interfaz. |
+
+Ahora `menuMac()` (main.js) instala un menú propio: **Aplicación** y **Ventana** estándar (Cmd+Q, Cmd+M, Cmd+W,
+como espera un Mac) y **sin menú Ver** — no hay nada que recargar ni que ampliar. El menú **Edición** conserva sus
+atajos porque en macOS hace falta para que copiar y pegar funcionen dentro de los campos de texto, pero sus
+entradas **no usan los papeles del sistema**: reenvían la orden a la página (`dsp:edit`), que decide por el foco —
+campo de texto → edición nativa (`webContents`, la única vía para pegar); cualquier otro sitio → se sintetiza la
+misma pulsación que en Windows, de modo que **hay una sola lógica de atajos** y no dos que puedan desincronizarse.
+
 ## Llevarte un proyecto de Windows al Mac
 
 El `.isp` guarda **rutas absolutas**, así que las de Windows (`C:\…`) no existen en el Mac. Desde **R204** eso se

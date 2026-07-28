@@ -8128,6 +8128,25 @@ window.addEventListener('keydown',e=>{ const tag=(e.target.tagName||'').toLowerC
   if(e.key==='i'||e.key==='I')setWorkIn(); if(e.key==='o'||e.key==='O')setWorkOut(); if(e.key==='x'||e.key==='X')clearWork();
 });
 
+/* [R206] macOS: el menú Edición nativo captura Cmd+Z/X/C/V/A antes que la página (ver `menuMac` en main.js), así
+   que esas órdenes llegan por aquí. Se decide por el FOCO:
+     · en un campo de texto → la edición NATIVA, que es lo que harían los papeles del menú (y la única forma de
+       pegar: `document.execCommand('paste')` está prohibido en la web);
+     · en cualquier otro sitio → se sintetiza la MISMA pulsación de teclado que en Windows.
+   Sintetizar la tecla, y no llamar a `undo()`/`copyClip()` directamente, es a propósito: el manejador de arriba
+   ya sabe distinguir los casos con matiz —copiar puntos de automatización frente a copiar un clip, Cmd+A sobre
+   una pista de automatización— y así no hay dos versiones de esa lógica que se puedan desincronizar.
+   En Windows esto no se activa nunca: nadie emite `dsp:edit`. */
+if(IS_ELEC&&DSP.onEdit)DSP.onEdit(id=>{
+  const el=document.activeElement, tag=((el&&el.tagName)||'').toLowerCase();
+  if(tag==='input'||tag==='textarea'||(el&&el.isContentEditable)){ try{ DSP.nativeEdit(id); }catch(e){} return; }
+  const T2={undo:['z',false],redo:['z',true],cut:['x',false],copy:['c',false],paste:['v',false],selectAll:['a',false]}[id];
+  if(!T2){ try{ DSP.nativeEdit(id); }catch(e){} return; }
+  const ev=new KeyboardEvent('keydown',{key:T2[0],ctrlKey:true,shiftKey:T2[1],bubbles:true,cancelable:true});
+  window.dispatchEvent(ev);
+  if(!ev.defaultPrevented){ try{ DSP.nativeEdit(id); }catch(e){} } // la página no lo usó (p.ej. Cortar, que no tiene atajo propio) → que lo haga el sistema
+});
+
 window.addEventListener('keyup',e=>{ if(e.key==='k'||e.key==='K')_kHeld=false; }); // [R97] K held + J/L = slow motion (classic deck behaviour)
 window.addEventListener('blur',()=>{ _kHeld=false; }); // never leave K stuck if the window loses focus mid-hold
 window.addEventListener('resize',()=>{resize();renderTimeline();});
