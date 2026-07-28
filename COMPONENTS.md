@@ -1534,7 +1534,11 @@ Reference map of `app.js` (single-file WebGL2 renderer). Line numbers verified a
 - **Roadmap:** [N4] relative changes inside nest ✅
 
 ## Compose preview + Ring/Grid/Random + Dome Fill UI
-- **Purpose:** `drawComposePreview` renders the dome-disc (or flat-frame) schematic of a composition. `openCompose` dialog exposes layout kinds, count, dome-fill (domegrid: rings/segs/gaps/brick/shuffle), tile, jitter randomize row [N5].
+- **Purpose:** `drawComposePreview` renders the dome-disc (or flat-frame) schematic of a composition. `openCompose` dialog exposes layout kinds, count, dome-fill (domegrid: rings/segs/gaps/brick/shuffle/**flat tile**), tile, jitter randomize row [N5].
+- **[R202 · tanda 5] «Flat tile» en la configuración del relleno de domo (`#cNoWarp`).** El modo existía desde [N5] (`g.noWarp`) pero **sólo se alcanzaba desde el inspector de una composición ya creada**: al crearla no había forma de pedirlo. Ahora está en el diálogo, entra en `readForm` (vista previa) y en los `opts` de Crear/Aplicar, y se rellena desde `pre.noWarp` al reabrir.
+  - **La vista previa tenía que enterarse:** dibujaba sectores curvados para `domegrid` pasara lo que pasara, así que mentía justo en la opción que se estaba eligiendo. La condición pasa a `(g.tile||g.kind==='domegrid') && !g.noWarp`.
+  - **Qué hace en el domo:** cada baldosa se coloca SIN estirarse hasta llenar su celda, así que conserva su proporción real; lo que la curva es la propia proyección del ojo de pez. El efecto es el del anillo repetido hacia arriba y hacia abajo. Medido: con sectores el disco queda cubierto al 100% hasta el borde; con baldosas, el anillo exterior baja al 12,7%.
+  - **Gotcha al medir:** lo que decide la deformación es **sólo** `c.props.warp==='dome'` (uniforme `LW.sector`, L844). `warp:'patch'` es el modo sin deformar y `secAz/secEl` quedan de relleno **sin efecto** — mirarlos también marca como deformados clips que no lo están.
 - **Location:** app.js · `drawComposePreview(g,canvas)` (~L6129); `openCompose` dialog markup L6172+; sync/preview L6214–6242
 - **State/data:** `#cKind`, `#cN`, `#cRings/#cSegs/#cGapEl/#cGapAz/#cBrick`, `#cShuffle/#cReshuffle`, `#cJit`/`#cRandomize` (jitter row), `#cInfinite` (room wrap)
 - **Key symbols:** `kindES`, `cap`; Dome Fill defaults el 0→90 (whole dome, no central hole, L6227).

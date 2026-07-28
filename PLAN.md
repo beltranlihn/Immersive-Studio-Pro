@@ -1,5 +1,28 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 202 — «Flat tile» en la configuración del relleno de domo (tanda 5)
+
+Lo primero que apareció al abrir el capó: **el modo ya existía**. Se llama `noWarp` y entró en la ronda 123, pero
+sólo se alcanzaba desde el inspector de una composición **ya creada**. Al crearla no había forma de pedirlo, así
+que en la práctica casi nadie llegaba a él. Ahora está donde tiene que estar: en la configuración del relleno de
+domo, y sólo ahí (en anillo no aparece, que no le corresponde).
+
+**La vista previa tenía que enterarse.** Dibujaba sectores curvados para el relleno de domo pasara lo que pasara,
+así que enseñaba lo contrario de lo que estabas eligiendo justo en el momento de elegirlo.
+
+Qué hace: cada baldosa se coloca **sin estirarse** hasta llenar su celda, así que conserva su proporción real —lo
+que la curva es la propia proyección del ojo de pez, no un estiramiento— y los anillos se repiten hacia arriba y
+hacia abajo. Comparadas las dos capturas del máster, la diferencia es la que describía Beltrán: con sectores el
+domo es un disco continuo donde el rectángulo original es irreconocible; con baldosa plana se ven los rectángulos,
+cada uno con su proporción, en tres anillos de ocho.
+
+**Dos veces tuve que rehacer la comprobación, y las dos por lo mismo.** Primero di por deformados clips que no lo
+estaban: miraba `secAz`, que queda de relleno sin efecto, cuando lo único que activa la deformación es
+`warp==='dome'`. Y después la prueba de la vista previa daba «correcto» **también contra el build viejo** —
+comparaba las dos imágenes píxel a píxel, y allí también salen distintas porque sin `secAz` los sectores se dibujan
+más estrechos, o sea que cambiaban sin que la opción hiciera nada. La medida buena es cuánto del **borde** del
+disco queda cubierto: 100% con sectores, 35,7% en el build viejo, 12,7% con baldosas. Ahí sí separa.
+
 ## ROUND 201 — El rótulo de cada muro, del mismo tamaño en el 3D que en el lienzo
 
 Pedido de Beltrán: que FRONT, LEFT y compañía ocupen en el visor 3D lo mismo que ocupan en el lienzo, respecto a

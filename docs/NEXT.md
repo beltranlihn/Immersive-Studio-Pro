@@ -58,10 +58,13 @@
       toda la tinta, rótulos incluidos, y se encoge hasta que entra. Control contra el `.exe` de R198: ahí se
       salía del lienzo con 2 y 3 muros.
 
-### Tanda 5 · Fill dome 🔴
-- [ ] **Opción «flat tile» en la configuración de Fill dome.** _(Aclarado por Beltrán: se coloca en el fill del domo
-      pero **manteniendo su proporción real de deformación**. El efecto es como el del anillo, pero con anillos
-      **repetidos hacia arriba y hacia abajo** al fondo.)_
+### Tanda 5 · Fill dome — CERRADA _(R202)_ 🟢
+- [x] **Opción «flat tile» en la configuración de Fill dome.** _(R202)_ El modo existía desde [N5] (`g.noWarp`) pero
+      sólo se alcanzaba desde el **inspector** de una composición ya creada: al crearla no había forma de pedirlo.
+      Ahora está en el diálogo (`#cNoWarp`), entra en la vista previa y en los `opts` de Crear/Aplicar, y la vista
+      previa deja de dibujar sectores curvados cuando está marcada (antes mentía justo en esa opción).
+      Cada baldosa conserva su proporción real; lo que la curva es la propia proyección del ojo de pez, y los
+      anillos se repiten hacia arriba y hacia abajo — que es lo que pedía Beltrán.
 
 ## 🎨 Rediseño "Rev 1" — EN CURSO (spec: `REDISEÑO-UI.md` · decisión: ADR-0008)
 - [x] Etapas **0-5**: tokens · componentes · shell · inspector (Source/Playback, sin Master Grade) · transport
