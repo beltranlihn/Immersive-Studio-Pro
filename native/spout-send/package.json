@@ -4,6 +4,8 @@
   "description": "Minimal Spout (DirectX) sender for Immersive Studio Pro",
   "main": "index.js",
   "gypfile": true,
+  "_comment_os": "[R203] Spout es DirectX: sus fuentes (SpoutDX.cpp y compañía) no compilan fuera de Windows. Con `os` npm ni lo intenta en macOS/Linux, en vez de fallar el `npm install` entero. Va además en optionalDependencies del proyecto.",
+  "os": [ "win32" ],
   "dependencies": {
     "node-addon-api": "^8.3.0"
   }

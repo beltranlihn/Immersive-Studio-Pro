@@ -7,9 +7,13 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win"
+    "dist": "electron-builder --win",
+    "dist:win": "electron-builder --win",
+    "dist:mac": "electron-builder --mac"
   },
-  "dependencies": {
+  "_comment_native": "[R203] Los dos addons nativos son OPCIONALES y están marcados `os: win32` en su propio package.json: en macOS npm ni los intenta, así que `npm install` no necesita Xcode ni falla por Spout. `preload.js` ya los carga en try/catch → NDI y Spout simplemente informan de que no están disponibles.",
+  "_comment_mac": "[R203] Compilar para macOS SÓLO es posible desde macOS (electron-builder no cruza). El bloque `build.mac` va sin `arch`, así que sale para la del equipo que compile — Apple Silicon o Intel, sin decidirlo aquí. `identity: null` = sin firma de Developer ID: para uso propio no hace falta, porque una app que compilas tú mismo no lleva la marca de cuarentena que activa Gatekeeper. El día que se reparta a terceros se cambia por la cuenta de Apple y la notarización, sin tocar nada más. El icono sale de alma-logo.png (1024²), que electron-builder convierte a .icns solo. OJO: estos comentarios van FUERA del objeto `build` — electron-builder valida ese objeto contra un esquema y aborta con cualquier clave que no conozca.",
+  "optionalDependencies": {
     "dsp-ndi-send": "file:native/ndi-send",
     "dsp-spout-send": "file:native/spout-send"
   },
@@ -62,6 +66,16 @@
       "target": [
         { "target": "portable", "arch": ["x64"] },
         { "target": "nsis", "arch": ["x64"] }
+      ]
+    },
+    "mac": {
+      "icon": "assets/alma-logo.png",
+      "category": "public.app-category.video",
+      "identity": null,
+      "target": ["dmg", "zip"],
+      "files": [
+        "!node_modules/dsp-spout-send/**",
+        "!node_modules/dsp-ndi-send/**"
       ]
     },
     "nsis": {

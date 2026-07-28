@@ -1,5 +1,36 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 203 — El proyecto compila también para macOS (un solo repo)
+
+Beltrán quiere trabajar desde su Mac. Al abrir el capó resultó que el terreno estaba bastante limpio: `main.js` ya
+protegía el ajuste de GPU por registro con `platform!=='win32'`, ya trataba `darwin` al cerrar ventanas y **ya
+tenía el `app.on('open-file')`** que es la vía de macOS para abrir un archivo con doble clic; el medidor de GPU se
+apaga solo sin `nvidia-smi`; los dos puentes nativos se cargan en `try/catch`; y no hay rutas de Windows a mano.
+
+Lo que faltaba era el empaquetado.
+
+**Los addons nativos pasan a opcionales y marcados `os: win32`.** Spout es DirectX y sus fuentes no compilan fuera
+de Windows, así que un `npm install` en Mac reventaba entero. Ahora npm ni lo intenta. El de NDI compila, pero su
+cargador sólo tiene rama Windows, así que compilarlo en Mac serviría únicamente para exigir Xcode a cambio de
+nada. Con esto, **poner en marcha el proyecto en un Mac no necesita compilador**: sólo Node y Git.
+
+**Bloque `mac` y scripts por sistema.** `npm run dist` sigue siendo Windows —el ritual de despliegue no cambia— y
+se añaden `dist:win` y `dist:mac`. Sin `arch`: sale para la del equipo que compile. Sin firma de Developer ID,
+porque para uso propio no hace falta: la marca de cuarentena que dispara Gatekeeper la pone la descarga, no la
+compilación, y una app que compilas en tu propio Mac no la lleva.
+
+**Un solo repo.** El mismo código en los dos sistemas y la compilación decide qué lleva cada uno. Duplicar el
+proyecto por plataforma es cómo se acaba con dos versiones que nadie sabe cuál es cuál.
+
+Una cosa que sólo se descubre compilando: **electron-builder valida el objeto `build` contra un esquema y aborta
+con cualquier clave que no reconozca**, así que los comentarios `_comment_*` tuvieron que salirse de ahí. Lo cazó
+el primer `npm run dist`, no el razonamiento.
+
+Verificado lo que se puede verificar desde Windows: el build de Windows sale **idéntico** —los dos addons se
+recompilan y los dos `.node` siguen en `app.asar.unpacked`— y el bloque `mac` es válido de esquema, porque
+electron-builder valida la configuración entera antes de mirar la plataforma. **Lo que NO puedo probar desde aquí
+es el build de Mac**: eso sólo se ejecuta en un Mac. Guía para esa parte en `docs/MACOS.md`.
+
 ## ROUND 202 — «Flat tile» en la configuración del relleno de domo (tanda 5)
 
 Lo primero que apareció al abrir el capó: **el modo ya existía**. Se llama `noWarp` y entró en la ronda 123, pero

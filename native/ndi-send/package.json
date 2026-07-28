@@ -4,6 +4,8 @@
   "description": "Minimal NDI sender for Dome Studio Pro",
   "main": "index.js",
   "gypfile": true,
+  "_comment_os": "[R203] `ndi.cc` compila fuera de Windows pero su cargador es un `return nullptr`: NDI no funcionaría igual. Compilarlo en macOS sólo serviría para exigir Xcode a cambio de nada, así que npm lo salta. Si algún día se añade la rama dlopen para la dylib de macOS, se amplía este `os`.",
+  "os": [ "win32" ],
   "dependencies": {
     "node-addon-api": "^8.3.0"
   }

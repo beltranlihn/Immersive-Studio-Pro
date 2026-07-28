@@ -16,7 +16,8 @@ Antes de re-escanear `app.js`, consultá el **mapa vivo** (evita quemar tokens):
 - **Acciones destructivas** (borrar/mover archivos del usuario, reinstalar): confirmar o dejar backup, salvo que el usuario lo pida explícito.
 
 ## Comandos
-- **Compilar el .exe:** `npm run dist` (electron-builder → `dist/win-unpacked/…` + instalador NSIS + portable). `npm start` = dev.
+- **Compilar el .exe:** `npm run dist` (= `dist:win`; electron-builder → `dist/win-unpacked/…` + instalador NSIS + portable). `npm start` = dev.
+- **macOS:** `npm run dist:mac` — **sólo funciona ejecutándolo EN un Mac** (electron-builder no cruza de sistema). Un único repo para los dos: los addons nativos (NDI/Spout) son `optionalDependencies` marcadas `os: win32`, así que en Mac npm ni las intenta y no hace falta Xcode. Guía completa y qué queda fuera: **`docs/MACOS.md`**.
 - **Syntax check rápido:** `node --check app.js && node --check main.js`.
 - **Verificar en el .exe real (CDP):** lanzar `npx electron . --remote-debugging-port=9222` y evaluar por WebSocket (`Runtime.evaluate`) — patrón en `scratchpad/*.js`. Reléer `<system-reminder>` de rutas; matar todas las instancias antes de relanzar (single-instance re-enfoca la ventana vieja).
 
