@@ -7434,20 +7434,34 @@ async function reloadMedia(m){
     if(np!==m.path){ m.path=np; m.proxyReady=false; m.proxyUrl=null; m.proxyEl=null; } } // ruta nueva ⇒ el proxy se re-engancha desde la nueva ubicación
   const url=DSP.toFileURL(m.path);
   if(m.kind==='image'){ const img=new Image(); img.onload=()=>{ const fit=fitImage(img); m.el=fit.src;m.originalEl=img;m.tex=newTex();upTex(m.tex,fit.src);m.w=fit.w;m.h=fit.h;m.missing=false;m._loading=false;m.thumb=url;renderMedia();render(); }; img.onerror=()=>{ m.missing=true;m._loading=false;renderMedia();updRelink(); }; img.src=url; }
-  else if(m.kind==='video'){ const v=document.createElement('video'); v.src=url;v.muted=true;v.playsInline=true;v.preload='auto';
+  /* [R205] El camino de vídeo AHORA SE PUEDE ESPERAR. Antes registraba el oyente de metadatos y volvía en el acto,
+     así que un `await reloadMedia(m)` resolvía sin que el archivo se hubiera leído todavía — y quien reemplazaba un
+     medio y miraba la duración justo después leía la del archivo VIEJO. El bucle de carga del proyecto lo llama sin
+     esperar, así que allí no cambia nada. El plazo de 15 s evita que un archivo que no emite ningún evento cuelgue
+     a quien espera. */
+  else if(m.kind==='video'){ return await new Promise(res=>{
+    const v=document.createElement('video'); v.src=url;v.muted=true;v.playsInline=true;v.preload='auto';
+    let fin=false; const acabar=()=>{ if(fin)return; fin=true; res(); };
     v.addEventListener('loadedmetadata',()=>{ m.el=v;m.originalEl=v;m.srcUrl=url;m.tex=newTex();m.w=v.videoWidth;m.h=v.videoHeight;m.missing=false;m._loading=false;
+      if(isFinite(v.duration)&&v.duration>0)m.dur=v.duration; // [R205] la duración sale del ARCHIVO, como ya hacía el audio: sin esto un reemplazo conservaba la del anterior y el límite de recorte mentía
       detectFps(v,m,()=>{ seekMedia(m,0,true).then(()=>{makeThumb(m);render();}); }); renderMedia();
       delete m._noAudio; // fresh silent-probe after relink/replace
       if(!m.proxyReady){ attachExistingProxy(m,true); } // [R92-T6 / R107] re-bind an existing on-disk proxy on reopen (exact hash OR sibling by basename); a corrupt/stale one is deleted with a status note. Generation stays MANUAL.
+      acabar();
       },{once:true}); // proxies MANUAL (right-click → Generate proxy); existing ones re-attach automatically
-    v.addEventListener('error',()=>{ m.missing=true;m._loading=false;renderMedia();updRelink(); },{once:true}); }
+    v.addEventListener('error',()=>{ m.missing=true;m._loading=false;renderMedia();updRelink(); acabar(); },{once:true});
+    setTimeout(acabar,15000); }); }
   else if(m.kind==='audio'){ fetch(url).then(r=>r.arrayBuffer()).then(b=>ACTX().decodeAudioData(b)).then(async ab=>{ m.buffer=ab; const wv=await computeWave(ab); m.peaks=wv.peak; m.rms=wv.rms; m.dur=ab.duration;m.missing=false;m._loading=false;m.thumb=waveThumb(m.peaks,108,64);renderMedia(); if(state.playing)startAudio(); }).catch(()=>{ m.missing=true;m._loading=false;renderMedia();updRelink(); }); } } // reschedule if the audio decoded after Play started (a long film track can finish decoding a beat after load → was silent until re-play)
 /* Replace media (offline→online workflow): swap this media's FILE for another of the same kind. Clips
    reference media by id, so every cut/keyframe/fx survives; proxy/bands/thumb reset and rebuild (the new
    file's proxy is picked from its own cache if it exists). If the new file is shorter, clips past its end
    hold the last frame — trim manually. */
-async function replaceMedia(m){ if(!IS_ELEC)return;
-  const p=await DSP.pickMedia(); if(!p)return;
+/* `ruta` opcional: salta el diálogo de archivo. Existe para poder EJERCITAR esta misma función desde el arnés —
+   `DSP` viaja congelado por `contextBridge`, así que sustituirle `pickMedia` desde fuera no surte efecto y la
+   prueba se quedaba esperando un diálogo real. La alternativa era copiar el cuerpo en el arnés, que es justo
+   como se escriben pruebas que aprueban lo que no deben. */
+async function replaceMedia(m,ruta){ if(!IS_ELEC)return;
+  const p=ruta||await DSP.pickMedia(); if(!p)return;
   const ext=(p.split('.').pop()||'').toLowerCase();
   const kind=/^(mp4|mov|webm|mkv|avi)$/.test(ext)?'video':/^(wav|mp3|ogg|flac|aac|m4a)$/.test(ext)?'audio':/^(png|jpe?g|webp|gif|bmp)$/.test(ext)?'image':null;
   if(kind!==m.kind){ appAlert(T('Pick a file of the same type as the original.','Elige un archivo del mismo tipo que el original.')); return; }
@@ -7456,8 +7470,46 @@ async function replaceMedia(m){ if(!IS_ELEC)return;
   m.path=p; m.fsize=sz; m.name=DSP.basename(p); m.missing=false;
   m.proxyReady=false; m.proxyPct=0; m.proxyUrl=null; m.proxyEl=null; m._proxyForce=false; m.bands=null; m._bandsBusy=false; m.thumb=null; m._texW=null; m._texH=null; m.peaks=null; m.rms=null; m.buffer=null;
   try{ disposeAllVinst(); }catch(e){} try{ if(_arCache)arRecompute(); }catch(e){}
-  await reloadMedia(m); renderMedia(); renderTimeline(); renderInspector(); render(); markDirty();
-  flashStatus(T('Media replaced — all clips keep their edits','Medio reemplazado — todos los clips conservan su edición')); }
+  await reloadMedia(m);
+  const info=reconciliarDuracion(m,oldDur);
+  try{ disposeAllVinst(); }catch(e){} try{ reschedAudio(); }catch(e){} try{ raInvalidate(); }catch(e){} // el material cambió: instancias, audio y caché de fotogramas quedan obsoletos
+  renderMedia(); renderTimeline(); renderInspector(); render(); markDirty();
+  flashStatus(T('Media replaced — all clips keep their edits','Medio reemplazado — todos los clips conservan su edición')+info); }
+/* todos los clips del proyecto, dentro y fuera de nidos (la secuencia activa vive en state.clips, las demás en sus nestClips) */
+function clipsDelProyecto(){ const out=[], vistos=new Set();
+  const meter=arr=>{ for(const c of (arr||[])){ if(c&&!vistos.has(c)){ vistos.add(c); out.push(c); } } };
+  for(const s of state.media)if(isSeqMedia(s))meter(s.id===state.activeSeqId?state.clips:s.nestClips);
+  meter(state.clips); return out; }
+/* [R205] Tras cambiar el ARCHIVO de un medio, cuadrar los clips con la duración nueva.
+   El caso real: se reemplaza un clip por su propio upscale, que dura unas décimas más o menos. El bucle vive en el
+   clip (`loopLen`, en segundos de origen), así que sobrevive al reemplazo — pero seguiría cortando por donde
+   cortaba el material viejo: con uno más corto congela el último fotograma en cada vuelta, y con uno más largo la
+   cola nueva no se ve nunca.
+   La distinción que importa: si el ciclo abarcaba TODO lo que quedaba de origen —lo normal al activar Loop sin
+   más— se reescala a la duración nueva; si era un TROZO elegido a mano, se respeta (en un upscale del mismo clip
+   ese trozo sigue estando en el mismo sitio) y sólo se recorta si ya no cabe.
+   Los clips SIN bucle no se tocan: recortarlos por mi cuenta cambiaría el montaje. Se cuentan y se avisa. */
+function reconciliarDuracion(m,oldDur){
+  const nueva=m.dur;
+  if(!isFinite(nueva)||nueva<=0||!isFinite(oldDur)||oldDur<=0||Math.abs(nueva-oldDur)<1e-3)return '';
+  const TOL=0.02; // el ciclo "entero" se reconoce con medio fotograma de margen; un trozo elegido a mano nunca cae tan cerca
+  let bucles=0, desbordan=0;
+  for(const c of clipsDelProyecto()){
+    if(c.mediaId!==m.id)continue;
+    if((c.inP||0)>nueva)c.inP=Math.max(0,nueva-0.05); // el punto de entrada tiene que caber en el material nuevo
+    const inP=c.inP||0, resto=Math.max(0.05,nueva-inP);
+    if(c.loop&&c.loopLen>0){
+      const eraEntero=Math.abs(c.loopLen-(oldDur-inP))<=TOL;
+      const antes=c.loopLen;
+      c.loopLen=eraEntero?resto:Math.max(0.05,Math.min(c.loopLen,resto));
+      if(Math.abs(c.loopLen-antes)>1e-6)bucles++;
+    } else if(inP+(c.dur||0)*(c.speed||1)>nueva+1e-3) desbordan++;
+  }
+  const d=(nueva-oldDur), sig=(d>0?'+':'');
+  let s=' · '+T('duration ','duración ')+sig+d.toFixed(2)+' s';
+  if(bucles)s+=' · '+bucles+' '+(bucles===1?T('loop re-fitted','bucle reajustado'):T('loops re-fitted','bucles reajustados'));
+  if(desbordan)s+=' · '+desbordan+' '+(desbordan===1?T('clip runs past the new end','clip se pasa del nuevo final'):T('clips run past the new end','clips se pasan del nuevo final'));
+  return s; }
 function adopt(m){ // relink a re-imported file to a missing slot — prefer an exact name+size match, fall back to name-only
   let i=state.media.findIndex(x=>x.missing&&x.kind===m.kind&&x.name===m.name&&x.fsize&&m.fsize&&x.fsize===m.fsize&&x.id!==m.id);
   if(i<0)i=state.media.findIndex(x=>x.missing&&x.kind===m.kind&&x.name===m.name&&x.id!==m.id);

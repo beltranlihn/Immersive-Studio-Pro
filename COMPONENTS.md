@@ -1907,6 +1907,20 @@ Bootstrap constants (app.js): `HAS_WC` (~L1259) = WebCodecs + Mp4Muxer present; 
 - **Status:** ✅
 - **Roadmap:** —
 
+## Reemplazar medio + duración + bucles — replaceMedia / reconciliarDuracion
+- **Purpose:** cambiar el ARCHIVO de un medio conservando toda la edición (los clips lo referencian por id), y cuadrar los clips cuando la duración nueva no coincide con la vieja. Caso real de Beltrán: reemplazar un clip por su propio **upscale**, que dura unas décimas más o menos.
+- **Location:** app.js · `replaceMedia(m,ruta)` (~L7455) · `reconciliarDuracion(m,oldDur)` + `clipsDelProyecto()` justo debajo · duración refrescada en `reloadMedia` (rama vídeo).
+- **[R205] Tres cosas que estaban mal:**
+  1. **La duración del vídeo no se refrescaba nunca.** `dur:v.duration` sólo se leía al IMPORTAR; `reloadMedia` ponía `w`/`h`/`fps` pero no `dur`. Tras un reemplazo el medio conservaba la duración del archivo anterior → el límite de recorte mentía y `toggleLoop` capturaba el ciclo de una duración falsa. Pista de que venía a medias: `replaceMedia` guardaba `oldDur` **y no lo usaba**.
+  2. **`reloadMedia` no se podía esperar en vídeo.** Registraba el oyente de `loadedmetadata` y volvía en el acto, así que un `await reloadMedia(m)` resolvía antes de leer el archivo. Ahora la rama de vídeo devuelve una promesa (con plazo de 15 s por si el archivo no emite ningún evento). El bucle de carga del proyecto lo llama **sin** esperar → allí no cambia nada.
+  3. **Los bucles no se reajustaban.** `loop`/`loopLen` viven en el CLIP (en segundos de origen), así que sobreviven al reemplazo — pero seguían cortando por donde cortaba el material viejo: con uno más corto, el último fotograma se congela en cada vuelta; con uno más largo, la cola nueva no se ve nunca.
+- **La regla de `reconciliarDuracion`:** si el ciclo abarcaba **todo lo que quedaba de origen** (`|loopLen − (oldDur − inP)| ≤ 0,02 s`, que es lo normal al activar Loop sin más) se reescala a la duración nueva; si era un **trozo elegido a mano** se respeta —en un upscale del mismo clip ese trozo sigue en el mismo sitio— y sólo se recorta si ya no cabe. Los clips **sin** bucle no se tocan (recortarlos cambiaría el montaje): se cuentan y se avisan. Recorre los clips de TODAS las secuencias, no sólo la activa (`clipsDelProyecto`).
+- **Invariants / gotchas:**
+  - **`replaceMedia` acepta `ruta` opcional** para saltarse el diálogo. Es una costura de prueba deliberada: **`DSP` viaja congelado** por `contextBridge`, así que sustituirle `pickMedia` desde el arnés NO surte efecto — el diálogo se abre de verdad y la prueba se cuelga. La alternativa (copiar el cuerpo en el arnés) es justo como se escriben pruebas que aprueban lo que no deben.
+  - Tras reconciliar se rehacen instancias de vídeo, audio programado y caché de render-ahead: el material cambió y los tres quedan obsoletos.
+- **Status:** ✅ verificado con dos vídeos reales fabricados por el propio exportador (6 s y 4 s) y tres clips: bucle entero, bucle de trozo y sin bucle. Reemplazo 6→4 y 4→6: la duración sigue al archivo, el ciclo entero se reescala, el trozo de 2 s queda intacto. Control con el camino antiguo: el ciclo se queda en 6 s con material de 4.
+- **Roadmap:** —
+
 ## Rutas multiplataforma + reenlace junto al proyecto — pjoin / relinkIndex / repararRuta
 - **Purpose:** que armar rutas valga en Windows y macOS, y que mover la carpeta de un proyecto no deje los medios en rojo.
 - **Location:** app.js · `PSEP`/`pjoin`/`pdir`/`pbase` (~L1745, justo antes del bloque de proxies) · `relinkIndex`/`repararRuta`/`relinkReport`/`relinkReset` (~L7381, junto a `reloadMedia`) · `preload.js` expone `sep` y `listSubdirs` · `main.js` `dsp:listSubdirs`.

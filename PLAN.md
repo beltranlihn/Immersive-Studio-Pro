@@ -1,5 +1,41 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 205 — Reemplazar un medio por su upscale sin romper los bucles
+
+Beltrán preguntó algo muy concreto: va a poner clips en bucle, y después va a reemplazar cada medio por su propio
+upscale, que durará un poco más o un poco menos. ¿Sigue funcionando el bucle? Sí — el bucle vive en el clip, no en
+el medio. Pero al mirarlo aparecieron **tres cosas rotas**, y las tres en ese mismo camino.
+
+**La duración del vídeo no se refrescaba nunca.** Se leía una sola vez, al importar. Al recargar el archivo se
+actualizaban el ancho, el alto y los fotogramas por segundo, pero no la duración, así que tras un reemplazo el
+medio seguía creyendo que duraba lo que duraba el anterior. Con eso, el límite de recorte miente y el bucle se
+captura de una duración falsa. La pista de que esto venía a medias estaba a la vista: la función de reemplazo
+guardaba la duración anterior en una variable **y no la usaba**.
+
+**La recarga de un vídeo no se podía esperar.** Registraba el oyente de metadatos y volvía en el acto, de modo que
+quien hacía `await` seguía adelante antes de que el archivo se hubiera leído. Ahora devuelve una promesa de
+verdad, con un plazo por si el archivo no emite ningún evento.
+
+**Y los bucles no se reajustaban.** Seguían cortando por donde cortaba el material viejo: con uno más corto, el
+último fotograma se congela en cada vuelta; con uno más largo, la cola nueva no se ve nunca.
+
+La regla que los cuadra distingue dos intenciones, que es lo que hace que esto sea útil y no una chapuza: si el
+ciclo abarcaba **todo** el material —lo normal al activar Loop sin más— se reescala a la duración nueva; si era un
+**trozo elegido a mano**, se respeta, porque en un upscale del mismo clip ese trozo sigue estando en el mismo
+sitio. Los clips sin bucle no se tocan: recortarlos por mi cuenta cambiaría el montaje, así que se cuentan y se
+avisan en el mensaje final.
+
+Verificado con dos vídeos reales fabricados por el propio exportador del programa —6 y 4 segundos— y tres clips:
+uno con el bucle entero, otro con un ciclo de 2 s elegido a mano y otro sin bucle. Reemplazando 6→4 y luego 4→6,
+la duración sigue al archivo, el ciclo entero se reescala y el trozo de 2 s queda intacto. Con el camino antiguo,
+el ciclo se queda en 6 segundos aunque el material dure 4.
+
+**Y una lección que ya estaba en mi memoria y se me pasó igual:** `DSP` viaja **congelado** por `contextBridge`,
+así que sustituirle `pickMedia` desde el arnés no surte ningún efecto — el diálogo de archivo se abrió de verdad y
+la prueba se quedó esperando a que alguien pulsara. La salida no es copiar el cuerpo de la función en el arnés
+(así se escriben pruebas que aprueban lo que no deben), sino darle a la función una entrada por ruta y ejercitar
+**la de verdad**.
+
 ## ROUND 204 — Rutas que valen en los dos sistemas, y proyectos que se pueden mudar
 
 Salió de una pregunta de Beltrán: si se lleva la carpeta del proyecto al Mac, ¿se abrirá todo bien? Revisándolo
