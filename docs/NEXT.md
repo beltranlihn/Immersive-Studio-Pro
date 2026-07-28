@@ -12,14 +12,14 @@
 - [x] En rendering, Close = Cancel mientras renderiza · fuera el botón de restart. _(R190)_
 - [x] La carpeta del export se abre sola al terminar. _(R190)_
 
-### Tanda 1 · Editor: atajos y velocidad 🟢
-- [ ] **Ctrl+T → pista de vídeo nueva · Ctrl+Shift+T → pista de audio nueva**, desde CUALQUIER pista.
-      ⚠ Hoy Ctrl+T/D son **contextuales** (R93, automatización): esto los reemplaza. Confirmar qué pasa con lo viejo.
-- [ ] **Velocidad: número escribible** (como el resto de parámetros) y **fader de 50% a 200%**.
-- [ ] **Cambiar la velocidad ajusta la extensión del clip** automáticamente.
-      ⚠ Decisión pendiente: ¿sólo al editar de ahora en adelante, o también recalcular clips ya existentes? ¿Y con
-      velocidad automatizada por keyframes, qué extensión vale?
-- [ ] **La X de eliminar secuencia, más pequeña.** (Trivial, va de paso.)
+### Tanda 1 · Editor: velocidad 🟢 — CERRADA _(R195)_
+- [ ] ~~Ctrl+T / Ctrl+Shift+T para pistas nuevas~~ — **APLAZADO por Beltrán** (2026-07-27): «no hagamos lo del
+      comando todavía». Sigue en pie que hoy Ctrl+T/D son contextuales (R93, automatización).
+- [x] **Velocidad: `.field` como el resto de parámetros** — arrastre 50-200%, doble clic para escribir. _(R195)_
+- [x] **Cambiar la velocidad estira o encoge el clip**, y su automatización viaja con él. _(R195)_
+      Respuesta de Beltrán: la velocidad es POR CLIP, sólo afecta a ese clip, y la automatización se ajusta a la
+      nueva extensión porque las automatizaciones también son por clip.
+- [x] **La X de eliminar secuencia, más pequeña** (11 → 8,5 px; el área de clic se mantiene con el relleno). _(R195)_
 
 ### Tanda 2 · Transform de una composición 🟡
 - [ ] **Rotación aplicable a un compose desde el Transform.**
@@ -37,12 +37,13 @@
 
 ### Tanda 4 · Geometría de la sala 360 🔴 (conceptual, la más grande)
 - [ ] **4 muros = cuadrado, con los ángulos determinados por las medidas de cada muro · 3 muros = U · 2 muros = L.**
-- [ ] **El plano se ajusta al visor**, cambiando de escala sin cortarse.
-      ⚠ Aclarar: ¿«el plano» es la planta del landing o el piso dentro del visor 3D?
+- [ ] **La PLANTA DEL LANDING se ajusta al visor**, cambiando de escala sin cortarse. _(Aclarado por Beltrán: es la
+      planta del landing, no el piso del visor 3D.)_
 
-### Tanda 5 · Fill dome 🔴 (falta definirlo)
-- [ ] **Opción «flat tile» en la configuración de Fill dome.**
-      ⚠ Aclarar qué es: ¿repetir el clip en mosaico sobre el domo, o colocarlo plano sin deformación fisheye?
+### Tanda 5 · Fill dome 🔴
+- [ ] **Opción «flat tile» en la configuración de Fill dome.** _(Aclarado por Beltrán: se coloca en el fill del domo
+      pero **manteniendo su proporción real de deformación**. El efecto es como el del anillo, pero con anillos
+      **repetidos hacia arriba y hacia abajo** al fondo.)_
 
 ## 🎨 Rediseño "Rev 1" — EN CURSO (spec: `REDISEÑO-UI.md` · decisión: ADR-0008)
 - [x] Etapas **0-5**: tokens · componentes · shell · inspector (Source/Playback, sin Master Grade) · transport

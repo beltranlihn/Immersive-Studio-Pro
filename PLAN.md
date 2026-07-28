@@ -1,5 +1,28 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 195 — La velocidad estira el clip (tanda 1 de la lista de Beltrán)
+
+**Cambiar la velocidad ahora estira o encoge el clip.** Abarca el mismo material, así que su duración en la línea
+de tiempo va al revés que la velocidad: al doble de velocidad, la mitad de largo. Antes la duración se quedaba
+fija y cambiar la velocidad recortaba o repetía material en silencio.
+
+**La automatización viaja con él.** Los keyframes son por clip y sus tiempos son relativos a su inicio, así que se
+escalan por el mismo factor: lo que empezaba a media duración sigue empezando a media duración. Los fundidos se
+recortan a la nueva duración — un clip a 4× no puede tener un fundido más largo que él mismo. Un clip en bucle no
+se toca: ahí el largo lo decide el usuario arrastrando, no el material.
+
+**La fila de velocidad usa el mismo componente que el resto de parámetros**: barra arrastrable de 50 a 200% —el
+rango con el que se trabaja— y doble clic para escribir cualquier valor, con la barra pegada al extremo si se
+sale. Antes era un deslizador de 25-400% con la cifra sólo de lectura.
+
+Un detalle que había que resolver: el valor **no** se aplica mientras se arrastra. Al soltar se restaura la
+velocidad de partida y se llama una sola vez a `setClipSpeed`, para que el estirado se calcule desde el valor
+original; aplicándolo en cada movimiento del ratón el factor se acumularía y el clip se encogería sin parar.
+
+Y el aspa de cerrar secuencia baja de 11 a 8,5 px, manteniendo su área de clic con el relleno.
+
+El atajo Ctrl+T / Ctrl+Shift+T queda **aplazado** a petición de Beltrán.
+
 ## ROUND 194 — Los seis hallazgos de la revisión de código
 
 **1. Fotogramas duplicados al final de cada clip.** Un `VideoDecoder` retiene una cola de reordenación: haberle

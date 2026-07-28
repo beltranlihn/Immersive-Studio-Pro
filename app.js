@@ -3837,13 +3837,32 @@ function _renderInspectorMain(){
       const lr=pbRow('loopRevToggle',T('Reverse','Inverso'),T('Ping-pong (fwd → back → fwd)','Ping-pong (ida → vuelta → ida)'),!!c.loopRev);
       lr.querySelector('#loopRevToggle').onclick=()=>{const cc=selClip();if(cc)toggleLoopReverse(cc);}; } }
   // [REDISEÑO Rev1] Playback · Speed — per-clip playback rate (c.speed, default 1); time-based media only (video/audio/sequence)
-  if(m && (m.kind==='video'||m.kind==='audio'||isSeqMedia(m))){ const sp=document.createElement('div'); sp.className='prow'; const spct=Math.round((c.speed||1)*100);
+  /* [R195] La velocidad usa el MISMO componente `.field` que el resto de parámetros —barra arrastrable y número
+     editable al doble clic— en vez del `<input type=range>` con la cifra sólo de lectura que tenía. Arrastrar
+     recorre 50-200%, que es el rango con el que se trabaja; escribiendo se puede pedir cualquier valor y la barra
+     se queda pegada al extremo. El valor NO se aplica mientras se arrastra: al soltar se restaura la velocidad de
+     partida y se llama UNA vez a `setClipSpeed`, para que el estirado del clip se calcule desde el valor original
+     y no se acumule fotograma a fotograma durante el arrastre. */
+  if(m && (m.kind==='video'||m.kind==='audio'||isSeqMedia(m))){ const sp=document.createElement('div'); sp.className='prow'; sp.style.gap='8px';
+    const SP_MIN=50, SP_MAX=200, spct=Math.round((c.speed||1)*100);
+    const pctBarra=v=>Math.max(0,Math.min(100,(v-SP_MIN)/(SP_MAX-SP_MIN)*100));
     sp.innerHTML=`<span class="kf" style="cursor:default;visibility:hidden;"></span><span class="lab">${T('Speed','Velocidad')}</span>
-      <input type="range" id="spRange" min="25" max="400" step="5" value="${spct}" title="${T('Playback speed','Velocidad de reproducción')}" style="flex:1;height:20px;"><span class="tnum" id="spV" style="width:44px;text-align:right;color:var(--ink-dim);">${spct}%</span>`;
+      <div class="field" id="spFld" title="${T('Playback speed — drag, or double-click to type','Velocidad de reproducción — arrastra, o doble clic para escribir')}"><div class="track"><i style="width:${pctBarra(spct)}%"></i></div><div class="box"><span class="num">${spct}</span><span class="u">%</span></div></div>`;
     $('#playbackRows').appendChild(sp);
-    const spr=sp.querySelector('#spRange'); spr.onpointerdown=()=>pushUndo();
-    spr.oninput=e=>{ const cc=selClip(); if(!cc)return; cc.speed=Math.max(0.05,(+e.target.value)/100); const v=sp.querySelector('#spV'); if(v)v.textContent=Math.round(cc.speed*100)+'%'; if(_raOn)raInvalidate(); render(); };
-    spr.onchange=()=>{ const cc=selClip(); if(cc){ renderTimeline(); reschedAudio(); markDirty(); } }; }
+    const fld=sp.querySelector('#spFld'), bar=fld.querySelector('.track>i'), num=fld.querySelector('.num');
+    fld.addEventListener('pointerdown',e=>{ if(e.button!==0)return; e.preventDefault();
+      const cc=selClip(); if(!cc)return; const x0=e.clientX, v0=Math.round((cc.speed||1)*100); let nv=v0;
+      const mv=ev=>{ let paso=(SP_MAX-SP_MIN)/300; if(ev.shiftKey)paso/=5; if(ev.altKey)paso*=4;
+        nv=Math.max(SP_MIN,Math.min(SP_MAX,Math.round(v0+(ev.clientX-x0)*paso)));
+        if(bar)bar.style.width=pctBarra(nv)+'%'; if(num)num.textContent=nv;
+        cc.speed=nv/100; if(_raOn)raInvalidate(); render(); };                 // vista previa en vivo, sin tocar la extensión
+      const up=()=>{ window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up);
+        cc.speed=(Math.abs(v0-100)<1e-4)?undefined:(v0/100); if(cc.speed===undefined)delete cc.speed; // se restaura el valor de partida…
+        if(nv!==v0)setClipSpeed(cc,nv); else renderInspector(); };             // …y el cambio se aplica una sola vez, de v0 a nv
+      window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); });
+    fld.addEventListener('dblclick',()=>{ const cc=selClip(); if(!cc)return;
+      appPrompt(T('Speed % (100 = normal)','Velocidad % (100 = normal)'),String(Math.round((cc.speed||1)*100)),v=>{ if(v==null)return;
+        const nv=parseFloat(String(v).replace(',','.')); if(isNaN(nv)||nv<=0)return; setClipSpeed(cc,nv); }); }); }
   // Remove black (luma key) — any VISUAL clip: keys out the black background into real transparency (R85)
   if(m && m.kind!=='audio'){ const kr=document.createElement('div'); kr.className='prow';
     kr.innerHTML=`<span class="kf" style="cursor:default;"></span><span class="lab">${T('Remove black','Quitar negro')}</span>
@@ -7879,7 +7898,23 @@ function makeClipUnique(c){ if(!c)return; const m=mediaById(c.mediaId); if(!m||!
   c.mediaId=nm.id;
   renderMedia(); renderTimeline(); renderInspector(); render(); markDirty(); flashStatus(T('Made unique — edit its parameters independently','Convertido en único — edita sus parámetros por separado')); }
 /* ---- R80-1: per-clip speed ---- */
-function setClipSpeed(c,pct){ const sp=Math.max(6.25,Math.min(1600,pct))/100; pushUndo(); c.speed=(Math.abs(sp-1)<1e-4)?undefined:sp; if(c.speed===undefined)delete c.speed; disposeAllVinst(); renderTimeline(); renderInspector(); scheduleWaves(); render(); markDirty(); reschedAudio(); flashStatus(T('Speed: ','Velocidad: ')+Math.round(sp*100)+'%'); }
+/* [R195] Cambiar la velocidad ESTIRA O ENCOGE el clip: el material que abarca es el mismo, así que su duración en
+   la línea de tiempo va al revés que la velocidad (al doble de velocidad, la mitad de largo). Antes la duración se
+   quedaba fija y cambiar la velocidad recortaba o repetía material en silencio.
+   La automatización viaja con él —los keyframes son POR CLIP y sus tiempos son relativos a su inicio—, así que se
+   escalan por el mismo factor: un movimiento que empezaba a media duración sigue empezando a media duración.
+   Los fundidos se recortan a la nueva duración si se pasan; un clip a 4× no puede tener un fundido más largo que
+   él mismo. Un clip en bucle no se toca: su largo lo decide el usuario arrastrando, no el material. */
+function setClipSpeed(c,pct){ const sp=Math.max(6.25,Math.min(1600,pct))/100; const antes=(c.speed||1); pushUndo();
+  c.speed=(Math.abs(sp-1)<1e-4)?undefined:sp; if(c.speed===undefined)delete c.speed;
+  const f=antes/sp;
+  if(!c.loop && c.dur!=null && isFinite(f) && f>0 && Math.abs(f-1)>1e-6){
+    c.dur=Math.max(0.05,c.dur*f);
+    if(c.kf)for(const p in c.kf){ const ks=c.kf[p]; if(!ks)continue; for(const k of ks)k.t=Math.max(0,Math.min(c.dur,k.t*f)); }
+    if(c.fadeIn!=null)c.fadeIn=Math.min(c.fadeIn,c.dur);
+    if(c.fadeOut!=null)c.fadeOut=Math.min(c.fadeOut,c.dur);
+  }
+  disposeAllVinst(); renderTimeline(); renderInspector(); scheduleWaves(); render(); markDirty(); reschedAudio(); flashStatus(T('Speed: ','Velocidad: ')+Math.round(sp*100)+'%'); }
 function speedMenu(c){ const cur=Math.round((c.speed||1)*100); const opts=[25,50,75,100,150,200,400];
   openMenu(innerWidth/2-80,innerHeight/2-120,[...opts.map(p=>({label:p+'%'+(p===cur?'  ✓':''),fn:()=>setClipSpeed(c,p)})),'sep',
     {label:T('Custom…','Personalizada…'),fn:()=>appPrompt(T('Speed % (100 = normal)','Velocidad % (100 = normal)'),String(cur),v=>{ if(v==null)return; const nv=parseFloat(String(v).replace(',','.')); if(!isNaN(nv)&&nv>0)setClipSpeed(c,nv); })}]); }
