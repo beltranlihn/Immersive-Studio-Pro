@@ -1,5 +1,24 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 208 — La rueda del pulgar del MX Master panea el timeline
+
+Beltrán trabaja con un Logitech MX Master 3S, cuya rueda lateral manda scroll horizontal (`deltaX` puro en el
+evento `wheel`). Sobre el timeline no hacía nada, y no por accidente pequeño: `#tlscroll` va con **overflow-x
+hidden** —su barra horizontal es la custom `#tlZoomBar`— así que el navegador no panea con deltaX por su cuenta,
+y el handler de rueda (R152) sólo contemplaba Ctrl (zoom), Alt (alto de pistas) y Shift (pan con deltaY).
+
+Ahora hay una rama más: **gesto de eje horizontal dominante (`|deltaX| > |deltaY|`) = pan horizontal**, tanto
+sobre los clips como sobre la columna de nombres de pista. Se decide por eje dominante a propósito: un trackpad
+scrolleando en vertical mete siempre unos píxeles de deltaX de ruido, y con un umbral simple (`if deltaX`) ese
+ruido habría secuestrado el scroll vertical nativo y su inercia. De paso salió un arreglo real de la rama Shift:
+**macOS convierte Shift+rueda vertical en deltaX ya desde el sistema** (deltaY llega a 0), así que en Mac esa
+rama no hacía nada; ahora suma ambos deltas (`deltaY||deltaX`) y funciona en los dos sistemas.
+
+Verificado por CDP con eventos de rueda reales sobre la app corriendo: pulgar adelante/atrás panea (0→600→240px)
+sobre clips y sobre headers; la rueda vertical sigue nativa; un diagonal con vertical dominante NO mueve el
+horizontal; Shift+rueda al estilo macOS panea; Cmd+rueda sigue haciendo zoom (80→125 px/s); consola limpia.
+También aplica al trackpad a dos dedos, que manda el mismo deltaX.
+
 ## ROUND 207 — El .dmg sale: `npmRebuild: false` (y la puesta en marcha en el Mac, verificada entera)
 
 Primera sesión en el Mac de verdad (Apple Silicon, el de Vicente). La promesa de R203 se cumplió casi entera:

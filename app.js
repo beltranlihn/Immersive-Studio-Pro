@@ -3631,14 +3631,21 @@ function laneFloorH(l){ return (state.inlineCurves&&l.kind!=='audio')?AUTO_LANE_
 function audioZoneScrollBy(dy){ const az=document.querySelector('#tracks .audiozone'); if(!az)return; az.scrollTop+=dy; state.tl._audioScroll=az.scrollTop; const ah=$('#audioHeadZone'); if(ah)ah.scrollTop=az.scrollTop; } // sync + persist immediately (the 'scroll' event fires async — waiting on it lagged the header column a frame)
 /* [R152] Una sola área de scroll: se fueron las ramas `.audiozone` (ese módulo no existe desde R148, así que
    `inAudio` era siempre false y el código sólo despistaba). Ctrl = zoom horizontal · Alt = alto de pistas ·
-   Shift = scroll horizontal · rueda sola = scroll vertical nativo, que la barra vertical refleja. */
+   Shift = scroll horizontal · rueda sola = scroll vertical nativo, que la barra vertical refleja.
+   [R208] Rueda HORIZONTAL (deltaX: rueda del pulgar del MX Master, trackpad a dos dedos) = scroll horizontal.
+   Necesita rama propia: `#tlscroll` va con overflow-x hidden (su barra horizontal es la custom `#tlZoomBar`),
+   así que el navegador NO panea con deltaX por su cuenta. Se decide por eje dominante para no robarle el scroll
+   vertical nativo (con su inercia) a un trackpad que mande algo de deltaX de ruido. La rama Shift suma AMBOS
+   deltas porque macOS convierte Shift+rueda vertical en deltaX ya desde el sistema (deltaY llega a 0). */
 $('#tlscroll').addEventListener('wheel',e=>{
   if(e.ctrlKey||e.metaKey){e.preventDefault();tlZoomAt(e,e.deltaY<0?1:-1);}
   else if(e.altKey){ e.preventDefault(); wheelResizeLanes(e); }
-  else if(e.shiftKey){e.preventDefault();$('#tlscroll').scrollLeft+=e.deltaY;} },{passive:false});
+  else if(e.shiftKey){e.preventDefault();$('#tlscroll').scrollLeft+=(e.deltaY||e.deltaX);}
+  else if(Math.abs(e.deltaX)>Math.abs(e.deltaY)){e.preventDefault();$('#tlscroll').scrollLeft+=e.deltaX;} },{passive:false});
 /* la columna de nombres scrollea con el área de clips (el handler de scroll la sincroniza) */
 $('#trackHdr').addEventListener('wheel',e=>{ e.preventDefault();
   if(e.altKey){ wheelResizeLanes(e); return; }
+  if(Math.abs(e.deltaX)>Math.abs(e.deltaY)){ $('#tlscroll').scrollLeft+=e.deltaX; return; } // [R208] la rueda del pulgar panea igual sobre la columna de nombres
   $('#tlscroll').scrollTop+=e.deltaY; },{passive:false});
 $('#trackHdr').addEventListener('contextmenu',e=>{ if(e.target.closest('.lanehdr'))return; e.preventDefault(); openMenu(e.clientX,e.clientY,trackCreateItems()); });
 function neededSec(){ const sc=$('#tlscroll'); const screen=(sc.clientWidth||800)/state.tl.pxPerSec; const scl=Math.max(sc.scrollLeft, state.tl._scrollTarget||0); return Math.max(duration()+screen, (scl/state.tl.pxPerSec)+screen*1.6); }

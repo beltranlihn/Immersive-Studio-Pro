@@ -69,6 +69,7 @@
 | Selección temporal & marquee | Selección por span/rect → loop | app.js · `startTimeSelect`/`startMarquee` | ✅ | — |
 | Snap | Snap a borde/playhead/marcador/grilla | app.js · `applySnap`/`snapTargets` | ✅ | [T2] |
 | Zoom | Zoom anclado al cursor (+ scrollbar custom `#tlZoomBar` con caps de zoom) | app.js · `tlZoomAt`/`zoomToClip`/`renderZoomBar` | ✅ | — |
+| Ruteo de rueda | Ctrl/Cmd=zoom · Alt=alto de pistas · Shift=pan H (deltaY o deltaX: macOS convierte Shift+rueda en deltaX) · **deltaX dominante=pan H** (rueda del pulgar MX Master / trackpad; hace falta porque `#tlscroll` va overflow-x hidden) · vertical=nativo | app.js · handlers `wheel` de `#tlscroll`/`#trackHdr` | ✅ | R208 |
 | Modo simple-clip | Agarre Premiere vs Ableton | app.js · `toggleSimpleClips` | ✅ | — |
 | Regla & playhead | Scrub + arrastre de locator | app.js · #ruler pointerdown / `positionPlayhead` | ✅ | — |
 | Marcadores / locators | Marcadores temporales con nombre | app.js · `addMarker`/`jumpMarker` | ✅ | — |
