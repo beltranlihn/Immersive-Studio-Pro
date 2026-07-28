@@ -1,5 +1,34 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 210 — El recorrido guiado sale en CADA proyecto nuevo (y en ninguno abierto)
+
+Beltrán usa el recorrido como **presentación del programa**, así que lo quiere siempre que se crea un proyecto —
+domo, 2D o sala— y nunca al abrir uno guardado o un reciente, que es cuando estorba.
+
+Había dos cosas mal. Una, el recorrido estaba **capado a la primera vez de cada formato** por tres banderas de
+localStorage (`dspTour_dome/flat/room`): la segunda vez que creabas un domo ya no salía, así que como
+presentación no servía. Dos, el disparador vivía en `lchCreate()`, o sea **sólo en el launcher**: crear desde
+**File → New dome/2D/360 project…** no lo lanzaba nunca. Dos formas de crear lo mismo con comportamientos
+distintos.
+
+Ahora hay un disparador ÚNICO —`tourTrasCrear(fmt)`— al final de `newProject` y `newRoomProject`, que es
+exactamente lo que significa «proyecto nuevo»: por ahí pasan el launcher, el menú File y Ctrl/Cmd+N. Y por
+construcción NO puede salir al abrir: ese camino es `openProjectPath`→`loadProject` y no toca esas funciones.
+Tampoco salta si `confirmDiscard()` cancela la creación, porque el disparo va después de ese `return`.
+
+Se fueron además **las banderas y sus seis funciones** (`dspOnboardV1`, `dspTour_*`, `onboardDone`,
+`setOnboardDone`, `tourHecho`, `setTourHecho`): saliendo siempre, ya nadie las leía — y `onboardDone()` llevaba
+sin lectores desde R178, cuando el arranque de primera vez con escena de demostración dejó su sitio al launcher.
+Escribir una bandera que nadie consulta es la clase de resto que después nadie se atreve a tocar. Si algún día se
+quiere un «no volver a mostrar», el sitio es ese disparador, no seis funciones repartidas.
+
+Verificados los ocho casos en la app corriendo, con las banderas viejas puestas a mano en `1` para que un gate
+superviviente se hubiera notado: (1) domo desde el launcher ✓, (2) **segundo** domo seguido ✓ —lo que antes
+fallaba—, (3) 2D por menú ✓ y (4) sala 360 ✓, cada uno con su texto propio («Your fulldome project is…», «Your
+2D composition is…», «Your 360 room is…»); (5) abrir un `.isp` guardado → no sale, (6) abrir un reciente → no
+sale (la tarjeta de recientes llama a `openProjectPath`, el mismo camino), (7) cancelar la creación en el aviso
+de cambios sin guardar → no sale, (8) Ctrl/Cmd+N → sale, en domo.
+
 ## ROUND 209 — La app abre en la pantalla desde donde la abriste (y un crash latente menos)
 
 Trabajando con un monitor externo, Beltrán abría la app desde una pantalla y el splash aparecía en la otra; luego

@@ -3025,12 +3025,10 @@ function lchRenderRecents(){ const host=document.getElementById('lchRecents'); i
 
 /* Crear: se delega en las MISMAS funciones que usan los diálogos, así el proyecto sale idéntico venga de donde venga. */
 function lchCreate(){ const S=_lch, name=(S.pname||'').trim();
-  /* [R178] El recorrido guiado sale AQUÍ: al crear el primer proyecto de cada formato desde el launcher, y no
-     antes del launcher como hacía el arranque de primera vez. Se espera un momento a que el editor esté pintado
-     —el tour recorta agujeros sobre elementos reales y necesita sus medidas—. */
-  const after=()=>{ if(name){ const as=activeSeq(); if(as){ as.name=name; renderSeqBar(); } projTitle(); }
-    const fmt=(S.ptype==='dome')?'dome':(S.ptype==='flat')?'flat':'room';
-    if(!tourHecho(fmt)) setTimeout(()=>{ try{ startTour(fmt); }catch(e){} }, 900); };
+  /* [R210] El recorrido guiado ya NO se dispara aquí: lo lanza `tourTrasCrear()` al final de
+     `newProject`/`newRoomProject`, que es el punto por el que pasan TODOS los caminos de crear (launcher, menú
+     File → New…, Ctrl/Cmd+N). Así el launcher no es un caso especial y no hay dos disparadores que mantener. */
+  const after=()=>{ if(name){ const as=activeSeq(); if(as){ as.name=name; renderSeqBar(); } projTitle(); } };
   hideLanding();
   if(S.ptype==='dome') newProject('dome',S.domeRes,S.domeRes,S.fps,S.domeCov).then(after,()=>showLanding());
   else if(S.ptype==='flat') newProject('flat',S.flatW,S.flatH,S.fps).then(after,()=>showLanding());
@@ -3039,19 +3037,24 @@ function lchCreate(){ const S=_lch, name=(S.pname||'').trim();
 }
 addEventListener('resize',()=>{ if(document.getElementById('landingOv'))lchPaint(); });
 
-/* ===================== [D7] ONBOARDING — first-run demo project + step overlay =====================
-   On first launch (flag absent) we skip the landing, build a small dome demo with reference shapes, and walk a
-   coach-mark tour (viewport → timeline → inspector → export). Skippable; never reappears unless launched from the
-   Window menu ("Guided tour"). The flag lives in localStorage next to the other dsp / domePro prefs. */
-const ONBOARD_KEY='dspOnboardV1';
-function onboardDone(){ try{ return localStorage.getItem(ONBOARD_KEY)==='1'; }catch(e){ return false; } }
-function setOnboardDone(){ try{ localStorage.setItem(ONBOARD_KEY,'1'); }catch(e){} }
-/* [R178] Un recorrido POR FORMATO. Antes había una sola bandera y un solo tour, que además saltaba ANTES del
-   launcher sobre una escena de demostración. Ahora el launcher manda siempre, y el recorrido sale la primera vez
-   que se crea un proyecto de cada tipo —domo, 2D o sala—, contando lo que es propio de ese tipo. */
-const TOUR_KEY=f=>'dspTour_'+f;
-function tourHecho(f){ try{ return localStorage.getItem(TOUR_KEY(f))==='1'; }catch(e){ return false; } }
-function setTourHecho(f){ try{ localStorage.setItem(TOUR_KEY(f),'1'); }catch(e){} }
+/* ===================== [D7] RECORRIDO GUIADO — coach-marks sobre el editor real =====================
+   Recorre visor → línea de tiempo → inspector → export, con textos propios de cada formato. Se salta con Esc o
+   con «Skip tour», y se relanza cuando se quiera desde Ventana → «Recorrido guiado».
+   [R210] Sale CADA VEZ que se crea un proyecto —domo, 2D o sala—, a pedido de Beltrán: es la presentación del
+   programa y quiere poder mostrarla siempre, no sólo la primera vez de cada formato.
+   Un ÚNICO disparador, al final de `newProject`/`newRoomProject`, porque eso es exactamente lo que significa
+   "proyecto nuevo": por ahí pasan el launcher, el menú File → New… (que antes NO lo lanzaba) y Ctrl/Cmd+N.
+   NO sale al abrir un `.isp` guardado ni un reciente: ese camino es `openProjectPath`→`loadProject` y no toca
+   estas funciones. Tampoco si `confirmDiscard()` cancela la creación — el disparo va después de ese return.
+   Se espera un momento a que el editor esté pintado: el tour recorta agujeros sobre elementos REALES y necesita
+   sus medidas.
+   [R210] Se fueron las banderas de localStorage (`dspOnboardV1`, `dspTour_*`) y sus seis funciones: al salir
+   siempre, ya nada las leía. `onboardDone()` además llevaba sin lectores desde R178, cuando el arranque de
+   primera vez con escena de demostración dejó su sitio al launcher. Si algún día se quiere un "no volver a
+   mostrar", el sitio es este disparador — no seis funciones repartidas. */
+let _tourSkipNext=false; // `buildDemoProject` (arneses de scratchpad) crea un proyecto sin que el tour estorbe
+function tourTrasCrear(fmt){ if(_tourSkipNext){ _tourSkipNext=false; return; }
+  setTimeout(()=>{ try{ startTour(fmt); }catch(e){} }, 900); }
 /* one reference shape → its own media + a clip placed explicitly (lane/time/dome-position) */
 /* shared tail: register a demo media, drop a clip on a given lane/time, then set its dome position */
 function _demoPlace(m,lane,start,dur,az,el,size){ state.media.push(m); addClip(m,lane,start);
@@ -3063,6 +3066,7 @@ function _demoAddText(text,lane,start,dur,az,el,size){
   const m={id:uid(),kind:'text',name:text,text,tfontSize:150,tweight:'700',tfont:'Inter, sans-serif',tcolor:'#F2F4F6',tbg:'transparent',tstroke:false,tstrokeColor:'#000',dur,fps:0,color:clipColorFor('text')};
   renderTextMedia(m); return _demoPlace(m,lane,start,dur,az,el,size); }
 async function buildDemoProject(){ hideLanding();
+  _tourSkipNext=true; // [R210] la escena de demostración es para los arneses de prueba: que no le salte el tour encima
   await newProject('dome',4096,4096,60,180); // fresh dome sequence (4 video + 1 audio lane)
   /* [R166] Las pistas iban por número fijo 0..3, de cuando el índice 0 era V1. Desde R155 el 0 es la pista de
      AUDIO, así que el título "IMMERSIVE" aterrizaba en ella: el inspector le mostraba el panel de audio (volumen,
@@ -3112,7 +3116,7 @@ function startTour(fmt){ if(document.getElementById('tourOv'))return; const step
   const hole=document.createElement('div'); hole.style.cssText='position:fixed;border-radius:8px;pointer-events:none;box-shadow:0 0 0 9999px rgba(11,12,14,0.74);outline:1.5px solid rgba(201,205,211,0.55);'+(state.prefs.reducedMotion?'':'transition:all .25s cubic-bezier(.4,0,.2,1);');
   const card=document.createElement('div'); card.style.cssText='position:fixed;width:288px;background:var(--s1);border:.5px solid rgba(255,255,255,0.12);border-radius:9px;padding:15px 16px;box-shadow:0 12px 34px rgba(0,0,0,0.55);pointer-events:auto;';
   ov.appendChild(hole); ov.appendChild(card); document.body.appendChild(ov);
-  const end=()=>{ setOnboardDone(); if(fmt)setTourHecho(fmt); window.removeEventListener('resize',draw); document.removeEventListener('keydown',onk,true); if(_tourStop===end)_tourStop=null; ov.remove(); };
+  const end=()=>{ window.removeEventListener('resize',draw); document.removeEventListener('keydown',onk,true); if(_tourStop===end)_tourStop=null; ov.remove(); }; // [R210] ya no marca banderas: el recorrido sale en cada proyecto nuevo
   _tourStop=end;
   const go=d=>{ i=Math.max(0,Math.min(steps.length-1,i+d)); draw(); };
   function draw(){ const s=steps[i], last=i===steps.length-1;
@@ -7257,7 +7261,8 @@ async function newProject(mode,w,h,fps,cov){ if(!(await confirmDiscard()))return
   const _fl=(mode==='flat'); state.seqMode=_fl?'flat':'dome'; state.seqW=_fl?(w||1920):4096; state.seqH=_fl?(h||1080):4096; state.seqCov=_fl?180:(cov||180); if(fps)state.fps=fps;
   state.openSeqs=[]; state.activeSeqId=null; ensureSequences();
   clearAllUndo(); currentPath=null; state.dirty=false;
-  renderMedia(); renderSeqBar(); renderTimeline(); renderInspector(); render(); updStatus(); projTitle(); updFmtChip(); flashStatus(_fl?T('New 2D project','Nuevo proyecto 2D'):T('New project','Proyecto nuevo')); }
+  renderMedia(); renderSeqBar(); renderTimeline(); renderInspector(); render(); updStatus(); projTitle(); updFmtChip(); flashStatus(_fl?T('New 2D project','Nuevo proyecto 2D'):T('New project','Proyecto nuevo'));
+  tourTrasCrear(_fl?'flat':'dome'); } // [R210] proyecto nuevo → recorrido guiado (venga del launcher, del menú o de Ctrl/Cmd+N)
 /* R91: create a 360-room project — a 'room' sequence (walls unwrapped into a strip) + an optional 'flat' floor sequence, linked by room.floorSeqId. */
 /* [R165] Reconfigurar la sala NO es crear un proyecto nuevo. El menú Project llamaba a `newRoomProject`, que
    vacía medios, clips, grupos, marcadores y carpetas y borra el historial — y `confirmDiscard()` devuelve que sí
@@ -7314,7 +7319,8 @@ async function newRoomProject(cfg){ if(!(await confirmDiscard()))return; if(stat
   state.openSeqs=state.media.filter(isSeqMedia).map(s=>s.id); state.activeSeqId=wseq.id; loadSeqIntoState(wseq);
   clearAllUndo(); currentPath=null; state.dirty=false;
   renderMedia(); renderSeqBar(); renderTimeline(); renderInspector(); render(); updStatus(); projTitle(); updFmtChip();
-  flashStatus(T('New 360 room','Nueva sala 360')+' · '+walls.length+' '+T('walls','muros')+(cfg.floor?' + '+T('floor','piso'):'')); }
+  flashStatus(T('New 360 room','Nueva sala 360')+' · '+walls.length+' '+T('walls','muros')+(cfg.floor?' + '+T('floor','piso'):''));
+  tourTrasCrear('room'); } // [R210] proyecto nuevo → recorrido guiado
 function rebuildMaskTex(c){ if(c&&c.penMasks&&c.penMasks.length){ rasterizePenMasks(c); return; } if(!c||!c.maskData)return; const im=new Image(); im.onload=()=>{ if(!c.maskTex)c.maskTex=newTex(); upTex(c.maskTex,im); render(); }; im.src=c.maskData; }
 /* [I3] pen (point) masks — a per-clip list of polygons (points in 0..1), each with feather + invert. Rasterised (union)
    to c.maskTex via a 2D canvas and rendered through the existing custom-mask sampler (u_mask=5). Independent of the
