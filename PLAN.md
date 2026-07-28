@@ -1,5 +1,24 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 201 — El rótulo de cada muro, del mismo tamaño en el 3D que en el lienzo
+
+Pedido de Beltrán: que FRONT, LEFT y compañía ocupen en el visor 3D lo mismo que ocupan en el lienzo, respecto a
+su muro. En el 3D eran el 3% del alto del muro, un número fijo; en el lienzo salían al 9,3%, más de tres veces
+mayores. De ahí que en el landing, con los dos paneles uno encima del otro, cantara tanto.
+
+Y no valía cambiar el 3% por un 9,3%. En el lienzo el rótulo es un tamaño **fijo de pantalla** —11 píxeles, porque
+es una guía superpuesta— sobre un muro que sí escala, así que la proporción depende del tamaño del panel y del
+zoom: medida, va del 3,9% al 16,4%. Un número fijo acertaría en un sitio y fallaría en los demás. Así que el 3D
+calcula la proporción con la misma regla que usa el 2D para encajar la tira, y le sale la que toque en cada caso.
+
+Comprobado a cuatro tamaños de panel —el del landing, el del editor, uno estrecho y otro con el zoom al doble—
+midiendo la proporción real por un camino distinto del que usa el cálculo: coinciden en los cuatro dentro del 2%.
+
+**Un detalle que ahora se ve y antes no:** el rótulo va pintado en la cara interior del muro, así que el muro que
+tienes delante —que se ve desde fuera y translúcido— lo muestra espejado, como el letrero de un escaparate visto
+desde la calle. Es correcto, pero con el rótulo tres veces mayor se lee. Si prefieres que se lean todos del
+derecho, se voltea el que se vea por detrás.
+
 ## ROUND 200b — Los dos fallos de la revisión de código sobre R200
 
 **Un preajuste guardado antes de R200 rompía las orientaciones.** Al aplicarlo, el reparto de los roles que quedan

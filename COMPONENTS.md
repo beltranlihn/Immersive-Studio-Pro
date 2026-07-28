@@ -1429,8 +1429,10 @@ Reference map of `app.js` (single-file WebGL2 renderer). Line numbers verified a
 - **Purpose:** Projects the wall grid (3×4) and painted-on role labels onto the 2D canvas overlay using the same 3D camera MVP. Gated by the Grid toggle.
 - **Location:** app.js · `drawRoomLabels3D(mvp)` (~L887)
 - **State/data:** `state.view.showGrid`, `_roomGeo.norm`, `roomPlan(room.walls)`
-- **Key symbols:** `proj3`, affine-decal `setTransform` for perspective-correct labels, `ROOM_GRID_COLS/ROWS`
+- **Key symbols:** `proj3`, affine-decal `setTransform` for perspective-correct labels, `ROOM_GRID_COLS/ROWS`, **[R201] `labelWallFrac(room,seq,role)`**
 - **Invariants / gotchas:** No-op if grid off or `_roomGeo` missing.
+- **[R201] El rótulo ocupa del muro lo mismo que en el lienzo 2D.** Era `wv=0.03` fijo (3% del alto del muro) y en el panel del launcher salía **tres veces más pequeño** que el rótulo del lienzo cosido de al lado. No vale una constante: en el 2D el rótulo es un tamaño FIJO de pantalla (11px, es una guía superpuesta) sobre un muro que sí escala, así que su proporción depende del panel — medida, va de 0,039 a 0,164 según tamaño y zoom. `labelWallFrac` replica el encaje del visor 2D (la tira cabe a lo alto o a lo ancho según el aspecto, por `view.zoom`) y devuelve `11/altoDelMuroEnPantalla`, con topes [0,012 · 0,25] para zooms extremos. Verificado a cuatro tamaños de panel contra la proporción REAL medida por otro camino (`flatMap`): coinciden en los cuatro dentro del 2%.
+- **Nota de comportamiento:** el rótulo va PINTADO en la cara interior del muro, así que el muro que tienes delante (que se ve por fuera y translúcido) lo muestra **espejado**, como el rótulo de un escaparate visto desde la calle. Es correcto geométricamente, pero desde R201 se lee mucho más porque el rótulo es 3× mayor.
 - **Status:** ✅
 - **Roadmap:** —
 
