@@ -1,5 +1,24 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 207b — Cerrado el pendiente de R207: `npmRebuild: false` también vale en Windows
+
+R207 dejó anotado que faltaba comprobar, en una máquina Windows, que `dist:win` sigue empaquetando un NDI
+funcional sin el paso de recompilación. Hecho.
+
+Para que la prueba valiera había que forzar la situación real: los `.node` que había en disco venían de
+recompilaciones anteriores **contra Electron**, así que habrían cargado igual y la prueba no habría demostrado
+nada. Se recompilaron primero contra **Node** (`npm rebuild`), que es exactamente lo que deja un `npm install`
+limpio en una máquina nueva — si la ABI no fuese estable, ahí es donde se rompe.
+
+Compilado el `.exe` (`skipped dependencies rebuild reason=npmRebuild is set to false`) y probado **el paquete
+recién hecho, antes de tocar las instalaciones**: el addon de Spout carga —y como Spout no necesita ningún
+runtime externo, que su `available()` sea `true` prueba que el `.node` se cargó dentro de Electron—, el de NDI
+también, sin error de carga, y `findSources()` devuelve **una fuente real**: eso ejerce la API nativa, no una
+bandera. Motor WebGL vivo y consola limpia.
+
+Conclusión: la estabilidad de ABI de N-API se sostiene en los dos sistemas y la clave se queda como está, sin
+excepción para Windows. Anotado en el propio `package.json`, que era donde vivía el aviso.
+
 ## ROUND 210 — El recorrido guiado sale en CADA proyecto nuevo (y en ninguno abierto)
 
 Beltrán usa el recorrido como **presentación del programa**, así que lo quiere siempre que se crea un proyecto —
