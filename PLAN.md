@@ -1,5 +1,41 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 207 — El .dmg sale: `npmRebuild: false` (y la puesta en marcha en el Mac, verificada entera)
+
+Primera sesión en el Mac de verdad (Apple Silicon, el de Vicente). La promesa de R203 se cumplió casi entera:
+`npm install` limpio y sin Xcode, el editor abre, el domo pinta y orbita en 3D, el 2D y la sala 360 pintan
+(tira de muros y visor 3D incluidos), los atajos de R206 responden con Cmd —incluido que Cmd+R renombra y NO
+recarga, y que Cmd+C/V dentro de un campo de texto copian texto y no clips—, y el reenlazado de R204 abre un
+proyecto con rutas `C:\…` reenganchando los medios por nombre junto al `.isp` (carpeta y subcarpeta), con su
+aviso «N media re-linked next to the project».
+
+Lo que NO se cumplía era el empaquetado: `npm run dist:mac` moría antes de empaquetar nada. El paso
+`@electron/rebuild` de electron-builder **no respeta el `os: win32`** de los addons `file:` — npm los enlaza en
+`node_modules` aunque no los compile, y el rebuild los recorre e intenta compilar `native/ndi-send` en macOS:
+`ndi.cc` no compila ahí (napi.h aborta sin `NODE_ADDON_API_*_EXCEPTIONS`) y, de propina, node-gyp revienta con
+espacios en la ruta («Immersive Studio Pro»). Verificado que no era cosa del espacio: en ruta limpia falla igual.
+
+El arreglo es una clave: **`npmRebuild: false`** en el bloque `build`. No hay nada legítimo que recompilar —
+cero deps npm de runtime (mp4-muxer es archivo local) y los addons usan node-addon-api (N-API, ABI estable), así
+que el `.node` que compila `npm install` en Windows vale tal cual para el asar. Con la clave puesta: el `.dmg` y
+el `.zip` salen, la app empaquetada arranca y carga el editor desde el asar, y quedó instalada en
+`/Applications` abriendo sin avisos de Gatekeeper (compilada en el propio Mac, sin marca de cuarentena — como
+documenta `docs/MACOS.md`).
+
+Medido de paso en esta máquina, para la duda de R203 sobre el tope de H.264: **VideoToolbox topa antes que
+NVENC** — H.264 cuadrado máximo ~3072² (límite práctico del nivel 5.2; 4096² no está ni por software), y el
+panel de export ya lo etiqueta solo («max 3072 × 3072 here»). HEVC llega a 4096² por hardware y a 8192×1080 en
+rectangular. Export real verificado: 4 s a 4096² HEVC, 120 frames por VideoToolbox, ffprobe conforme. La regla
+de siempre sigue valiendo aquí: 4K cuadrado = HEVC o PNG-seq.
+
+⚠️ Pendiente de la próxima máquina Windows: re-verificar que `dist:win` empaqueta un NDI funcional con
+`npmRebuild: false` (debería — el asar ya empaqueta el `.node` pre-compilado de `node_modules/dsp-ndi-send` —
+pero no está comprobado en máquina). Si fallara, quitar la clave sólo para `dist:win`. También va en este commit
+el `package-lock.json` sincronizado con R203 (addons como `optionalDependencies` con `os: win32`), que estaba
+desfasado. Menor, visto en consola: un MP4 sin pista de audio dispara un `unhandledrejection` de
+`decodeAudioData` en la miniatura de onda (app.js:2166, falta el guard `.catch` que sí tiene la 5665); no es
+específico de Mac y no afecta a nada funcional.
+
 ## ROUND 206 — Los atajos, iguales en Mac: Cmd hace lo que hace Ctrl
 
 Beltrán preguntó si Ctrl+T y Ctrl+D funcionarían con Command, y pidió lo **más simple** que no le hiciera perder
