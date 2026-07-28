@@ -46,10 +46,17 @@
       no cabía y `overflow:hidden` se comía la acción: no se podía crear una sala desde el landing. _(R198)_
       `.lch-pbody` scrollea; salida máster y botón quedan fijos abajo.
 
-### Tanda 4 · Geometría de la sala 360 🔴 (conceptual, la más grande)
-- [ ] **4 muros = cuadrado, con los ángulos determinados por las medidas de cada muro · 3 muros = U · 2 muros = L.**
-- [ ] **La PLANTA DEL LANDING se ajusta al visor**, cambiando de escala sin cortarse. _(Aclarado por Beltrán: es la
-      planta del landing, no el piso del visor 3D.)_
+### Tanda 4 · Geometría de la sala 360 — CERRADA _(R199)_ 🟢
+> Aclarado por Beltrán (2026-07-28): **«no quiero fijarlo mano a mano»** — los ángulos salen de las medidas, no hay
+> control para tocarlos. Esa decisión es la que define toda la tanda.
+- [x] **4 muros = cuadrado, con los ángulos determinados por las medidas de cada muro · 3 muros = U · 2 muros = L.**
+      _(R199)_ `roomPlan` reescrita: el grado de libertad del cuadrilátero se fija repartiendo la inclinación por
+      igual entre los laterales (antes se promediaban sus anchos → sala siempre simétrica), y las formas dejan de
+      depender de qué roles se elijan (antes 2 y 3 muros desde el launcher caían a un salvavidas a 120°).
+      Extra: `plan.imposible` avisa cuando esas medidas no cierran ninguna sala.
+- [x] **La PLANTA DEL LANDING se ajusta al visor**, cambiando de escala sin cortarse. _(R199)_ Se mide la caja de
+      toda la tinta, rótulos incluidos, y se encoge hasta que entra. Control contra el `.exe` de R198: ahí se
+      salía del lienzo con 2 y 3 muros.
 
 ### Tanda 5 · Fill dome 🔴
 - [ ] **Opción «flat tile» en la configuración de Fill dome.** _(Aclarado por Beltrán: se coloca en el fill del domo

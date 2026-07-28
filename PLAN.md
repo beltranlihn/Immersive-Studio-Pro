@@ -1,5 +1,39 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 199 — La geometría de la sala sale de las medidas (tanda 4)
+
+Beltrán lo dejó claro antes de empezar: **no quiere fijar los ángulos a mano**. Salen de las medidas, y ya está.
+
+**Cada muro mide lo suyo.** Un cuadrilátero con los cuatro lados dados no tiene una sola forma —es una cadena de
+cuatro barras, le queda un grado de libertad—, y el código anterior lo resolvía por la vía rápida: dibujaba los dos
+laterales con la MEDIA de sus anchos. Un muro izquierdo de 400 y uno derecho de 600 salían los dos de 500, la sala
+quedaba siempre simétrica y las medidas de dos de los cuatro muros no servían para nada. Ahora ese grado de
+libertad se fija repartiendo la inclinación por igual entre los dos laterales, que es la única forma simétrica de
+repartirlo, y cada muro mide exactamente lo que se ha escrito.
+
+**Dos muros dan una L y tres una U, se elijan las orientaciones que se elijan.** Las formas estaban escritas para
+una combinación concreta —izquierda, frente y derecha, que es la que reparte el diálogo—, así que desde la pantalla
+de inicio, que reparte frente, derecha y fondo, dos y tres muros caían a un salvavidas que los colocaba **a 120
+grados**: ni L ni U, una figura que no era ninguna sala. Ahora el muro que falta toma la medida de su opuesto y se
+dibujan sólo los que existen, con lo que salen la L, la U y hasta el pasillo de dos muros enfrentados en cualquier
+orientación. Y de paso el reparto de la pantalla de inicio pasa a ser el mismo del diálogo, para que tres muros
+sean la U de siempre y no una U tumbada de lado.
+
+**Si las medidas no cierran ninguna sala, se dice.** Un fondo de 5000 con un frente de 800 y laterales de 500 no
+cierra nada. Antes se dibujaba en silencio una sala con el fondo cambiado, que es como un error de medición llega
+hasta el montaje. Ahora se dibuja la forma sana y se avisa en la planta.
+
+**La planta ya no se corta.** Se ajustaba reservando un margen fijo para los rótulos y confiando en que cupieran.
+Ahora se mide la caja de todo lo que se va a dibujar, rótulos incluidos, y se encoge hasta que entra; y se centra
+por esa caja, así que queda centrada de verdad y no el polígono centrado con los rótulos colgando.
+
+Comprobado con dos arneses, los dos validados antes de creérselos. La geometría, en aislado, sobre dieciséis salas:
+todas respetan la medida de cada muro al medio centímetro, y el cuadrado, el rectángulo, el trapecio y la U de
+antes salen **idénticos al milímetro** — o sea que lo que funcionaba no se ha movido. El recorte, contra el `.exe`
+de R198 como control: **ahí sí se salía del lienzo** con dos y tres muros, y con dos muros dibujaba una figura de
+9.128 píxeles de tinta (la de 120 grados). En R199, cero en los ocho casos, incluidas salas de 2000×300 cm y
+medidas de cinco cifras.
+
 ## ROUND 198 — Landing: los cuatro puntos que quedaban (tanda 3 cerrada)
 
 **La línea de borde del domo ya sigue al ángulo.** El contorno del borde en el 3D se dibujaba a 90 grados

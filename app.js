@@ -2616,12 +2616,23 @@ function lchPresetOptions(S){ const cur=S.walls[0].pxW+'x'+S.walls[0].pxH; const
     + (us.length?('<option disabled>──────</option>'+us.map((p,i)=>`<option value="u:${i}">${lchEsc(p.label)}</option>`).join('')):''); }
 function lchApplyPreset(v){ const S=_lch;
   if(String(v).indexOf('u:')===0){ const p=lchUserPresets()[+String(v).slice(2)]; if(!p)return;
-    if(p.count)S.roomCount=p.count;
+    if(p.count)lchSetWallCount(p.count); // [R199] por el reparto de orientaciones, no tocando la cuenta a pelo
     p.walls.forEach((s,i)=>{ const w=S.walls[i]; if(!w)return; w.pxW=s.pxW; w.pxH=s.pxH; if(s.wcm)w.wcm=s.wcm; if(s.hcm)w.hcm=s.hcm; }); }
   else { const p=String(v).split('x'); S.walls.forEach(w=>{ w.pxW=+p[0]; w.pxH=+p[1]; }); }
   S.floorPx=null; // un preajuste es una decisión de resolución: el piso vuelve a seguir a los muros
   S.draft={}; renderLauncher(); }
 
+/* [R199] Qué orientaciones se usan según cuántos muros — las MISMAS que el diálogo de sala (`setN`), para que la
+   forma no dependa de por dónde entres: dos muros = frente + un lateral (L), tres = los dos laterales abrazando al
+   frente (U mirando al fondo, que es como se monta una sala de tres pantallas). El launcher repartía Front, Right y
+   Back por ser el orden de la lista, lo que daba una U tumbada de lado. Cada orientación conserva SUS medidas al
+   cambiar la cuenta, y las que salen de juego quedan detrás por si se vuelve a subir. */
+const LCH_ROOM_ROLES={2:['Left','Front'],3:['Left','Front','Right'],4:['Front','Right','Back','Left']};
+function lchSetWallCount(n){ const S=_lch; const quiero=LCH_ROOM_ROLES[n]||LCH_ROOM_ROLES[4];
+  const porRol={}; S.walls.forEach(w=>{ porRol[w.role]=w; });
+  S.walls=quiero.concat(ROOM_ROLES.filter(r=>quiero.indexOf(r)<0))
+    .map(r=>porRol[r]||{role:r,wcm:800,hcm:450,pxW:3840,pxH:2160});
+  S.roomCount=n; S.draft={}; }
 function lchActiveWalls(){ return _lch.walls.slice(0,_lch.roomCount); }
 function lchCfgWalls(){ return lchActiveWalls().map((w,i)=>({role:w.role,order:i+1,wcm:w.wcm,hcm:w.hcm,pxW:w.pxW,pxH:w.pxH})); }
 /* [R165] El piso del launcher iba clavado a 500×400 cm / 1920×1080 px pasara lo que pasara con los muros,
@@ -2810,7 +2821,7 @@ function renderLauncher(){ const ov=document.getElementById('landingOv'); if(!ov
   segPick('domeRes',v=>{_lch.domeRes=+v;_lch.draft={};});
   segPick('domeCov',v=>{_lch.domeCov=+v;_lch.draft={};});
   segPick('flatPre',v=>{const p=v.split('x');_lch.flatW=+p[0];_lch.flatH=+p[1];_lch.draft={};});
-  segPick('roomCount',v=>_lch.roomCount=+v);
+  segPick('roomCount',v=>lchSetWallCount(+v));
   { const sel=panel.querySelector('#lchRoomPre'); if(sel)sel.onchange=e=>lchApplyPreset(e.target.value);
     const sv=panel.querySelector('#lchPreSave'); if(sv)sv.onclick=()=>lchSaveUserPreset(); }
   { const s=panel.querySelector('#lchSwap'); if(s)s.onclick=()=>{ const w=_lch.flatW; _lch.flatW=_lch.flatH; _lch.flatH=w; _lch.draft={}; renderLauncher(); }; }
@@ -6797,22 +6808,57 @@ const ROOM_ROLES=['Front','Right','Back','Left']; // canonical loop order for th
 const ROOM_ROLE_COL={Front:'#5AA9E6',Right:'#6FCF97',Back:'#E6A15A',Left:'#C98BE0'};
 const ROOM_GRID_ROWS=3, ROOM_GRID_COLS=4; // per-wall subdivision: 3 vertical divisions × 4 horizontal, proportional to each wall
 function roomRoleLabel(r){ return {Front:T('Front','Frente'),Back:T('Back','Fondo'),Left:T('Left','Izquierda'),Right:T('Right','Derecha')}[r]||r; }
-/* Shared room floor-plan geometry (METERS): from wall roles + widths(cm) + heights(cm) → footprint segments {role,a:[x,y],b:[x,y],h}. The angles come from the dimensions (Front/Back parallel & centered; sides slant if widths differ → non-90°), exactly what only the 3D shows. Used by the setup schematic AND the 3D viewer. */
-function roomPlan(walls){ const by={}; for(const w of walls)by[w.role]=w;
-  const has=r=>!!by[r], Wm=r=>by[r]?Math.max(0.02,by[r].wcm/100):0, Hm=r=>by[r]?Math.max(0.02,by[r].hcm/100):0; const seg=[];
-  if(has('Front')&&has('Right')&&has('Back')&&has('Left')){
-    const wF=Wm('Front'),wB=Wm('Back'),wL=Wm('Left'),wR=Wm('Right'); const off=(wF-wB)/2, avg=(wL+wR)/2, D=Math.sqrt(Math.max(0.04,avg*avg-off*off));
-    const FL=[-wF/2,0],FR=[wF/2,0],BR=[wB/2,D],BL=[-wB/2,D];
-    seg.push({role:'Front',a:FL,b:FR,h:Hm('Front')},{role:'Right',a:FR,b:BR,h:Hm('Right')},{role:'Back',a:BR,b:BL,h:Hm('Back')},{role:'Left',a:BL,b:FL,h:Hm('Left')}); return {seg,closed:true,poly:[FL,FR,BR,BL]}; }
-  if(has('Front')&&has('Left')&&has('Right')){
-    const wF=Wm('Front'),wL=Wm('Left'),wR=Wm('Right'); const FL=[-wF/2,0],FR=[wF/2,0],BR=[wF/2,wR],BL=[-wF/2,wL];
-    seg.push({role:'Front',a:FL,b:FR,h:Hm('Front')},{role:'Right',a:FR,b:BR,h:Hm('Right')},{role:'Left',a:BL,b:FL,h:Hm('Left')}); return {seg,closed:false,poly:[FL,FR,BR,BL]}; }
-  if(has('Front')&&has('Left')){
-    const wF=Wm('Front'),wL=Wm('Left'); const FL=[-wF/2,0],FR=[wF/2,0],BL=[-wF/2,wL];
-    seg.push({role:'Front',a:FL,b:FR,h:Hm('Front')},{role:'Left',a:BL,b:FL,h:Hm('Left')}); return {seg,closed:false,poly:[FL,FR,BL]}; }
-  // generic fallback (non-canonical role mix): walk a loop at equal angles honoring each width
-  let ang=0,p=[0,0]; const step=2*Math.PI/Math.max(3,walls.length||3); const poly=[];
-  for(const w of walls){ const len=Math.max(0.02,(w.wcm||100)/100); const b=[p[0]+Math.cos(ang)*len,p[1]+Math.sin(ang)*len]; seg.push({role:w.role,a:p.slice(),b,h:Math.max(0.02,(w.hcm||300)/100)}); poly.push(p.slice()); p=b; ang+=step; } return {seg,closed:false,poly}; }
+/* Shared room floor-plan geometry (METERS): from wall roles + widths(cm) + heights(cm) → footprint segments
+   {role,a:[x,y],b:[x,y],h}. Used by the setup schematic, the launcher plan AND the 3D viewer.
+
+   [R199 · tanda 4] LOS ÁNGULOS SALEN DE LAS MEDIDAS, ninguno se fija a mano (decisión de Beltrán, 2026-07-28).
+   Contrato: el FRENTE se apoya en y=0 centrado en x, y los demás muros cuelgan de él.
+   - Un cuadrilátero con los cuatro lados dados NO es rígido (es una cadena de cuatro barras: le queda un grado de
+     libertad). Ese grado se fija repartiendo la inclinación **por igual** entre los dos laterales — la convención
+     que devuelve el rectángulo exacto cuando las medidas son de rectángulo, y la única simétrica.
+   - Antes, los dos laterales se dibujaban con la MEDIA de sus anchos (`avg`), así que un muro izquierdo de 400 y
+     uno derecho de 600 salían los dos de 500: la sala quedaba siempre simétrica y las medidas de dos de los cuatro
+     muros no pintaban nada. Ahora cada lateral mide lo suyo y la sala se inclina en consecuencia.
+   - Con menos de cuatro muros, el que falta toma la medida de su opuesto (y si faltan los dos, la media de los
+     presentes) y **sólo se emiten los segmentos que existen**: tres muros = U, dos contiguos = L, dos enfrentados
+     = pasillo — y en la orientación que toque, no sólo para una combinación concreta de roles. Antes las formas
+     estaban escritas para `Left+Front(+Right)`: desde el launcher, que reparte Front/Right/Back, dos y tres muros
+     caían al salvavidas genérico y salían a 120°, ni L ni U. */
+function roomPlan(walls){ const by={}; for(const w of (walls||[]))if(w&&w.role)by[w.role]=w;
+  const has=r=>!!by[r], Wm=r=>by[r]?Math.max(0.02,by[r].wcm/100):0, Hm=r=>by[r]?Math.max(0.02,by[r].hcm/100):0;
+  const presentes=ROOM_ROLES.filter(has);
+  if(!presentes.length||presentes.length!==Object.keys(by).length){
+    // salvavidas para una mezcla de roles no canónica (no debería darse: los roles son únicos y salen de ROOM_ROLES)
+    const seg=[],poly=[]; let ang=0,p=[0,0]; const step=2*Math.PI/Math.max(3,(walls||[]).length||3);
+    for(const w of (walls||[])){ const len=Math.max(0.02,(w.wcm||100)/100); const b=[p[0]+Math.cos(ang)*len,p[1]+Math.sin(ang)*len];
+      seg.push({role:w.role,a:p.slice(),b,h:Math.max(0.02,(w.hcm||300)/100)}); poly.push(p.slice()); p=b; ang+=step; }
+    return {seg,closed:false,poly}; }
+  const media=presentes.reduce((a,r)=>a+Wm(r),0)/presentes.length;
+  const wF=has('Front')?Wm('Front'):(has('Back')?Wm('Back'):media), wB=has('Back')?Wm('Back'):wF;
+  const wL=has('Left')?Wm('Left'):(has('Right')?Wm('Right'):media), wR=has('Right')?Wm('Right'):wL;
+  const FL=[-wF/2,0], FR=[wF/2,0];
+  /* θ = cuánto se abren (o cierran) los dos laterales respecto de la perpendicular al frente. Sin muro de fondo no
+     hay nada que resolver: los laterales salen rectos (θ=0) y la U/L queda a escuadra. Con fondo, θ es la raíz de
+     «la distancia entre las dos esquinas traseras = ancho del fondo». Se busca por barrido + bisección porque la
+     función no es monótona cuando el frente es estrecho frente a los laterales. */
+  let th=0, imposible=false;
+  if(has('Back')&&(has('Left')||has('Right'))){
+    const f=t=>Math.hypot(wF+(wL+wR)*Math.sin(t),(wR-wL)*Math.cos(t))-wB;
+    const LIM=Math.PI/2-1e-3, N=360; let lo=null,hi=null, pv=f(-LIM), pt=-LIM;
+    for(let i=1;i<=N;i++){ const t=-LIM+2*LIM*i/N, v=f(t);
+      if((pv<=0&&v>=0)||(pv>=0&&v<=0)){ lo=pt; hi=t; break; } pv=v; pt=t; }
+    if(lo!==null){ const s=Math.sign(f(hi)-f(lo))||1;
+      for(let i=0;i<52;i++){ const m=(lo+hi)/2; if(s*f(m)<0)lo=m; else hi=m; } th=(lo+hi)/2; }
+    // sin raíz, esas cuatro medidas no cierran NINGUNA sala (p.ej. un fondo más largo que frente + los dos
+    // laterales). Se dibuja la forma sana (θ=0) y se marca, para no enseñar en silencio un fondo que no es el que
+    // se ha escrito — que es como se cuela un error de medición hasta el montaje.
+    else imposible=true;
+  }
+  const BL=[FL[0]-wL*Math.sin(th), FL[1]+wL*Math.cos(th)];
+  const BR=[FR[0]+wR*Math.sin(th), FR[1]+wR*Math.cos(th)];
+  const E={Front:[FL,FR],Right:[FR,BR],Back:[BR,BL],Left:[BL,FL]};
+  const seg=presentes.map(r=>({role:r,a:E[r][0].slice(),b:E[r][1].slice(),h:Hm(r)}));
+  return {seg, closed:presentes.length===4, poly:[FL,FR,BR,BL], imposible}; }
 /* Two synced schematics of the room: a 3D iso (left) for shape/orientation and a to-scale top-down PLAN
    (right, with a metre bar) for exact footprint measurements. The wall under edit lights up in both. Drawn
    at ~2× for crispness; fonts sized to the app's scale via U = W/528 (so N*U renders at ~N screen px). */
@@ -6844,11 +6890,32 @@ function drawRoomIso(cv,walls,floorOn,activeRole,pal,solo){ if(!cv)return; const
   const plW=(pMxX-pMnX)||1, plH=(pMxY-pMnY)||1;
   let cX=0,cY=0; for(const p of plan.poly){ cX+=p[0]; cY+=p[1]; } cX/=plan.poly.length; cY/=plan.poly.length;
   const availLW=split-2*pad, availRW=(W-split)-2*pad, availH=H-padT-pad;
-  const lmx=30*U, lmy=15*U, availRWp=availRW-2*lmx, availHPp=availH-16*U-2*lmy; // plan reserves margins for edge labels + a strip for the scale bar
-  const sIso=Math.min(availLW/isoW, availH/isoH), sPlan=Math.min(availRWp/plW, availHPp/plH);
+  const sIso=Math.min(availLW/isoW, availH/isoH);
   const oxI=pad+(availLW-isoW*sIso)/2, oyI=padT+(availH-isoH*sIso)/2;
   const IP=(x,y,z)=>[ oxI+((x-y)*ca-iMnX)*sIso, oyI+((x+y)*sa-z-iMnY)*sIso ];
-  const oxP=split+pad+lmx+(availRWp-plW*sPlan)/2, oyP=padT+lmy+(availHPp-plH*sPlan)/2;
+  /* [R199 · tanda 4] La PLANTA se ajusta a su panel MIDIENDO lo que va a dibujar, rótulos incluidos, en vez de
+     reservar un margen fijo (30×15 unidades) y confiar en que quepa. Con una sala muy ancha o muy plana, o con
+     medidas de cuatro cifras, los rótulos de cm se salían del lienzo y se cortaban — y en el panel del launcher,
+     que es mucho más ancho que el del diálogo, se notaba más. Ahora se calcula la caja de TODA la tinta a una
+     escala de prueba y se encoge hasta que entra; como los rótulos miden lo mismo a cualquier escala, la cuenta
+     no es lineal y se repite unas pocas veces, que es de sobra para converger. Al final se centra por esa misma
+     caja, así que la planta queda centrada de verdad y no "el polígono centrado con los rótulos colgando". */
+  const areaX=split+pad, areaY=padT, areaW=Math.max(20,availRW), areaH=Math.max(20,availH-16*U); // 16*U = la franja de la barra de escala
+  const etiquetas=plan.seg.map(s=>{ const mx=(s.a[0]+s.b[0])/2, my=(s.a[1]+s.b[1])/2;
+    let ox=mx-cX, oy=my-cY; const ol=Math.hypot(ox,oy)||1;
+    ctx.font=`600 ${8.5*TU}px Geist,system-ui`; const w1=ctx.measureText(String(wallOf(s.role).wcm)).width;
+    ctx.font=`600 ${7*TU}px Geist,system-ui`; const w2=ctx.measureText(roomRoleLabel(s.role).toUpperCase()).width;
+    return { mx,my, sox:ox/ol, soy:-oy/ol, hw:Math.max(w1,w2)/2 }; });
+  const cajaTinta=s=>{ const px=(x,y)=>[(x-pMnX)*s,(pMxY-y)*s]; let a=1e9,b=1e9,c=-1e9,d=-1e9;
+    const meter=(x,y)=>{ if(x<a)a=x; if(y<b)b=y; if(x>c)c=x; if(y>d)d=y; };
+    for(const p of plan.poly){ const q=px(p[0],p[1]); meter(q[0],q[1]); }
+    for(const e of etiquetas){ const M=px(e.mx,e.my), off=12*U, lx=M[0]+e.sox*off, ly=M[1]+e.soy*off;
+      meter(lx-e.hw,ly-14*U); meter(lx+e.hw,ly+9*U); }                       // caja de las dos líneas del rótulo
+    return {x:a,y:b,w:Math.max(1,c-a),h:Math.max(1,d-b)}; };
+  let sPlan=Math.min(areaW/plW, areaH/plH); // punto de partida: sólo el polígono
+  let caja=cajaTinta(sPlan);
+  for(let i=0;i<6;i++){ const f=Math.min(areaW/caja.w, areaH/caja.h); if(f>0.999)break; sPlan*=Math.max(0.05,f); caja=cajaTinta(sPlan); }
+  const oxP=areaX+(areaW-caja.w)/2-caja.x, oyP=areaY+(areaH-caja.h)/2-caja.y;
   const PP=(x,y)=>[ oxP+(x-pMnX)*sPlan, oyP+(pMxY-y)*sPlan ]; // flip Y so Front (min y) sits at the bottom, like standing inside
   // ================= LEFT · 3D iso =================
   if(!soloPlan){
@@ -6883,6 +6950,11 @@ function drawRoomIso(cv,walls,floorOn,activeRole,pal,solo){ if(!cv)return; const
     ctx.fillStyle=dim?'rgba(230,232,235,0.4)':'#E6E8EB'; ctx.font=`600 ${8.5*TU}px Geist,system-ui`; ctx.fillText(String(wallOf(s.role).wcm), lx, ly-4*U);
     ctx.fillStyle=dim?'rgba(150,150,150,0.4)':hexA(col,0.95); ctx.font=`600 ${7*TU}px Geist,system-ui`; ctx.fillText(roomRoleLabel(s.role).toUpperCase(), lx, ly+5*U); }
   // scale bar (metrically exact for the plan): pick the largest round length that fits ~half the panel
+  /* [R199] Si esas medidas no cierran ninguna sala, se dice. Antes se dibujaba en silencio una forma con el fondo
+     cambiado, y un error de medición así no se descubre hasta el montaje. */
+  if(plan.imposible){ ctx.textAlign='right'; ctx.textBaseline='middle'; ctx.fillStyle='rgba(229,181,103,0.95)';
+    ctx.font=`600 ${7.5*TU}px Geist,system-ui`;
+    ctx.fillText(T('These sizes don’t close a room','Estas medidas no cierran una sala'), W-pad, H-pad*0.7); }
   { let m=1; for(const c of [10,5,2,1,0.5,0.2]){ if(c*sPlan<=availRW*0.5){ m=c; break; } } const bp=m*sPlan, bx=split+pad, by=H-pad*0.7;
     line([bx,by],[bx+bp,by],'rgba(200,200,200,0.7)',1.4*U); line([bx,by-3*U],[bx,by+3*U],'rgba(200,200,200,0.7)',1.4*U); line([bx+bp,by-3*U],[bx+bp,by+3*U],'rgba(200,200,200,0.7)',1.4*U);
     ctx.textAlign='left'; ctx.textBaseline='middle'; ctx.fillStyle='rgba(170,170,170,0.9)'; ctx.font=`500 ${7.5*TU}px Geist,system-ui`; ctx.fillText((m>=1?m+' m':(m*100)+' cm'), bx+bp+5*U, by); } }
