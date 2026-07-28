@@ -1,5 +1,41 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 198 — Landing: los cuatro puntos que quedaban (tanda 3 cerrada)
+
+**La línea de borde del domo ya sigue al ángulo.** El contorno del borde en el 3D se dibujaba a 90 grados
+cenitales clavados, pero el borde de la malla está en la mitad de la cobertura: 110 grados en un domo de 220. En
+cualquier domo de más de 180 la línea se quedaba en el horizonte y la superficie seguía por fuera. Ahora ese
+ángulo entra como uniforme (`u_rimDeg`) y se escribe en los dos sitios que dibujan el domo — el visor del editor y
+la ventana emergente. Era un fallo del editor, no sólo del landing.
+
+**El visor 3D de la sala es el de verdad.** Ya no es el esquema de líneas gruesas: es `renderRoom3D`, el mismo que
+corre en el editor, y se gira arrastrando y se acerca con la rueda. Lo que faltaba era que ese visor lee la sala de
+la secuencia activa, y en la pantalla de inicio todavía no hay ninguna — así que ahora se le arma una temporal con
+la misma forma que produce la creación de verdad. La planta cenital se queda, en su propio panel a la derecha: es
+un plano acotado, no un viewport, y para las medidas sigue siendo lo que hace falta.
+
+**El lienzo cosido sale del visor 2D.** Misma pieza: con la sala temporal montada, la tira se dibuja por el camino
+2D de la sala, con su marco, su retícula y sus costuras. De ahí que ahora tenga los mismos colores y las mismas
+líneas que el 2D plano — que era exactamente lo que pedía Beltrán.
+
+**Del piso se elige el pixelaje, no las medidas.** Fila propia bajo los muros: los dos números de píxeles se
+editan; el ancho y el fondo en centímetros se muestran sin marco, porque los manda la huella de la sala. Es la
+regla correcta: un piso más ancho que sus paredes no existe, pero su resolución la decide el proyector. Si luego se
+cambia un muro, la medida sigue al muro y el pixelaje elegido se queda.
+
+**Y por el camino apareció uno gordo: desde la pantalla de inicio no se podía crear una sala.** Con cuatro muros el
+panel de la izquierda no cabe en la ventana, y como recortaba lo que sobraba, el botón de crear quedaba fuera —
+invisible y sin forma de llegar a él. Venía de antes; la fila del piso sólo lo hizo más evidente. Ahora el panel se
+parte en dos: las elecciones se desplazan si hace falta, y el resumen de salida y el botón de crear se quedan
+pegados abajo pase lo que pase. A 1080 de alto no se desplaza nada en ninguno de los tres formatos.
+
+Verificado en la app con un arnés que se validó primero: para la línea de borde se proyecta el punto del casquete a
+cada ángulo cenital y se mira el píxel, y **forzando el comportamiento anterior el número cambia** — o sea que la
+medida distingue. La banda clara pasa de 90 a 100 grados en un domo de 200 y a 110 en uno de 220; en 180 no se
+mueve nada, como debe ser. (Los dos primeros intentos de medida no valían: uno leía los rótulos de la capa de
+guías, que quedan por fuera de todo, y el otro miraba el domo desde el cenit, donde el borde queda escondido
+detrás de la propia cúpula.) Alto de la pantalla idéntico en los tres formatos, sin scroll, y sin errores.
+
 ## ROUND 197 — Landing: 4 de los 8 puntos de la tanda 3
 
 **Fuera el botón de preferencias.** En la pantalla de inicio no hay todavía nada que preferir, y ocupaba sitio.

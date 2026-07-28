@@ -455,7 +455,7 @@ const VS3=`#version 300 es
 precision highp float; in vec3 a_pos; in vec2 a_uv; uniform mat4 u_mvp; uniform float u_flipx; out vec2 v_uv; out vec3 v_pos;
 void main(){ v_uv=a_uv; v_pos=a_pos; vec4 p=u_mvp*vec4(a_pos,1.0); p.x*=u_flipx; gl_Position=p; }`;
 const FS3=`#version 300 es
-precision highp float; in vec2 v_uv; in vec3 v_pos; uniform sampler2D u_master; uniform float u_grid,u_hfade; out vec4 o;
+precision highp float; in vec2 v_uv; in vec3 v_pos; uniform sampler2D u_master; uniform float u_grid,u_hfade,u_rimDeg; out vec4 o;
 void main(){
   vec4 m=texture(u_master,v_uv);
   vec3 base=vec3(0.0);
@@ -464,13 +464,14 @@ void main(){
   if(u_grid>0.5){ float e=degrees(acos(clamp(v_pos.z,-1.0,1.0))); float az=degrees(atan(v_pos.y,v_pos.x));
     float le=abs(fract(e/15.0-0.5)-0.5)/max(fwidth(e/15.0),1e-4); float la=abs(fract(az/30.0-0.5)-0.5)/max(fwidth(az/30.0),1e-4);
     col=mix(col,vec3(0.34,0.40,0.46),(1.0-min(min(le,la),1.0))*0.4);
-    float dIn=(90.0-e)/max(fwidth(e),1e-4); // px inward from the mesh rim
+    float dIn=(u_rimDeg-e)/max(fwidth(e),1e-4); // px inward from the mesh rim. [R198] u_rimDeg = cov/2, NO 90 fijo: el borde de la malla está en el ángulo de cobertura (110° en un domo de 220°), así que con 90 clavado la línea de borde se quedaba en el horizonte y no seguía al domo
     col=mix(col,vec3(0.52,0.56,0.60),(1.0-smoothstep(0.7,1.7,abs(dIn-2.6)))*0.5); } // [U4] the rim/spring line is now a thin GREY contour (was amber) — matches the grey grid lines; a ~2px band just inside the rim
   o=vec4(col,1.0);
 }`;
 const P3=prog(VS3,FS3);
 bootMark(38); // [arranque] todos los programas GL (warp/blit/3D) compilados y enlazados
-const L3={pos:gl.getAttribLocation(P3,'a_pos'),uv:gl.getAttribLocation(P3,'a_uv'),mvp:gl.getUniformLocation(P3,'u_mvp'),master:gl.getUniformLocation(P3,'u_master'),grid:gl.getUniformLocation(P3,'u_grid'),flipx:gl.getUniformLocation(P3,'u_flipx'),hfade:gl.getUniformLocation(P3,'u_hfade')};
+const L3={pos:gl.getAttribLocation(P3,'a_pos'),uv:gl.getAttribLocation(P3,'a_uv'),mvp:gl.getUniformLocation(P3,'u_mvp'),master:gl.getUniformLocation(P3,'u_master'),grid:gl.getUniformLocation(P3,'u_grid'),flipx:gl.getUniformLocation(P3,'u_flipx'),hfade:gl.getUniformLocation(P3,'u_hfade'),rimDeg:gl.getUniformLocation(P3,'u_rimDeg')};
+gl.useProgram(P3); gl.uniform1f(L3.rimDeg,90); // por defecto, domo completo (180°) — un uniforme nunca escrito valdría 0 y pondría la línea de borde en el cenit
 const domeVAO=gl.createVertexArray(); let domeCount=0, _domeVB=null, _domeCov=-1;
 /* Dome cap mesh — a spherical cap of half-angle covHalf (π/2 = 180° hemisphere; >π/2 = past the spring line for
    210°+ domes). The UV (rho=rr) is coverage-independent, only the cap geometry (zen=rr·covHalf) changes, so a
@@ -1152,7 +1153,7 @@ function render(){ if(glLost)return;
     gl.useProgram(P3); gl.bindVertexArray(domeVAO);
     gl.uniformMatrix4fv(L3.mvp,false,new Float32Array(mvp)); gl.uniform1f(L3.grid,state.view.showGrid?1:0);
     gl.uniform1f(L3.flipx, -1); // orbit + spec both use the in-dome (audience) handedness so Right/Left aren't mirrored between modes
-    gl.uniform1f(L3.hfade, state.view.hfade?HFADE:0);
+    gl.uniform1f(L3.hfade, state.view.hfade?HFADE:0); gl.uniform1f(L3.rimDeg, curCovDeg()); // [R198] la línea de borde va donde acaba la malla, que es el ángulo del domo
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,_srcTex); gl.uniform1i(L3.master,0);
     gl.drawElements(gl.TRIANGLES,domeCount,gl.UNSIGNED_INT,0); gl.bindVertexArray(null); gl.disable(gl.DEPTH_TEST);
     drawLabels3D(mvp,spec);
@@ -1210,7 +1211,7 @@ function renderViewer(srcTex){ const w=_viewerWin; if(!w||w.closed||!_viewerCtx|
     const _vFlat=_drawFlat, _vDome3D=(state.view.mode==='3d' && !_vFlat && !_roomWrap); // [V1] the pop-out mirrors the editor: 3D dome (its OWN orbit cam) ↔ 2D (flat rect / fisheye disc). Room-3D falls to the flat strip (its 2D representation).
     if(_vDome3D){ gl.enable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE); gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
       const mvp=cameraMVP(false,_viewerCam,rw/rh);
-      buildDomeMesh(curCovHalf()); gl.useProgram(P3); gl.bindVertexArray(domeVAO); gl.uniformMatrix4fv(L3.mvp,false,new Float32Array(mvp)); gl.uniform1f(L3.grid,_viewerGrid?1:0); gl.uniform1f(L3.flipx,-1); gl.uniform1f(L3.hfade,state.view.hfade?HFADE:0); // pop-out viewer: grid off by default, toggled by its own button
+      buildDomeMesh(curCovHalf()); gl.useProgram(P3); gl.bindVertexArray(domeVAO); gl.uniformMatrix4fv(L3.mvp,false,new Float32Array(mvp)); gl.uniform1f(L3.grid,_viewerGrid?1:0); gl.uniform1f(L3.flipx,-1); gl.uniform1f(L3.hfade,state.view.hfade?HFADE:0); gl.uniform1f(L3.rimDeg,curCovDeg()); // pop-out viewer: grid off by default, toggled by its own button
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,srcTex); gl.uniform1i(L3.master,0);
       gl.drawElements(gl.TRIANGLES,domeCount,gl.UNSIGNED_INT,0); gl.bindVertexArray(null); gl.disable(gl.DEPTH_TEST);
     } else { // [V1] 2D blit — clean (no editor pan/zoom): flat = aspect-fit rect · dome-2D = centred fisheye disc
@@ -2550,6 +2551,8 @@ function lchInit(){ return { ptype:'dome', pname:'',
   domeRes:4096, domeCov:180,
   flatW:1920, flatH:1080,
   roomCount:4, roomFloor:true, roomUniform:false, // [R197] fuera el interruptor Uniform: los muros se editan por separado, que es lo que hace falta para que los angulos salgan de sus medidas
+  floorPx:null,                                   // [R198] resolución del piso elegida a mano; null = la que sale de los muros. Sus MEDIDAS nunca se editan: las manda la huella de la sala
+  roomCam:{yaw:-1.15,pitch:0.42,dist:2.9},        // [R198] cámara del visor 3D de la sala (arrastrar para girar, rueda para acercar)
   walls:[{role:'Front',wcm:800,hcm:450,pxW:3840,pxH:2160},{role:'Right',wcm:800,hcm:450,pxW:3840,pxH:2160},
          {role:'Back', wcm:800,hcm:450,pxW:3840,pxH:2160},{role:'Left', wcm:800,hcm:450,pxW:3840,pxH:2160}],
   fps:60, draft:{} }; }
@@ -2585,6 +2588,8 @@ function lchWireNums(root){
 function lchApply(key,v){
   if(key==='domeRes')_lch.domeRes=v; else if(key==='domeCov')_lch.domeCov=v;
   else if(key==='flatW')_lch.flatW=v; else if(key==='flatH')_lch.flatH=v;
+  else if(key==='fpxW'||key==='fpxH'){ // [R198] del piso sólo se toca el pixelaje
+    const base=_lch.floorPx||lchFloorCfg(lchCfgWalls()); _lch.floorPx={pxW:base.pxW,pxH:base.pxH}; _lch.floorPx[key==='fpxW'?'pxW':'pxH']=v; }
   else { const m=key.match(/^w(\d+)(pxW|pxH|wcm|hcm)$/); if(m){ const i=+m[1],k=m[2];
     const uni=_lch.roomUniform; _lch.walls.forEach((w,j)=>{ if(uni||j===i)w[k]=v; }); } }
   renderLauncher();
@@ -2614,6 +2619,7 @@ function lchApplyPreset(v){ const S=_lch;
     if(p.count)S.roomCount=p.count;
     p.walls.forEach((s,i)=>{ const w=S.walls[i]; if(!w)return; w.pxW=s.pxW; w.pxH=s.pxH; if(s.wcm)w.wcm=s.wcm; if(s.hcm)w.hcm=s.hcm; }); }
   else { const p=String(v).split('x'); S.walls.forEach(w=>{ w.pxW=+p[0]; w.pxH=+p[1]; }); }
+  S.floorPx=null; // un preajuste es una decisión de resolución: el piso vuelve a seguir a los muros
   S.draft={}; renderLauncher(); }
 
 function lchActiveWalls(){ return _lch.walls.slice(0,_lch.roomCount); }
@@ -2629,8 +2635,13 @@ function lchFloorCfg(walls){
   const A=mayor(['Front','Back'])||walls[0], F=mayor(['Left','Right'])||walls[1]||walls[0];
   const wcm=Math.max(1,Math.round(A.wcm)), dcm=Math.max(1,Math.round(F.wcm));
   const dA=A.pxW/Math.max(1,A.wcm), dF=F.pxW/Math.max(1,F.wcm);
-  return { wcm, dcm, pxW:Math.max(16,Math.round(wcm*dA)), pxH:Math.max(16,Math.round(dcm*dF)) };
+  const cfg={ wcm, dcm, pxW:Math.max(16,Math.round(wcm*dA)), pxH:Math.max(16,Math.round(dcm*dF)) };
+  /* [R198] Las MEDIDAS del piso salen siempre de la huella de la sala — un piso más ancho que sus muros no existe.
+     El PIXELAJE sí se elige: es la resolución del archivo que se proyecta, y depende del proyector, no de la sala. */
+  const man=_lch&&_lch.floorPx; if(man){ if(man.pxW)cfg.pxW=man.pxW; if(man.pxH)cfg.pxH=man.pxH; }
+  return cfg;
 }
+function lchRoomCfg(){ const w=lchCfgWalls(); return { walls:w, floor:(_lch&&_lch.roomFloor)?lchFloorCfg(w):null }; }
 
 /* [R165] había DOS hideLanding() idénticas; la segunda ganaba por hoisting y dejaba muerta a la primera. */
 function showLanding(){ if(document.getElementById('landingOv'))return;
@@ -2729,11 +2740,27 @@ function renderLauncher(){ const ov=document.getElementById('landingOv'); if(!ov
           ${lchNum('w'+i+'pxH',w.pxH,16,16384,null,'lch-wnum').replace('class="lch-wnum"','class="lch-wnum" style="width:58px;"')}
           ${lchNum('w'+i+'wcm',w.wcm,10,20000,null,'lch-wnum cm').replace('class="lch-wnum cm"','class="lch-wnum cm" style="width:52px;"')}
           ${lchNum('w'+i+'hcm',w.hcm,10,20000,null,'lch-wnum cm').replace('class="lch-wnum cm"','class="lch-wnum cm" style="width:52px;"')}
-        </div>`).join('') + `</div>`; }
+        </div>`).join('')
+      /* [R198] El piso, con su propia fila: se le cambia el PIXELAJE (es la resolución del archivo que se
+         proyecta, y eso lo decide el proyector) pero NO las medidas, que salen de la huella de la sala. */
+      + (S.roomFloor?(function(){ const f=lchFloorCfg(lchCfgWalls());
+          return `<div class="lch-wrow lch-floorrow">
+            <span class="ix">—</span>
+            <span class="lch-facing" style="cursor:default;color:var(--ink-2);"><span class="sw" style="background:#6B7480;"></span>${T('Floor','Piso')}</span>
+            ${lchNum('fpxW',f.pxW,16,16384,null,'lch-wnum').replace('class="lch-wnum"','class="lch-wnum" style="width:58px;"')}
+            ${lchNum('fpxH',f.pxH,16,16384,null,'lch-wnum').replace('class="lch-wnum"','class="lch-wnum" style="width:58px;"')}
+            <span class="lch-wnum cm ro" style="width:52px;" title="${T('Width comes from the widest front/back wall','El ancho sale del muro frente/fondo más ancho')}">${f.wcm}</span>
+            <span class="lch-wnum cm ro" style="width:52px;" title="${T('Depth comes from the widest side wall','El fondo sale del muro lateral más ancho')}">${f.dcm}</span>
+          </div>
+          <div class="lch-fnote">${T('Floor: pixels are yours to choose · the size comes from the walls','Piso: el pixelaje se elige · las medidas salen de los muros')}</div>`; })():'')
+      + `</div>`; }
 
   const cur=LCH_TYPES.find(t=>t.k===S.ptype);
   const panel=ov.querySelector('#lchPanel');
-  panel.innerHTML=`<div class="lch-seclab"><span>${T('New project','Nuevo proyecto')}</span><span class="lch-rule"></span></div>
+  /* [R198] `.lch-pbody` = la parte que scrollea si hace falta (tipo, nombre, ajustes, muros). La salida máster y
+     el botón de crear quedan FUERA, pegados abajo: con cuatro muros y piso el panel no cabe a 900px de ventana y
+     el botón se recortaba — o sea que desde la pantalla de inicio no se podía crear una sala. */
+  panel.innerHTML=`<div class="lch-pbody"><div class="lch-seclab"><span>${T('New project','Nuevo proyecto')}</span><span class="lch-rule"></span></div>
     <div class="lch-tiles">${LCH_TYPES.map(t=>`<button class="lch-tile${t.k===S.ptype?' on':''}" data-ltype="${t.k}">
         <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="${t.icon}"></path></svg>
         <span style="display:flex;flex-direction:column;gap:1px;"><span class="tn">${t.name}</span><span class="ts">${t.sub}</span></span></button>`).join('')}</div>
@@ -2741,7 +2768,7 @@ function renderLauncher(){ const ov=document.getElementById('landingOv'); if(!ov
       <input id="lchName" value="${lchEsc(S.pname)}" placeholder="${T('Untitled project','Proyecto sin título')}" spellcheck="false"></div>
     <div style="display:flex;flex-direction:column;gap:9px;">${fields}</div>
     ${wallTable}
-    <div class="lch-grow"></div>
+    </div>
     <div class="lch-out"><span class="t">${T('Master output','Salida máster')}</span>
       ${out.map(o=>`<div class="lch-outrow"><span class="k">${o[0]}</span><span class="v">${lchEsc(o[1])}</span></div>`).join('')}</div>
     <button class="lch-create" id="lchCreate">${T('Create','Crear')} ${cur.name} ${T('project','proyecto')}${LCH_SVG(LCH_ICO.arrowR,13,2)}</button>`;
@@ -2758,12 +2785,15 @@ function renderLauncher(){ const ov=document.getElementById('landingOv'); if(!ov
     +pane(T('Dome · 3D','Domo · 3D'),'lchCvDome3d')+`</div>`;
   else if(isFlat) panes=`<div class="lch-panes one">${pane(T('Flat canvas','Lienzo plano'),'lchCvFlat',dataStrip(S.flatW+' × '+S.flatH+' px',lchMP(S.flatW,S.flatH)+' · '+lchAspect(S.flatW,S.flatH)+' · '+S.fps+' fps'))}</div>`;
   else { const aw=lchActiveWalls(), tw=aw.reduce((a,w)=>a+w.pxW,0), th=aw.reduce((a,w)=>Math.max(a,w.pxH),0), tp=aw.reduce((a,w)=>a+w.pxW*w.pxH,0);
-    // El visor de sala del editor ya trae 3D Y planta cenital en el MISMO canvas (el diseño los pedía como dos
-    // paneles; esto los da juntos y a escala). Por eso una sola celda arriba y sin `.lch-cap`: el canvas dibuja
-    // sus propios rótulos "3D" y "PLAN cm" y superponer otro los pisaba.
-    panes=`<div class="lch-panes room" style="grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) 172px;">
+    /* [R198] Dos celdas arriba, como pedía el diseño: a la izquierda el VISOR 3D DE VERDAD (`renderRoom3D`, el
+       mismo del editor, arrastrable) y a la derecha la planta cenital a escala. Hasta ahora `drawRoomIso` daba
+       las dos mitades dibujadas a mano en un solo lienzo porque el 3D real necesita una secuencia con `.room`,
+       que el launcher no tenía; ahora se le arma una temporal (ver `lchEditorShot`). Sin `.lch-cap`: cada canvas
+       dibuja su propio rótulo y superponer otro los pisaba. */
+    panes=`<div class="lch-panes room" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:minmax(0,1fr) 172px;">
+      <div class="lch-pane grab" id="lchRoom3d"><canvas id="lchCvRoom3d"></canvas></div>
       <div class="lch-pane"><canvas id="lchCvIso"></canvas></div>
-      <div class="lch-stitch" style="grid-column:1;"><div class="lch-sthead"><span class="t">${T('Stitched canvas · wall order','Lienzo cosido · orden de muros')}</span><span class="lch-rule"></span>
+      <div class="lch-stitch" style="grid-column:1 / 3;"><div class="lch-sthead"><span class="t">${T('Stitched canvas · wall order','Lienzo cosido · orden de muros')}</span><span class="lch-rule"></span>
         <span style="font-size:10px;font-weight:600;color:#C8C8C8;font-variant-numeric:tabular-nums;">${tw} × ${th} px</span><span class="sep" style="width:.5px;height:11px;background:rgba(255,255,255,0.12);"></span>
         <span style="font-size:10px;color:#8A8A8A;font-variant-numeric:tabular-nums;">${(tp/1e6).toFixed(1)} MP</span></div>
         <div style="flex:1;min-height:0;position:relative;"><canvas id="lchCvStrip" style="position:absolute;inset:0;width:100%;height:100%;"></canvas></div></div>
@@ -2786,6 +2816,18 @@ function renderLauncher(){ const ov=document.getElementById('landingOv'); if(!ov
   { const s=panel.querySelector('#lchSwap'); if(s)s.onclick=()=>{ const w=_lch.flatW; _lch.flatW=_lch.flatH; _lch.flatH=w; _lch.draft={}; renderLauncher(); }; }
   { const f=panel.querySelector('#lchFloor'); if(f)f.onclick=()=>{ _lch.roomFloor=!_lch.roomFloor; renderLauncher(); }; }
   panel.querySelectorAll('[data-lface]').forEach(b=>b.onclick=ev=>lchFacingMenu(ev,+b.dataset.lface));
+  /* [R198] El visor 3D de la sala se gira arrastrando y se acerca con la rueda — un 3D que no se puede mover
+     apenas dice más que el esquema al que sustituye. La cámara vive en `_lch`, así que sobrevive a los
+     re-renderizados del panel (que son constantes: cada tecla en un número lo redibuja). */
+  { const p=vw.querySelector('#lchRoom3d');
+    if(p){ p.onpointerdown=ev=>{ ev.preventDefault(); try{ p.setPointerCapture(ev.pointerId); }catch(e){}
+        p.classList.add('grabbing'); const x0=ev.clientX, y0=ev.clientY, c0={..._lch.roomCam};
+        const mv=e2=>{ _lch.roomCam.yaw=c0.yaw-(e2.clientX-x0)*0.008;
+          _lch.roomCam.pitch=Math.max(-1.2,Math.min(1.35,c0.pitch+(e2.clientY-y0)*0.006)); lchPaintRoom3D(); };
+        const up=()=>{ p.classList.remove('grabbing'); p.removeEventListener('pointermove',mv); p.removeEventListener('pointerup',up); p.removeEventListener('pointercancel',up); };
+        p.addEventListener('pointermove',mv); p.addEventListener('pointerup',up); p.addEventListener('pointercancel',up); };
+      p.addEventListener('wheel',ev=>{ ev.preventDefault();
+        _lch.roomCam.dist=Math.max(0.6,Math.min(9,_lch.roomCam.dist*Math.exp(ev.deltaY*0.0012))); lchPaintRoom3D(); },{passive:false}); } }
   lchWireNums(panel);
   panel.querySelector('#lchCreate').onclick=()=>lchCreate();
   if(fk){ const el=panel.querySelector('[data-lk="'+fk+'"]'); if(el){ el.focus(); try{ el.setSelectionRange(fs0,fs0); }catch(e){} } }
@@ -2802,18 +2844,38 @@ function renderLauncher(){ const ov=document.getElementById('landingOv'); if(!ov
    única ventana en que es legible.
    Todo lo que se toca se restaura en el `finally`, incluido el tamaño de los lienzos: el launcher corre con el
    editor detrás y no puede dejarle el visor descuadrado. */
+/* [R198] `o.room` = la sala del launcher. `renderRoom3D` y `drawRoomGrid2D` leen la sala de `activeSeq().room`,
+   que en la pantalla de inicio todavía no existe — por eso hasta ahora la sala se quedaba con el esquema de
+   líneas. Aquí se le arma una secuencia TEMPORAL con la misma forma que produce `newRoomProject` (tira cosida por
+   píxeles nativos, `x0/x1` por muro) y se la pone como activa mientras dura la captura. Así el panel 3D es el
+   visor de verdad y el lienzo cosido sale con los colores y las líneas del 2D, que es de donde salen. */
+function lchRoomSeqTemp(cfg){
+  const walls=(cfg.walls||[]).map(w=>({...w}));
+  if(!walls.length)return null;
+  const stripH=Math.max(16,Math.max(...walls.map(w=>+w.pxH||16)));
+  let x=0; for(const w of walls){ w.x0=Math.round(x); w.x1=Math.round(x)+(+w.pxW||16); x=w.x1; }
+  const stripW=Math.max(16,Math.round(x));
+  return { id:'__lchRoom', kind:'nest', name:'', fps:60, w:stripW, h:stripH, mode:'room', cov:null,
+           nestClips:[], nestLanes:[], room:{ walls, floorSeqId:null, floor:cfg.floor||null } };
+}
 function lchEditorShot(cv,o){
   if(!cv||typeof render!=='function')return false;
   let ok=false;
   const S=state, V=state.view;
   const bak={ w:S.seqW,h:S.seqH,mode:S.seqMode,cov:S.seqCov, clips:S.clips, vmode:V.mode, zoom:V.zoom, pan:V.pan.slice(),
-              cw:view.cw, ch:view.ch, vs:VSIZE, gw:glc.width, gh:glc.height, rw:gridc.width, rh:gridc.height };
+              cw:view.cw, ch:view.ch, vs:VSIZE, gw:glc.width, gh:glc.height, rw:gridc.width, rh:gridc.height,
+              media:S.media, aseq:S.activeSeqId, three:V.three, cam:{...V.cam}, geo:_roomGeo, geoSeq:_roomGeoSeq, ra:_raOn };
   try{
     const r=cv.getBoundingClientRect(); if(!r.width||!r.height)return false;
     const dpr=Math.min(2,window.devicePixelRatio||1);
     const W=Math.max(16,Math.round(r.width*dpr)), H=Math.max(16,Math.round(r.height*dpr));
     S.seqW=o.w; S.seqH=o.h; S.seqMode=o.mode; S.seqCov=o.cov||180; S.clips=[];
     V.mode=o.view; V.zoom=0.92; V.pan=[0,0];
+    _raOn=false; // el caché de render-ahead es del proyecto de detrás: ni se lee ni se ensucia con fotogramas del launcher
+    if(o.room){ const seq=lchRoomSeqTemp(o.room); if(!seq)return false;
+      S.media=[seq]; S.activeSeqId=seq.id; S.seqW=seq.w; S.seqH=seq.h; S.seqMode='room';
+      _roomGeo=null; _roomGeoSeq=null;                       // la malla se cachea por id de secuencia y el id no cambia al editar los muros
+      if(o.cam){ V.three='orbit'; V.cam={...V.cam,...o.cam}; } }
     view.cw=r.width; view.ch=r.height; VSIZE=Math.min(r.width,r.height);
     glc.width=W; glc.height=H; gridc.width=W; gridc.height=H; gx.setTransform(dpr,0,0,dpr,0,0);
     render();
@@ -2824,7 +2886,8 @@ function lchEditorShot(cv,o){
   }catch(e){ ok=false; }
   finally{
     S.seqW=bak.w; S.seqH=bak.h; S.seqMode=bak.mode; S.seqCov=bak.cov; S.clips=bak.clips;
-    V.mode=bak.vmode; V.zoom=bak.zoom; V.pan=bak.pan;
+    V.mode=bak.vmode; V.zoom=bak.zoom; V.pan=bak.pan; V.three=bak.three; V.cam=bak.cam;
+    S.media=bak.media; S.activeSeqId=bak.aseq; _roomGeo=bak.geo; _roomGeoSeq=bak.geoSeq; _raOn=bak.ra;
     view.cw=bak.cw; view.ch=bak.ch; VSIZE=bak.vs;
     glc.width=bak.gw; glc.height=bak.gh; gridc.width=bak.rw; gridc.height=bak.rh;
     try{ gx.setTransform(Math.min(2,window.devicePixelRatio||1),0,0,Math.min(2,window.devicePixelRatio||1),0,0); }catch(_){}
@@ -2848,9 +2911,24 @@ function lchPaintNow(){ const ov=document.getElementById('landingOv'); if(!ov||!
     if(c3 && !lchEditorShot(c3,{w:S.domeRes,h:S.domeRes,mode:'dome',cov:S.domeCov,view:'3d'})){ const f=fit(c3); if(f)try{ drawDomeIso(f,S.domeCov,LCH_PAL); }catch(e){} } }
   else if(S.ptype==='flat'){ const cv=ov.querySelector('#lchCvFlat');
     if(cv && !lchEditorShot(cv,{w:S.flatW,h:S.flatH,mode:'flat',view:'2d'})){ const f=fit(cv); if(f)try{ drawSeqViz(f,'flat',{w:S.flatW,h:S.flatH}); }catch(e){} } }
-  else { const w=lchCfgWalls();
-    const a=fit(ov.querySelector('#lchCvIso')); if(a)try{ drawRoomIso(a,w,S.roomFloor,null,LCH_PAL); }catch(e){}
-    const b=fit(ov.querySelector('#lchCvStrip')); if(b)try{ drawRoomStrip(b,w,S.roomFloor,null,LCH_PAL); }catch(e){} }
+  /* [R198] La sala también con los visores del editor: el 3D es `renderRoom3D` (no el esquema de líneas) y el
+     lienzo cosido sale del camino 2D de la sala — o sea con el marco, la retícula y las costuras del 2D plano,
+     que es exactamente lo que faltaba. La planta cenital sigue siendo el painter, que es un plano acotado y no
+     un viewport. Si el 3D no se puede montar, cada uno cae a su esquema y la pantalla no se rompe. */
+  else { const w=lchCfgWalls(), cfg=lchRoomCfg();
+    lchPaintRoom3D(ov);
+    const a=fit(ov.querySelector('#lchCvIso')); if(a)try{ drawRoomIso(a,w,S.roomFloor,null,LCH_PAL,'plan'); }catch(e){}
+    const b=ov.querySelector('#lchCvStrip');
+    if(b && !lchEditorShot(b,{w:1920,h:1080,mode:'room',view:'2d',room:cfg})){ const f=fit(b); if(f)try{ drawRoomStrip(f,w,S.roomFloor,null,LCH_PAL); }catch(e){} } }
+}
+/* Sólo el panel 3D de la sala — lo llama el arrastre, que no puede permitirse repintar los tres lienzos por cada
+   movimiento del ratón (cada uno es una captura del render del editor). */
+function lchPaintRoom3D(ov){ ov=ov||document.getElementById('landingOv'); if(!ov||!_lch)return;
+  const c3=ov.querySelector('#lchCvRoom3d'); if(!c3)return;
+  if(lchEditorShot(c3,{w:1920,h:1080,mode:'room',view:'3d',room:lchRoomCfg(),cam:_lch.roomCam}))return;
+  const r=c3.getBoundingClientRect(); if(!r.width||!r.height)return;
+  const dpr=Math.min(2,window.devicePixelRatio||1); c3.width=Math.round(r.width*dpr); c3.height=Math.round(r.height*dpr);
+  try{ drawRoomIso(c3,lchCfgWalls(),_lch.roomFloor,null,LCH_PAL); }catch(e){}
 }
 
 function lchRenderRecents(){ const host=document.getElementById('lchRecents'); if(!host)return;
@@ -6741,17 +6819,22 @@ function roomPlan(walls){ const by={}; for(const w of walls)by[w.role]=w;
 /* [R155] `pal` opcional: un mapa rol→color que reemplaza a ROOM_ROLE_COL sólo para este dibujo. Lo usa el
    launcher, donde el diseño pide la rampa MONOCROMÁTICA por orientación; el editor sigue llamando sin `pal` y
    conserva sus colores de siempre. */
-function drawRoomIso(cv,walls,floorOn,activeRole,pal){ if(!cv)return; const ctx=cv.getContext('2d'); const W=cv.width,H=cv.height,U=W/528; ctx.clearRect(0,0,W,H);
+/* [R198] `solo='plan'` = sólo la PLANTA, a todo el ancho del lienzo. Lo usa el launcher, donde el hueco del iso
+   pasa a ocuparlo el visor 3D de verdad (`renderRoom3D`) y la planta se queda con su propio panel. El editor y el
+   diálogo siguen llamando sin `solo` y conservan los dos paneles en un mismo lienzo. */
+function drawRoomIso(cv,walls,floorOn,activeRole,pal,solo){ if(!cv)return; const ctx=cv.getContext('2d'); const W=cv.width,H=cv.height,U=W/528; ctx.clearRect(0,0,W,H);
+  const soloPlan=(solo==='plan');
   const _rc=cv.getBoundingClientRect(), TU=(_rc.width>0?W/_rc.width:1); // [R181] ver nota en drawDomeIso: el texto en px CSS, la geometria con U
   const plan=roomPlan(walls); if(!plan.seg.length)return;
   const ca=Math.cos(Math.PI/6),sa=Math.sin(Math.PI/6);
   const line=(A,B,st,lw)=>{ ctx.strokeStyle=st; ctx.lineWidth=lw; ctx.beginPath(); ctx.moveTo(A[0],A[1]); ctx.lineTo(B[0],B[1]); ctx.stroke(); };
   const roleCol=r=>(pal&&pal[r])||ROOM_ROLE_COL[r]||'#8892A0', wallOf=r=>walls.find(x=>x.role===r)||{wcm:0,hcm:0};
   const quad=plan.poly.length===4;
-  const split=Math.round(W*0.58), padT=20*U, pad=13*U;
-  line([split,12*U],[split,H-12*U],'rgba(255,255,255,0.07)',1*U); // panel divider
+  const split=soloPlan?0:Math.round(W*0.58), padT=20*U, pad=13*U;
+  if(!soloPlan)line([split,12*U],[split,H-12*U],'rgba(255,255,255,0.07)',1*U); // panel divider
   ctx.textBaseline='alphabetic'; ctx.textAlign='left'; ctx.font=`600 ${8*TU}px Geist,system-ui`; ctx.fillStyle='rgba(150,150,150,0.9)';
-  ctx.fillText('3D',13*U,15*U); ctx.fillText('PLAN',split+13*U,15*U); const pw=ctx.measureText('PLAN').width;
+  if(!soloPlan)ctx.fillText('3D',13*U,15*U);
+  ctx.fillText('PLAN',split+13*U,15*U); const pw=ctx.measureText('PLAN').width;
   ctx.font=`500 ${8*TU}px Geist,system-ui`; ctx.fillStyle='rgba(109,109,109,0.85)'; ctx.fillText('  cm',split+13*U+pw,15*U);
   // ---- bounds (iso projected · plan world) + centroid ----
   let iMnX=1e9,iMxX=-1e9,iMnY=1e9,iMxY=-1e9;
@@ -6768,6 +6851,7 @@ function drawRoomIso(cv,walls,floorOn,activeRole,pal){ if(!cv)return; const ctx=
   const oxP=split+pad+lmx+(availRWp-plW*sPlan)/2, oyP=padT+lmy+(availHPp-plH*sPlan)/2;
   const PP=(x,y)=>[ oxP+(x-pMnX)*sPlan, oyP+(pMxY-y)*sPlan ]; // flip Y so Front (min y) sits at the bottom, like standing inside
   // ================= LEFT · 3D iso =================
+  if(!soloPlan){
   if(floorOn){ ctx.beginPath(); const c0=IP(plan.seg[0].a[0],plan.seg[0].a[1],0); ctx.moveTo(c0[0],c0[1]); for(const s of plan.seg){const b=IP(s.b[0],s.b[1],0);ctx.lineTo(b[0],b[1]);} ctx.closePath(); ctx.fillStyle='rgba(150,170,195,0.07)'; ctx.fill();
     if(quad){ const [FL,FR,BR,BL]=plan.poly, GN=4; for(let i=1;i<GN;i++){ const u=i/GN;
       line(IP(FL[0]+(FR[0]-FL[0])*u,FL[1]+(FR[1]-FL[1])*u,0),IP(BL[0]+(BR[0]-BL[0])*u,BL[1]+(BR[1]-BL[1])*u,0),'rgba(255,255,255,0.05)',1*U);
@@ -6784,6 +6868,7 @@ function drawRoomIso(cv,walls,floorOn,activeRole,pal){ if(!cv)return; const ctx=
     ctx.strokeStyle=hexA(col,act?1:dim?0.45:0.8); ctx.lineWidth=(act?1.6:1.1)*U; ctx.beginPath(); ctx.moveTo(a0[0],a0[1]); ctx.lineTo(b0[0],b0[1]); ctx.lineTo(bt[0],bt[1]); ctx.lineTo(at[0],at[1]); ctx.closePath(); ctx.stroke();
     const cx=(a0[0]+b0[0]+bt[0]+at[0])/4, cy=(a0[1]+b0[1]+bt[1]+at[1])/4; ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.fillStyle=dim?'rgba(224,224,224,0.45)':'#EDEFF2'; ctx.font=`600 ${9*TU}px Geist,system-ui`; ctx.fillText(roomRoleLabel(s.role).toUpperCase(),cx,cy); }
+  }
   // ================= RIGHT · to-scale PLAN =================
   { let p0=PP(plan.poly[0][0],plan.poly[0][1]); ctx.beginPath(); ctx.moveTo(p0[0],p0[1]); for(let i=1;i<plan.poly.length;i++){const q=PP(plan.poly[i][0],plan.poly[i][1]);ctx.lineTo(q[0],q[1]);} if(quad)ctx.closePath(); ctx.fillStyle='rgba(150,170,195,0.06)'; ctx.fill(); }
   if(quad){ const [FL,FR,BR,BL]=plan.poly, GN=4; for(let i=1;i<GN;i++){ const u=i/GN;

@@ -25,7 +25,7 @@
 - [x] **Rotación aplicable a un compose desde el Transform.** _(R196)_ La fila ya estaba; el camino `fulldome` no la
       leía. Ahora `rot` se suma al azimut — sumar y no sustituir mantiene intactos los proyectos que giraban con `az`.
 
-### Tanda 3 · Landing — 4 de 8 hechos _(R197)_ 🟡
+### Tanda 3 · Landing — CERRADA _(R197 + R198)_ 🟢
 - [x] Quitar el **botón de configuración**. _(R197)_
 - [x] Quitar **Uniform** (así se gana espacio). _(R197)_ Los muros pasan a editarse **por separado**, que es lo que
       hace falta para que en la tanda 4 los ángulos salgan de las medidas de cada muro.
@@ -33,11 +33,18 @@
       en el navegador (`ispRoomPresets`), no en el proyecto: son preferencia del equipo, no parte de la obra.
 - [x] **Facing con desplegable** para elegir el muro. _(R197)_ Antes daba vueltas a un botón: con cinco
       orientaciones costaba hasta cuatro clics y no se veía cuáles había.
-- [ ] **Canvas igual que el 2D Flat**: hoy tiene otros colores y otras líneas.
-- [ ] **Domo: la línea de borde no sigue el ángulo del domo.** Arreglar.
-- [ ] **Floor en las configuraciones**: se puede cambiar el pixelaje, NO las medidas.
-- [ ] **360: visor 3D real** en vez del esquema de líneas gruesas. _(Ya estaba pendiente desde R153: `renderRoom3D`
-      necesita `activeSeq().room`, que en el launcher todavía no existe → hay que inyectar una secuencia temporal.)_
+- [x] **Canvas igual que el 2D Flat**. _(R198)_ El lienzo cosido se dibuja por el camino **2D de la sala** del
+      editor (marco, retícula, costuras, rótulos de muro), no por el painter `drawRoomStrip`.
+- [x] **Domo: la línea de borde no sigue el ángulo del domo.** _(R198)_ Era el 3D del editor, no sólo el landing:
+      `FS3` dibujaba el contorno a `90.0` cenitales fijos y el borde de la malla está en `cov/2` → nuevo uniforme
+      `u_rimDeg`.
+- [x] **Floor en las configuraciones**: pixelaje editable, medidas de sólo lectura. _(R198)_ Override en
+      `_lch.floorPx`; las medidas salen siempre de la huella de la sala.
+- [x] **360: visor 3D real** en vez del esquema de líneas gruesas. _(R198)_ `lchEditorShot` monta una secuencia de
+      sala temporal (`lchRoomSeqTemp`) → `renderRoom3D` de verdad, arrastrable. La planta se queda en su panel.
+- [x] **(no estaba en la lista) El botón «Create 360 Room project» estaba recortado** — con cuatro muros el panel
+      no cabía y `overflow:hidden` se comía la acción: no se podía crear una sala desde el landing. _(R198)_
+      `.lch-pbody` scrollea; salida máster y botón quedan fijos abajo.
 
 ### Tanda 4 · Geometría de la sala 360 🔴 (conceptual, la más grande)
 - [ ] **4 muros = cuadrado, con los ángulos determinados por las medidas de cada muro · 3 muros = U · 2 muros = L.**

@@ -688,6 +688,13 @@
      cede altura primero. El alto sigue siendo idéntico en los tres formatos, que es lo que pedía el handoff. */
   .lch-work{flex:1;min-height:380px;max-height:720px;display:grid;grid-template-columns:426px minmax(0,1fr);gap:16px;}
   .lch-panel{display:flex;flex-direction:column;gap:9px;padding:14px;border:.5px solid var(--line);border-radius:5px;background:var(--s1);overflow:hidden;}
+  /* [R198] Las ELECCIONES scrollean; el RESULTADO y el botón de crear no se mueven de abajo. La sala con cuatro
+     muros y piso no cabe en el panel a 900px de ventana, y hasta ahora eso recortaba el botón de crear: desde el
+     landing no se podía crear una sala. En pantallas altas no aparece ninguna barra. */
+  .lch-pbody{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;gap:9px;}
+  .lch-pbody::-webkit-scrollbar{width:6px;}
+  .lch-pbody::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:3px;}
+  .lch-pbody::-webkit-scrollbar-track{background:transparent;}
   .lch-seclab{display:flex;align-items:center;gap:8px;}
   .lch-seclab>span:first-child{font-size:10px;font-weight:600;letter-spacing:0.06em;color:var(--ink-3);}
   .lch-rule{flex:1;height:.5px;background:var(--line-soft);}
@@ -732,8 +739,14 @@
   .lch-wnum{flex-shrink:0;height:20px;padding:0 6px;border-radius:2px;border:.5px solid var(--line);background:var(--s0);color:var(--ink);font-family:inherit;font-size:10px;font-weight:500;font-variant-numeric:tabular-nums;outline:none;}
   .lch-wnum:focus{border-color:var(--line-strong);}
   .lch-wnum.cm{color:var(--ink-2);}
-  .lch-grow{flex:1;min-height:8px;}
-  .lch-out{display:flex;flex-direction:column;gap:7px;padding:10px;border:.5px solid var(--line-soft);border-radius:4px;background:var(--s0);}
+  /* [R198] Piso: la medida se MUESTRA pero no se edita (la manda la huella de la sala). Sin marco ni fondo de
+     campo, para que a simple vista se distinga de los dos números que sí se tocan. */
+  .lch-wnum.ro{display:flex;align-items:center;background:transparent;border-color:transparent;color:var(--ink-3);cursor:default;}
+  .lch-floorrow{margin-top:4px;padding-top:5px;border-top:.5px solid var(--line-soft);}
+  .lch-fnote{padding-left:21px;font-size:9px;color:var(--ink-dim);letter-spacing:0.02em;}
+  /* [R198] `.lch-grow` (el muelle que empujaba la salida máster abajo) ya no hace falta: ese trabajo lo hace el
+     `flex:1` de `.lch-pbody`, y así el muelle no compite con el contenido cuando la sala no cabe. */
+  .lch-out{flex-shrink:0;display:flex;flex-direction:column;gap:7px;padding:10px;border:.5px solid var(--line-soft);border-radius:4px;background:var(--s0);}
   .lch-out .t{font-size:9.5px;font-weight:500;letter-spacing:0.05em;color:var(--ink-dim);}
   .lch-outrow{display:flex;align-items:baseline;gap:10px;}
   .lch-outrow .k{width:70px;flex-shrink:0;font-size:10px;color:var(--ink-3);}
