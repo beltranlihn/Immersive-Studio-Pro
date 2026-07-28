@@ -102,5 +102,42 @@ console.log(await evl(`(()=>{
     pisoIgual:JSON.stringify(antes.piso)===JSON.stringify(tras.piso)&&antes.piso_on===tras.piso_on,
     rolesUnicos:new Set(roles).size===roles.length, roles },null,1); })()`));
 
+console.log('\n--- 2b · preajuste VIEJO (sin `role`): ni roles repetidos ni muros perdidos ---');
+console.log(await evl(`(()=>{
+  // un preajuste tal cual lo guardaba R199: tres muros, sin campo role
+  localStorage.setItem('ispRoomPresets',JSON.stringify([{label:'Viejo',count:3,
+    walls:[{pxW:1111,pxH:222,wcm:333,hcm:444},{pxW:2222,pxH:333,wcm:555,hcm:666},{pxW:3333,pxH:444,wcm:777,hcm:888}]}]));
+  _lch.ptype='room'; lchSetWallCount(4); lchApplyPreset('u:0');
+  const roles=_lch.walls.map(w=>w.role);
+  const trasAplicar={roles:roles.slice(), unicos:new Set(roles).size===4, activos:lchCfgWalls().map(w=>w.role+' '+w.pxW)};
+  // y ahora subir a 4: aquí es donde antes se perdía un muro del preajuste
+  lchSetWallCount(4);
+  const roles4=_lch.walls.map(w=>w.role);
+  const anchos=lchActiveWalls().map(w=>w.role+' '+w.pxW);
+  const delPreajuste=[1111,2222,3333].filter(px=>_lch.walls.some(w=>w.pxW===px));
+  try{ localStorage.removeItem('ispRoomPresets'); }catch(e){}
+  return JSON.stringify({trasAplicar, trasSubirA4:{roles:roles4, unicos:new Set(roles4).size===4, anchos},
+    murosDelPreajusteQueSobreviven:delPreajuste,
+    veredicto:(trasAplicar.unicos && new Set(roles4).size===4 && delPreajuste.length===3)?'correcto':'*** MAL ***'},null,1); })()`));
+
+console.log('\n--- 2c · un piso AUTOMÁTICO no se queda fijo al pasar por un preajuste ---');
+/* Llama a `lchSaveUserPreset` DE VERDAD (con appPrompt cortocircuitado), que es el punto donde estaba el fallo:
+   replicar su cuerpo en el arnés era exactamente lo que hacía que la prueba no distinguiera nada. */
+console.log(await evl(`(()=>{
+  try{ localStorage.removeItem('ispRoomPresets'); }catch(e){}
+  _lch.ptype='room'; lchSetWallCount(4); _lch.roomFloor=true; _lch.floorPx=null;   // piso en AUTOMÁTICO
+  const antesDeGuardar=_lch.floorPx;
+  const ap=window.appPrompt; window.appPrompt=(m,d,cb)=>cb('Auto');
+  try{ lchSaveUserPreset(); } finally { window.appPrompt=ap; }
+  const guardado=(lchUserPresets()[0]||{}).floorPx;
+  _lch.floorPx={pxW:640,pxH:480};                                   // se ensucia para ver si el preajuste lo limpia
+  lchApplyPreset('u:0');
+  const tras=_lch.floorPx;
+  const auto=lchFloorCfg(lchCfgWalls());
+  try{ localStorage.removeItem('ispRoomPresets'); }catch(e){}
+  return JSON.stringify({estabaEnAutomatico:antesDeGuardar===null, loQueGuarda:guardado===null?'null (automático)':guardado,
+    trasRecuperar:tras===null?'null (automático)':tras, pixelajeResultante:{pxW:auto.pxW,pxH:auto.pxH},
+    veredicto:(guardado==null&&tras===null)?'correcto: el automático sigue siendo automático':'*** MAL: el piso queda clavado ***'},null,1); })()`));
+
 console.log('\nerrores:', errs.length ? errs.slice(0, 8) : 'ninguno');
 try { ws.close(); } catch (_) { } try { p.kill('SIGKILL'); } catch (_) { }

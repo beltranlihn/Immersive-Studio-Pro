@@ -1,5 +1,26 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 200b — Los dos fallos de la revisión de código sobre R200
+
+**Un preajuste guardado antes de R200 rompía las orientaciones.** Al aplicarlo, el reparto de los roles que quedan
+fuera de juego se calculaba a partir de lo que traía el preajuste, y los de R199 y anteriores no guardan la
+orientación de cada muro. Con la lista vacía, los cuatro roles contaban como sobrantes y se reetiquetaban los muros
+inactivos con roles que los activos ya tenían: dos muros mirando al mismo sitio y, al subir la cuenta a cuatro, un
+muro del preajuste desaparecía en silencio. Ahora el reparto se calcula sobre las orientaciones **reales** de los
+muros ya aplicados, con lo que da igual si el preajuste las trae o no.
+
+**Guardar un preajuste dejaba el piso clavado.** El pixelaje del piso se guardaba siempre, incluso cuando estaba en
+automático —siguiendo a los muros—, porque la función que lo calcula devuelve un valor de todos modos. Al
+recuperarlo, ese valor pasaba a ser una elección manual y el piso dejaba de seguir a los muros, sin forma de
+devolverlo. Justo lo contrario de la regla que pusimos en R198. Ahora sólo se guarda si estaba puesto a mano; el
+automático se recalcula solo, que para eso van los muros en el preajuste.
+
+Y una lección sobre el arnés: **la primera comprobación del piso no valía**. Replicaba en el propio arnés el cuerpo
+de la función de guardado en vez de llamarla, así que las dos ejecuciones —la arreglada y el control— ejercitaban
+el mismo código nuevo y las dos daban «correcto». Reescrita para llamar a la función de verdad (cortocircuitando
+el diálogo de nombre), el control falla como debe. Es la cuarta vez que un arnés que se mide a sí mismo me dice que
+todo está bien: **si la prueba no falla contra el código viejo, la prueba no vale**.
+
 ## ROUND 200 — Cinco ajustes de Beltrán sobre el landing
 
 **El desplegable de orientación de los muros no abría nada.** Sí abría: nacía **detrás** del landing. El menú se

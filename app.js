@@ -2613,10 +2613,13 @@ function lchUserPresets(){ try{ return JSON.parse(localStorage.getItem('ispRoomP
    guardan porque no son suyas: salen de la huella de los muros (regla de R198), así que se recalculan solas. */
 function lchSaveUserPreset(){ const S=_lch; appPrompt(T('Preset name','Nombre del preajuste'),'',n=>{ if(n==null)return; n=String(n).trim(); if(!n)return;
   const lista=lchUserPresets().filter(p=>p.label!==n);
-  const piso=S.roomFloor?lchFloorCfg(lchCfgWalls()):null;
+  /* [R200b] Del piso se guarda el pixelaje SÓLO si estaba puesto a mano. Guardando siempre el calculado, un piso
+     en automático se convertía en fijo con sólo pasar por un preajuste, y ya no había forma de devolverlo a que
+     siguiera a los muros — justo lo contrario de la regla de R198. Y no se pierde nada: los muros van en el
+     preajuste, así que el pixelaje automático sale igual al recuperarlo. */
   lista.push({label:n, count:S.roomCount,
     walls:lchActiveWalls().map(w=>({role:w.role,pxW:w.pxW,pxH:w.pxH,wcm:w.wcm,hcm:w.hcm})),
-    floor:!!S.roomFloor, floorPx:piso?{pxW:piso.pxW,pxH:piso.pxH}:null});
+    floor:!!S.roomFloor, floorPx:(S.roomFloor&&S.floorPx)?{pxW:S.floorPx.pxW,pxH:S.floorPx.pxH}:null});
   try{ localStorage.setItem('ispRoomPresets',JSON.stringify(lista.slice(-24))); }catch(e){}
   renderLauncher(); flashStatus(T('Preset saved','Preajuste guardado')); }); }
 function lchPresetOptions(S){ const cur=S.walls[0].pxW+'x'+S.walls[0].pxH; const us=lchUserPresets();
@@ -2629,10 +2632,16 @@ function lchApplyPreset(v){ const S=_lch;
       if(s.role)w.role=s.role; w.pxW=s.pxW; w.pxH=s.pxH; if(s.wcm)w.wcm=s.wcm; if(s.hcm)w.hcm=s.hcm; });
     /* [R200] Tras imponer las orientaciones del preajuste hay que recolocar las que quedan fuera de juego: si el
        preajuste usaba un rol que el reparto por cuenta había dejado detrás, saldrían DOS muros mirando al mismo
-       sitio y la huella se rompería. */
-    { const usados=(p.walls||[]).map(s=>s.role).filter(Boolean);
-      const sobran=ROOM_ROLES.filter(r=>usados.indexOf(r)<0);
-      S.walls.forEach((w,i)=>{ if(i>=(p.walls||[]).length)w.role=sobran[i-(p.walls||[]).length]||w.role; }); }
+       sitio y la huella se rompería.
+       [R200b] El complemento se calcula sobre los roles REALES de los muros activos ya aplicados, no sobre lo que
+       traía el preajuste. Leyéndolo del preajuste, uno viejo —los de R199 y anteriores no guardan `role`— dejaba
+       la lista de usados vacía, así que los cuatro roles salían como "sobrantes" y se reetiquetaban los muros
+       inactivos con roles que los activos ya tenían: dos muros mirando al mismo sitio y, al subir la cuenta, un
+       muro del preajuste desaparecía en silencio. */
+    { const n=(p.walls||[]).length;
+      const activos=S.walls.slice(0,n).map(w=>w.role);
+      const sobran=ROOM_ROLES.filter(r=>activos.indexOf(r)<0);
+      S.walls.forEach((w,i)=>{ if(i>=n)w.role=sobran[i-n]||w.role; }); }
     S.roomFloor=(p.floor!==undefined)?!!p.floor:S.roomFloor;   // el piso viaja con el preajuste
     S.floorPx=p.floorPx?{...p.floorPx}:null; }
   else { const p=String(v).split('x'); S.walls.forEach(w=>{ w.pxW=+p[0]; w.pxH=+p[1]; });
