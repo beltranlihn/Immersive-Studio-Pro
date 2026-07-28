@@ -198,6 +198,7 @@
 | reloadMedia/replace | Relink/swap/adoptar archivos | app.js · `reloadMedia`/`replaceMedia` (~L5335) | ✅ | — |
 | autosave/recovery/recents | Autosave a disco, snapshots, recientes | app.js · autosave (~L5482) / `addRecent` (~L2089) | ✅ | — |
 | Splash de arranque | **Ventana propia 1080²** previa al editor; barra por hitos reales | splash.html · splash-preload.js · main.js `createSplash`/`finishBoot` · app.js `bootMark`/`bootReveal` | ✅ | R151 |
+| Pantalla de lanzamiento (multi-monitor) | Splash Y ventana principal se centran en la pantalla **del cursor**, no en la primaria; se captura UNA vez para que las dos coincidan | main.js · `launchDisplay()`/`centerOnLaunch()` (usadas por `createSplash`+`initialSize169`+`createWindow`) | ✅ | R209 |
 | Launcher (pantalla de inicio) | Elegir tipo, editar TODOS los parámetros y ver el resultado antes de crear | app.js · `showLanding`/`renderLauncher`/`lchPaint`/`lchCreate` · #landingOv.lch · CSS `.lch-*` | ✅ | R153 |
 | landing/loading | Pantalla de inicio + loop de logo (el splash ya no vive acá) | app.js · `showLanding`/`showLoadingScreen`/`startLogoLoop` (~L2073) | ✅ | [U9] |
 | Barra de menús | Dropdowns File/Edit/Window | app.js · `openAppMenu` (~L5809) · #menubar | ✅ | [D3] |

@@ -1,5 +1,32 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 209 — La app abre en la pantalla desde donde la abriste (y un crash latente menos)
+
+Trabajando con un monitor externo, Beltrán abría la app desde una pantalla y el splash aparecía en la otra; luego
+la ventana principal aparecía en una tercera combinación. Las dos ventanas se centraban en la pantalla
+**PRIMARIA** (`getPrimaryDisplay()` para medir + `center:true` para colocar), que con varios monitores no tiene
+por qué ser donde está el usuario — y como cada ventana resolvía su tamaño y su centro por separado, ni siquiera
+coincidían entre ellas.
+
+Ahora hay una «pantalla de lanzamiento»: la que contiene el **cursor** en el momento de abrir, que es donde
+ocurrió el clic (Dock, Finder, acceso directo). `launchDisplay()` la resuelve y la **cachea**, para que splash y
+principal caigan en la MISMA aunque el ratón se mueva durante los segundos de arranque; `centerOnLaunch()` las
+centra en su `workArea` (respeta la barra de menús y el Dock). La principal se posiciona al crearse, antes de que
+`finishBoot()` la muestre, así que no hay salto visible.
+
+De paso salió un crash latente que apareció durante estas pruebas: **«A JavaScript error occurred in the main
+process — TypeError: Object has been destroyed»** en el guardián de instancia única. `second-instance` comprobaba
+`if (win)` y llamaba a `win.isMinimized()`, pero un proceso principal puede sobrevivir a su ventana (en macOS es
+lo normal: `window-all-closed` no cierra la app) — entonces `win` no es null, está DESTRUIDO. Se lanzaba al abrir
+la app estando ya viva sin ventana. Ahora `second-instance` y `open-file` exigen `!isDestroyed()` en la ventana y
+en su `webContents`, y si no hay ventana viva el path del proyecto se guarda en `pendingOpenPath` en vez de
+perderse — que era el segundo bug escondido detrás del primero.
+
+Verificado en la app corriendo: splash y principal caen en la misma pantalla y centradas en ella (splash x=724 en
+1920 → (1920−473)/2 ✓; principal x=160 → (1920−1600)/2 ✓); en otro arranque, con el cursor en el portátil, la
+principal cayó en la pantalla de coordenadas −1512, que NO es la primaria — o sea, sigue al cursor de verdad.
+Arranque sin una sola línea en stderr tras el arreglo del guardián.
+
 ## ROUND 208 — La rueda del pulgar del MX Master panea el timeline
 
 Beltrán trabaja con un Logitech MX Master 3S, cuya rueda lateral manda scroll horizontal (`deltaX` puro en el

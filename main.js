@@ -85,6 +85,25 @@ function buildLabel() {
   return d ? (v + '  ·  Build ' + d) : v;
 }
 
+/* [R209] La pantalla "de lanzamiento": la que tiene el cursor al abrir la app — el clic del Dock, acceso
+   directo o Finder ocurre en la pantalla donde está el usuario. Antes splash y principal se centraban en la
+   PRIMARIA (`getPrimaryDisplay` + `center:true`), y con un monitor externo cada ventana podía caer en una
+   pantalla distinta. Se captura UNA vez para que las dos caigan en la MISMA aunque el cursor se mueva durante
+   el arranque. Sólo puede llamarse con la app ready (el módulo `screen` lo exige; createSplash ya cumplía). */
+let _launchDisplay = null;
+function launchDisplay() {
+  if (_launchDisplay) return _launchDisplay;
+  const { screen } = require('electron');
+  try { _launchDisplay = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()); }
+  catch (_) { _launchDisplay = screen.getPrimaryDisplay(); }
+  return _launchDisplay;
+}
+function centerOnLaunch(bw) { // centrar la ventana en el área útil de la pantalla de lanzamiento
+  try { const wa = launchDisplay().workArea; const b = bw.getBounds();
+    bw.setPosition(Math.round(wa.x + (wa.width - b.width) / 2), Math.round(wa.y + (wa.height - b.height) / 2));
+  } catch (_) {}
+}
+
 function createSplash() {
   // El diseño es de 1080×1080 fijos. En una pantalla de 1080p esa altura no entra, así que se toma el lado
   // mayor que quepa en el área de trabajo y el HTML escala su lienzo de 1080 a ese tamaño (proporción intacta).
@@ -95,8 +114,7 @@ function createSplash() {
   const SPLASH_SCALE = 0.49;
   let side = 1080;
   try {
-    const { screen } = require('electron');
-    const wa = screen.getPrimaryDisplay().workAreaSize;
+    const wa = launchDisplay().workArea; // [R209] medir sobre la pantalla de lanzamiento, no la primaria
     side = Math.min(1080, Math.floor(Math.min(wa.width, wa.height) * 0.92));
   } catch (_) {}
   side = Math.max(360, Math.round(side * SPLASH_SCALE));
@@ -108,6 +126,7 @@ function createSplash() {
     webPreferences: { preload: path.join(__dirname, 'splash-preload.js'), contextIsolation: true, nodeIntegration: false }
   });
   splashWin.removeMenu();
+  centerOnLaunch(splashWin); // [R209] pisa el `center:true` (que centra en la primaria) ANTES del show
   splashWin.loadFile('splash.html');
   splashWin.once('ready-to-show', () => { if (splashWin && !splashWin.isDestroyed()) splashWin.show(); });
   splashWin.webContents.on('did-finish-load', () => { splashSend('splash:init', { build: buildLabel() }); });
@@ -147,8 +166,7 @@ const tt = (en, es) => (uiLang === 'es' ? es : en);
 function initialSize169() {
   let W = 1600, H = 900;
   try {
-    const { screen } = require('electron');
-    const wa = screen.getPrimaryDisplay().workAreaSize;
+    const wa = launchDisplay().workArea; // [R209] misma pantalla que el splash
     W = Math.min(1600, wa.width - 80);
     H = Math.round(W * 9 / 16);
     if (H > wa.height - 80) { H = wa.height - 80; W = Math.round(H * 16 / 9); }
@@ -180,6 +198,7 @@ function createWindow() {
   });
   win.removeMenu(); // Windows/Linux: quita la barra de menú de la ventana. En macOS NO hace nada (el menú es de la APP) → menuMac()
   menuMac(win);
+  centerOnLaunch(win); // [R209] la principal se muestra recién en finishBoot(), pero su posición queda fijada ya, en la MISMA pantalla que el splash
 
   // Pop-out viewer window (window.open('domeViewer')): allow it as a native, movable/resizable, menu-less black window
   win.webContents.setWindowOpenHandler(({ frameName }) => {
@@ -226,8 +245,8 @@ function createWindow() {
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) { app.quit(); }
 else {
-  app.on('second-instance', (e, argv) => { const p = rdomeFromArgv(argv); if (win) { if (win.isMinimized()) win.restore(); win.focus(); if (p) win.webContents.send('dsp:openPath', p); } });
-  app.on('open-file', (e, p) => { e.preventDefault(); if (win && win.webContents) win.webContents.send('dsp:openPath', p); else pendingOpenPath = p; }); // macOS
+  app.on('second-instance', (e, argv) => { const p = rdomeFromArgv(argv); if (win && !win.isDestroyed()) { if (win.isMinimized()) win.restore(); win.focus(); if (p && win.webContents && !win.webContents.isDestroyed()) win.webContents.send('dsp:openPath', p); } else if (p) pendingOpenPath = p; }); // [R209] !isDestroyed: un proceso principal que sobrevive a su ventana (o durante el arranque) lanzaba "Object has been destroyed" al reenfocar la ventana muerta
+  app.on('open-file', (e, p) => { e.preventDefault(); if (win && !win.isDestroyed() && win.webContents && !win.webContents.isDestroyed()) win.webContents.send('dsp:openPath', p); else pendingOpenPath = p; }); // macOS
   app.whenReady().then(() => { createSplash(); createWindow(); }); // splash cuadrado primero; la ventana 16:9 se revela al terminar el arranque
   app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
