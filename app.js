@@ -7433,7 +7433,15 @@ async function reloadMedia(m){
     if(!np){ m.missing=true; m._loading=false; renderMedia(); updRelink(); return; }
     if(np!==m.path){ m.path=np; m.proxyReady=false; m.proxyUrl=null; m.proxyEl=null; } } // ruta nueva ⇒ el proxy se re-engancha desde la nueva ubicación
   const url=DSP.toFileURL(m.path);
-  if(m.kind==='image'){ const img=new Image(); img.onload=()=>{ const fit=fitImage(img); m.el=fit.src;m.originalEl=img;m.tex=newTex();upTex(m.tex,fit.src);m.w=fit.w;m.h=fit.h;m.missing=false;m._loading=false;m.thumb=url;renderMedia();render(); }; img.onerror=()=>{ m.missing=true;m._loading=false;renderMedia();updRelink(); }; img.src=url; }
+  /* [R205b] Imagen y audio, esperables igual que el vídeo. Sin esto `await reloadMedia(m)` resolvía antes de leer
+     el archivo, así que reemplazar un AUDIO en bucle por otro de distinta duración no reajustaba nada: la
+     reconciliación comparaba la duración vieja consigo misma y se iba de largo. El mismo fallo que R205 arregló
+     para vídeo, sin arreglar para audio. */
+  if(m.kind==='image'){ return await new Promise(res=>{ const img=new Image();
+    let fin=false; const acabar=()=>{ if(fin)return; fin=true; res(); };
+    img.onload=()=>{ const fit=fitImage(img); m.el=fit.src;m.originalEl=img;m.tex=newTex();upTex(m.tex,fit.src);m.w=fit.w;m.h=fit.h;m.missing=false;m._loading=false;m.thumb=url;renderMedia();render(); acabar(); };
+    img.onerror=()=>{ m.missing=true;m._loading=false;renderMedia();updRelink(); acabar(); };
+    img.src=url; setTimeout(acabar,15000); }); }
   /* [R205] El camino de vídeo AHORA SE PUEDE ESPERAR. Antes registraba el oyente de metadatos y volvía en el acto,
      así que un `await reloadMedia(m)` resolvía sin que el archivo se hubiera leído todavía — y quien reemplazaba un
      medio y miraba la duración justo después leía la del archivo VIEJO. El bucle de carga del proyecto lo llama sin
@@ -7450,8 +7458,11 @@ async function reloadMedia(m){
       acabar();
       },{once:true}); // proxies MANUAL (right-click → Generate proxy); existing ones re-attach automatically
     v.addEventListener('error',()=>{ m.missing=true;m._loading=false;renderMedia();updRelink(); acabar(); },{once:true});
-    setTimeout(acabar,15000); }); }
-  else if(m.kind==='audio'){ fetch(url).then(r=>r.arrayBuffer()).then(b=>ACTX().decodeAudioData(b)).then(async ab=>{ m.buffer=ab; const wv=await computeWave(ab); m.peaks=wv.peak; m.rms=wv.rms; m.dur=ab.duration;m.missing=false;m._loading=false;m.thumb=waveThumb(m.peaks,108,64);renderMedia(); if(state.playing)startAudio(); }).catch(()=>{ m.missing=true;m._loading=false;renderMedia();updRelink(); }); } } // reschedule if the audio decoded after Play started (a long film track can finish decoding a beat after load → was silent until re-play)
+    /* [R205b] El plazo se MARCA (`m._plazo`). Antes resolvía en silencio con la duración vieja, así que quien
+       reemplazaba un archivo en un disco lento veía «reemplazado» y ni un bucle reajustado, sin saber por qué.
+       No es hipotético: este mismo archivo documenta lecturas de metadatos de más de 8 s en disco frío o red. */
+    setTimeout(()=>{ if(!fin){ m._plazo=true; } acabar(); },15000); }); }
+  else if(m.kind==='audio'){ return await fetch(url).then(r=>r.arrayBuffer()).then(b=>ACTX().decodeAudioData(b)).then(async ab=>{ m.buffer=ab; const wv=await computeWave(ab); m.peaks=wv.peak; m.rms=wv.rms; m.dur=ab.duration;m.missing=false;m._loading=false;m.thumb=waveThumb(m.peaks,108,64);renderMedia(); if(state.playing)startAudio(); }).catch(()=>{ m.missing=true;m._loading=false;renderMedia();updRelink(); }); } } // reschedule if the audio decoded after Play started (a long film track can finish decoding a beat after load → was silent until re-play)
 /* Replace media (offline→online workflow): swap this media's FILE for another of the same kind. Clips
    reference media by id, so every cut/keyframe/fx survives; proxy/bands/thumb reset and rebuild (the new
    file's proxy is picked from its own cache if it exists). If the new file is shorter, clips past its end
@@ -7465,16 +7476,38 @@ async function replaceMedia(m,ruta){ if(!IS_ELEC)return;
   const ext=(p.split('.').pop()||'').toLowerCase();
   const kind=/^(mp4|mov|webm|mkv|avi)$/.test(ext)?'video':/^(wav|mp3|ogg|flac|aac|m4a)$/.test(ext)?'audio':/^(png|jpe?g|webp|gif|bmp)$/.test(ext)?'image':null;
   if(kind!==m.kind){ appAlert(T('Pick a file of the same type as the original.','Elige un archivo del mismo tipo que el original.')); return; }
-  pushUndo(); const oldDur=m.dur;
+  /* [R205b] Aviso entre secuencias, con el mismo criterio que ya usa borrar un medio (L2125): el deshacer sólo
+     restaura la secuencia ACTIVA, así que si el reemplazo va a tocar clips de otras hay que decirlo antes.
+     Y ya no se apila un punto de deshacer: cambiar el ARCHIVO de un medio nunca fue reversible con Ctrl+Z —
+     `snapshot()` no guarda `state.media`—, así que apilarlo sólo servía para que un Ctrl+Z devolviera los bucles
+     al material viejo dejando el archivo nuevo puesto: justo el descuadre que R205 venía a quitar. La forma de
+     recuperarse de un reemplazo equivocado es volver a reemplazar, que reajusta igual de bien. */
+  const otras=state.media.filter(s=>isSeqMedia(s)&&s.id!==state.activeSeqId&&(s.nestClips||[]).some(c=>c.mediaId===m.id));
+  if(otras.length){ const ok=await new Promise(res=>appConfirm(
+      T('"'+m.name+'" is also used in '+otras.length+' other sequence'+(otras.length>1?'s':'')+' ('+otras.map(s=>s.name).join(', ')+'). Replacing the file re-fits their loops too, and this cannot be undone with Ctrl+Z.',
+        '"'+m.name+'" también se usa en '+otras.length+' secuencia'+(otras.length>1?'s':'')+' más ('+otras.map(s=>s.name).join(', ')+'). Reemplazar el archivo reajusta también sus bucles, y esto no se puede deshacer con Ctrl+Z.'),
+      res, {ok:T('Replace','Reemplazar')}));
+    if(!ok)return; }
+  const antes={path:m.path,name:m.name,fsize:m.fsize,dur:m.dur}; const oldDur=m.dur;
   let sz=0; try{ const st=await DSP.stat(p); sz=(st&&st.size)||0; }catch(e){}
-  m.path=p; m.fsize=sz; m.name=DSP.basename(p); m.missing=false;
+  m.path=p; m.fsize=sz; m.name=DSP.basename(p); m.missing=false; delete m._plazo;
   m.proxyReady=false; m.proxyPct=0; m.proxyUrl=null; m.proxyEl=null; m._proxyForce=false; m.bands=null; m._bandsBusy=false; m.thumb=null; m._texW=null; m._texH=null; m.peaks=null; m.rms=null; m.buffer=null;
   try{ disposeAllVinst(); }catch(e){} try{ if(_arCache)arRecompute(); }catch(e){}
   await reloadMedia(m);
+  /* [R205b] Si el archivo nuevo no se pudo leer —corrupto, o tan lento que agotó el plazo— se DESHACE el cambio y
+     se vuelve al anterior. Antes se anunciaba «reemplazado» igual, dejando el medio desvinculado y el proyecto
+     apuntando a un archivo que no abre. */
+  if(m.missing||m._plazo){ const tarde=!!m._plazo; delete m._plazo;
+    m.path=antes.path; m.name=antes.name; m.fsize=antes.fsize; m.dur=antes.dur; m.missing=false; m._loading=true;
+    m.proxyReady=false; m.proxyUrl=null; m.proxyEl=null; m.thumb=null;
+    await reloadMedia(m); renderMedia(); renderTimeline(); renderInspector(); render();
+    appAlert(tarde?T('That file took too long to read — nothing was changed.','Ese archivo tardó demasiado en leerse — no se ha cambiado nada.')
+                  :T('That file could not be read — nothing was changed.','Ese archivo no se pudo leer — no se ha cambiado nada.'));
+    return; }
   const info=reconciliarDuracion(m,oldDur);
   try{ disposeAllVinst(); }catch(e){} try{ reschedAudio(); }catch(e){} try{ raInvalidate(); }catch(e){} // el material cambió: instancias, audio y caché de fotogramas quedan obsoletos
   renderMedia(); renderTimeline(); renderInspector(); render(); markDirty();
-  flashStatus(T('Media replaced — all clips keep their edits','Medio reemplazado — todos los clips conservan su edición')+info); }
+  flashStatus(T('Media replaced — all clips keep their edits','Medio reemplazado — todos los clips conservan su edición')+info+' · '+T('not undoable','no se deshace con Ctrl+Z')); }
 /* todos los clips del proyecto, dentro y fuera de nidos (la secuencia activa vive en state.clips, las demás en sus nestClips) */
 function clipsDelProyecto(){ const out=[], vistos=new Set();
   const meter=arr=>{ for(const c of (arr||[])){ if(c&&!vistos.has(c)){ vistos.add(c); out.push(c); } } };

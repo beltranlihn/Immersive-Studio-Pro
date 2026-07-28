@@ -1,5 +1,32 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 205b — Los cuatro hallazgos de la revisión sobre R205
+
+**Sólo había arreglado el vídeo.** Audio e imagen seguían resolviendo antes de leer el archivo, así que reemplazar
+un **audio en bucle** por otro de distinta duración no reajustaba nada: la reconciliación comparaba la duración
+vieja consigo misma y se iba de largo. Exactamente el fallo que R205 venía a quitar, sin quitar para audio.
+
+**El deshacer descuadraba, y esto es lo más importante de los cuatro.** El sistema de deshacer guarda sólo los
+clips de la secuencia activa, y **nunca la lista de medios**: cambiar el archivo de un medio no fue reversible
+jamás. Antes daba igual, porque el reemplazo no tocaba los clips. Con R205 sí los tocaba, así que un Ctrl+Z
+devolvía los bucles al material viejo dejando el archivo nuevo puesto — peor que no deshacer nada. Ya no se apila
+punto de deshacer: la forma de recuperarse de un reemplazo equivocado es **volver a reemplazar**, que reajusta
+igual de bien porque la reconciliación siempre es relativa a la duración actual. Y si el medio se usa en otras
+secuencias, ahora se pregunta antes y se nombran, con el mismo criterio que ya usaba borrar un medio.
+
+**El plazo de espera resolvía en silencio.** Si el archivo tardaba más de quince segundos en leerse —y este mismo
+código documenta lecturas de más de ocho en disco frío o en red— se anunciaba «reemplazado» con la duración vieja
+y sin un solo bucle reajustado, sin nada que explicara por qué.
+
+**Y un archivo ilegible se anunciaba como éxito**, dejando el medio desvinculado y el proyecto apuntando a algo que
+no abre. Ahora se revierte al archivo anterior y se avisa.
+
+Verificado en la app: un audio de 5 s en bucle reemplazado por uno de 3 s pasa a durar 3 y su ciclo también; un
+archivo con basura dentro revierte, avisa y deja el medio sano; la pila de deshacer se queda igual que estaba; y
+la pregunta entre secuencias nombra la otra secuencia, menciona el Ctrl+Z y al cancelar no toca nada. Del plazo de
+espera se ejercitó la vía de fallo —la comparte con el archivo ilegible—; lo único no ejercitado es el temporizador
+de quince segundos en sí.
+
 ## ROUND 205 — Reemplazar un medio por su upscale sin romper los bucles
 
 Beltrán preguntó algo muy concreto: va a poner clips en bucle, y después va a reemplazar cada medio por su propio
