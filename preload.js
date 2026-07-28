@@ -72,6 +72,12 @@ contextBridge.exposeInMainWorld('dsp', {
   autosaveDir: () => ipcRenderer.invoke('dsp:autosaveDir'),
   revealPath: (p) => ipcRenderer.invoke('dsp:revealPath', p),
   listDir: (dir) => ipcRenderer.invoke('dsp:listDir', dir),
+  listSubdirs: (dir) => ipcRenderer.invoke('dsp:listSubdirs', dir), // [R204] reenlace de medios junto al proyecto
+  // [R204] Separador de rutas del sistema. El renderer arma rutas a mano (proxies, autoguardado, render en el
+  // sitio) y las tenía con `\` escrita a mano: en macOS eso no falla, crea archivos con una barra invertida DENTRO
+  // del nombre y un nivel por encima de donde tocaba. Partir rutas ya valía en los dos (se busca `\` y `/`); lo
+  // que había que arreglar era UNIRLAS.
+  sep: path.sep,
   deleteFile: (p) => ipcRenderer.invoke('dsp:deleteFile', p),
   rename: (from, to) => ipcRenderer.invoke('dsp:rename', from, to),
   // [R175] síncrono a propósito: se consulta UNA vez al arrancar, antes de que nada decida revelar el editor

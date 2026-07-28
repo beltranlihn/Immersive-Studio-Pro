@@ -1907,6 +1907,18 @@ Bootstrap constants (app.js): `HAS_WC` (~L1259) = WebCodecs + Mp4Muxer present; 
 - **Status:** ✅
 - **Roadmap:** —
 
+## Rutas multiplataforma + reenlace junto al proyecto — pjoin / relinkIndex / repararRuta
+- **Purpose:** que armar rutas valga en Windows y macOS, y que mover la carpeta de un proyecto no deje los medios en rojo.
+- **Location:** app.js · `PSEP`/`pjoin`/`pdir`/`pbase` (~L1745, justo antes del bloque de proxies) · `relinkIndex`/`repararRuta`/`relinkReport`/`relinkReset` (~L7381, junto a `reloadMedia`) · `preload.js` expone `sep` y `listSubdirs` · `main.js` `dsp:listSubdirs`.
+- **[R204] Unir rutas.** **Partirlas** ya valía en los dos sistemas (siempre se busca `\` y `/` y se coge el último); lo que estaba mal era **unirlas**: una docena de sitios —proxies, autoguardado, render en el sitio— escribían `dir+'\\'+nombre`. En macOS eso **no falla**, que es lo peligroso: crea archivos y carpetas con una barra invertida **dentro del nombre**, colgando un nivel por encima de donde debían ir → el rescate de proxies por nombre no encontraba nada y la carpeta `autosave` aparecía donde no era. En Windows `pjoin` produce la MISMA cadena que antes, así que allí el cambio es un no-op por construcción.
+- **[R204] Reenlace.** El `.isp` guarda rutas absolutas. `repararRuta(p)` devuelve `p` si existe; si no, lo busca **por nombre** en un índice de la carpeta del `.isp` + **un** nivel de subcarpetas (se saltan `autosave` y `rendered clips`). El índice se arma **una vez por proyecto** (no una por medio) y `relinkReset()` lo tira en `loadProject`. Cubre también las secuencias de imágenes (`m.framePaths`). Al reparar se limpia `proxyReady/proxyUrl/proxyEl` para que el proxy se re-enganche desde la ubicación nueva.
+- **Invariants / gotchas:**
+  - **El aviso va con retardo (900 ms) a propósito:** `loadProject` lanza todas las `reloadMedia` **sin esperarlas**, así que en el punto donde termina no hay todavía nada reparado — un `updRelink()` allí siempre contaría cero. Cada reparación reinicia el temporizador → un solo mensaje al acabar la ráfaga, y después del «Proyecto cargado», que si no lo pisaría.
+  - **No marca el proyecto como modificado:** guardar fija las rutas nuevas; no guardar no pierde nada (la próxima apertura las resuelve igual). Marcar `dirty` daría un falso «cambios sin guardar» en cada apertura.
+  - **`dsp:listSubdirs` es un canal NUEVO**, no una ampliación de `dsp:listDir`: ése devuelve sólo archivos y de él dependen el rescate de proxies y el historial de autoguardado, que filtran por nombre — colarles carpetas sería pedir un falso positivo.
+- **Status:** ✅ verificado moviendo de verdad un proyecto con sus medios a otra carpeta (uno en la raíz, otro en una subcarpeta) y reabriéndolo desde allí: 0 ausentes, rutas reescritas, clips intactos. Control contra el `.exe` de R203: allí quedan **2 ausentes**.
+- **Roadmap:** —
+
 ## Close-confirm + dirty guard
 - **Purpose:** On window close with unsaved changes, show the app-styled confirm instead of a native OS dialog.
 - **Location:** app.js · `DSP.onConfirmClose(...)` in init (L6990) → `appConfirm` → `DSP.forceClose()`. Main side: `win.on('close')`→`dsp:confirmClose` (main.js L90), `uiDirty` from `dsp:setUiState` (L114).

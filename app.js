@@ -1741,22 +1741,33 @@ function detectFps(v,m,done){let fin=false;const fn=f=>{if(fin)return;fin=true;i
    (RAM stays flat regardless of clip length — the old in-memory target held ~12Mbps × duration, multi-GB
    for long clips) and is REUSED across sessions/projects (keyed by source path+size → reopening a project
    binds the cached file instantly instead of re-encoding for the clip's whole duration). */
+/* ===================== [R204] RUTAS — unir con el separador del SISTEMA =====================
+   PARTIR una ruta ya valía en los dos sistemas (siempre se busca `\` y `/` y se coge el último). Lo que estaba
+   mal era UNIRLAS: una docena de sitios —proxies, autoguardado, render en el sitio— escribían `dir+'\\'+nombre`.
+   En Windows correcto; en macOS eso NO falla, que es lo malo: crea archivos y carpetas con una barra invertida
+   DENTRO del nombre, colgando un nivel por encima de donde debían ir. El rescate de proxies por nombre dejaba de
+   encontrarlos y la carpeta `autosave` aparecía donde no era. */
+const PSEP=(()=>{ try{ return (IS_ELEC&&DSP.sep)?DSP.sep:'\\'; }catch(e){ return '\\'; } })();
+function pjoin(...partes){ return partes.filter(p=>p!=null&&p!=='').join(PSEP); }
+function pdir(p){ const i=Math.max(String(p||'').lastIndexOf('\\'),String(p||'').lastIndexOf('/')); return i<0?'':String(p).slice(0,i); }
+function pbase(p){ const i=Math.max(String(p||'').lastIndexOf('\\'),String(p||'').lastIndexOf('/')); return String(p||'').slice(i+1); }
+
 const PMAX=960,PMBPS=12,proxyQ=[]; let proxyBusy=false;
 let _proxyDir=null; if(IS_ELEC&&DSP.proxyDir){ try{ DSP.proxyDir().then(d=>{_proxyDir=d||null;}); }catch(e){} }
 function proxyHash(s){ let h=5381; for(let i=0;i<s.length;i++)h=((h<<5)+h+s.charCodeAt(i))>>>0; return h.toString(36); }
-function proxyCachePath(m){ if(!_proxyDir||!m.path)return null; return _proxyDir+'\\px_'+proxyHash(m.path+'|'+(m.fsize||0))+'_'+PMAX+'.mp4'; }
+function proxyCachePath(m){ if(!_proxyDir||!m.path)return null; return pjoin(_proxyDir,'px_'+proxyHash(m.path+'|'+(m.fsize||0))+'_'+PMAX+'.mp4'); }
 /* preferred location: NEXT TO the source clip (travels with the media/drive) — "MiClip.dsp-proxy-<hash>.mp4";
    the hash (path|size) self-invalidates the proxy if the source file is replaced. Central cache = fallback. */
-function proxyLocalPath(m){ if(!m.path)return null; const i=Math.max(m.path.lastIndexOf('\\'),m.path.lastIndexOf('/')); if(i<0)return null;
-  const dir=m.path.slice(0,i), base=m.path.slice(i+1), stem=base.replace(/\.[^.]+$/,'');
-  return dir+'\\'+stem+'.dsp-proxy-'+proxyHash(m.path+'|'+(m.fsize||0))+'.mp4'; }
+function proxyLocalPath(m){ if(!m.path)return null; const dir=pdir(m.path); if(!dir)return null;
+  const stem=pbase(m.path).replace(/\.[^.]+$/,'');
+  return pjoin(dir, stem+'.dsp-proxy-'+proxyHash(m.path+'|'+(m.fsize||0))+'.mp4'); }
 function proxyCandidates(m){ return IS_ELEC?[proxyLocalPath(m),proxyCachePath(m)].filter(Boolean):[]; } // lookup/write order: junto al clip → caché central
 /* every "<stem>.dsp-proxy-<hash>.mp4" sitting next to the source — rescues a proxy orphaned when the source file was
    moved/renamed (its hash no longer matches path|size, so proxyCandidates would miss it). Validated by duration in bindProxyFile. */
-async function proxyScanDir(m){ if(!IS_ELEC||!DSP.listDir||!m.path)return []; const i=Math.max(m.path.lastIndexOf('\\'),m.path.lastIndexOf('/')); if(i<0)return [];
-  const dir=m.path.slice(0,i), stem=m.path.slice(i+1).replace(/\.[^.]+$/,'');
+async function proxyScanDir(m){ if(!IS_ELEC||!DSP.listDir||!m.path)return []; const dir=pdir(m.path); if(!dir)return [];
+  const stem=pbase(m.path).replace(/\.[^.]+$/,'');
   const re=new RegExp('^'+stem.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\.dsp-proxy-\\w+\\.mp4$','i');
-  try{ const files=await DSP.listDir(dir); return files.filter(f=>re.test(f.name)).map(f=>dir+'\\'+f.name); }catch(e){ return []; } }
+  try{ const files=await DSP.listDir(dir); return files.filter(f=>re.test(f.name)).map(f=>pjoin(dir,f.name)); }catch(e){ return []; } }
 /* attach an existing on-disk proxy: exact-hash candidates first, then any sibling "<stem>.dsp-proxy-*.mp4". A file that
    won't decode (interrupted encode → no moov) or is a stale cut (duration mismatch) is DELETED so it stops shadowing a
    clean regenerate and stops the app silently falling back to the heavy original. Generation stays MANUAL. */
@@ -5905,11 +5916,11 @@ async function ripRun({name,a,b,isolateClips,isNest,laneName,aboveLane}){
   const eW=flat?(as.w||1920):res, eH=flat?(as.h||1080):res;
   const opts=await ripCodecOptions(eW,eH,fps);
   const choice=await ripFormatDialog(name,dur,eW,eH,fps,flat,opts,isNest); if(!choice)return;
-  const i=Math.max(currentPath.lastIndexOf('\\'),currentPath.lastIndexOf('/')), projDir=currentPath.slice(0,i), dir=projDir+'\\rendered clips';
+  const projDir=pdir(currentPath), dir=pjoin(projDir,'rendered clips');
   try{ if(DSP.ensureDir)await DSP.ensureDir(dir); }catch(e){ appAlert(T('Could not create the “rendered clips” folder.','No se pudo crear la carpeta “rendered clips”.')); return; }
   const safe=(name||'clip').replace(/[\\/:*?"<>|]/g,'_').slice(0,60);
   const dimStr=flat?(eW+'x'+eH):(eW+'');
-  const outPath=dir+'\\'+safe+' ['+dimStr+' '+choice.kind+'] '+String(uid()).padStart(4,'0')+'.mp4'; // [R179] uid() is a NUMBER (let _id=1; ()=>_id++). The old `uid().slice(0,5)` threw a TypeError right here, before a single frame was rendered — which is exactly why render-in-place looked like it did nothing at all.
+  const outPath=pjoin(dir, safe+' ['+dimStr+' '+choice.kind+'] '+String(uid()).padStart(4,'0')+'.mp4'); // [R179] uid() is a NUMBER (let _id=1; ()=>_id++). The old `uid().slice(0,5)` threw a TypeError right here, before a single frame was rendered — which is exactly why render-in-place looked like it did nothing at all.
   const ui=ripProgress(T('Rendering in place','Renderizando en el sitio'), dimStr.replace('x','×')+' · '+choice.label+' · '+Math.round(choice.bitrate/1e6)+' Mbps · '+fps+' fps', flat?(eW/eH):1);
   let thrown=null;
   try{ await runExport({codec:choice.kind,res,fps,bitrate:choice.bitrate,range:'clips',rangeT:[a,b],isolateClips,outPath,silent:true,noAudio:true,job:ui.job}); }
@@ -7319,7 +7330,8 @@ function rasterizePenMasks(c){ if(!c)return;
   }
   x.globalCompositeOperation='source-over';
   if(!c.maskTex)c.maskTex=newTex(); upTex(c.maskTex,cv); c.props.mask='pen'; }
-function loadProject(obj){ try{ if(!_bootEsperandoProyecto)showLoadingScreen(T('Loading project…','Cargando proyecto…')); else bootMark(72); }catch(e){} /* [R175] durante el arranque la cuenta la lleva el splash, no una segunda pantalla encima del editor */ // [U9] logo-loop loading screen while the project + its proxies buffer
+function loadProject(obj){ relinkReset(); // [R204] el índice de reenlace es de ESTE proyecto: se tira al cargar otro
+  try{ if(!_bootEsperandoProyecto)showLoadingScreen(T('Loading project…','Cargando proyecto…')); else bootMark(72); }catch(e){} /* [R175] durante el arranque la cuenta la lleva el splash, no una segunda pantalla encima del editor */ // [U9] logo-loop loading screen while the project + its proxies buffer
   if(state.playing)pause(); disposeAllVinst(); try{freeFxResources();}catch(e){} for(const _tid in (state.mediaTrash||{})) disposeMedia(state.mediaTrash[_tid]); state.mediaTrash={}; // free deleted-media textures + FX history from the previous project
   clearAllUndo(); // [R92-T1 C2] undo history belongs to the PREVIOUS project — Ctrl+Z after opening must never inject its clips here (newProject already did this; loadProject didn't)
   state.fps=obj.fps||60; state.lanes=obj.lanes||state.lanes; state.clips=(obj.clips||[]).map(c=>({...c,kf:c.kf||{},maskTex:null})); state.playhead=obj.playhead||0; state.markers=obj.markers||[]; state.selMarkerId=null; state.groups=obj.groups||[]; state.selGroupId=null;
@@ -7367,14 +7379,59 @@ function esperarMediosArranque(deadline){ const cargando=state.media.some(m=>m._
   const proxy=state.media.some(m=>m._pxGen||(m.proxyPct>0&&!m.proxyReady));
   if((!cargando&&!proxy)||Date.now()>deadline){ bootMark(100); bootProyectoListo(); return; }
   bootMark(proxy?94:91); setTimeout(()=>esperarMediosArranque(deadline),200); } // [U9] keep the loading screen until media/proxies finish buffering (or a 20 s deadline)
+/* ===================== [R204] REENLACE JUNTO AL PROYECTO =====================
+   El `.isp` guarda rutas ABSOLUTAS, así que mover la carpeta —a otro disco, a otro equipo, de Windows a Mac—
+   dejaba todos los medios en rojo aunque los archivos viajaran al lado del proyecto. El montaje habitual de
+   Beltrán es justo ése: el `.isp` y su material en una misma carpeta.
+   Ahora, cuando un archivo no está en su ruta, se busca POR NOMBRE junto al proyecto antes de darlo por ausente:
+   la carpeta del `.isp` y UN nivel de subcarpetas (cubre `assets/`, `media/`, `video/`… sin recorrer un disco
+   entero). El índice se arma una sola vez por proyecto — no una por medio — y se tira al cargar otro.
+   No se marca el proyecto como modificado: si se guarda, las rutas nuevas quedan fijadas; si no, la próxima vez
+   se vuelven a resolver igual. Nunca se pierde nada por no guardar. */
+let _relIdx=null, _relIdxDir=null, _relCount=0, _relTimer=0;
+function relinkReset(){ _relIdx=null; _relIdxDir=null; _relCount=0; if(_relTimer){clearTimeout(_relTimer);_relTimer=0;} }
+/* El aviso va con retardo a propósito: `loadProject` lanza todas las recargas SIN esperarlas, así que en el punto
+   donde termina no hay todavía nada reparado. Cada reparación reinicia el temporizador, de modo que el mensaje
+   sale una sola vez cuando la ráfaga acaba — y después del «Proyecto cargado», que si no lo pisaría. */
+function relinkReport(){ if(_relTimer)clearTimeout(_relTimer);
+  _relTimer=setTimeout(()=>{ _relTimer=0; const n=_relCount; _relCount=0; if(!n)return;
+    if(state.media.some(m=>m.missing&&!m._loading))return; // si queda algo ausente, ese aviso manda sobre éste
+    flashStatus(n+' '+(n===1?T('media re-linked next to the project','medio reenlazado junto al proyecto')
+                            :T('media re-linked next to the project','medios reenlazados junto al proyecto'))
+                  +' — '+T('save to make it permanent','guarda para fijarlo')); }, 900); }
+async function relinkIndex(){
+  if(!IS_ELEC||!DSP.listDir||!currentPath)return null;
+  const raiz=pdir(currentPath); if(!raiz)return null;
+  if(_relIdx&&_relIdxDir===raiz)return _relIdx;
+  const idx=new Map();
+  const meter=async(d)=>{ let fs=[]; try{ fs=(await DSP.listDir(d))||[]; }catch(e){ return; }
+    for(const f of fs){ const k=(f.name||'').toLowerCase(); if(k&&!idx.has(k))idx.set(k,pjoin(d,f.name)); } };
+  await meter(raiz);
+  if(DSP.listSubdirs){ let subs=[]; try{ subs=(await DSP.listSubdirs(raiz))||[]; }catch(e){}
+    for(const s of subs){ if(s==='autosave'||s==='rendered clips')continue; await meter(pjoin(raiz,s)); } }
+  _relIdx=idx; _relIdxDir=raiz; return idx;
+}
+/* devuelve una ruta que EXISTE (la de siempre, o su gemela junto al proyecto) — o null */
+async function repararRuta(p){
+  if(!p)return null;
+  try{ if(await DSP.exists(p))return p; }catch(e){}
+  const idx=await relinkIndex(); if(!idx)return null;
+  const alt=idx.get(pbase(p).toLowerCase());
+  if(alt&&alt!==p){ _relCount++; relinkReport(); return alt; }
+  return null;
+}
 async function reloadMedia(m){
   if(m.kind==='adjust'){ m.missing=false; m._loading=false; return; } // adjustment layer template — no file
   if(m.kind==='ndi'||m.kind==='spout'){ m.missing=false; m._loading=false; return; } // entrada en vivo (NDI/Spout) — no hay archivo que reenlazar
   if(m.kind==='sequence'){ if(!m.framePaths||!m.framePaths.length){ m.missing=true; m._loading=false; renderMedia(); updRelink(); return; }
+    { const rep=[]; for(const fp of m.framePaths)rep.push(await repararRuta(fp)); if(rep.some((r,i)=>r&&r!==m.framePaths[i]))m.framePaths=rep.map((r,i)=>r||m.framePaths[i]); } // [R204] una secuencia de imágenes también se reenlaza
     const total=m.framePaths.length, frames=new Array(total); m.tex=m.tex||newTex(); m._curFrame=-1; let loaded=0;
     m.framePaths.forEach((fp,i)=>{ if(!fp){ if(++loaded===total){ m._loading=false; renderMedia(); } return; } const img=new Image(); img.onload=()=>{ const fit=fitImage(img); frames[i]=fit.src; if(i===0){ m.w=fit.w; m.h=fit.h; upTex(m.tex,fit.src); m._curFrame=0; m.thumb=DSP.toFileURL(fp); m.missing=false; } if(++loaded===total){ m.missing=false; m._loading=false; renderMedia(); render(); } }; img.onerror=()=>{ if(++loaded===total){ m._loading=false; renderMedia(); } }; img.src=DSP.toFileURL(fp); });
     m.frames=frames; return; }
-  if(!m.path){ m._loading=false; return; } let ok=true; try{ ok=await DSP.exists(m.path); }catch(e){ ok=false; } if(!ok){ m.missing=true; m._loading=false; renderMedia(); updRelink(); return; }
+  if(!m.path){ m._loading=false; return; }
+  { const np=await repararRuta(m.path); // [R204] si no está en su ruta, se busca junto al proyecto antes de rendirse
+    if(!np){ m.missing=true; m._loading=false; renderMedia(); updRelink(); return; }
+    if(np!==m.path){ m.path=np; m.proxyReady=false; m.proxyUrl=null; m.proxyEl=null; } } // ruta nueva ⇒ el proxy se re-engancha desde la nueva ubicación
   const url=DSP.toFileURL(m.path);
   if(m.kind==='image'){ const img=new Image(); img.onload=()=>{ const fit=fitImage(img); m.el=fit.src;m.originalEl=img;m.tex=newTex();upTex(m.tex,fit.src);m.w=fit.w;m.h=fit.h;m.missing=false;m._loading=false;m.thumb=url;renderMedia();render(); }; img.onerror=()=>{ m.missing=true;m._loading=false;renderMedia();updRelink(); }; img.src=url; }
   else if(m.kind==='video'){ const v=document.createElement('video'); v.src=url;v.muted=true;v.playsInline=true;v.preload='auto';
@@ -7411,14 +7468,14 @@ function saveIncremental(){ saveVer++; const json=JSON.stringify(serProject()); 
   else { dlBlob(new Blob([json],{type:'application/json'}),name); flashStatus(T('Saved v','Guardado v')+saveVer); } }
 async function restoreAutosave(){ if(!(await confirmDiscard()))return;
   if(IS_ELEC){ // disk candidates, newest first: project-local autosave folder + LEGACY sidecar next to the project + the unsaved-project pair
-    const bases=[]; { const b=autosaveBase(); if(b)bases.push(b); } if(currentPath)bases.push(currentPath); if(_asDir){ bases.push(_asDir+'\\unsaved.isp'); bases.push(_asDir+'\\unsaved.ise'); bases.push(_asDir+'\\unsaved.rdome'); }
+    const bases=[]; { const b=autosaveBase(); if(b)bases.push(b); } if(currentPath)bases.push(currentPath); if(_asDir){ bases.push(pjoin(_asDir,'unsaved.isp')); bases.push(pjoin(_asDir,'unsaved.ise')); bases.push(pjoin(_asDir,'unsaved.rdome')); }
     const withT=[]; for(const b of bases)for(const s of ['.autosave1','.autosave2']){ try{ const st=await DSP.stat(b+s); if(st&&st.size>2)withT.push({p:b+s,t:st.mtimeMs||0}); }catch(e){} }
     withT.sort((x,y)=>y.t-x.t);
     for(const c of withT){ try{ const txt=await DSP.readText(c.p); if(!txt)continue; loadProject(JSON.parse(txt)); flashStatus(T('Autosave restored','Autoguardado restaurado')); return; }catch(e){} } } // unparseable (torn write) → try the next-newest copy
   try{ const s=localStorage.getItem('domeProPro'); if(!s){flashStatus(T('No autosave found','No se encontró autoguardado'));return;} loadProject(JSON.parse(s)); flashStatus(T('Autosave restored','Autoguardado restaurado')); }catch(e){appAlert(T('Could not restore.','No se pudo restaurar.'));} }
 /* opening a project whose autosave on disk is NEWER than the file itself (crash without manual save) → offer recovery */
 async function maybeOfferAutosave(p,obj){ try{ const stP=await DSP.stat(p); let best=null;
-    const i=Math.max(p.lastIndexOf('\\'),p.lastIndexOf('/')); const cands=[]; if(i>=0)cands.push(p.slice(0,i)+'\\autosave\\'+p.slice(i+1)); cands.push(p); // project-local autosave folder + LEGACY sidecar
+    const cands=[]; { const d=pdir(p); if(d)cands.push(pjoin(d,'autosave',pbase(p))); } cands.push(p); // project-local autosave folder + LEGACY sidecar
     for(const bp of cands)for(const s of ['.autosave1','.autosave2']){ try{ const st=await DSP.stat(bp+s); if(st&&st.size>2&&(!best||(st.mtimeMs||0)>best.t))best={p:bp+s,t:st.mtimeMs||0}; }catch(e){} }
     if(best&&stP&&best.t>(stP.mtimeMs||0)+2000){
       /* [R176] Durante el ARRANQUE no se pregunta nada: el splash se queda hasta que todo esté montado, y una
@@ -7433,7 +7490,7 @@ async function maybeOfferAutosave(p,obj){ try{ const stP=await DSP.stat(p); let 
 function _agoStr(ms){ const s=Math.max(0,Math.round(ms/1000)); if(s<60)return T('just now','recién'); const m=Math.round(s/60); if(m<60)return T('','hace ')+m+' '+T('min ago','min'); return T('','hace ')+Math.round(m/60)+' h'; }
 async function openRecoveryHistory(){ if(!IS_ELEC||!DSP.listDir){ restoreAutosave(); return; }
   const dir=projAutosaveDir(); const bn=autosaveBaseName(); const now=Date.now(); let entries=[];
-  try{ const files=await DSP.listDir(dir); for(const f of files){ if(f.name.indexOf(bn+'.')!==0)continue; const isSnap=/\.snap$/.test(f.name), isCrash=/\.autosave[12]$/.test(f.name); if(!isSnap&&!isCrash)continue; if((f.size||0)<=2)continue; entries.push({p:dir+'\\'+f.name, t:f.mtimeMs||0, crash:isCrash}); } }catch(e){}
+  try{ const files=await DSP.listDir(dir); for(const f of files){ if(f.name.indexOf(bn+'.')!==0)continue; const isSnap=/\.snap$/.test(f.name), isCrash=/\.autosave[12]$/.test(f.name); if(!isSnap&&!isCrash)continue; if((f.size||0)<=2)continue; entries.push({p:pjoin(dir,f.name), t:f.mtimeMs||0, crash:isCrash}); } }catch(e){}
   entries.sort((x,y)=>y.t-x.t);
   const ov=document.createElement('div'); ov.className='overlay';
   const rows = entries.length ? entries.map((e,i)=>`<button class="rhrow" data-i="${i}" style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:8px 10px;border:none;border-bottom:.5px solid rgba(255,255,255,0.06);background:${i%2?'transparent':'rgba(255,255,255,0.02)'};color:var(--ink);cursor:pointer;font-size:11px;">
@@ -7504,18 +7561,18 @@ window.addEventListener('unhandledrejection',e=>{ try{diag('error','unhandledrej
 let _asFlip=false, _asBusy=false;
 /* autosaves live in an "autosave" folder NEXT TO the project (R82b, user request); before the first manual
    save they go to userData/autosave. autosaveBase() = "<dir>\autosave\<projectFile>" → +".autosave1/2". */
-function projAutosaveDir(){ if(!currentPath)return _asDir; const i=Math.max(currentPath.lastIndexOf('\\'),currentPath.lastIndexOf('/')); return i>=0?currentPath.slice(0,i)+'\\autosave':_asDir; }
-function autosaveBaseName(){ return currentPath?currentPath.slice(Math.max(currentPath.lastIndexOf('\\'),currentPath.lastIndexOf('/'))+1):'unsaved.isp'; }
-function autosaveBase(){ const dir=projAutosaveDir(); if(!dir)return null; return dir+'\\'+autosaveBaseName(); }
+function projAutosaveDir(){ if(!currentPath)return _asDir; const d=pdir(currentPath); return d?pjoin(d,'autosave'):_asDir; }
+function autosaveBaseName(){ return currentPath?pbase(currentPath):'unsaved.isp'; }
+function autosaveBase(){ const dir=projAutosaveDir(); if(!dir)return null; return pjoin(dir,autosaveBaseName()); }
 /* after a manual save the .rdome IS the latest state → delete the live crash autosaves so the next open (recents OR double-click) is always in sync with the save and never offers a stale "newer autosave" (R87). */
 function clearLiveAutosaves(){ if(!IS_ELEC||!DSP.deleteFile)return; const base=autosaveBase(); if(!base)return; for(const s of ['.autosave1','.autosave2']){ try{ DSP.deleteFile(base+s); }catch(e){} } _asFlip=false; }
 /* history (R82c): a timestamped snapshot ~once/min, pruned to the last hour → open any as a recovery file */
 function fmtStamp(d){ const z=n=>String(n).padStart(2,'0'); return d.getFullYear()+'-'+z(d.getMonth()+1)+'-'+z(d.getDate())+'_'+z(d.getHours())+'-'+z(d.getMinutes())+'-'+z(d.getSeconds()); }
 let _lastHistT=0;
 async function writeHistory(jsonFull){ if(!IS_ELEC||!DSP.writeText)return; const dir=projAutosaveDir(); if(!dir)return;
-  try{ const hp=dir+'\\'+autosaveBaseName()+'.'+fmtStamp(new Date())+'.snap'; await DSP.writeText(hp,jsonFull); await pruneHistory(dir); }catch(e){} }
+  try{ const hp=pjoin(dir, autosaveBaseName()+'.'+fmtStamp(new Date())+'.snap'); await DSP.writeText(hp,jsonFull); await pruneHistory(dir); }catch(e){} }
 async function pruneHistory(dir){ if(!DSP.listDir||!DSP.deleteFile)return; try{ const files=await DSP.listDir(dir); const cut=Date.now()-3600*1000; const bn=autosaveBaseName();
-  for(const f of files){ if(!/\.snap$/.test(f.name)||f.name.indexOf(bn+'.')!==0)continue; if((f.mtimeMs||0)<cut)DSP.deleteFile(dir+'\\'+f.name); } }catch(e){} } // keep only the last hour, for THIS project's snapshots
+  for(const f of files){ if(!/\.snap$/.test(f.name)||f.name.indexOf(bn+'.')!==0)continue; if((f.mtimeMs||0)<cut)DSP.deleteFile(pjoin(dir,f.name)); } }catch(e){} } // keep only the last hour, for THIS project's snapshots
 setInterval(async ()=>{ if(_asBusy)return; if(!state.dirty)return; // nothing UNSAVED to protect — never autosave a clean/just-loaded project (a redundant autosave would out-date the .rdome → false "newer autosave" prompt on next open)
   const a=$('#statAuto'); let saved=false; let jsonFull=null;
   const base=IS_ELEC?autosaveBase():null;

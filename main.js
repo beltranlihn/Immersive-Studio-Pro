@@ -301,6 +301,10 @@ ipcMain.handle('dsp:writeText', async (e, p, txt) => {
 });
 ipcMain.handle('dsp:stat', async (e, p) => { try { const s = await fsp.stat(p); return { size: s.size, mtimeMs: s.mtimeMs }; } catch (err) { return null; } });
 ipcMain.handle('dsp:listDir', async (e, dir) => { try { const names = await fsp.readdir(dir); const out = []; for (const n of names) { try { const s = await fsp.stat(path.join(dir, n)); if (s.isFile()) out.push({ name: n, mtimeMs: s.mtimeMs, size: s.size }); } catch (_) {} } return out; } catch (err) { return []; } }); // list files (name+mtime+size) for the autosave history
+// [R204] Sólo los nombres de las SUBCARPETAS. Va en un canal propio y no ampliando `dsp:listDir` a propósito:
+// ese devuelve únicamente archivos y de él dependen el rescate de proxies y el historial de autoguardado, que
+// filtran por nombre — colarles carpetas sería pedir un falso positivo. Lo usa el reenlace junto al proyecto.
+ipcMain.handle('dsp:listSubdirs', async (e, dir) => { try { const names = await fsp.readdir(dir); const out = []; for (const n of names) { try { const s = await fsp.stat(path.join(dir, n)); if (s.isDirectory()) out.push(n); } catch (_) {} } return out; } catch (err) { return []; } });
 ipcMain.handle('dsp:deleteFile', async (e, p) => { try { await fsp.unlink(p); return true; } catch (err) { return false; } }); // prune old autosave-history snapshots
 ipcMain.handle('dsp:rename', async (e, from, to) => { try { await fsp.rename(from, to); return true; } catch (err) { try { await fsp.copyFile(from, to); await fsp.unlink(from); return true; } catch (_) { return false; } } }); // atomic proxy publish: encode to <name>.part, rename over the final name only on success → an interrupted encode never leaves a moov-less (corrupt) proxy at the real name
 ipcMain.handle('dsp:exists', async (e, p) => { try { return fs.existsSync(p); } catch (err) { return false; } });

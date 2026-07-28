@@ -63,6 +63,22 @@ Todo lo anterior degrada **solo**: `preload.js` carga los addons en `try/catch` 
   en Apple Silicon podría no aplicar. Hay que comprobarlo en la máquina antes de darlo por bueno.
 - **Doble clic en un `.isp`.** `main.js` ya trae el `app.on('open-file')`, que es la vía de macOS.
 
+## Llevarte un proyecto de Windows al Mac
+
+El `.isp` guarda **rutas absolutas**, así que las de Windows (`C:\…`) no existen en el Mac. Desde **R204** eso se
+resuelve solo: al abrir un proyecto, cualquier archivo que no esté en su ruta **se busca por nombre junto al
+`.isp`** — su carpeta y **un** nivel de subcarpetas (`assets/`, `material/`, `video/`…). Así que si te llevas la
+carpeta entera, se abre y funciona sin tocar nada.
+
+- Los cortes, keyframes, efectos y composiciones **no dependen de la ruta**: los clips referencian los medios por
+  identificador. Aunque un archivo no aparezca, el montaje sigue intacto.
+- Los **proxies** viven junto al clip de origen (`MiClip.dsp-proxy-xxxx.mp4`), así que viajan con el material y se
+  vuelven a enganchar.
+- Sale un aviso «N medios reenlazados junto al proyecto — guarda para fijarlo». Si guardas, las rutas nuevas
+  quedan escritas; si no, la próxima apertura las resuelve igual. No se pierde nada por no guardar.
+- Si algo queda en rojo (porque no viajó), clic derecho sobre el medio → **«Localizar archivo…»**, o arrastra los
+  archivos al panel de Medios: se reenganchan solos por nombre + tamaño.
+
 ## Al tocar código
 
 `npm run dist` sigue siendo Windows (no cambia el ritual de despliegue de `CLAUDE.md`). Los específicos son

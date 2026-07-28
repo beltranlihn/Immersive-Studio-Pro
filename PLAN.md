@@ -1,5 +1,36 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 204 — Rutas que valen en los dos sistemas, y proyectos que se pueden mudar
+
+Salió de una pregunta de Beltrán: si se lleva la carpeta del proyecto al Mac, ¿se abrirá todo bien? Revisándolo
+aparecieron dos cosas, una fea y otra útil.
+
+**La fea: una docena de sitios unían rutas con la barra invertida de Windows escrita a mano.** Partir una ruta ya
+valía en los dos sistemas —siempre se busca `\` y `/` y se coge el último—, pero unirlas no. En macOS eso **no
+falla**, y ahí está el peligro: crea archivos y carpetas con una barra invertida **dentro del nombre**, colgando un
+nivel por encima de donde debían ir. El resultado habría sido que los proxies no se reenganchan y la carpeta de
+autoguardado aparece donde no toca, sin un solo mensaje de error que lo delatara. Afectaba a proxies,
+autoguardado y render en el sitio. Ahora hay un ayudante que usa el separador del sistema; en Windows produce
+exactamente la misma cadena que antes, así que allí el cambio no cambia nada.
+
+**La útil: mover la carpeta de un proyecto ya no rompe los enlaces.** El `.isp` guarda rutas absolutas, así que
+moverlo —a otro disco, a otro equipo, de Windows al Mac— dejaba todos los medios en rojo aunque los archivos
+viajaran al lado. Ahora, cuando un archivo no está en su ruta, **se busca por nombre junto al proyecto** antes de
+darlo por ausente: la carpeta del `.isp` y un nivel de subcarpetas, que cubre los `assets/` o `material/` de
+siempre sin ponerse a recorrer un disco entero. El índice se arma una vez por proyecto, no una por medio.
+
+No se marca el proyecto como modificado al reparar: si se guarda, las rutas nuevas quedan fijadas; si no, la
+siguiente apertura las resuelve igual. Por no guardar no se pierde nada, y así no aparece un falso «cambios sin
+guardar» cada vez que se abre.
+
+Un detalle de tiempos que costó ver: el aviso de «N medios reenlazados» tiene que ir con retardo, porque
+`loadProject` lanza todas las recargas **sin esperarlas** — en el punto donde termina no hay todavía nada
+reparado y cualquier recuento allí da cero.
+
+Verificado moviendo de verdad un proyecto con sus medios a otra carpeta, con un archivo en la raíz y otro en una
+subcarpeta, borrando los originales para que la ruta vieja fuera imposible: se abre con **cero ausentes**, las
+rutas reescritas y los clips intactos. Control contra el `.exe` de R203: allí quedan **los dos ausentes**.
+
 ## ROUND 203 — El proyecto compila también para macOS (un solo repo)
 
 Beltrán quiere trabajar desde su Mac. Al abrir el capó resultó que el terreno estaba bastante limpio: `main.js` ya
