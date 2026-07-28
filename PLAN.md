@@ -1,5 +1,18 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 196 — La rotación de un compose (tanda 2)
+
+El control ya estaba: la fila «Rotation» del Transform aparece para un compose como para cualquier otro clip. Lo
+que no estaba era el efecto. Un nido dentro de una secuencia de domo se dibuja por el camino de «esto ya es un
+domo entero», y ese camino sólo leía el azimut — así que se movía el control y no pasaba nada.
+
+Ahora `rot` **se suma** al azimut en ese camino. Sumar en vez de sustituir es lo que evita mover un solo grado
+los proyectos que ya giraban su composición con `az`, que era la única forma de hacerlo hasta hoy.
+
+Verificado en la app, con el arnés validándose primero (dos capturas iguales → idénticas): con rotación a 90° la
+imagen cambia de verdad, y da **exactamente** la misma imagen que poner el azimut 90° más — o sea que gira, y
+gira lo que tiene que girar, no otra cosa.
+
 ## ROUND 195 — La velocidad estira el clip (tanda 1 de la lista de Beltrán)
 
 **Cambiar la velocidad ahora estira o encoge el clip.** Abarca el mismo material, así que su duración en la línea

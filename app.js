@@ -818,8 +818,13 @@ function drawClip(c,m,t,xf){
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,ntex); gl.uniform1i(LEQ.tex,0);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, c.maskTex||m.tex); gl.uniform1i(LEQ.maskTex,1);
     const bmq=c.props.blend||'normal'; setBlend(bmq); gl.uniform1f(LEQ.premul,(bmq==='screen'||bmq==='multiply')?1:0); gl.uniform1f(LEQ.blend,BLEND_ID[bmq]||0); gl.drawArrays(gl.TRIANGLES,0,6); if(bmq!=='normal')NORMAL_BLEND(); gl.bindVertexArray(null); return; }
+  /* [R196] `rot` también gira aquí. La fila «Rotation» del Transform existía para un compose pero este camino
+     —el de una imagen que YA es un domo entero, que es como se dibuja un nido en una secuencia de domo— sólo
+     leía el azimut, así que el control estaba muerto: se movía y no pasaba nada. Se SUMA al azimut en vez de
+     sustituirlo, para no mover ni un grado los proyectos que ya usaban `az` para girar su composición. */
   if(c.props.fulldome){ gl.useProgram(PFD); gl.bindVertexArray(fdVAO);
-    gl.uniform1f(LFD.op,op); gl.uniform1f(LFD.mir,c.props.mirror?-1:1); gl.uniform1f(LFD.spin, az*D2R); gl.uniform1f(LFD.scale, Math.max(0.05, size/55)); // [N1] Size scales the fulldome content (55 = 1:1, the default → no change for existing clips); az/spin rotate it — so a compose nest behaves like a clip
+    const rotFD=evalR(c,'rot',t)||0;
+    gl.uniform1f(LFD.op,op); gl.uniform1f(LFD.mir,c.props.mirror?-1:1); gl.uniform1f(LFD.spin, (az+rotFD)*D2R); gl.uniform1f(LFD.scale, Math.max(0.05, size/55)); // [N1] Size scales the fulldome content (55 = 1:1, the default → no change for existing clips); az/spin rotate it — so a compose nest behaves like a clip
     gl.uniform1f(LFD.exp,(evalP(c,'exposure',t)||0)/100); gl.uniform1f(LFD.con,(evalP(c,'contrast',t)||0)/100); gl.uniform1f(LFD.sat,(evalP(c,'saturation',t)||0)/100); gl.uniform1f(LFD.tmp,(evalP(c,'temperature',t)||0)/100*0.15); gl.uniform1f(LFD.tnt,(evalP(c,'tint',t)||0)/100*0.15);
     gl.uniform1f(LFD.mask, MASK_IDX[c.props.mask||'none']||0); gl.uniform1f(LFD.feather,(evalP(c,'feather',t)||0)/100); gl.uniform1f(LFD.maskScale, c.props.maskScale||1);
     bindClipLUT(c,LFD); // [grade gap] wheels + curves + LUT on the fulldome path (units 2/3), restores TEXTURE0 before the tex bind below

@@ -21,8 +21,9 @@
       nueva extensión porque las automatizaciones también son por clip.
 - [x] **La X de eliminar secuencia, más pequeña** (11 → 8,5 px; el área de clic se mantiene con el relleno). _(R195)_
 
-### Tanda 2 · Transform de una composición 🟡
-- [ ] **Rotación aplicable a un compose desde el Transform.**
+### Tanda 2 · Transform de una composición 🟡 — CERRADA _(R196)_
+- [x] **Rotación aplicable a un compose desde el Transform.** _(R196)_ La fila ya estaba; el camino `fulldome` no la
+      leía. Ahora `rot` se suma al azimut — sumar y no sustituir mantiene intactos los proyectos que giraban con `az`.
 
 ### Tanda 3 · Landing — UNA sola pasada 🟡
 - [ ] Quitar el **botón de configuración**.
