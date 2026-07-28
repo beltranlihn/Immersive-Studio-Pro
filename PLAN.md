@@ -1,5 +1,24 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 197 — Landing: 4 de los 8 puntos de la tanda 3
+
+**Fuera el botón de preferencias.** En la pantalla de inicio no hay todavía nada que preferir, y ocupaba sitio.
+
+**Fuera el interruptor «Uniform».** Ganamos su fila entera, y los muros pasan a editarse **por separado** — que es
+justamente lo que hace falta para la tanda 4, donde los ángulos han de salir de las medidas de cada muro. Con
+Uniform puesto, tocar el ancho de un muro se lo imponía a todos.
+
+**El preajuste sube a la fila de los muros, a su derecha, y pasa a desplegable + Guardar.** Los cinco botones
+ocupaban una fila entera para algo que se elige una vez, y no dejaban guardar la sala propia. Los preajustes del
+usuario se guardan en el navegador, no en el proyecto: son una preferencia del equipo, no parte de la obra.
+
+**La orientación de cada muro se elige de una lista.** Antes el botón daba vueltas: con cinco orientaciones,
+llegar a la que querías costaba hasta cuatro clics y no se veía cuáles había. Al elegir una que ya tiene otro
+muro, los dos se **intercambian** — dos muros no pueden mirar al mismo sitio.
+
+Quedan cuatro puntos del landing, los tres que tocan los visores (colores del Canvas, la línea de borde del domo
+que no sigue al ángulo, el visor 3D de la sala) y la configuración del piso.
+
 ## ROUND 196 — La rotación de un compose (tanda 2)
 
 El control ya estaba: la fila «Rotation» del Transform aparece para un compose como para cualquier otro clip. Lo

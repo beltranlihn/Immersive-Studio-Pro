@@ -704,6 +704,8 @@
   .lch-name input{flex:1;min-width:0;height:24px;padding:0 8px;border-radius:3px;border:.5px solid var(--line);background:var(--s0);color:var(--ink);font-family:inherit;font-size:11px;font-weight:500;outline:none;}
   .lch-name input:focus{border-color:var(--line-strong);}
   .lch-name input::placeholder{color:var(--ink-dim);}
+  /* [R197] desplegable de preajuste del landing: mismo lenguaje que .lch-seg (superficie s0, borde de línea) para que no parezca un control de otro sitio */
+  .lch-presel{height:24px;background:var(--s0);border:.5px solid var(--line);border-radius:3px;color:var(--ink-2);font-size:11px;padding:0 6px;margin-right:6px;min-width:96px;}
   .lch-seg{display:inline-flex;align-items:stretch;gap:2px;padding:2px;background:var(--s0);border:.5px solid var(--line);border-radius:3px;}
   .lch-seg button{display:grid;place-items:center;height:16px;padding:0 7px;border:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:10px;font-weight:600;font-variant-numeric:tabular-nums;background:transparent;color:var(--ink-3);}
   .lch-seg button:hover:not(.on){color:var(--ink-2);}

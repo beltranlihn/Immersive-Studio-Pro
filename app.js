@@ -2549,7 +2549,7 @@ let _lch=null;
 function lchInit(){ return { ptype:'dome', pname:'',
   domeRes:4096, domeCov:180,
   flatW:1920, flatH:1080,
-  roomCount:4, roomFloor:true, roomUniform:true,
+  roomCount:4, roomFloor:true, roomUniform:false, // [R197] fuera el interruptor Uniform: los muros se editan por separado, que es lo que hace falta para que los angulos salgan de sus medidas
   walls:[{role:'Front',wcm:800,hcm:450,pxW:3840,pxH:2160},{role:'Right',wcm:800,hcm:450,pxW:3840,pxH:2160},
          {role:'Back', wcm:800,hcm:450,pxW:3840,pxH:2160},{role:'Left', wcm:800,hcm:450,pxW:3840,pxH:2160}],
   fps:60, draft:{} }; }
@@ -2590,10 +2590,31 @@ function lchApply(key,v){
   renderLauncher();
 }
 /* clic en la orientación: pasa a la siguiente e INTERCAMBIA con quien la tuviera (nunca dos iguales) */
-function lchCycleFacing(i){ const order=lchFacings().map(f=>f.n); const cur=_lch.walls[i].role;
-  const next=order[(order.indexOf(cur)+1)%order.length];
+function lchSetFacing(i,next){ const cur=_lch.walls[i].role; if(next===cur)return;
   const j=_lch.walls.findIndex(w=>w.role===next);
-  _lch.walls[i].role=next; if(j>=0&&j!==i)_lch.walls[j].role=cur; renderLauncher(); }
+  _lch.walls[i].role=next; if(j>=0&&j!==i)_lch.walls[j].role=cur; renderLauncher(); } // se INTERCAMBIAN: dos muros no pueden mirar al mismo sitio
+/* [R197] La orientación se elige de una LISTA, no dando vueltas a un botón: con cinco orientaciones, llegar a la
+   que quieres costaba hasta cuatro clics y no se veía cuáles había. */
+function lchFacingMenu(ev,i){ const cur=_lch.walls[i].role;
+  openMenu(ev.clientX,ev.clientY, lchFacings().map(f=>({label:(f.n===cur?'✓ ':'')+f.n, fn:()=>lchSetFacing(i,f.n)}))); }
+/* Preajustes de sala: los cinco de fábrica más los que guarde el usuario (persisten en el navegador, no en el
+   proyecto — son una preferencia del equipo, no parte de la obra). */
+const LCH_ROOM_PRE=[{v:'1920x1080',label:'HD'},{v:'2560x1440',label:'1440p'},{v:'3840x2160',label:'4K'},{v:'4096x2160',label:'DCI'},{v:'2048x2048',label:'Square'}];
+function lchUserPresets(){ try{ return JSON.parse(localStorage.getItem('ispRoomPresets')||'[]')||[]; }catch(e){ return []; } }
+function lchSaveUserPreset(){ const S=_lch; appPrompt(T('Preset name','Nombre del preajuste'),'',n=>{ if(n==null)return; n=String(n).trim(); if(!n)return;
+  const lista=lchUserPresets().filter(p=>p.label!==n);
+  lista.push({label:n, walls:lchActiveWalls().map(w=>({pxW:w.pxW,pxH:w.pxH,wcm:w.wcm,hcm:w.hcm})), count:S.roomCount});
+  try{ localStorage.setItem('ispRoomPresets',JSON.stringify(lista.slice(-24))); }catch(e){}
+  renderLauncher(); flashStatus(T('Preset saved','Preajuste guardado')); }); }
+function lchPresetOptions(S){ const cur=S.walls[0].pxW+'x'+S.walls[0].pxH; const us=lchUserPresets();
+  return LCH_ROOM_PRE.map(p=>`<option value="${p.v}"${p.v===cur?' selected':''}>${lchEsc(p.label)}</option>`).join('')
+    + (us.length?('<option disabled>──────</option>'+us.map((p,i)=>`<option value="u:${i}">${lchEsc(p.label)}</option>`).join('')):''); }
+function lchApplyPreset(v){ const S=_lch;
+  if(String(v).indexOf('u:')===0){ const p=lchUserPresets()[+String(v).slice(2)]; if(!p)return;
+    if(p.count)S.roomCount=p.count;
+    p.walls.forEach((s,i)=>{ const w=S.walls[i]; if(!w)return; w.pxW=s.pxW; w.pxH=s.pxH; if(s.wcm)w.wcm=s.wcm; if(s.hcm)w.hcm=s.hcm; }); }
+  else { const p=String(v).split('x'); S.walls.forEach(w=>{ w.pxW=+p[0]; w.pxH=+p[1]; }); }
+  S.draft={}; renderLauncher(); }
 
 function lchActiveWalls(){ return _lch.walls.slice(0,_lch.roomCount); }
 function lchCfgWalls(){ return lchActiveWalls().map((w,i)=>({role:w.role,order:i+1,wcm:w.wcm,hcm:w.hcm,pxW:w.pxW,pxH:w.pxH})); }
@@ -2621,7 +2642,7 @@ function showLanding(){ if(document.getElementById('landingOv'))return;
       <span class="nm">Immersive Studio Pro</span><span class="ver">v1.0</span>
       <div style="flex:1;"></div>
       <button class="lch-tbtn" id="lchOpen">${ICO('folder',12)}${T('Open project','Abrir proyecto')}</button>
-      <button class="lch-tico" id="lchPrefs" title="${T('Preferences','Preferencias')}">${LCH_SVG(LCH_ICO.gear,13,1.6)}</button>
+<!-- [R197] fuera el botón de preferencias: en la pantalla de inicio no hay nada que preferir todavía, y ocupaba sitio -->
     </div>
     <div class="lch-mid"><div class="lch-col">
       <div class="lch-hero">
@@ -2648,7 +2669,6 @@ function showLanding(){ if(document.getElementById('landingOv'))return;
     </div></div></div>`;
   document.body.appendChild(ov);
   ov.querySelector('#lchOpen').onclick=()=>{ openProject().then(()=>{}); }; // loadProject esconde el launcher al abrir
-  ov.querySelector('#lchPrefs').onclick=()=>openPrefs();
   renderLauncher(); lchRenderRecents();
 }
 
@@ -2680,10 +2700,15 @@ function renderLauncher(){ const ov=document.getElementById('landingOv'); if(!ov
     out=[[T('Canvas','Lienzo'),S.flatW+' × '+S.flatH+' · '+ar],[T('Timing','Tiempo'),S.fps+' fps · '+lchMP(S.flatW,S.flatH)]];
     viewerName=T('Canvas viewer','Visor de lienzo'); summary=S.flatW+' × '+S.flatH+' · '+S.fps+' fps';
   } else {
-    fields=row(T('Walls','Muros'),`<div class="lch-seg" data-lg="roomCount">${seg([2,3,4],S.roomCount,'v')}</div>`)
-      + row(T('Preset','Preajuste'),`<div class="lch-seg" data-lg="roomPre">${seg([{v:'1920x1080',label:'HD'},{v:'2560x1440',label:'1440p'},{v:'3840x2160',label:'4K'},{v:'4096x2160',label:'DCI'},{v:'2048x2048',label:'Square'}],S.walls[0].pxW+'x'+S.walls[0].pxH,'v')}</div>`)
+    /* [R197] El preajuste sube a la MISMA fila que el número de muros, a su derecha, y pasa de una tira de botones
+       a desplegable + Guardar: los cinco botones ocupaban una fila entera para algo que se elige una vez, y no
+       dejaban guardar la sala propia. La fila «Uniform» desaparece (ganamos su alto) y los muros pasan a editarse
+       de forma INDEPENDIENTE, que es lo que hace falta para que los ángulos salgan de las medidas de cada muro. */
+    fields=row(T('Walls','Muros'),`<div class="lch-seg" data-lg="roomCount">${seg([2,3,4],S.roomCount,'v')}</div><div style="flex:1;"></div>`
+        +`<span class="lab" style="width:auto;margin-right:6px;">${T('Preset','Preajuste')}</span>`
+        +`<select class="lch-presel" id="lchRoomPre">${lchPresetOptions(S)}</select>`
+        +`<button class="lch-tbtn" id="lchPreSave" title="${T('Save the current walls as a preset','Guardar los muros actuales como preajuste')}" style="height:24px;padding:0 9px;">${T('Save','Guardar')}</button>`)
       + row(T('Floor','Piso'),`<span class="note">${T('Add a floor surface','Añadir superficie de piso')}</span><button class="lch-sw${S.roomFloor?' on':''}" id="lchFloor"><i></i></button>`)
-      + row(T('Uniform','Uniforme'),`<span class="note">${T('Edit one wall, apply to all','Editar un muro, aplicar a todos')}</span><button class="lch-sw${S.roomUniform?' on':''}" id="lchUni"><i></i></button>`)
       + fpsRow;
     const aw=lchActiveWalls(), tw=aw.reduce((a,w)=>a+w.pxW,0), th=aw.reduce((a,w)=>Math.max(a,w.pxH),0), tp=aw.reduce((a,w)=>a+w.pxW*w.pxH,0);
     out=[[T('Stitched','Cosido'),tw+' × '+th+' px'],
@@ -2756,11 +2781,11 @@ function renderLauncher(){ const ov=document.getElementById('landingOv'); if(!ov
   segPick('domeCov',v=>{_lch.domeCov=+v;_lch.draft={};});
   segPick('flatPre',v=>{const p=v.split('x');_lch.flatW=+p[0];_lch.flatH=+p[1];_lch.draft={};});
   segPick('roomCount',v=>_lch.roomCount=+v);
-  segPick('roomPre',v=>{const p=v.split('x');_lch.walls.forEach(w=>{w.pxW=+p[0];w.pxH=+p[1];});_lch.draft={};});
+  { const sel=panel.querySelector('#lchRoomPre'); if(sel)sel.onchange=e=>lchApplyPreset(e.target.value);
+    const sv=panel.querySelector('#lchPreSave'); if(sv)sv.onclick=()=>lchSaveUserPreset(); }
   { const s=panel.querySelector('#lchSwap'); if(s)s.onclick=()=>{ const w=_lch.flatW; _lch.flatW=_lch.flatH; _lch.flatH=w; _lch.draft={}; renderLauncher(); }; }
   { const f=panel.querySelector('#lchFloor'); if(f)f.onclick=()=>{ _lch.roomFloor=!_lch.roomFloor; renderLauncher(); }; }
-  { const u=panel.querySelector('#lchUni'); if(u)u.onclick=()=>{ _lch.roomUniform=!_lch.roomUniform; renderLauncher(); }; }
-  panel.querySelectorAll('[data-lface]').forEach(b=>b.onclick=()=>lchCycleFacing(+b.dataset.lface));
+  panel.querySelectorAll('[data-lface]').forEach(b=>b.onclick=ev=>lchFacingMenu(ev,+b.dataset.lface));
   lchWireNums(panel);
   panel.querySelector('#lchCreate').onclick=()=>lchCreate();
   if(fk){ const el=panel.querySelector('[data-lk="'+fk+'"]'); if(el){ el.focus(); try{ el.setSelectionRange(fs0,fs0); }catch(e){} } }

@@ -25,13 +25,16 @@
 - [x] **Rotación aplicable a un compose desde el Transform.** _(R196)_ La fila ya estaba; el camino `fulldome` no la
       leía. Ahora `rot` se suma al azimut — sumar y no sustituir mantiene intactos los proyectos que giraban con `az`.
 
-### Tanda 3 · Landing — UNA sola pasada 🟡
-- [ ] Quitar el **botón de configuración**.
-- [ ] Quitar **Uniform** (así se gana espacio).
-- [ ] **Preset a la derecha** de la elección de muro, con **Guardar + desplegable** (no botones).
+### Tanda 3 · Landing — 4 de 8 hechos _(R197)_ 🟡
+- [x] Quitar el **botón de configuración**. _(R197)_
+- [x] Quitar **Uniform** (así se gana espacio). _(R197)_ Los muros pasan a editarse **por separado**, que es lo que
+      hace falta para que en la tanda 4 los ángulos salgan de las medidas de cada muro.
+- [x] **Preset a la derecha** de la elección de muro, con **Guardar + desplegable**. _(R197)_ Los propios se guardan
+      en el navegador (`ispRoomPresets`), no en el proyecto: son preferencia del equipo, no parte de la obra.
+- [x] **Facing con desplegable** para elegir el muro. _(R197)_ Antes daba vueltas a un botón: con cinco
+      orientaciones costaba hasta cuatro clics y no se veía cuáles había.
 - [ ] **Canvas igual que el 2D Flat**: hoy tiene otros colores y otras líneas.
 - [ ] **Domo: la línea de borde no sigue el ángulo del domo.** Arreglar.
-- [ ] **Facing: desplegable** para elegir el muro.
 - [ ] **Floor en las configuraciones**: se puede cambiar el pixelaje, NO las medidas.
 - [ ] **360: visor 3D real** en vez del esquema de líneas gruesas. _(Ya estaba pendiente desde R153: `renderRoom3D`
       necesita `activeSeq().room`, que en el launcher todavía no existe → hay que inyectar una secuencia temporal.)_
