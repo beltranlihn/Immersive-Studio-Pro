@@ -1096,22 +1096,6 @@ function buildRoomGeo(seq){ const room=seq.room; const plan=roomPlan(room.walls)
   gl.enableVertexAttribArray(LR.shade); gl.vertexAttribPointer(LR.shade,1,gl.FLOAT,false,32,20);
   gl.enableVertexAttribArray(LR.nrm); gl.vertexAttribPointer(LR.nrm,2,gl.FLOAT,false,32,24); gl.bindVertexArray(null);
   _roomGeo={ wallVerts, floorVerts, norm:{ cx,cy,sc, midZ:(maxH*0.5)*sc, standZ:Math.min(maxH*0.95,1.7)*sc, radius:rad*sc } }; _roomGeoSeq=seq.id; }
-/* [R201] Qué fracción del ALTO DE SU MURO ocupa el rótulo (FRONT/LEFT/…). Pedido de Beltrán: que en el 3D ocupe lo
-   mismo que en el lienzo, respecto a su muro. En el lienzo el rótulo es un tamaño FIJO de pantalla (11px, es una
-   guía superpuesta) sobre un muro que sí escala, así que su proporción sale de cuánto mide el muro en pantalla —
-   y eso depende del panel. Por eso aquí no vale una constante: se replica el encaje del visor 2D (la tira cabe a
-   lo alto o a lo ancho según el aspecto, por el zoom) y se devuelve 11/altoDelMuroEnPantalla. Antes era 0.03
-   fijo, que en el panel del launcher salía tres veces más pequeño que en el lienzo de al lado.
-   Los topes evitan un rótulo absurdo con zooms extremos. */
-function labelWallFrac(room,seq,role){
-  const stripW=seq&&seq.w||1, stripH=seq&&seq.h||1, A=stripW/stripH;
-  const wa=(view.cw||1)/(view.ch||1);
-  const sy=(A>=wa)?(wa/A):1;                                  // el mismo reparto que hace render() en el camino plano
-  const tiraPx=Math.max(1,(view.ch||1)*sy*(state.view.zoom||1));
-  const w=(room&&room.walls||[]).find(x=>x.role===role);
-  const altoMuro=Math.max(1, tiraPx*((w?w.pxH:stripH)/stripH));
-  return Math.max(0.012, Math.min(0.25, 11/altoMuro));
-}
 /* project the room's wall grid (3×4 subdivision, proportional) + per-wall role labels onto the 2D overlay, using the same 3D camera matrix. Gated by the Grid toggle. */
 function drawRoomLabels3D(mvp){ gx.clearRect(0,0,view.cw,view.ch); if(!state.view.showGrid||!_roomGeo||!_roomGeo.norm)return; const seq=activeSeq(); const room=seq&&seq.room; if(!room)return;
   const {cx,cy,sc}=_roomGeo.norm; const N=(x,y,z)=>[(x-cx)*sc,(y-cy)*sc,z*sc]; const P=(x,y,z)=>proj3(N(x,y,z),mvp,1);
@@ -1120,13 +1104,13 @@ function drawRoomLabels3D(mvp){ gx.clearRect(0,0,view.cw,view.ch); if(!state.vie
     gx.lineWidth=1;
     for(let i=0;i<=ROOM_GRID_COLS;i++){ const a=pt(i/ROOM_GRID_COLS,0), b=pt(i/ROOM_GRID_COLS,1); if(a&&b){ gx.strokeStyle=(i===0||i===ROOM_GRID_COLS)?'rgba(255,255,255,0.34)':'rgba(255,255,255,0.13)'; seg([a,b]); } }
     for(let j=0;j<=ROOM_GRID_ROWS;j++){ const a=pt(0,j/ROOM_GRID_ROWS), b=pt(1,j/ROOM_GRID_ROWS); if(a&&b){ gx.strokeStyle=(j===0||j===ROOM_GRID_ROWS)?'rgba(255,255,255,0.34)':'rgba(255,255,255,0.13)'; seg([a,b]); } }
-    // wall-role label PAINTED ON the wall plane (affine decal → follows perspective like the grid), small, in the bottom-left corner (from INSIDE). Aspect-corrected so it isn't stretched.
-    const lbl=roomRoleLabel(s.role).toUpperCase(); const Fpx=44; gx.save(); gx.font='700 '+Fpx+'px Geist'; const tw=Math.max(1,gx.measureText(lbl).width), th=Fpx;
-    const wallW=Math.hypot(s.b[0]-s.a[0],s.b[1]-s.a[1])||1, wallH=s.h||1;
-    const wv=labelWallFrac(room,seq,s.role), wu=Math.min(0.9, wv*(tw/th)*(wallH/wallW)); // wu from text aspect × wall's physical aspect → no horizontal stretch
-    const uA=0.96, vA=0.04; const O=pt(uA,vA), Xp=pt(Math.max(0.02,uA-wu),vA), Yp=pt(uA,vA+wv);
-    if(O&&Xp&&Yp){ gx.setTransform((Xp[0]-O[0])/tw,(Xp[1]-O[1])/tw,(O[0]-Yp[0])/th,(O[1]-Yp[1])/th,Yp[0],Yp[1]); gx.textAlign='left'; gx.textBaseline='top'; gx.fillStyle='rgba(208,212,218,0.5)'; gx.fillText(lbl,0,0); }
-    gx.restore(); }
+    // [R211] wall-role label in SCREEN space (horizontal, never mirrored) — the old on-wall affine decal read backwards from outside
+    const c=pt(0.5,0.5);
+    if(c){ const lbl=roomRoleLabel(s.role).toUpperCase(); gx.font='600 11px Geist'; gx.textAlign='center'; gx.textBaseline='middle';
+      const tw=Math.max(1,gx.measureText(lbl).width);
+      gx.fillStyle='rgba(6,7,9,0.55)'; gx.fillRect(c[0]-tw/2-3,c[1]-7,tw+6,14);
+      gx.fillStyle='rgba(196,201,208,0.82)'; gx.fillText(lbl,c[0],c[1]); }
+  }
 }
 function roomCameraMVP(spec,aspect){ const g=(_roomGeo&&_roomGeo.norm)||{midZ:0.25,standZ:0.35,radius:1}; const cam=state.view.cam; aspect=aspect||(glc.width/glc.height||1);
   const proj=persp((spec?cam.fov:52)*D2R,aspect,0.005,60); let eye,ctr;
@@ -1148,6 +1132,28 @@ function renderRoom3D(wallsTex){ const seq=activeSeq(); const room=seq&&seq.room
     gl.depthMask(false); gl.uniform1f(LR.pass,0); gl.drawArrays(gl.TRIANGLES,0,_roomGeo.wallVerts); gl.depthMask(true); }
   if(floorTex&&_roomGeo.floorVerts>0){ gl.bindTexture(gl.TEXTURE_2D,floorTex); gl.uniform1f(LR.pass,2); gl.drawArrays(gl.TRIANGLES,_roomGeo.wallVerts,_roomGeo.floorVerts); }
   gl.bindVertexArray(null); gl.disable(gl.DEPTH_TEST); drawRoomLabels3D(cam.mvp); }
+/* [R211] floor "dock" — the room's floor sequence pinned just below the Front wall in the 2D strip viewer, like an
+   unfolded paper cube. Display-only (compositing/export/click-mapping untouched): reuses PB (already bound) and the
+   pan/zoom/aspect/flat uniforms render() just set for the strip, only swapping u_uvsc/u_uvof + a small dynamic quad
+   appended past the strip's bottom edge (a_p.y beyond -1, same coordinate space quadVAO already occupies). */
+let _dockVAO=null,_dockVB=null;
+function drawRoomFloorDock2D(seq,room,tex){
+  const stripW=seq.w||1, stripH=seq.h||1;
+  const fw=room.walls.find(w=>w.role==='Front')||room.walls[0]; if(!fw)return;
+  const fx0=fw.x0,fx1=fw.x1, fd=room.floor.pxH*((fx1-fx0)/(room.floor.pxW||1));
+  const ax0=-1+2*fx0/stripW, ax1=-1+2*fx1/stripW, ayTop=-1, ayBot=-1-2*fd/stripH;
+  if(!_dockVAO){ _dockVAO=gl.createVertexArray(); _dockVB=gl.createBuffer();
+    gl.bindVertexArray(_dockVAO); gl.bindBuffer(gl.ARRAY_BUFFER,_dockVB); gl.enableVertexAttribArray(LB.p); gl.vertexAttribPointer(LB.p,2,gl.FLOAT,false,0,0); gl.bindVertexArray(null); }
+  gl.bindVertexArray(_dockVAO); gl.bindBuffer(gl.ARRAY_BUFFER,_dockVB);
+  gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([ax0,ayTop, ax1,ayTop, ax0,ayBot, ax1,ayTop, ax1,ayBot, ax0,ayBot]),gl.DYNAMIC_DRAW);
+  const Af=(room.floor.pxW||1)/(room.floor.pxH||1), Fxf=Math.min(1,Af), Fyf=Math.min(1,1/Af);
+  const uMn=(1-Fxf)/2, uMx=(1+Fxf)/2, vMn=(1-Fyf)/2, vMx=(1+Fyf)/2;
+  const uvscX=(uMx-uMn)/(((ax1-ax0)*0.5)||1e-6), uvofX=uMn-(ax0*0.5+0.5)*uvscX;
+  const uvscY=(vMx-vMn)/(((ayBot-ayTop)*0.5)||-1e-6), uvofY=vMn-(ayTop*0.5+0.5)*uvscY; // negative: v flips vs the floor's own editor, matching the unfolded-cube fold
+  gl.uniform2f(LB.uvsc,uvscX,uvscY); gl.uniform2f(LB.uvof,uvofX,uvofY);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,tex); gl.uniform1i(LB.tex,0);
+  gl.drawArrays(gl.TRIANGLES,0,6); gl.bindVertexArray(null);
+}
 function render(){ if(glLost)return;
   if(exporting)return;
   const _flat=isFlat(); _drawFlat=_flat; _roomWrap=isRoom(); _compAspect=(state.seqW||1)/(state.seqH||1); _arTime=state.playhead;
@@ -1175,6 +1181,10 @@ function render(){ if(glLost)return;
     gl.drawElements(gl.TRIANGLES,domeCount,gl.UNSIGNED_INT,0); gl.bindVertexArray(null); gl.disable(gl.DEPTH_TEST);
     drawLabels3D(mvp,spec);
   } else {
+    // [R211] floor dock texture — composited BEFORE the viewport/clear below because compositeFloorTex rebinds the FBO/state
+    let _dockTex=null,_dockSeq=null,_dockRoom=null;
+    if(isRoom()){ _dockSeq=activeSeq(); _dockRoom=_dockSeq&&_dockSeq.room;
+      if(_dockRoom&&_dockRoom.floor&&_dockRoom.floorSeqId){ const fm=mediaById(_dockRoom.floorSeqId); if(fm&&isSeqMedia(fm)){ _dockTex=compositeFloorTex(fm,1024); gl.bindFramebuffer(gl.FRAMEBUFFER,null); } } }
     gl.disable(gl.DEPTH_TEST); gl.viewport(0,0,W,H); gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT);
     gl.useProgram(PB); gl.bindVertexArray(quadVAO);
     gl.uniform2f(LB.pan,state.view.pan[0],state.view.pan[1]); gl.uniform1f(LB.zoom,state.view.zoom);
@@ -1183,6 +1193,7 @@ function render(){ if(glLost)return;
     else { const mn=Math.min(glc.width,glc.height); gl.uniform2f(LB.aspect, mn/glc.width, mn/glc.height); gl.uniform1f(LB.flat,0); gl.uniform2f(LB.uvsc,1,1); gl.uniform2f(LB.uvof,0,0); gl.uniform1f(LB.hfade, state.view.hfade?HFADE:0); }
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,_srcTex); gl.uniform1i(LB.tex,0);
     gl.drawArrays(gl.TRIANGLES,0,6); gl.bindVertexArray(null);
+    if(_dockTex)drawRoomFloorDock2D(_dockSeq,_dockRoom,_dockTex); // [R211] floor "dock" — same PB program + pan/zoom/aspect/flat uniforms just set, only geometry+uv change
     drawGrid2D();
   }
   drawScopes();
@@ -1469,6 +1480,18 @@ function drawRoomGrid2D(){ const as=activeSeq(); const room=as&&as.room; if(!roo
   gx.font='600 11px Geist'; gx.textAlign='left'; gx.textBaseline='alphabetic';
   for(const w of room.walls){ const p=M.px(fx(w.x0),fy(w.pxH)); const lbl=roomRoleLabel(w.role).toUpperCase(); const tw=gx.measureText(lbl).width;
     const lx=p[0]+7, ly=p[1]-7; gx.fillStyle='rgba(6,7,9,0.55)'; gx.fillRect(lx-3,ly-10,tw+6,14); gx.fillStyle='rgba(196,201,208,0.82)'; gx.fillText(lbl,lx,ly); }
+  // [R211] floor "dock" — the floor's rect glued under the Front wall, unfolded-cube style. Drawn whenever room.floor
+  // exists, even with no floorSeqId linked (the landing's temp room preview has no floor sequence, only the outline).
+  if(room.floor){ const fw=room.walls.find(w=>w.role==='Front')||room.walls[0];
+    if(fw){ const fx0=fw.x0,fx1=fw.x1, fd=room.floor.pxH*((fx1-fx0)/(room.floor.pxW||1)), dY1=stripH+fd;
+      const a=M.px(fx(fx0),fy(stripH)), b=M.px(fx(fx1),fy(dY1));
+      gx.strokeStyle='rgba(255,255,255,0.34)'; gx.lineWidth=1; gx.strokeRect(a[0],a[1],b[0]-a[0],b[1]-a[1]);
+      if(state.view.showGrid){ gx.strokeStyle='rgba(255,255,255,0.11)';
+        for(let i=1;i<ROOM_GRID_COLS;i++){ const x=fx(fx0+(fx1-fx0)*i/ROOM_GRID_COLS); const p0=M.px(x,fy(stripH)), p1=M.px(x,fy(dY1)); gx.beginPath(); gx.moveTo(p0[0],p0[1]); gx.lineTo(p1[0],p1[1]); gx.stroke(); }
+        for(let j=1;j<ROOM_GRID_ROWS;j++){ const yy=fy(stripH+fd*j/ROOM_GRID_ROWS); const p0=M.px(fx(fx0),yy), p1=M.px(fx(fx1),yy); gx.beginPath(); gx.moveTo(p0[0],p0[1]); gx.lineTo(p1[0],p1[1]); gx.stroke(); } }
+      gx.font='600 11px Geist'; gx.textAlign='left'; gx.textBaseline='alphabetic';
+      const p=M.px(fx(fx0),fy(dY1)); const lbl=T('FLOOR','SUELO'); const tw=gx.measureText(lbl).width;
+      const lx=p[0]+7, ly=p[1]-7; gx.fillStyle='rgba(6,7,9,0.55)'; gx.fillRect(lx-3,ly-10,tw+6,14); gx.fillStyle='rgba(196,201,208,0.82)'; gx.fillText(lbl,lx,ly); } }
 }
 function drawGrid2D(){
   gx.clearRect(0,0,view.cw,view.ch);
@@ -2580,7 +2603,7 @@ function lchInit(){ return { ptype:'dome', pname:'',
   flatW:1920, flatH:1080,
   roomCount:4, roomFloor:true, roomUniform:false, // [R197] fuera el interruptor Uniform: los muros se editan por separado, que es lo que hace falta para que los angulos salgan de sus medidas
   floorPx:null,                                   // [R198] resolución del piso elegida a mano; null = la que sale de los muros. Sus MEDIDAS nunca se editan: las manda la huella de la sala
-  roomCam:{yaw:-1.15,pitch:0.42,dist:2.9},        // [R198] cámara del visor 3D de la sala (arrastrar para girar, rueda para acercar)
+  roomCam:{yaw:1.99,pitch:0.42,dist:2.9},         // [R198] cámara del visor 3D de la sala (arrastrar para girar, rueda para acercar) · [R211] detrás del muro Back: FRONT queda al fondo/arriba, como en el plano
   domeCam:{yaw:0,pitch:0.5,dist:3.0},             // [R200] ídem para el domo — los valores son los que ya usaba por defecto, así que la vista de partida no cambia
   walls:[{role:'Front',wcm:800,hcm:450,pxW:3840,pxH:2160},{role:'Right',wcm:800,hcm:450,pxW:3840,pxH:2160},
          {role:'Back', wcm:800,hcm:450,pxW:3840,pxH:2160},{role:'Left', wcm:800,hcm:450,pxW:3840,pxH:2160}],
@@ -2935,7 +2958,12 @@ function lchEditorShot(cv,o){
     _raOn=false; // el caché de render-ahead es del proyecto de detrás: ni se lee ni se ensucia con fotogramas del launcher
     if(o.room){ const seq=lchRoomSeqTemp(o.room); if(!seq)return false;
       S.media=[seq]; S.activeSeqId=seq.id; S.seqW=seq.w; S.seqH=seq.h; S.seqMode='room';
-      _roomGeo=null; _roomGeoSeq=null; }                     // la malla se cachea por id de secuencia y el id no cambia al editar los muros
+      _roomGeo=null; _roomGeoSeq=null;                       // la malla se cachea por id de secuencia y el id no cambia al editar los muros
+      if(o.room.floor && o.view==='2d'){ // [R211] encuadre tira + suelo dockeado (mismo cálculo que newRoomProject)
+        const fw=seq.room.walls.find(w=>w.role==='Front')||seq.room.walls[0];
+        const fd=o.room.floor.pxH*((fw.x1-fw.x0)/Math.max(1,o.room.floor.pxW));
+        const k=1+fd/seq.h, wa=r.width/r.height, A=seq.w/seq.h, sy=(A>=wa)?(wa/A):1;
+        V.pan=[0,-fd/seq.h]; if(sy*k*0.92>0.95)V.zoom=0.95/(sy*k); } }
     // [R200] la cámara vale para los DOS visores 3D (domo y sala); `orbit` porque el modo `spec` ignora yaw/dist
     if(o.cam){ V.three='orbit'; V.cam={...V.cam,...o.cam}; }
     view.cw=r.width; view.ch=r.height; VSIZE=Math.min(r.width,r.height);
@@ -6932,9 +6960,12 @@ function roomPlan(walls){ const by={}; for(const w of (walls||[]))if(w&&w.role)b
     // se ha escrito — que es como se cuela un error de medición hasta el montaje.
     else imposible=true;
   }
-  const BL=[FL[0]-wL*Math.sin(th), FL[1]+wL*Math.cos(th)];
-  const BR=[FR[0]+wR*Math.sin(th), FR[1]+wR*Math.cos(th)];
-  const E={Front:[FL,FR],Right:[FR,BR],Back:[BR,BL],Left:[BL,FL]};
+  const BL=[FL[0]-wR*Math.sin(th), FL[1]+wR*Math.cos(th)];
+  const BR=[FR[0]+wL*Math.sin(th), FR[1]+wL*Math.cos(th)];
+  /* [R211] la sala envuelve en el sentido natural: desde DENTRO mirando a Front, Right queda a la derecha
+     (lado x−) y Left a la izquierda (x+) — el lazo anterior estaba en espejo. La tira 2D no cambia (los muros
+     conservan su x0/x1); sólo cambia a qué lado físico va cada rol, y con ello el 3D, el plano y el iso. */
+  const E={Front:[FL,FR],Left:[FR,BR],Back:[BR,BL],Right:[BL,FL]};
   const seg=presentes.map(r=>({role:r,a:E[r][0].slice(),b:E[r][1].slice(),h:Hm(r)}));
   return {seg, closed:presentes.length===4, poly:[FL,FR,BR,BL], imposible}; }
 /* Two synced schematics of the room: a 3D iso (left) for shape/orientation and a to-scale top-down PLAN
@@ -6983,8 +7014,8 @@ function drawRoomIso(cv,walls,floorOn,activeRole,pal,solo){ if(!cv)return; const
     let ox=mx-cX, oy=my-cY; const ol=Math.hypot(ox,oy)||1;
     ctx.font=`600 ${8.5*TU}px Geist,system-ui`; const w1=ctx.measureText(String(wallOf(s.role).wcm)).width;
     ctx.font=`600 ${7*TU}px Geist,system-ui`; const w2=ctx.measureText(roomRoleLabel(s.role).toUpperCase()).width;
-    return { mx,my, sox:ox/ol, soy:-oy/ol, hw:Math.max(w1,w2)/2 }; });
-  const cajaTinta=s=>{ const px=(x,y)=>[(x-pMnX)*s,(pMxY-y)*s]; let a=1e9,b=1e9,c=-1e9,d=-1e9;
+    return { mx,my, sox:-ox/ol, soy:oy/ol, hw:Math.max(w1,w2)/2 }; });
+  const cajaTinta=s=>{ const px=(x,y)=>[(pMxX-x)*s,(y-pMnY)*s]; let a=1e9,b=1e9,c=-1e9,d=-1e9;
     const meter=(x,y)=>{ if(x<a)a=x; if(y<b)b=y; if(x>c)c=x; if(y>d)d=y; };
     for(const p of plan.poly){ const q=px(p[0],p[1]); meter(q[0],q[1]); }
     for(const e of etiquetas){ const M=px(e.mx,e.my), off=12*U, lx=M[0]+e.sox*off, ly=M[1]+e.soy*off;
@@ -6994,7 +7025,7 @@ function drawRoomIso(cv,walls,floorOn,activeRole,pal,solo){ if(!cv)return; const
   let caja=cajaTinta(sPlan);
   for(let i=0;i<6;i++){ const f=Math.min(areaW/caja.w, areaH/caja.h); if(f>0.999)break; sPlan*=Math.max(0.05,f); caja=cajaTinta(sPlan); }
   const oxP=areaX+(areaW-caja.w)/2-caja.x, oyP=areaY+(areaH-caja.h)/2-caja.y;
-  const PP=(x,y)=>[ oxP+(x-pMnX)*sPlan, oyP+(pMxY-y)*sPlan ]; // flip Y so Front (min y) sits at the bottom, like standing inside
+  const PP=(x,y)=>[ oxP+(pMxX-x)*sPlan, oyP+(y-pMnY)*sPlan ]; // [R211] Front (min y) at the TOP, Back at the bottom; X en espejo = misma vista que el 3D por defecto (cámara detrás de Back, convención teatral: stage-left a la derecha del público)
   // ================= LEFT · 3D iso =================
   if(!soloPlan){
   if(floorOn){ ctx.beginPath(); const c0=IP(plan.seg[0].a[0],plan.seg[0].a[1],0); ctx.moveTo(c0[0],c0[1]); for(const s of plan.seg){const b=IP(s.b[0],s.b[1],0);ctx.lineTo(b[0],b[1]);} ctx.closePath(); ctx.fillStyle='rgba(150,170,195,0.07)'; ctx.fill();
@@ -7023,7 +7054,7 @@ function drawRoomIso(cv,walls,floorOn,activeRole,pal,solo){ if(!cv)return; const
     const f=PP(cX, cY-Math.min(plH*0.34,(cY-pMnY)*0.7)||0.001); line(vp,f,'rgba(224,224,224,0.4)',1*U); } // forward tick toward Front
   for(const s of plan.seg){ const A=PP(s.a[0],s.a[1]), B=PP(s.b[0],s.b[1]); const col=roleCol(s.role), act=(activeRole===s.role), dim=(activeRole&&!act);
     line(A,B,hexA(col,act?1:dim?0.4:0.85),(act?3:2)*U);
-    const mx=(s.a[0]+s.b[0])/2, my=(s.a[1]+s.b[1])/2; let ox=mx-cX, oy=my-cY; const ol=Math.hypot(ox,oy)||1; const sox=ox/ol, soy=-oy/ol; // outward, world→screen (screen Y is flipped)
+    const mx=(s.a[0]+s.b[0])/2, my=(s.a[1]+s.b[1])/2; let ox=mx-cX, oy=my-cY; const ol=Math.hypot(ox,oy)||1; const sox=-ox/ol, soy=oy/ol; // outward, world→screen ([R211] X en espejo + Front arriba, como PP)
     const M=PP(mx,my), off=12*U, lx=M[0]+sox*off, ly=M[1]+soy*off; ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.fillStyle=dim?'rgba(230,232,235,0.4)':'#E6E8EB'; ctx.font=`600 ${8.5*TU}px Geist,system-ui`; ctx.fillText(String(wallOf(s.role).wcm), lx, ly-4*U);
     ctx.fillStyle=dim?'rgba(150,150,150,0.4)':hexA(col,0.95); ctx.font=`600 ${7*TU}px Geist,system-ui`; ctx.fillText(roomRoleLabel(s.role).toUpperCase(), lx, ly+5*U); }
@@ -7316,6 +7347,11 @@ async function newRoomProject(cfg){ if(!(await confirmDiscard()))return; if(stat
   const wseq=newSeqMedia(T('Walls','Muros'),state.fps,stripW,stripH,null,null,'room'); wseq.room=room; state.media.push(wseq);
   if(cfg.floor){ const fseq=newSeqMedia(T('Floor','Piso'),state.fps,cfg.floor.pxW,cfg.floor.pxH,null,null,'flat'); fseq.roomFloorOf=wseq.id; room.floorSeqId=fseq.id; state.media.push(fseq); }
   state.seqMode='room'; state.seqW=stripW; state.seqH=stripH;
+  state.view.cam.yaw=1.99; state.view.cam.pitch=0.42; // [R211] vista 3D inicial desde detrás de Back → FRONT al fondo/arriba, calza con el plano (sólo al crear; el domo conserva su default)
+  if(cfg.floor){ // [R211] encuadre inicial: tira + suelo dockeado centrados como un solo canvas (el pan ya participa en blit, overlay y ratón → sin riesgo de mapeo)
+    const fw=walls.find(w=>w.role==='Front')||walls[0]; const fd=cfg.floor.pxH*((fw.x1-fw.x0)/Math.max(1,cfg.floor.pxW));
+    const k=1+fd/stripH, wa=(view.cw||1)/(view.ch||1), A=stripW/stripH, sy=(A>=wa)?(wa/A):1;
+    state.view.pan=[0,-fd/stripH]; state.view.zoom=(sy*k*0.92>0.95)?(0.95/(sy*k)):0.92; }
   state.openSeqs=state.media.filter(isSeqMedia).map(s=>s.id); state.activeSeqId=wseq.id; loadSeqIntoState(wseq);
   clearAllUndo(); currentPath=null; state.dirty=false;
   renderMedia(); renderSeqBar(); renderTimeline(); renderInspector(); render(); updStatus(); projTitle(); updFmtChip();

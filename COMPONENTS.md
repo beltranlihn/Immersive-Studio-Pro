@@ -149,11 +149,13 @@
 ### 7 · Sala/360, Compose/Nest & formatos → [detalle](#7--sala360-composenest--formatos-detalle)
 | Componente | Qué hace | Ubicación | Estado | Roadmap |
 |---|---|---|---|---|
-| `renderRoom3D` | Dibuja la sala 3D (muros+piso+grilla) | app.js · `renderRoom3D` (~L906) | ✅ | [D4] f2 |
+| `renderRoom3D` | Dibuja la sala 3D (muros+piso+grilla); rótulos [R211] en espacio de pantalla vía `drawRoomLabels3D` (siempre legibles) | app.js · `renderRoom3D` (~L906) | ✅ | [D4] f2 |
 | `buildRoomGeo` | Geometría de quads de la sala (cacheada) | app.js · `buildRoomGeo` (~L863) | ✅ | — |
+| `roomPlan` | Lazo de muros → planta; [R211] envuelve en sentido natural (desde dentro mirando Front, Right a la DERECHA = lado x−) | app.js · `roomPlan` (~L6889) | ✅ | — |
 | Tira de muros desenrollada | Compositing rectangular, costuras, wall-mask | app.js · `roomWallScissorRects` (~L2621) | ✅ | — |
 | Piso / compositeFloorTex | Piso como secuencia flat aparte | app.js · `compositeFloorTex` (~L856) | ✅ | [F4] |
-| `drawRoomGrid2D` | Grilla 2D por-muro (px) + costuras + labels | app.js · `drawRoomGrid2D` (~L1154) | ✅ | — |
+| Suelo dockeado 2D [R211] | Cubo desenvuelto: suelo pegado bajo Front en el canvas 2D (display-only; textura vía PB + contorno/label en grid; encuadre en `newRoomProject`/`lchEditorShot`) | app.js · `drawRoomFloorDock2D` (antes de `render()`) | ✅ | — |
+| `drawRoomGrid2D` | Grilla 2D por-muro (px) + costuras + labels + rect FLOOR del dock [R211] | app.js · `drawRoomGrid2D` (~L1154) | ✅ | — |
 | `roomCameraMVP` | Cámara Orbit + Viewer/stand | app.js · `roomCameraMVP` (~L901) | ✅ | — |
 | `roomSetupDialog` | Setup de sala: muros/roles/piso/tira | app.js · `roomSetupDialog` (~L5127) | ✅ | [F3][F4][F5] |
 | `newRoomProject` | Crear secuencias de muros + piso | app.js · `newRoomProject` (~L5256) | ✅ | — |
@@ -487,7 +489,7 @@ Constants (L3): `PI`, `HALF_PI=PI/2`, `D2R`, `R2D`, `COMP=2048` (dome composite 
 - **Location:** app.js · `renderRoom3D(wallsTex)` (L906) · `compositeFloorTex()` (L856) · `ensureRoomFloorFBO()` (L849).
 - **State owned:** `state.view.three` ('spec'=viewer-stand vs orbit), `state.view.checkerBg/roomOutTex`, `seq.room`, `room.floorSeqId`.
 - **Key symbols:** program **PR**/`roomVAO`; `buildRoomGeo(seq)` cached by `_roomGeoSeq`; two-pass depth (inside opaque, outside translucent). Floor is a separate flat sequence composited to `_roomFloorTex`.
-- **Invariants / gotchas:** `compositeFloorTex` rebinds FBO/viewport → must restore (L911). Walls strip is by exact pixels; cm are 3D-geometry-only.
+- **Invariants / gotchas:** `compositeFloorTex` rebinds FBO/viewport → must restore (L911). Walls strip is by exact pixels; cm are 3D-geometry-only. **[R211]** el lazo de `roomPlan` envuelve con Right en x− (natural desde dentro); los UVs de `buildRoomGeo` (uL=x1 en a / uR=x0 en b) y el `fuv` del suelo siguen válidos con ese lazo — NO "corregirlos" por separado. Rótulos 3D en espacio de pantalla (`drawRoomLabels3D`), nunca decals sobre el muro. Cámara por defecto de sala detrás de Back (`yaw:1.99`). En 2D, `drawRoomFloorDock2D` dockea el suelo bajo Front (display-only, mismo PB/pan/zoom → el mapeo de clics no se toca).
 - **Status:** ✅
 - **Roadmap:** [D4] (fase 2) 3D infinite grid over the same room seam.
 

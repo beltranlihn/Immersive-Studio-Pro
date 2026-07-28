@@ -1,5 +1,35 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 211 — Sala 360: geometría en su sitio + suelo dockeado (cubo desenvuelto)
+
+Cuatro arreglos pedidos por Beltrán tras revisar el landing y el editor de la sala, verificados uno a uno
+con capturas por CDP:
+
+1. **Rótulos de muros del 3D siempre legibles.** El decal afín pintado SOBRE el plano del muro se leía en
+   espejo desde fuera (la cámara orbita por fuera y el texto estaba pensado para leerse desde dentro).
+   Ahora `drawRoomLabels3D` los pinta en ESPACIO DE PANTALLA (horizontales, con el mismo patrón de fondo
+   oscuro que los del domo), anclados al centro proyectado de cada muro. `labelWallFrac` ([R201]) quedó sin
+   uso y se eliminó.
+2. **Plano con Front ARRIBA.** La planta (`drawRoomIso`) ponía Front abajo ("standing inside"). Ahora Front
+   arriba, Back abajo, y el eje X en el sentido que dibujó Beltrán: Right a la derecha, Left a la izquierda.
+   Cuatro puntos acoplados (PP, cajaTinta, y los dos offsets de rótulos).
+3. **La geometría de la sala envolvía EN ESPEJO.** El lazo de `roomPlan` colocaba Right en x+ — al mirar
+   Front desde dentro, Right caía a la IZQUIERDA. Cambio quirúrgico del mapa `E` (Right↔Left de lado, con
+   los anchos wR/wL intercambiados en las esquinas traseras): la tira 2D no cambia (x0/x1 intactos), los
+   UVs de `buildRoomGeo` y el `fuv` del suelo quedan válidos (verificado por derivación), y plano + 3D + iso
+   se corrigen solos. Cámara 3D por defecto detrás de Back (`yaw:1.99`, en `lchInit.roomCam` y al crear en
+   `newRoomProject`): FRONT al fondo/arriba, calza con el plano en los cuatro muros.
+4. **Suelo dockeado bajo Front en el canvas 2D** (cubo de papel desenvuelto, pedido explícito). Display-only,
+   sin tocar compositing/export/mapeo de clics: `drawRoomFloorDock2D` dibuja la textura del suelo
+   (`compositeFloorTex`) con el MISMO programa PB y los uniforms pan/zoom/aspect ya seteados, en un quad
+   propio bajo el span de Front (uvsc.y negativo = flip vertical del desplegado; bisagra = borde con Front).
+   `drawRoomGrid2D` pinta contorno + retícula + rótulo FLOOR (también sin textura, p.ej. el landing).
+   Encuadre por defecto tira+suelo centrados (pan/zoom en `newRoomProject` y en `lchEditorShot` para el
+   panel del launcher — el pan ya participa en blit/overlay/ratón, así que el mapeo de clics no se toca).
+
+Ejecución: Fable planificó/derivó; dos agentes Sonnet ejecutaron los bloques 1-2 y 4; el 3 y los encuadres
+los aplicó Fable directo por ser cambios acoplados de pocas líneas.
+
 ## ROUND 207b — Cerrado el pendiente de R207: `npmRebuild: false` también vale en Windows
 
 R207 dejó anotado que faltaba comprobar, en una máquina Windows, que `dist:win` sigue empaquetando un NDI
