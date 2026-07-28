@@ -2553,6 +2553,7 @@ function lchInit(){ return { ptype:'dome', pname:'',
   roomCount:4, roomFloor:true, roomUniform:false, // [R197] fuera el interruptor Uniform: los muros se editan por separado, que es lo que hace falta para que los angulos salgan de sus medidas
   floorPx:null,                                   // [R198] resolución del piso elegida a mano; null = la que sale de los muros. Sus MEDIDAS nunca se editan: las manda la huella de la sala
   roomCam:{yaw:-1.15,pitch:0.42,dist:2.9},        // [R198] cámara del visor 3D de la sala (arrastrar para girar, rueda para acercar)
+  domeCam:{yaw:0,pitch:0.5,dist:3.0},             // [R200] ídem para el domo — los valores son los que ya usaba por defecto, así que la vista de partida no cambia
   walls:[{role:'Front',wcm:800,hcm:450,pxW:3840,pxH:2160},{role:'Right',wcm:800,hcm:450,pxW:3840,pxH:2160},
          {role:'Back', wcm:800,hcm:450,pxW:3840,pxH:2160},{role:'Left', wcm:800,hcm:450,pxW:3840,pxH:2160}],
   fps:60, draft:{} }; }
@@ -2606,9 +2607,16 @@ function lchFacingMenu(ev,i){ const cur=_lch.walls[i].role;
    proyecto — son una preferencia del equipo, no parte de la obra). */
 const LCH_ROOM_PRE=[{v:'1920x1080',label:'HD'},{v:'2560x1440',label:'1440p'},{v:'3840x2160',label:'4K'},{v:'4096x2160',label:'DCI'},{v:'2048x2048',label:'Square'}];
 function lchUserPresets(){ try{ return JSON.parse(localStorage.getItem('ispRoomPresets')||'[]')||[]; }catch(e){ return []; } }
+/* [R200] Un preajuste guarda la SALA ENTERA: cada muro con su orientación, sus medidas y su pixelaje, y el piso
+   —si lo hay— con el suyo. Antes sólo iban los cuatro números de cada muro: al recuperarlo se perdían las
+   orientaciones y el piso, que es justo lo que distingue una sala montada de otra. Las MEDIDAS del piso no se
+   guardan porque no son suyas: salen de la huella de los muros (regla de R198), así que se recalculan solas. */
 function lchSaveUserPreset(){ const S=_lch; appPrompt(T('Preset name','Nombre del preajuste'),'',n=>{ if(n==null)return; n=String(n).trim(); if(!n)return;
   const lista=lchUserPresets().filter(p=>p.label!==n);
-  lista.push({label:n, walls:lchActiveWalls().map(w=>({pxW:w.pxW,pxH:w.pxH,wcm:w.wcm,hcm:w.hcm})), count:S.roomCount});
+  const piso=S.roomFloor?lchFloorCfg(lchCfgWalls()):null;
+  lista.push({label:n, count:S.roomCount,
+    walls:lchActiveWalls().map(w=>({role:w.role,pxW:w.pxW,pxH:w.pxH,wcm:w.wcm,hcm:w.hcm})),
+    floor:!!S.roomFloor, floorPx:piso?{pxW:piso.pxW,pxH:piso.pxH}:null});
   try{ localStorage.setItem('ispRoomPresets',JSON.stringify(lista.slice(-24))); }catch(e){}
   renderLauncher(); flashStatus(T('Preset saved','Preajuste guardado')); }); }
 function lchPresetOptions(S){ const cur=S.walls[0].pxW+'x'+S.walls[0].pxH; const us=lchUserPresets();
@@ -2617,9 +2625,18 @@ function lchPresetOptions(S){ const cur=S.walls[0].pxW+'x'+S.walls[0].pxH; const
 function lchApplyPreset(v){ const S=_lch;
   if(String(v).indexOf('u:')===0){ const p=lchUserPresets()[+String(v).slice(2)]; if(!p)return;
     if(p.count)lchSetWallCount(p.count); // [R199] por el reparto de orientaciones, no tocando la cuenta a pelo
-    p.walls.forEach((s,i)=>{ const w=S.walls[i]; if(!w)return; w.pxW=s.pxW; w.pxH=s.pxH; if(s.wcm)w.wcm=s.wcm; if(s.hcm)w.hcm=s.hcm; }); }
-  else { const p=String(v).split('x'); S.walls.forEach(w=>{ w.pxW=+p[0]; w.pxH=+p[1]; }); }
-  S.floorPx=null; // un preajuste es una decisión de resolución: el piso vuelve a seguir a los muros
+    (p.walls||[]).forEach((s,i)=>{ const w=S.walls[i]; if(!w)return;
+      if(s.role)w.role=s.role; w.pxW=s.pxW; w.pxH=s.pxH; if(s.wcm)w.wcm=s.wcm; if(s.hcm)w.hcm=s.hcm; });
+    /* [R200] Tras imponer las orientaciones del preajuste hay que recolocar las que quedan fuera de juego: si el
+       preajuste usaba un rol que el reparto por cuenta había dejado detrás, saldrían DOS muros mirando al mismo
+       sitio y la huella se rompería. */
+    { const usados=(p.walls||[]).map(s=>s.role).filter(Boolean);
+      const sobran=ROOM_ROLES.filter(r=>usados.indexOf(r)<0);
+      S.walls.forEach((w,i)=>{ if(i>=(p.walls||[]).length)w.role=sobran[i-(p.walls||[]).length]||w.role; }); }
+    S.roomFloor=(p.floor!==undefined)?!!p.floor:S.roomFloor;   // el piso viaja con el preajuste
+    S.floorPx=p.floorPx?{...p.floorPx}:null; }
+  else { const p=String(v).split('x'); S.walls.forEach(w=>{ w.pxW=+p[0]; w.pxH=+p[1]; });
+    S.floorPx=null; } // los de fábrica son sólo una resolución: el piso vuelve a seguir a los muros
   S.draft={}; renderLauncher(); }
 
 /* [R199] Qué orientaciones se usan según cuántos muros — las MISMAS que el diálogo de sala (`setN`), para que la
@@ -2786,28 +2803,30 @@ function renderLauncher(){ const ov=document.getElementById('landingOv'); if(!ov
 
   // ---- visor: los MISMOS canvas del editor, no SVGs nuevos ----
   const vw=ov.querySelector('#lchViewer');
-  const pane=(cap,id,extra)=>`<div class="lch-pane${extra?' hasdata':''}"><canvas id="${id}"></canvas><span class="lch-cap">${cap}</span>${extra||''}</div>`;
+  const pane=(cap,id,extra,cls)=>`<div class="lch-pane${extra?' hasdata':''}${cls?' '+cls:''}" id="${id}Pane"><canvas id="${id}"></canvas><span class="lch-cap">${cap}</span>${extra||''}</div>`;
   const dataStrip=(d1,d2)=>`<div class="lch-data"><span class="d1">${lchEsc(d1)}</span><span class="sep"></span><span class="d2">${lchEsc(d2)}</span></div>`;
   let panes='';
   // [R155] Domo con DOS paneles, como el diseño: el máster fisheye (lo que se exporta) y el domo en 3D (la forma
   // que tiene esa cobertura). Con 200/210/220° el segundo panel muestra la superficie bajando del horizonte.
   if(isDome) panes=`<div class="lch-panes two">`
     +pane(T('Fisheye master','Máster fisheye'),'lchCvDome',dataStrip(S.domeRes+' × '+S.domeRes+' px',lchMP(S.domeRes,S.domeRes)+' · '+S.domeCov+'° · '+S.fps+' fps'))
-    +pane(T('Dome · 3D','Domo · 3D'),'lchCvDome3d')+`</div>`;
+    +pane(T('Dome · 3D','Domo · 3D'),'lchCvDome3d',null,'grab')+`</div>`; // [R200] `grab`: el domo 3D también se gira
   else if(isFlat) panes=`<div class="lch-panes one">${pane(T('Flat canvas','Lienzo plano'),'lchCvFlat',dataStrip(S.flatW+' × '+S.flatH+' px',lchMP(S.flatW,S.flatH)+' · '+lchAspect(S.flatW,S.flatH)+' · '+S.fps+' fps'))}</div>`;
   else { const aw=lchActiveWalls(), tw=aw.reduce((a,w)=>a+w.pxW,0), th=aw.reduce((a,w)=>Math.max(a,w.pxH),0), tp=aw.reduce((a,w)=>a+w.pxW*w.pxH,0);
-    /* [R198] Dos celdas arriba, como pedía el diseño: a la izquierda el VISOR 3D DE VERDAD (`renderRoom3D`, el
-       mismo del editor, arrastrable) y a la derecha la planta cenital a escala. Hasta ahora `drawRoomIso` daba
-       las dos mitades dibujadas a mano en un solo lienzo porque el 3D real necesita una secuencia con `.room`,
-       que el launcher no tenía; ahora se le arma una temporal (ver `lchEditorShot`). Sin `.lch-cap`: cada canvas
-       dibuja su propio rótulo y superponer otro los pisaba. */
+    /* [R198] Dos celdas arriba, como pedía el diseño: el VISOR 3D DE VERDAD (`renderRoom3D`, el mismo del editor,
+       arrastrable) y la planta cenital a escala. Hasta ahora `drawRoomIso` daba las dos mitades dibujadas a mano
+       en un solo lienzo porque el 3D real necesita una secuencia con `.room`, que el launcher no tenía; ahora se
+       le arma una temporal (ver `lchEditorShot`). Sin `.lch-cap`: cada canvas dibuja su propio rótulo y
+       superponer otro los pisaba.
+       [R200] La PLANTA va a la izquierda y el 3D a la derecha (pedido de Beltrán): se lee primero el plano —lo
+       acotado, con lo que se trabaja— y luego cómo queda. */
     panes=`<div class="lch-panes room" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:minmax(0,1fr) 172px;">
-      <div class="lch-pane grab" id="lchRoom3d"><canvas id="lchCvRoom3d"></canvas></div>
       <div class="lch-pane"><canvas id="lchCvIso"></canvas></div>
+      <div class="lch-pane grab" id="lchRoom3d"><canvas id="lchCvRoom3d"></canvas></div>
       <div class="lch-stitch" style="grid-column:1 / 3;"><div class="lch-sthead"><span class="t">${T('Stitched canvas · wall order','Lienzo cosido · orden de muros')}</span><span class="lch-rule"></span>
         <span style="font-size:10px;font-weight:600;color:#C8C8C8;font-variant-numeric:tabular-nums;">${tw} × ${th} px</span><span class="sep" style="width:.5px;height:11px;background:rgba(255,255,255,0.12);"></span>
         <span style="font-size:10px;color:#8A8A8A;font-variant-numeric:tabular-nums;">${(tp/1e6).toFixed(1)} MP</span></div>
-        <div style="flex:1;min-height:0;position:relative;"><canvas id="lchCvStrip" style="position:absolute;inset:0;width:100%;height:100%;"></canvas></div></div>
+        <div style="flex:1;min-height:0;position:relative;background:#000;border-radius:3px;"><canvas id="lchCvStrip" style="position:absolute;inset:0;width:100%;height:100%;"></canvas></div></div>
     </div>`; }
   vw.innerHTML=`<div class="lch-vtop"><span class="lch-vname">${viewerName}</span><span class="lch-vsum">${lchEsc(summary)}</span>
       <span class="lch-vhint">${T('Live preview of the project','Vista previa en vivo del proyecto')}</span></div>${panes}`;
@@ -2827,18 +2846,12 @@ function renderLauncher(){ const ov=document.getElementById('landingOv'); if(!ov
   { const s=panel.querySelector('#lchSwap'); if(s)s.onclick=()=>{ const w=_lch.flatW; _lch.flatW=_lch.flatH; _lch.flatH=w; _lch.draft={}; renderLauncher(); }; }
   { const f=panel.querySelector('#lchFloor'); if(f)f.onclick=()=>{ _lch.roomFloor=!_lch.roomFloor; renderLauncher(); }; }
   panel.querySelectorAll('[data-lface]').forEach(b=>b.onclick=ev=>lchFacingMenu(ev,+b.dataset.lface));
-  /* [R198] El visor 3D de la sala se gira arrastrando y se acerca con la rueda — un 3D que no se puede mover
-     apenas dice más que el esquema al que sustituye. La cámara vive en `_lch`, así que sobrevive a los
-     re-renderizados del panel (que son constantes: cada tecla en un número lo redibuja). */
-  { const p=vw.querySelector('#lchRoom3d');
-    if(p){ p.onpointerdown=ev=>{ ev.preventDefault(); try{ p.setPointerCapture(ev.pointerId); }catch(e){}
-        p.classList.add('grabbing'); const x0=ev.clientX, y0=ev.clientY, c0={..._lch.roomCam};
-        const mv=e2=>{ _lch.roomCam.yaw=c0.yaw-(e2.clientX-x0)*0.008;
-          _lch.roomCam.pitch=Math.max(-1.2,Math.min(1.35,c0.pitch+(e2.clientY-y0)*0.006)); lchPaintRoom3D(); };
-        const up=()=>{ p.classList.remove('grabbing'); p.removeEventListener('pointermove',mv); p.removeEventListener('pointerup',up); p.removeEventListener('pointercancel',up); };
-        p.addEventListener('pointermove',mv); p.addEventListener('pointerup',up); p.addEventListener('pointercancel',up); };
-      p.addEventListener('wheel',ev=>{ ev.preventDefault();
-        _lch.roomCam.dist=Math.max(0.6,Math.min(9,_lch.roomCam.dist*Math.exp(ev.deltaY*0.0012))); lchPaintRoom3D(); },{passive:false}); } }
+  /* [R198] Un 3D que no se puede mover apenas dice más que el esquema al que sustituye: se gira arrastrando y se
+     acerca con la rueda. La cámara vive en `_lch`, así que sobrevive a los re-renderizados del panel (que son
+     constantes: cada tecla en un número lo redibuja).
+     [R200] Vale para LOS DOS visores 3D del landing, no sólo el de la sala. */
+  lchOrbit(vw.querySelector('#lchRoom3d'),'roomCam',()=>lchPaint3D('room'));
+  lchOrbit(vw.querySelector('#lchCvDome3dPane'),'domeCam',()=>lchPaint3D('dome'));
   lchWireNums(panel);
   panel.querySelector('#lchCreate').onclick=()=>lchCreate();
   if(fk){ const el=panel.querySelector('[data-lk="'+fk+'"]'); if(el){ el.focus(); try{ el.setSelectionRange(fs0,fs0); }catch(e){} } }
@@ -2885,8 +2898,9 @@ function lchEditorShot(cv,o){
     _raOn=false; // el caché de render-ahead es del proyecto de detrás: ni se lee ni se ensucia con fotogramas del launcher
     if(o.room){ const seq=lchRoomSeqTemp(o.room); if(!seq)return false;
       S.media=[seq]; S.activeSeqId=seq.id; S.seqW=seq.w; S.seqH=seq.h; S.seqMode='room';
-      _roomGeo=null; _roomGeoSeq=null;                       // la malla se cachea por id de secuencia y el id no cambia al editar los muros
-      if(o.cam){ V.three='orbit'; V.cam={...V.cam,...o.cam}; } }
+      _roomGeo=null; _roomGeoSeq=null; }                     // la malla se cachea por id de secuencia y el id no cambia al editar los muros
+    // [R200] la cámara vale para los DOS visores 3D (domo y sala); `orbit` porque el modo `spec` ignora yaw/dist
+    if(o.cam){ V.three='orbit'; V.cam={...V.cam,...o.cam}; }
     view.cw=r.width; view.ch=r.height; VSIZE=Math.min(r.width,r.height);
     glc.width=W; glc.height=H; gridc.width=W; gridc.height=H; gx.setTransform(dpr,0,0,dpr,0,0);
     render();
@@ -2918,8 +2932,7 @@ function lchPaintNow(){ const ov=document.getElementById('landingOv'); if(!ov||!
   /* [R182] El panel 3D del domo y el lienzo 2D los dibuja AHORA el visor real del editor; si por lo que sea no
      se puede (contexto WebGL perdido, lienzo sin caja), se cae al esquema de siempre y la pantalla no se rompe. */
   if(S.ptype==='dome'){ const cv=fit(ov.querySelector('#lchCvDome')); if(cv)try{ drawSeqViz(cv,'dome',{cov:S.domeCov}); }catch(e){}
-    const c3=ov.querySelector('#lchCvDome3d');
-    if(c3 && !lchEditorShot(c3,{w:S.domeRes,h:S.domeRes,mode:'dome',cov:S.domeCov,view:'3d'})){ const f=fit(c3); if(f)try{ drawDomeIso(f,S.domeCov,LCH_PAL); }catch(e){} } }
+    lchPaint3D('dome',ov); }
   else if(S.ptype==='flat'){ const cv=ov.querySelector('#lchCvFlat');
     if(cv && !lchEditorShot(cv,{w:S.flatW,h:S.flatH,mode:'flat',view:'2d'})){ const f=fit(cv); if(f)try{ drawSeqViz(f,'flat',{w:S.flatW,h:S.flatH}); }catch(e){} } }
   /* [R198] La sala también con los visores del editor: el 3D es `renderRoom3D` (no el esquema de líneas) y el
@@ -2927,19 +2940,36 @@ function lchPaintNow(){ const ov=document.getElementById('landingOv'); if(!ov||!
      que es exactamente lo que faltaba. La planta cenital sigue siendo el painter, que es un plano acotado y no
      un viewport. Si el 3D no se puede montar, cada uno cae a su esquema y la pantalla no se rompe. */
   else { const w=lchCfgWalls(), cfg=lchRoomCfg();
-    lchPaintRoom3D(ov);
+    lchPaint3D('room',ov);
     const a=fit(ov.querySelector('#lchCvIso')); if(a)try{ drawRoomIso(a,w,S.roomFloor,null,LCH_PAL,'plan'); }catch(e){}
     const b=ov.querySelector('#lchCvStrip');
     if(b && !lchEditorShot(b,{w:1920,h:1080,mode:'room',view:'2d',room:cfg})){ const f=fit(b); if(f)try{ drawRoomStrip(f,w,S.roomFloor,null,LCH_PAL); }catch(e){} } }
 }
-/* Sólo el panel 3D de la sala — lo llama el arrastre, que no puede permitirse repintar los tres lienzos por cada
+/* Repinta UN SOLO panel 3D — lo llama el arrastre, que no puede permitirse rehacer los tres lienzos por cada
    movimiento del ratón (cada uno es una captura del render del editor). */
-function lchPaintRoom3D(ov){ ov=ov||document.getElementById('landingOv'); if(!ov||!_lch)return;
+function lchPaint3D(cual,ov){ ov=ov||document.getElementById('landingOv'); if(!ov||!_lch)return;
+  const S=_lch;
+  if(cual==='dome'){ const c=ov.querySelector('#lchCvDome3d'); if(!c)return;
+    if(lchEditorShot(c,{w:S.domeRes,h:S.domeRes,mode:'dome',cov:S.domeCov,view:'3d',cam:S.domeCam}))return;
+    const f=lchFitCv(c); if(f)try{ drawDomeIso(f,S.domeCov,LCH_PAL); }catch(e){} return; }
   const c3=ov.querySelector('#lchCvRoom3d'); if(!c3)return;
-  if(lchEditorShot(c3,{w:1920,h:1080,mode:'room',view:'3d',room:lchRoomCfg(),cam:_lch.roomCam}))return;
-  const r=c3.getBoundingClientRect(); if(!r.width||!r.height)return;
-  const dpr=Math.min(2,window.devicePixelRatio||1); c3.width=Math.round(r.width*dpr); c3.height=Math.round(r.height*dpr);
-  try{ drawRoomIso(c3,lchCfgWalls(),_lch.roomFloor,null,LCH_PAL); }catch(e){}
+  if(lchEditorShot(c3,{w:1920,h:1080,mode:'room',view:'3d',room:lchRoomCfg(),cam:S.roomCam}))return;
+  const f=lchFitCv(c3); if(f)try{ drawRoomIso(f,lchCfgWalls(),S.roomFloor,null,LCH_PAL); }catch(e){}
+}
+/* iguala el búfer del lienzo a la caja que le dio el CSS (ver la nota larga en lchPaintNow) */
+function lchFitCv(cv){ if(!cv)return null; const r=cv.getBoundingClientRect(); if(!r.width||!r.height)return null;
+  const dpr=Math.min(2,window.devicePixelRatio||1); cv.width=Math.round(r.width*dpr); cv.height=Math.round(r.height*dpr); return cv; }
+/* Arrastrar = girar · rueda = acercar, sobre la cámara `camKey` de `_lch`. `repintar` rehace SÓLO ese panel. */
+function lchOrbit(p,camKey,repintar){ if(!p)return;
+  p.onpointerdown=ev=>{ if(ev.button!==0)return; ev.preventDefault(); try{ p.setPointerCapture(ev.pointerId); }catch(e){}
+    p.classList.add('grabbing'); const x0=ev.clientX, y0=ev.clientY, c0={..._lch[camKey]};
+    const mv=e2=>{ const c=_lch[camKey];
+      c.yaw=c0.yaw-(e2.clientX-x0)*0.008;
+      c.pitch=Math.max(-1.2,Math.min(1.35,c0.pitch+(e2.clientY-y0)*0.006)); repintar(); };
+    const up=()=>{ p.classList.remove('grabbing'); p.removeEventListener('pointermove',mv); p.removeEventListener('pointerup',up); p.removeEventListener('pointercancel',up); };
+    p.addEventListener('pointermove',mv); p.addEventListener('pointerup',up); p.addEventListener('pointercancel',up); };
+  p.addEventListener('wheel',ev=>{ ev.preventDefault(); const c=_lch[camKey];
+    c.dist=Math.max(0.6,Math.min(9,c.dist*Math.exp(ev.deltaY*0.0012))); repintar(); },{passive:false});
 }
 
 function lchRenderRecents(){ const host=document.getElementById('lchRecents'); if(!host)return;

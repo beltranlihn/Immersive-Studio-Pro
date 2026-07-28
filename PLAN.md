@@ -1,5 +1,31 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 200 — Cinco ajustes de Beltrán sobre el landing
+
+**El desplegable de orientación de los muros no abría nada.** Sí abría: nacía **detrás** del landing. El menú se
+dibuja en la capa 60 y la pantalla de inicio está en la 300, así que aparecía tapado. Un menú contextual es
+siempre lo más alto —es transitorio y sale de algo que ya está debajo—, de modo que pasa por encima de cualquier
+capa, incluidos los diálogos.
+
+**El lienzo cosido, en negro**, como los dos visores de arriba. Es un viewport, no un panel de datos, y en gris no
+se distinguía dónde acaba el máster.
+
+**El preajuste guarda la sala entera:** cada muro con su orientación, sus medidas y su pixelaje, y el piso con el
+suyo. Antes sólo iban los cuatro números de cada muro, así que al recuperarlo se perdían las orientaciones y el
+piso — justo lo que distingue una sala montada de otra. Las medidas del piso no se guardan porque no son suyas:
+salen de la huella de los muros, y se recalculan solas.
+
+**Los dos visores 3D se giran y se acercan.** El de la sala ya lo hacía desde R198; ahora también el del domo, con
+el mismo mecanismo.
+
+**En la sala, la planta pasa a la izquierda y el 3D a la derecha:** primero el plano —lo acotado, con lo que se
+trabaja— y luego cómo queda.
+
+Los cinco, comprobados en la app contra el `.exe` de R199 como control, que es lo que hace que la medida valga:
+allí el menú daba «visible de verdad: no» (el síntoma exacto), los paneles salían al revés, el lienzo cosido medía
+gris (17,17,17), el domo 3D no tenía panel arrastrable y el preajuste perdía el piso. En R200, los cinco correctos
+y sin errores de consola.
+
 ## ROUND 199 — La geometría de la sala sale de las medidas (tanda 4)
 
 Beltrán lo dejó claro antes de empezar: **no quiere fijar los ángulos a mano**. Salen de las medidas, y ya está.
