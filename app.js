@@ -2536,7 +2536,7 @@ function appConfirm(message,cb,opts){ opts=opts||{}; try{closeMenu();}catch(e){}
   ov.innerHTML='<div class="modal" style="width:390px;padding:16px 18px;"><div style="font-size:13px;color:var(--ink-2);line-height:1.5;margin-bottom:15px;">'+message+'</div><div style="display:flex;gap:8px;justify-content:flex-end;"><button id="cfCancel" class="togbtn2">'+(opts.cancel||T('Cancel','Cancelar'))+'</button><button id="cfOk" class="togbtn2 on"'+(opts.danger?' style="background:#33383F;border-color:rgba(255,255,255,0.2);color:#fff;"':'')+'>'+(opts.ok||T('OK','Aceptar'))+'</button></div></div>';
   document.body.appendChild(ov); let done=false; const fin=v=>{ if(done)return; done=true; document.removeEventListener('keydown',onk,true); ov.remove(); if(cb)cb(v); };
   ov.querySelector('#cfOk').onclick=()=>fin(true); ov.querySelector('#cfCancel').onclick=()=>fin(false); ov.addEventListener('pointerdown',e=>{ if(e.target===ov)fin(false); });
-  const onk=e=>{ e.stopPropagation(); if(e.key==='Escape'){e.preventDefault();fin(false);} else if(e.key==='Enter'){e.preventDefault();fin(true);} }; document.addEventListener('keydown',onk,true);
+  const onk=e=>{ if(!ov.isConnected){document.removeEventListener('keydown',onk,true);return;} /* [R218] guarda de conexión: overlay destruido por otra vía → no matar atajos para siempre */ e.stopPropagation(); if(e.key==='Escape'){e.preventDefault();fin(false);} else if(e.key==='Enter'){e.preventDefault();fin(true);} }; document.addEventListener('keydown',onk,true);
   setTimeout(()=>{try{ov.querySelector('#cfOk').focus();}catch(e){}},10); }
 function appAlert(message,cb){ try{closeMenu();}catch(e){}
   /* [R176] Sólo los AVISOS sueltan el splash: un aviso durante el arranque significa que algo falló y no va a
@@ -2549,7 +2549,7 @@ function appAlert(message,cb){ try{closeMenu();}catch(e){}
   ov.innerHTML='<div class="modal" style="width:390px;margin-top:130px;padding:16px 18px;"><div style="font-size:13px;color:var(--ink-2);line-height:1.5;margin-bottom:15px;">'+message+'</div><div style="display:flex;justify-content:flex-end;"><button id="alOk" class="togbtn2 on">'+T('OK','Aceptar')+'</button></div></div>';
   document.body.appendChild(ov); let done=false; const fin=()=>{ if(done)return; done=true; document.removeEventListener('keydown',onk,true); ov.remove(); if(cb)cb(); };
   ov.querySelector('#alOk').onclick=fin; ov.addEventListener('pointerdown',e=>{ if(e.target===ov)fin(); });
-  const onk=e=>{ e.stopPropagation(); if(e.key==='Escape'||e.key==='Enter'){e.preventDefault();fin();} }; document.addEventListener('keydown',onk,true);
+  const onk=e=>{ if(!ov.isConnected){document.removeEventListener('keydown',onk,true);return;} /* [R218] guarda de conexión */ e.stopPropagation(); if(e.key==='Escape'||e.key==='Enter'){e.preventDefault();fin();} }; document.addEventListener('keydown',onk,true);
   setTimeout(()=>{try{ov.querySelector('#alOk').focus();}catch(e){}},10); }
 
 /* ===== Recent projects + Start screen (landing) ===== */
@@ -3203,7 +3203,7 @@ function startTour(fmt){ if(document.getElementById('tourOv'))return; const step
     let cx,cy; if(r&&r.width>0){ cx=Math.min(vw-cw-m,Math.max(m,r.left+r.width/2-cw/2)); cy=(r.bottom+m+ch<vh)?(r.bottom+m):Math.max(m,r.top-ch-m); }
     else { cx=(vw-cw)/2; cy=(vh-ch)/2; }
     card.style.left=cx+'px'; card.style.top=cy+'px'; }
-  const onk=e=>{ e.stopPropagation(); if(e.key==='Escape'){e.preventDefault();end();} else if(e.key==='ArrowRight'||e.key==='Enter'){e.preventDefault(); if(i===steps.length-1)end(); else go(1);} else if(e.key==='ArrowLeft'){e.preventDefault();go(-1);} };
+  const onk=e=>{ if(!ov.isConnected){document.removeEventListener('keydown',onk,true);return;} /* [R218] guarda de conexión: si `ov` (#tourOv) se destruyó por una vía distinta a end(), no matar atajos para siempre */ e.stopPropagation(); if(e.key==='Escape'){e.preventDefault();end();} else if(e.key==='ArrowRight'||e.key==='Enter'){e.preventDefault(); if(i===steps.length-1)end(); else go(1);} else if(e.key==='ArrowLeft'){e.preventDefault();go(-1);} };
   document.addEventListener('keydown',onk,true); window.addEventListener('resize',draw); draw(); }
 /* [R178] `startOnboarding()` (primer arranque → escena demo + recorrido, saltándose el launcher) ARCHIVADO
    en _backup/deprecated/20260726-startOnboarding.js. `buildDemoProject` SIGUE viva: la usan los arneses de
@@ -5827,7 +5827,7 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
       const t=state.playhead; await seekExport(t); prepNests(state.clips,t,0); renderExportFrame(t,qRes,ssExport,wall);
       const blob=await new Promise(r=>glc.toBlob(r,'image/png'));
       if(!cancelExport && blob){ const fn=`${filePre}_still_${dimStr}_${TC(t).replace(/:/g,'-')}.png`;
-        if(IS_ELEC && DSP.saveFile){ const p=await DSP.saveFile(fn,'png','PNG image'); if(p){ job.label(T('Saving…','Guardando…')); const ok=await DSP.writeBinary(p, new Uint8Array(await blob.arrayBuffer())); if(ok===false)throw new Error(T('Write failed (disk full, locked, or no permission).','Fallo de escritura (disco lleno, bloqueado o sin permiso).')); expOut=p; } }
+        if(IS_ELEC && DSP.saveFile){ const p=await DSP.saveFile(fn,'png','PNG image'); if(p){ job.label&&job.label(T('Saving…','Guardando…')); const ok=await DSP.writeBinary(p, new Uint8Array(await blob.arrayBuffer())); if(ok===false)throw new Error(T('Write failed (disk full, locked, or no permission).','Fallo de escritura (disco lleno, bloqueado o sin permiso).')); expOut=p; } }
         else dlBlob(blob,fn); }
       job.prog(1,1);
     } else if(opt.codec==='png'){ const pad=Math.max(6,String(total).length), fnum=i=>String(i+1).padStart(pad,'0'); // [R96] IMERSA/AFDI Dome Master Spec: 6-digit frame number STARTING AT 1 ("Name_000001.png"). We shipped base-0 with a padding that shrank with the take length ("dome_000.png") — a planetarium can't ingest that without renaming every frame, and two exports of different lengths sorted inconsistently.
@@ -5856,11 +5856,11 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
             job.prog(i+1,total); await exWaitPause(); }
           await Promise.all(enVuelo);                       // ningún fotograma queda a medio escribir
           if(falloPng)throw falloPng;
-          if(!cancelExport && audioBuf){ job.label(T('Writing audio…','Escribiendo audio…')); await DSP.writeBinary(sub+'/audio.wav', audioBufferToWav(audioBuf)); }
+          if(!cancelExport && audioBuf){ job.label&&job.label(T('Writing audio…','Escribiendo audio…')); await DSP.writeBinary(sub+'/audio.wav', audioBufferToWav(audioBuf)); }
           if(!cancelExport){ expOut=sub; flashStatus(T('PNG sequence + audio written to folder','Secuencia PNG + audio escritos en carpeta')); } }
       } else { const zip=new Zip();
         for(let i=0;i<total;i++){ if(cancelExport)break; const blob=await renderFrame(i); zip.add(filePre+'_'+fnum(i)+'.png',new Uint8Array(await blob.arrayBuffer())); job.prog(i+1,total); await new Promise(r=>setTimeout(r,0)); }
-        if(!cancelExport){ if(audioBuf)zip.add('audio.wav',audioBufferToWav(audioBuf)); job.label(T('Packaging…','Empaquetando…'));await new Promise(r=>setTimeout(r,30));dlBlob(zip.finish(),`${filePre}_${dimStr}_${fps}fps.zip`); } }
+        if(!cancelExport){ if(audioBuf)zip.add('audio.wav',audioBufferToWav(audioBuf)); job.label&&job.label(T('Packaging…','Empaquetando…'));await new Promise(r=>setTimeout(r,30));dlBlob(zip.finish(),`${filePre}_${dimStr}_${fps}fps.zip`); } }
     } else if(opt.codec==='hap'||opt.codec==='hapq'){ // R100: Hap1 / HapY .mov — GPU DXT + Snappy + our own QuickTime muxer, no FFmpeg
       const F=HAP_FMT[opt.codec];
       if(!(IS_ELEC && DSP.fileOpen && DSP.saveFile)) throw new Error(T('HAP export needs the desktop app.','El export HAP necesita la app de escritorio.'));
@@ -5890,14 +5890,14 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
           job.prog(i+1,total); await exWaitPause();
           while(pending>3&&!wErr) await new Promise(r=>setTimeout(r,0)); }
         try{ await wq; }catch(e){ wErr=wErr||e; }
-        if(!wErr&&!cancelExport){ job.label(T('Writing index…','Escribiendo el índice…'));
+        if(!wErr&&!cancelExport){ job.label&&job.label(T('Writing index…','Escribiendo el índice…'));
           const mdatSize=pos-mdatStart;
           await DSP.fileWriteAt(fid,mdatStart+8,_bytes(8,(dv)=>{ dv.setUint32(0,Math.floor(mdatSize/4294967296)); dv.setUint32(4,mdatSize>>>0); }));
           put(movBuild({fourcc:F.fourcc,w:eW,h:eH,depth:F.depth,fps,frames,audio:(pcm&&aChunks.length)?{sr:aSR,ch:aCH,chunks:aChunks}:null}));
           try{ await wq; }catch(e){ wErr=wErr||e; } }
         try{ await DSP.fileClose(fid); }catch(e){}
         if(wErr) throw new Error(T('Write failed during HAP export (disk full or no permission).','Fallo de escritura durante el export HAP (disco lleno o sin permiso).'));
-        if(!cancelExport){ expOut=path; job.label(T('Saved','Guardado')); } }
+        if(!cancelExport){ expOut=path; job.label&&job.label(T('Saved','Guardado')); } }
     } else {
       _exStage='codec-pick';
       const isHevc=opt.codec==='hevc'; const muxCodec=VCODECS[opt.codec]||'avc'; // [R179] av1 / vp9 / vp910 join h264 / hevc — same muxer, different picker
@@ -5932,15 +5932,15 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
         vf.close(); job.prog(i+1,total); await exWaitPause(); while((enc.encodeQueueSize>6||pending>4)&&!encErr&&!wErr)await new Promise(r=>setTimeout(r,0)); } // backpressure: also cap pending disk writes so RAM stays bounded
       try{ if(enc.state==='configured')await enc.flush(); }catch(e){ encErr=encErr||e; }
       try{ enc.close(); }catch(e){}
-      if(wantAudio && !cancelExport && !encErr){ job.label(T('Encoding audio…','Codificando audio…')); try{ await muxAudioAAC(mux,audioBuf); }catch(e){ console.warn('audio mux',e); } }
+      if(wantAudio && !cancelExport && !encErr){ job.label&&job.label(T('Encoding audio…','Codificando audio…')); try{ await muxAudioAAC(mux,audioBuf); }catch(e){ console.warn('audio mux',e); } }
       if(!encErr && !cancelExport) mux.finalize();
       if(streaming){ try{ await wq; }catch(e){} try{ await DSP.fileClose(fileId); }catch(e){} }
       if(encErr) throw new Error(T('Encoding failed at '+res+'² with '+codec+' (','La codificación falló a '+res+'² con '+codec+' (')+(encErr.message||encErr)+T('). Try a lower resolution or PNG sequence.','). Prueba una resolución menor o Secuencia PNG.'));
       if(wErr) throw new Error(T('Write failed during MP4 export (disk full or no permission).','Fallo de escritura durante el export MP4 (disco lleno o sin permiso).'));
       if(!cancelExport){
-        if(streaming){ job.label(T('Saved','Guardado')); expOut=streamPath; } // already written to disk chunk-by-chunk
+        if(streaming){ job.label&&job.label(T('Saved','Guardado')); expOut=streamPath; } // already written to disk chunk-by-chunk
         else if(IS_ELEC && DSP.saveFile){ const p=streamPath||opt.outPath||await DSP.saveFile(fn,'mp4','MP4 video'); // native Save dialog → IPC write (not a silent Downloads drop)
-          if(p){ job.label(T('Saving…','Guardando…')); const ok=await DSP.writeBinary(p, new Uint8Array(mux.target.buffer)); if(ok===false)throw new Error(T('Write failed (disk full, locked, or no permission).','Fallo de escritura (disco lleno, bloqueado o sin permiso).')); expOut=p; } }
+          if(p){ job.label&&job.label(T('Saving…','Guardando…')); const ok=await DSP.writeBinary(p, new Uint8Array(mux.target.buffer)); if(ok===false)throw new Error(T('Write failed (disk full, locked, or no permission).','Fallo de escritura (disco lleno, bloqueado o sin permiso).')); expOut=p; } }
         else dlBlob(new Blob([mux.target.buffer],{type:'video/mp4'}),fn); }
     }
   }catch(err){console.error(err); if(job&&job.fail){ job.fail(err); } else appAlert(T('Error export: ','Error de exportación: ')+err.message); } // [R179] a job that declares job.fail owns the error (render-in-place must NOT go on to import a half-written file); everyone else keeps the alert
@@ -6796,7 +6796,7 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
   /* [R190] Cerrar con un render vivo lo CANCELA antes de irse. Antes se cerraba el panel y el render seguía a
      ciegas: sin monitor, sin barra y sin forma de pararlo salvo reabrir. Terminado o en reposo, cierra y ya. */
   const cerrarOCancelar=()=>{ if(S.phase==='run'||S.phase==='pause')cancelarRender(); close(); };
-  const onKey=e=>{ if(e.key!=='Escape')return;
+  const onKey=e=>{ if(!ov.isConnected){document.removeEventListener('keydown',onKey,true);return;} /* [R218] guarda de conexión */ if(e.key!=='Escape')return;
     const t=e.target; if(t&&t.closest&&t.closest('input,select'))return; // `closest` no existe en `document`: sin esta guarda, Esc lanzaba un TypeError y la hoja no cerraba
     e.preventDefault(); e.stopPropagation(); cerrarOCancelar(); };
   document.addEventListener('keydown',onKey,true);
@@ -8000,7 +8000,7 @@ function colorPopup(x,y,cur,onPick,onClear){ document.querySelectorAll('.lanecol
   m.appendChild(none); document.body.appendChild(m);
   const r=m.getBoundingClientRect(); if(r.right>innerWidth)m.style.left=Math.max(4,innerWidth-r.width-8)+'px'; if(r.bottom>innerHeight)m.style.top=Math.max(4,innerHeight-r.height-8)+'px';
   const off=()=>{ m.remove(); document.removeEventListener('pointerdown',close,true); document.removeEventListener('keydown',esc,true); };
-  const close=e=>{ if(!m.contains(e.target))off(); }; const esc=e=>{ if(e.key==='Escape')off(); };
+  const close=e=>{ if(!m.contains(e.target))off(); }; const esc=e=>{ if(!m.isConnected){off();return;} /* [R218] guarda de conexión */ if(e.key==='Escape')off(); };
   setTimeout(()=>{ document.addEventListener('pointerdown',close,true); document.addEventListener('keydown',esc,true); },0); }
 function openLaneColorPopup(li,x,y){ const lane=state.lanes[li]; if(!lane)return; colorPopup(x,y,lane.color,col=>{ pushUndo(); lane.color=col; renderTimeline(); render(); markDirty(); }, ()=>{ pushUndo(); delete lane.color; renderTimeline(); render(); markDirty(); }); } // track colour = the lane header only (R84c)
 function openClipColorPopup(x,y){ const sel=(state.selIds&&state.selIds.length?state.selIds:(state.selId!=null?[state.selId]:[])).map(clipById).filter(Boolean); if(!sel.length)return; colorPopup(x,y,sel[0].color,col=>{ pushUndo(); for(const c of sel)c.color=col; renderTimeline(); render(); renderInspector(); markDirty(); }, ()=>{ pushUndo(); for(const c of sel)c.color=null; renderTimeline(); render(); renderInspector(); markDirty(); }); } // per-clip colour (all selected)
@@ -8104,7 +8104,7 @@ function openVpMore(){ const F=vpFits(); closeMenu();
   const w=pan.offsetWidth||236; pan.style.left=Math.max(6,Math.min(innerWidth-w-6,r0.left-w+28))+'px'; pan.style.top=(r0.bottom+4)+'px';
   if(mb)mb.classList.add('on');
   function close(){ pan.remove(); if(mb)mb.classList.remove('on'); document.removeEventListener('pointerdown',out,true); document.removeEventListener('keydown',esc,true); }
-  const out=e=>{ if(!pan.contains(e.target)&&e.target!==mb)close(); }; const esc=e=>{ if(e.key==='Escape')close(); };
+  const out=e=>{ if(!pan.contains(e.target)&&e.target!==mb)close(); }; const esc=e=>{ if(!pan.isConnected){close();return;} /* [R218] guarda de conexión */ if(e.key==='Escape')close(); };
   setTimeout(()=>{ document.addEventListener('pointerdown',out,true); document.addEventListener('keydown',esc,true); },0); }
 if($('#vpMoreBtn'))$('#vpMoreBtn').onclick=()=>{ if(document.getElementById('vpMorePan')){ document.getElementById('vpMorePan').remove(); $('#vpMoreBtn').classList.remove('on'); return; } openVpMore(); };
 // la barra se re-evalúa cuando cambia el ancho de la columna (ventana, paneles plegados, gutters)

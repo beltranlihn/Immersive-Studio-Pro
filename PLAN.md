@@ -1,5 +1,31 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 216-218 — Decisiones resueltas + verificación de cierre de la auditoría
+
+Beltrán delegó el criterio ("aplica todo"). Resuelto:
+
+- **R216 · Lote 1**: toggle **Dome master / Patch** en el inspector para clips de nest en domo (expone
+  `props.fulldome` con hint del modo activo — cierra la decisión del Size del nest: el modo Patch escala limpio
+  para animaciones); `flashStatus('err')` con ⚠ + pill ámbar + 10s; **UI mínima de la cola de export** (lista de
+  encolados con ✕ individual y Cancel queued).
+- **R217 · Sala 360 como tercer tipo de "New sequence"**: `createRoomSequences(cfg)` extraída de
+  `newRoomProject`; el diálogo crea walls+floor EN el proyecto actual (muros 2/3/4, preset por muro, toggle de
+  piso, preview con el plan). Verificado proyecto MIXTO domo+sala+piso incluso tras guardar/reabrir.
+- **Verificación de cierre**: segunda pasada de QA (27 ítems: todos OK o diseño intencional — p.ej. solapar
+  clips = crossfade estilo Ableton) + **prueba de estrés tipo show**: 10 clips 4K simultáneos en domo 4096 →
+  52-55 fps, export bajo carga estable, y el WATCH del render-ahead resuelto (la VRAM SÍ vuelve al apagar:
+  6.6→5.8 GB). Único punto en observación: el control Full/½/¼ no mueve fps/VRAM cuando el cuello es el
+  decode de N×4K (anotado en AUDITORIA-2026-07.md).
+- **R218 · Bug nuevo del QA arreglado**: los overlays modales (tour, appAlert/appConfirm, export, colorPopup,
+  vpMore — 6 sitios) instalaban `keydown` en captura sobre `document` con cleanup solo en su cierre propio: si
+  el nodo moría por otra vía, el teclado quedaba muerto toda la sesión. Ahora cada handler se AUTO-SANA (guarda
+  `isConnected` → se des-registra y no traga la tecla). + `job.label&&` en las 8 llamadas sin guarda de
+  `runExport` (un job por API sin label producía mp4 de 0 bytes).
+
+Quedan diferidos con justificación (ver informe): [D2] snapshot por job (el scrim lo hace inofensivo hoy),
+refactors grandes, migración centralizada de `.isp`, timeline incremental 300+ clips, e indicador de horneado
+al entrar al 3D de una sala pesada (observación menor).
+
 ## ROUND 215 — Code review de R214: 9 correcciones aplicadas
 
 `/code-review` (8 revisores independientes) sobre R214 encontró regresiones reales; todas aplicadas y verificadas:
