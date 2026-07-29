@@ -912,6 +912,11 @@
   .exs-unit{font-size:9.5px;color:#6D6D6D;flex-shrink:0;}
   .exs-hint{font-size:10px;color:#6D6D6D;font-variant-numeric:tabular-nums;min-width:0;overflow:hidden;
     text-overflow:ellipsis;white-space:nowrap;}
+  /* [R215] codec-availability warning (#exCodecHint): full-width row (.span) + clamp to 3 lines so a long message
+     can wrap without letting the dialog grow past its footer (was inline styles in R214, uncapped) */
+  .exs-row.hintwrap{height:auto;align-items:flex-start;}
+  .exs-hint.wrap{color:#D89B3C;line-height:1.45;white-space:normal;overflow:hidden;text-overflow:clip;
+    display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;}
   .exs-est{grid-column:1 / -1;background:#131417;border:.5px solid rgba(255,255,255,0.07);border-radius:3px;
     padding:7px 9px;font-size:10.5px;color:#B8B8B8;font-variant-numeric:tabular-nums;}
   .exs-est.warn{color:#E5B567;}

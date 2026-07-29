@@ -2638,7 +2638,7 @@ function lchInit(){ return { ptype:'dome', pname:'',
          {role:'Back', wcm:800,hcm:450,pxW:3840,pxH:2160},{role:'Left', wcm:800,hcm:450,pxW:3840,pxH:2160}],
   fps:60, draft:{} }; }
 const lchMP=(w,h)=>(w*h/1e6).toFixed(1)+' MP';
-function lchAspect(w,h){ return fmtAspect(w,h); } // [R214] was its own GCD calc with no cap (could print unwieldy ratios like "1937:1080" for odd custom sizes); now shares fmtAspect's core — same output for normal w×h (both reduce 1920×1080 → "16:9"), the rare huge-ratio edge case now falls back to fmtAspect's decimal form instead
+function lchAspect(w,h){ return (w&&h)?fmtAspect(w,h):((w||0)+':'+(h||0)); } // [R214→R215] shares fmtAspect's core for the normal case (both reduce 1920×1080 → "16:9"). fmtAspect on its own returns '' for a falsy w/h — fine where it's shown standalone, but both call sites here (~2828/2903) splice the result into a string with ' · ' on either side, so an empty result left a dangling " ·  · " with nothing between the separators; the fallback keeps the output well-formed (e.g. "0:0") even mid-edit while a size field is momentarily empty/NaN
 function lchEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 /* --- campo numérico con BORRADOR: escribir no compromete nada hasta Enter/blur; Esc descarta; ↑/↓ ±10,
@@ -4520,7 +4520,7 @@ function autoDuoText(li,cur,onPick){ const wrap=document.createElement('div'); w
   const isT=isFxtKey(cur); const q=isT?cur.split(':'):null;
   const dev=isT?T(FXBY[q[1]].label[0],FXBY[q[1]].label[1]):(XFORM_P.some(d=>d[0]===cur)?T('Transform','Transformar'):T('Effects','Efectos'));
   const par=isT?fxParamLabel(q[1],q[2]):propLabel(cur);
-  wrap.innerHTML=`<span class="achip acat" title="${dev}"><span class="alab">${dev}</span>${ICO('chevDown',8)}</span><span class="achip apac" title="${par}"><span class="asw2" style="background:${autoColor(cur)}"></span><span class="alab">${par}</span>${ICO('chevDown',8)}</span>`; // [REDISEÑO Rev1] 2 chips (Effect-type + Parameter con swatch) · [R214] per-chip title = full text (the .alab ellipsis was truncating "Opa…" with no way to read the rest)
+  wrap.innerHTML=`<span class="achip acat" title="${lchEsc(dev)} · ${T('Click to change','Clic para cambiar')}"><span class="alab">${dev}</span>${ICO('chevDown',8)}</span><span class="achip apac" title="${lchEsc(par)} · ${T('Click to change','Clic para cambiar')}"><span class="asw2" style="background:${autoColor(cur)}"></span><span class="alab">${par}</span>${ICO('chevDown',8)}</span>`; // [REDISEÑO Rev1] 2 chips (Effect-type + Parameter con swatch) · [R214] per-chip title = full text (the .alab ellipsis was truncating "Opa…" with no way to read the rest) · [R215] the R214 per-chip title fully covered the wrapper's "Click to change device / parameter" — combined here so hovering a chip still surfaces the click affordance
   /* [R156] Cada chip abre un MENÚ, no se transforma en dos <select> inline.
      Antes, la pista con el clip seleccionado cambiaba a la versión con selects (`autoDuo`), que es más alta: a 57px
      de pista —la altura del diseño— empujaba la fila de identidad fuera de la cabecera y esa pista se veía rota.
@@ -5730,15 +5730,21 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
   if(opt.outW&&opt.outH&&!wall){ eW=Math.max(16,Math.round(opt.outW/2)*2); eH=Math.max(16,Math.round(opt.outH/2)*2); qRes=Math.max(eW,eH); dimStr=eW+'x'+eH; } // [R180] salida a escala: el caché de un nest se hornea a media resolución (o menos) — es material de trabajo, no de entrega
   const filePre=wall?('wall_'+String(wall.role||'').toLowerCase()):(flat?'2d':'dome');
   const job=opt.job; const oW=glc.width,oH=glc.height; if(state.playing)pause(); // never export over a live transport — the playback rAF loop and the export seeker would fight over the media elements
-  /* [R214] Shared teardown for runExport's two mutually-exclusive exits: the streaming-save-cancelled early return
+  /* [R214→R215] Shared teardown for runExport's two mutually-exclusive exits: the streaming-save-cancelled early return
      (below) and the normal end-of-function exit. They used to be two literal copies of this block — R212's fix
      (balanced powerSave(false); it used to leak _exportQuality=true, leaving the viewer "stuck binding heavy
-     originals" after export) landed in only one of them the first time around. `dxt` is the one real difference:
-     dxtFree() only runs on the normal exit (the streaming early return bails before any DXT work happens). */
-  function _exportCleanup(doneArg,flags){ flags=flags||{};
+     originals" after export) landed in only one of them the first time around.
+     [R215] Two bugs from the R214 merge, both fixed here: (1) the `flags`/`{dxt:true}` param made dxtFree() run
+     conditionally, as if it mattered whether the exit was the normal one — but dxtFree() is idempotent, so there was
+     never a reason to skip it on the early-return path; removed, dxtFree() now runs unconditionally and both call
+     sites just pass doneArg. (2) the order regressed vs. the original normal-exit code: it dropped #renderMask's
+     'on' class BEFORE restoring glc to its pre-export size (see [R2] below, where the mask is applied — it exists
+     specifically to hide glc while it's sized for export). Lifting the mask first exposes a stretched stale frame
+     for one paint if anything between the two lines throws. Restored to size-first, mask-last. */
+  function _exportCleanup(doneArg){
     if(_ripSaved)state.clips=_ripSaved; // [R115] restore the full clip list after an isolated render-in-place
+    glc.width=oW;glc.height=oH; freeExportFBO(); dxtFree(); nestSize=COMP; freeNestPool();
     try{ if($('#renderMask'))$('#renderMask').classList.remove('on'); }catch(_){}
-    glc.width=oW;glc.height=oH; freeExportFBO(); if(flags.dxt)dxtFree(); nestSize=COMP; freeNestPool();
     exporting=false; _exportQuality=false; _exCD=false; _vinstCap=VINST_MAX; _ncSquare=false; disposeAllVinst();
     try{ if(IS_ELEC&&DSP.powerSave)DSP.powerSave(false); }catch(e){}
     for(const m of state.media)if(m._exAudio)delete m._exAudio; // _exAudio freed: decoded video audio is export-only (1h ≈ 1.4GB PCM)
@@ -5918,7 +5924,7 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
   }catch(err){console.error(err); if(job&&job.fail){ job.fail(err); } else appAlert(T('Error export: ','Error de exportación: ')+err.message); } // [R179] a job that declares job.fail owns the error (render-in-place must NOT go on to import a half-written file); everyone else keeps the alert
   _exStage='done';
   diag('info','export',cancelExport?'cancelled':'done',{codec:opt.codec,res}); diagFlush();
-  _exportCleanup(cancelExport,{dxt:true}); // [R214] normal exit path — the streaming-save-cancelled early return above is the other, mutually exclusive exit
+  _exportCleanup(cancelExport); // [R214→R215] normal exit path — the streaming-save-cancelled early return above is the other, mutually exclusive exit; no flags arg anymore, dxtFree() always runs (it's idempotent)
   /* [R190] Al terminar se abre la carpeta DIRECTAMENTE. Antes preguntaba con un `appConfirm`, y la respuesta era
      siempre la misma: un clic de más entre tú y el archivo que acabas de esperar. Sólo en el ÚLTIMO trabajo: una
      sala por muro encola 4 + piso, y abrir cinco ventanas del explorador sería peor que preguntar. */
@@ -6524,7 +6530,7 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
       <div class="exs-row"><label>${T('Preset','Preajuste')}</label><select id="exPreset" style="flex:1;"></select><button class="exs-btn" id="exSavePreset">${T('Save','Guardar')}</button></div>
       <div class="exs-row"><label>${T('Range','Rango')}</label><div class="exs-seg" id="exRange"><button data-rg="clips">${T('Clip extent','Extensión')}</button><button data-rg="inout">${T('In / Out','Entrada / Salida')}</button></div><span class="exs-hint" id="exRangeTc"></span></div>
       <div class="exs-row"><label>${T('Codec','Códec')}</label><select id="exCodec" style="flex:1;"></select></div>
-      <div class="exs-row" id="exCodecHintRow" style="display:none;height:auto;align-items:flex-start;"><label></label><span class="exs-hint" id="exCodecHint" style="color:#D89B3C;line-height:1.45;white-space:normal;overflow:visible;text-overflow:clip;"></span></div><!-- [R214] was single-line ellipsis (.exs-hint default) — this message runs long ("H.265/HEVC does not reach…"), let it wrap to 2 lines; title added alongside textContent below -->
+      <div class="exs-row span hintwrap" id="exCodecHintRow" style="display:none;"><label></label><span class="exs-hint wrap" id="exCodecHint"></span></div><!-- [R214→R215] was single-line ellipsis (.exs-hint default) — this message runs long ("H.265/HEVC does not reach…"). R214 wrapped it with inline styles (untamed, could grow the dialog past the footer in a short window); R215 moves layout to CSS (.span for full-width row + .hintwrap/.exs-hint.wrap in index.html) with a 3-line clamp so the dialog has a hard height ceiling. title mirrors the text below for the untruncated case. -->
       <div class="exs-row"><label>${T('Frame rate','Cuadros/s')}</label><select id="exFps">${[24,25,30,48,50,60].map(f=>`<option value="${f}">${f}</option>`).join('')}</select><span class="exs-unit">fps</span></div>
       <div class="exs-row span"><label>${T('Pixel size','Tamaño en píxeles')}</label>
         <div style="display:flex;align-items:center;gap:8px;width:100%;">
@@ -6920,6 +6926,8 @@ function deleteSequenceMedia(id){ const m=mediaById(id); if(!isSeqMedia(m))retur
     if(wasActive){ state.activeSeqId=state.openSeqs[state.openSeqs.length-1]; loadSeqIntoState(activeSeq()); }
     clearAllUndo(); renderMedia(); renderSeqBar(); renderTimeline(); renderInspector(); renderWork(); render(); updStatus(); updFmtChip(); markDirty(); }, {ok:T('Delete','Eliminar'),danger:true}); } // clearAllUndo: other sequences' histories may reference the deleted sequence's media id — resurrecting those clips would orphan them
 const DOME_COV=[180,200,210,220]; // fisheye coverage presets (deg). 180° = full hemisphere (fulldome standard)
+/* [R214] plain GCD reduction (1920×1080 → "16:9") capped at 40: odd custom sizes can have a huge coprime ratio
+   (e.g. "1937:1080") that's useless as a label, so past the cap it falls back to a decimal "W/H:1" form instead. */
 function fmtAspect(w,h){ if(!w||!h)return ''; const gcd=(a,b)=>b?gcd(b,a%b):a; const d=gcd(w,h)||1; const rw=Math.round(w/d), rh=Math.round(h/d); return (rw>40||rh>40)?((w/h).toFixed(2)+':1'):(rw+':'+rh); }
 /* Live format preview for the create dialogs (parity with the 360-room schematic): a proportion rectangle for 2D,
    a fisheye disc for Dome where the horizon ring moves inward as the coverage (FOV) grows. */
@@ -6944,6 +6952,7 @@ function drawSeqViz(cv,kind,o){ if(!cv)return; const ctx=cv.getContext('2d'); co
   ctx.textAlign='left'; ctx.fillText(T('RIGHT','DER'), cx+R+6*U, cy); ctx.textAlign='right'; ctx.fillText(T('LEFT','IZQ'), cx-R-6*U, cy);
   ctx.fillStyle='rgba(224,224,224,0.7)'; ctx.beginPath();ctx.arc(cx,cy,1.8*U,0,7);ctx.fill();
   ctx.textAlign='left'; ctx.textBaseline='alphabetic'; ctx.fillStyle='rgba(150,150,150,0.9)'; ctx.font=`600 ${8*U}px Geist,system-ui`; ctx.fillText((o.cov||180)+'° '+T('coverage','cobertura'), 10*U, H-9*U); }
+const MENU_ROOM_LABEL=()=>T('New 360 room…','Nueva sala 360…'); // [R215] single source for the File-menu item's label (~8397) and the New-sequence hint below, so a rename of one can't desync the other
 function newSequenceDialog(){ const n=state.media.filter(isSeqMedia).length+1; const ov=document.createElement('div'); ov.className='overlay';
   ov.innerHTML=`<div class="modal" style="width:440px;"><div class="mh"><span class="t">${T('New sequence','Nueva secuencia')}</span></div><div class="mb">
     <canvas id="nsViz" class="rs-cv" width="816" height="300" style="height:150px;margin-bottom:12px;"></canvas>
@@ -6953,7 +6962,7 @@ function newSequenceDialog(){ const n=state.media.filter(isSeqMedia).length+1; c
     <div class="frow" id="nsCovRow"><label>${T('Coverage','Cobertura')}</label><select id="nsCov">${DOME_COV.map(c=>`<option value="${c}" ${c===180?'selected':''}>${c}°${c===180?' · '+T('fulldome','domo completo'):''}</option>`).join('')}</select><span class="tnum" style="color:var(--ink-dim);">FOV</span></div>
     <div class="frow" id="nsFlatRow" style="display:none;"><label>${T('Resolution','Resolución')}</label><input type="number" class="tnum" id="nsW" value="1920" min="16" max="8192" style="width:74px;"><span style="color:var(--ink-dim);">×</span><input type="number" class="tnum" id="nsH" value="1080" min="16" max="8192" style="width:74px;"><span class="tnum" style="color:var(--ink-dim);">px</span></div>
     <div class="frow"><label>${T('Frame rate','Cuadros/s')}</label><select id="nsFps"><option>24</option><option>25</option><option>30</option><option>48</option><option>50</option><option selected>60</option></select><span class="tnum" style="color:var(--ink-dim);">fps</span></div>
-    <div style="font-size:11px;color:var(--ink-dim);margin-top:2px;">${T('Need a 360 room? File → New 360 room project…','¿Necesitas una sala 360? File → New 360 room project…')}</div><!-- [R214] Dome/2D are the only two types here — the room needs its own wall-layout wizard, this just points the way -->
+    <div style="font-size:11px;color:var(--ink-dim);margin-top:2px;">${T("Need a 360 room? It's a project type: ",'¿Necesitas una sala 360? Es un tipo de proyecto: ')}${T('File','Archivo')} → ${MENU_ROOM_LABEL()} ${T('(replaces the current project)','(reemplaza el proyecto actual)')}</div><!-- [R214→R215] Dome/2D are the only two types here — the room needs its own wall-layout wizard, this just points the way. R214's text named a menu item ("New 360 room project…") that doesn't exist (the real item is "New 360 room…") and was untranslated in ES; R215 pulls the real label from MENU_ROOM_LABEL() and says outright that it replaces the current project (confirmDiscard still gates it, but this dialog itself doesn't warn otherwise) -->
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;"><button class="mbtn" id="nsCancel">${T('Cancel','Cancelar')}</button><button class="mbtn pri" id="nsGo">${T('Create','Crear')}</button></div></div></div>`;
   document.body.appendChild(ov); const close=()=>ov.remove(); $('#nsCancel').onclick=close; ov.addEventListener('pointerdown',e=>{if(e.target===ov)close();});
   let mode='dome';
@@ -7351,9 +7360,11 @@ function serProject(){ saveActiveSeq(); return { app:'DomeStudioPro', v:4, fps:s
 async function saveProject(saveAs){ const json=JSON.stringify(serProject());
   if(IS_ELEC){ let p=currentPath; if(saveAs||!p){ p=await DSP.saveDialog(p||((currentTitle()==='Untitled project'?T('untitled','proyecto'):currentTitle())+'.isp')); if(!p)return; }
     try{ const old=await DSP.readText(p); if(old&&old.length>2)await DSP.writeText(p+'.bak',old); }catch(e){} // rotate a .bak of the previous save — protects against a corrupted/interrupted overwrite
-    try{ const ok=await DSP.writeText(p,json); if(ok===false)throw new Error('write returned false'); currentPath=p; state.dirty=false; projTitle(); flashStatus(T('Project saved','Proyecto guardado')); addRecent(p, projThumb()); clearLiveAutosaves(); purgeMediaTrash(); } // the file is now the newest copy → drop the crash autosaves so a later open never falsely offers "restore a newer autosave" · [R214] a successful save is also a good time to let go of long-dead trashed media
-    catch(e){ appAlert(T('Could not save the project (disk full, locked file, or no permission). Try Save As to another location.','No se pudo guardar el proyecto (disco lleno, archivo bloqueado o sin permiso). Prueba Guardar como en otra ubicación.')); } }
-  else { dlBlob(new Blob([json],{type:'application/json'}),(currentTitle()==='Untitled project'?'proyecto':currentTitle())+'.isp'); state.dirty=false; projTitle(); flashStatus(T('Project saved','Proyecto guardado')); purgeMediaTrash(); } } // [R214]
+    let _ok=true;
+    try{ const ok=await DSP.writeText(p,json); if(ok===false)throw new Error('write returned false'); currentPath=p; state.dirty=false; projTitle(); flashStatus(T('Project saved','Proyecto guardado')); addRecent(p, projThumb()); clearLiveAutosaves(); } // the file is now the newest copy → drop the crash autosaves so a later open never falsely offers "restore a newer autosave"
+    catch(e){ _ok=false; appAlert(T('Could not save the project (disk full, locked file, or no permission). Try Save As to another location.','No se pudo guardar el proyecto (disco lleno, archivo bloqueado o sin permiso). Prueba Guardar como en otra ubicación.')); }
+    if(_ok){ try{ purgeMediaTrash(); }catch(e){ console.warn('purgeMediaTrash failed',e); } } } // [R215] fuera del try de escritura y sólo tras éxito CONFIRMADO — un fallo del purge nunca debe reportarse como "Could not save"
+  else { dlBlob(new Blob([json],{type:'application/json'}),(currentTitle()==='Untitled project'?'proyecto':currentTitle())+'.isp'); state.dirty=false; projTitle(); flashStatus(T('Project saved','Proyecto guardado')); } } // [R215] sin purgeMediaTrash aquí: la descarga del navegador no confirma que el archivo se haya escrito a disco — purgar destruiría medias sin garantía real de que el guardado llegó a buen puerto
 function confirmDiscard(){ return new Promise(res=>{ if(!state.dirty){ res(true); return; } appConfirm(T('There are unsaved changes. Continue and discard them?','Hay cambios sin guardar. ¿Continuar y descartarlos?'), res, {ok:T('Discard','Descartar'),danger:true}); }); }
 async function openProject(){ if(!(await confirmDiscard()))return;
   if(IS_ELEC){ const p=await DSP.openDialog(); if(!p)return; const txt=await DSP.readText(p); if(txt==null){appAlert(T('Could not read the file.','No se pudo leer el archivo.'));return;} let obj; try{obj=JSON.parse(txt);}catch(e){appAlert(T('Invalid project','Proyecto no válido'));return;} currentPath=p; hideLanding(); loadProject(await maybeOfferAutosave(p,obj)); } // hide the landing FIRST so the recovery prompt (if any) shows on a clean screen, not buried behind the start screen
@@ -7678,7 +7689,7 @@ function adopt(m){ // relink a re-imported file to a missing slot — prefer an 
   if(i>=0){m.id=state.media[i].id;state.media.splice(i,1);renderTimeline();renderInspector();} updRelink(); }
 let saveVer=1;
 function saveIncremental(){ saveVer++; const json=JSON.stringify(serProject()); const name=(currentTitle()==='Untitled project'?'proyecto':currentTitle())+'_v'+String(saveVer).padStart(2,'0')+'.isp';
-  if(IS_ELEC&&currentPath){ DSP.saveDialog(name).then(p=>{ if(!p)return; DSP.writeText(p,json).then(ok=>{ if(ok===false)appAlert(T('Could not save the project (disk full, locked file, or no permission).','No se pudo guardar el proyecto (disco lleno, archivo bloqueado o sin permiso).')); else flashStatus(T('Saved v','Guardado v')+saveVer); }); }); } // [R212] same pattern as saveProject: check the write actually succeeded before claiming it did
+  if(IS_ELEC&&currentPath){ DSP.saveDialog(name).then(p=>{ if(!p)return; DSP.writeText(p,json).then(ok=>{ if(ok===false)appAlert(T('Could not save the project (disk full, locked file, or no permission).','No se pudo guardar el proyecto (disco lleno, archivo bloqueado o sin permiso).')); else { flashStatus(T('Saved v','Guardado v')+saveVer); try{ purgeMediaTrash(); }catch(e){ console.warn('purgeMediaTrash failed',e); } } }); }); } // [R212] same pattern as saveProject: check the write actually succeeded before claiming it did · [R215] purge only after confirmed success, own try/catch
   else { dlBlob(new Blob([json],{type:'application/json'}),name); flashStatus(T('Saved v','Guardado v')+saveVer); } }
 async function restoreAutosave(){ if(!(await confirmDiscard()))return;
   if(IS_ELEC){ // disk candidates, newest first: project-local autosave folder + LEGACY sidecar next to the project + the unsaved-project pair
@@ -7738,23 +7749,32 @@ function restore(s){ const o=JSON.parse(s); state.clips=o.clips.map(c=>({...c,ma
   renderTimeline();renderInspector();render();updStatus(); reschedAudio(); }
 function undo(){ const st=_ustk(); if(!st.u.length)return; st.r.push(snapshot()); const s=st.u.pop(); st.bytes-=s.length; restore(s); }
 function redo(){ const st=_ustk(); if(!st.r.length)return; const s=snapshot(); st.u.push(s); st.bytes+=s.length; restore(st.r.pop()); }
-/* [R214] state.mediaTrash never shrank on its own — a media deleted from the panel stayed in the trash (full
+/* [R214→R215] state.mediaTrash never shrank on its own — a media deleted from the panel stayed in the trash (full
    decoded buffers/textures held via disposeMedia's own bookkeeping, not the tiny stub) for the rest of the
    session, undo-revivable forever. new/open/newRoomProject already wipe the trash wholesale (fresh project = no
    history to protect). This purges it on a successful SAVE instead, which is the one moment old undo history is
    least likely to still matter, while staying safe: a media is kept if any LIVE clip (in any sequence, open or
-   not) still points at it, OR if it's still reachable by walking every per-sequence undo/redo stack (bounded to
-   ≤80 snapshots total by pushUndo's cap, so this is cheap) — either its clips reference the id, or it's listed
-   in that snapshot's own trashIds (the id was sent to the trash by the very push being inspected). */
-function purgeMediaTrash(){ if(!state.mediaTrash)return;
-  const need=new Set();
-  for(const s of state.media)if(isSeqMedia(s)){ const arr=(s.id===state.activeSeqId?state.clips:s.nestClips)||[]; for(const c of arr)need.add(c.mediaId); }
-  for(const c of state.clips)need.add(c.mediaId);
-  for(const k in _undoBySeq){ const st=_undoBySeq[k]; for(const arr of [st.u,st.r])for(const snap of arr){ try{ const o=JSON.parse(snap);
-    if(Array.isArray(o.clips))for(const c of o.clips)if(c.mediaId!=null)need.add(c.mediaId);
-    if(Array.isArray(o.trashIds))for(const id of o.trashIds)need.add(id);
-  }catch(e){} } }
-  for(const id in state.mediaTrash){ if(!need.has(+id)){ try{disposeMedia(state.mediaTrash[id]);}catch(e){} delete state.mediaTrash[id]; } }
+   not) still points at it, OR if it's listed in some undo/redo snapshot's own trashIds (the id was sent to the
+   trash by the very push being inspected — restore() revives it from there, see line ~7736).
+   [R215] The R214 version JSON.parsed every snapshot in every per-sequence undo/redo stack on each save — with
+   big keyframe-heavy timelines that's a multi-MB parse per snapshot, run on the main thread on every Ctrl+S
+   (freeze) — and its `if(!state.mediaTrash)` early-out never actually fired because the trash is always `{}`,
+   never null/undefined, once created. Fixed: (1) real early-out on an empty trash; (2) ZERO JSON.parse — trashIds
+   lives ONLY inside the snapshot's JSON string (snapshot() embeds it via JSON.stringify, it's not kept as
+   separate metadata alongside the stack entry), so instead of parsing we regex out just the `"trashIds":[...]`
+   slice of each snapshot string and read the ids from that — cost is O(entradas) string scans, not O(entradas)
+   full-tree parses; (3) "referenced by live clips" now reuses clipsDelProyecto() instead of duplicating its walk.
+   Called from saveProject/saveIncremental (Electron branch only, AFTER a confirmed-successful write, in its own
+   try/catch — a purge failure must never surface as a save failure); the web/download branches don't call it
+   (dlBlob never confirms the file reached disk) and neither does the periodic autosave (it's not a "safe to lose
+   old undo history" moment the way an explicit save is). */
+function purgeMediaTrash(){ const tids=Object.keys(state.mediaTrash||{}); if(!tids.length)return;
+  const need=new Set(clipsDelProyecto().map(c=>c.mediaId));
+  outer: for(const k in _undoBySeq){ const st=_undoBySeq[k]; for(const arr of [st.u,st.r]){ for(const snap of arr){
+    const m=snap.match(/"trashIds":\[([^\]]*)\]/); if(m)for(const s of m[1].split(','))if(s!=='')need.add(+s);
+    if(tids.every(id=>need.has(+id)))break outer; // every trashed id already accounted for — no point scanning the rest
+  } } }
+  for(const id of tids)if(!need.has(+id)){ try{disposeMedia(state.mediaTrash[id]);}catch(e){} delete state.mediaTrash[id]; }
 }
 let flashT=0;
 function flashStatus(msg,kind){ diag('info','status',msg); const a=$('#statAuto'); a.textContent=msg; a.style.color=(kind==='err')?'#E5B567':''; clearTimeout(flashT); flashT=setTimeout(()=>{ a.textContent=state.lastSaved?(T('Autosaved ','Autoguardado ')+state.lastSaved):T('Ready','Listo'); a.style.color=''; },(kind==='err')?6000:2600); } // [R94-UT3·U-21] kind 'err' → amber + 6s so errors outlive the 2.6s info flash; no kind = identical to before
@@ -7903,7 +7923,7 @@ function colorPopup(x,y,cur,onPick,onClear){ document.querySelectorAll('.lanecol
   setTimeout(()=>{ document.addEventListener('pointerdown',close,true); document.addEventListener('keydown',esc,true); },0); }
 function openLaneColorPopup(li,x,y){ const lane=state.lanes[li]; if(!lane)return; colorPopup(x,y,lane.color,col=>{ pushUndo(); lane.color=col; renderTimeline(); render(); markDirty(); }, ()=>{ pushUndo(); delete lane.color; renderTimeline(); render(); markDirty(); }); } // track colour = the lane header only (R84c)
 function openClipColorPopup(x,y){ const sel=(state.selIds&&state.selIds.length?state.selIds:(state.selId!=null?[state.selId]:[])).map(clipById).filter(Boolean); if(!sel.length)return; colorPopup(x,y,sel[0].color,col=>{ pushUndo(); for(const c of sel)c.color=col; renderTimeline(); render(); renderInspector(); markDirty(); }, ()=>{ pushUndo(); for(const c of sel)c.color=null; renderTimeline(); render(); renderInspector(); markDirty(); }); } // per-clip colour (all selected)
-function insColState(){ if(!state.insCol)state.insCol={clip:true,color:true,motion:true}; return state.insCol; } // [I1] default: Transform expanded, Clip/Color/Motion collapsed
+function insColState(){ if(!state.insCol)state.insCol={clip:true,color:true,motion:true,mfx:false}; return state.insCol; } // [I1] default: Transform expanded, Clip/Color/Motion collapsed · [R215] mfx (Motion → Effects sub-section) expanded by default, matching its pre-R215 implicit default
 function applySecCollapse(){ const st=insColState(); document.querySelectorAll('#insCtl .sechead[data-sec]').forEach(h=>{ const col=!!st[h.dataset.sec];
     h.classList.toggle('seccollapsed',col); const chev=h.querySelector('.ic'); if(chev)chev.style.transform=col?'rotate(-90deg)':'';
     let n=h.nextElementSibling; while(n && !(n.classList&&n.classList.contains('sechead'))){ if(n.id!=='insAudio')n.style.display=col?'none':''; n=n.nextElementSibling; } }); } // walk this header's rows up to the next header; insAudio is never section-owned
@@ -8383,7 +8403,7 @@ function openAppMenu(which,btn){ const r=btn.getBoundingClientRect(); const x=r.
   if(which==='file') items=[
     {label:T('New dome project…','Nuevo proyecto domo…'),ico:'plus',fn:()=>domeSetupDialog(cfg=>{ hideLanding(); newProject('dome',cfg.res,cfg.res,cfg.fps,cfg.cov); })},
     {label:T('New 2D project…','Nuevo proyecto 2D…'),fn:()=>flatResDialog((w,h,fps)=>{ hideLanding(); newProject('flat',w,h,fps); })},
-    {label:T('New 360 room…','Nueva sala 360…'),fn:()=>roomSetupDialog(cfg=>{ hideLanding(); newRoomProject(cfg); })},
+    {label:MENU_ROOM_LABEL(),fn:()=>roomSetupDialog(cfg=>{ hideLanding(); newRoomProject(cfg); })}, // [R215] label now shared with the New-sequence hint via MENU_ROOM_LABEL()
     'sep',
     {label:T('Open…','Abrir…'),key:'⌘O',ico:'folder',fn:()=>openProject()},
     {label:T('Save','Guardar'),key:'⌘S',ico:'save',fn:()=>saveProject(false)},
@@ -8921,7 +8941,7 @@ function applyLang(){ const L=state.lang; document.documentElement.lang=L;
   ttl('#inspRail','Expand inspector','Expandir inspector'); txt('#inspRail .rlab','Inspector','Inspector');
   txt('#inspPane .pantab .ttl','Inspector','Inspector'); ttl('#hideInsp','Collapse panel','Contraer panel');
   const ie=$('#insEmpty'); if(ie){ ie.innerHTML='<span style="opacity:.5;"><i class="ic" data-ico="panel" data-s="26"></i></span>'+T('Select a clip','Selecciona un clip')+'<br>'+T('in the timeline or viewport','en la línea de tiempo o el visor'); const ic=ie.querySelector('[data-ico]'); if(ic){ic.innerHTML=ICO(ic.dataset.ico,+ic.dataset.s||13);ic.style.display='inline-flex';} }
-  { const secLbl=(sec,en,es)=>{const h=document.querySelector('#insCtl .sechead[data-sec="'+sec+'"] .t'); if(h)h.textContent=T(en,es);}; secLbl('tf',isFlat()?'Transform':'Dome · Transform',isFlat()?'Transformar':'Domo · Transformar'); secLbl('clip','Clip','Clip'); secLbl('color','Color','Color'); secLbl('motion','Motion','Movimiento'); }
+  { const secLbl=(sec,en,es)=>{const h=document.querySelector('#insCtl .sechead[data-sec="'+sec+'"] .t'); if(h)h.textContent=T(en,es);}; secLbl('tf',isFlat()?'Transform':'Dome · Transform',isFlat()?'Transformar':'Domo · Transformar'); secLbl('clip','Clip','Clip'); secLbl('color','Color','Color'); secLbl('motion','Motion','Movimiento'); secLbl('mfx','Effects','Efectos'); } // [R215] mfx = Motion → Effects sub-section, now in the standard data-sec registry
   tn('#mirrorBtn','Mirror','Reflejar');
   ttl('#toStart','Go to start · Home','Ir al inicio · Inicio'); ttl('#playBtn','Play / Pause · Space','Reproducir / Pausar · Espacio'); ttl('#toEnd','Go to end · End','Ir al final · Fin'); ttl('#loopBtn','Loop selection · Ctrl+L','Bucle de selección · Ctrl+L');
   ttl('#addMk','Add locator · L','Añadir localizador · L');
@@ -8930,6 +8950,8 @@ function applyLang(){ const L=state.lang; document.documentElement.lang=L;
   ttl('#markIn','Mark In · I (right-click clears the range)','Marcar entrada · I (clic derecho borra el rango)'); ttl('#markOut','Mark Out · O (right-click clears the range)','Marcar salida · O (clic derecho borra el rango)'); // [R94e]
   ttl('#curvesBtn','Show/hide automation (clip parameters + reactive FX) · A','Mostrar/ocultar automatización (parámetros del clip + FX reactivos) · A'); // [U1] icon-only
   ttl('#tlZoomOut','Zoom out timeline','Alejar línea de tiempo'); ttl('#tlZoomIn','Zoom in timeline','Acercar línea de tiempo');
+  ttl('#vzOut','Zoom out','Alejar'); ttl('#vzIn','Zoom in','Acercar'); // [R215] viewport zoom — was untranslated
+  ttl('#nestCacheToggle','Compositions play from their proxy (much faster). Turn off to preview them rebuilt from every source clip. The export always rebuilds from sources either way.','Las composiciones se reproducen desde su proxy (mucho más rápido). Desactívalo para previsualizarlas recompuestas desde cada clip fuente. El export siempre recompone desde las fuentes de todos modos.'); // [R215] was a static EN-only title in index.html
   ttl('#toolRail button[data-t="select"]','Select (V)','Seleccionar (V)'); ttl('#toolRail button[data-t="hand"]','Hand / Pan (H)','Mano / Desplazar (H)'); ttl('#toolRail button[data-t="razor"]','Razor (B / C)','Cuchilla (B / C)'); ttl('#toolRail button[data-t="zoom"]','Zoom (Z)','Zoom (Z)');
   if(!state.lastSaved){ const sa=$('#statAuto'); if(sa)sa.textContent=T('Ready','Listo'); }
   projTitle();
@@ -9567,17 +9589,19 @@ function wireReactiveChain(c){ wireFxCards(c,'#arChain',renderReactivePanel); } 
 /* [I2·Motion] scoped rebuild of the Motion effects block — its OWN reRender (not renderInspector), so editing an effect
    here re-renders only #motionFx, matching how renderReactivePanel isolates the reactive chain. */
 function renderMotionFx(c){ const host=$('#motionFx'); if(!host||!c)return;
-  /* [R214] "Effects" here used to be a bare .fxsec label (no collapse) — the only sub-header in the inspector that
-     didn't follow the Transform/Clip/Color/… .sechead pattern (chevron + click to collapse). Rebuilt as one, sharing
-     the same collapse registry (insColState()/state.insCol, key 'mfx'). It's rebuilt on every renderMotionFx call
-     (fresh DOM node each time, unlike the top-level headers wired once by wireSecHeads at load), so its click
-     handler is wired inline below instead of relying on the once-at-load global wiring. */
-  const col=!!insColState().mfx;
+  /* [R214→R215] "Effects" here used to be a bare .fxsec label (no collapse), then (R214) a bespoke .sechead with an
+     inline onclick + inline chevron transform — still the only sub-header in the inspector that didn't go through
+     the standard collapse registry (wireSecHeads/applySecCollapse, keyed by data-sec). R215: now genuinely standard
+     markup (data-sec="mfx", chevron in a plain .ic span, no inline onclick/transform) — wireSecHeads() below wires
+     it (it's rebuilt on every renderMotionFx call, so the fresh node never has _wired set) and applySecCollapse()
+     applies the current collapse state the same way it does for every other section. The body is always built (like
+     every other section builds its rows even while collapsed) — display is governed entirely by applySecCollapse's
+     sibling walk, not by an inline style computed here. */
   const fxHtml=(c.fx&&c.fx.length)?c.fx.map(f=>fxCardHtml(c,f,false)).join(''):`<div style="padding:1px 2px 3px;color:var(--ink-dim);font-size:11px;line-height:1.4;">${T('No effects yet. Distortion, stylize, color… added here run as static, keyframable effects.','Sin efectos aún. Distorsión, estilizado, color… añadidos aquí corren como efectos estáticos y automatizables.')}</div>`;
-  host.innerHTML=`<button class="sechead" id="secMotionFx"><span style="color:var(--ink-dim);display:flex;transform:rotate(${col?-90:0}deg);">${ICO('chevDown',13)}</span><span class="t">${T('Effects','Efectos')}</span><span class="ln"></span></button><div id="motionFxBody" style="display:${col?'none':''};">${fxHtml}<div style="padding:2px 10px 0;"><button class="mbtn" id="motionAddFx" style="width:100%;justify-content:center;gap:6px;height:24px;font-size:11px;border-radius:2px;">${ICO('plus',12)} ${T('Add Effect','Añadir efecto')}</button></div></div>`;
-  { const sh=$('#secMotionFx'); if(sh)sh.onclick=()=>{ const st=insColState(); st.mfx=!st.mfx; renderMotionFx(c); }; }
+  host.innerHTML=`<button class="sechead" id="secMotionFx" data-sec="mfx"><span class="ic" style="color:var(--ink-dim);display:flex;">${ICO('chevDown',13)}</span><span class="t">${T('Effects','Efectos')}</span><span class="ln"></span></button><div id="motionFxBody">${fxHtml}<div style="padding:2px 10px 0;"><button class="mbtn" id="motionAddFx" style="width:100%;justify-content:center;gap:6px;height:24px;font-size:11px;border-radius:2px;">${ICO('plus',12)} ${T('Add Effect','Añadir efecto')}</button></div></div>`;
   { const mAdd=$('#motionAddFx'); if(mAdd)mAdd.onclick=(ev)=>openFxMenu(ev,true); } // motion → static effect (int seeded visible, no audio routing)
-  wireFxCards(c,'#motionFx',()=>renderMotionFx(c)); }
+  wireFxCards(c,'#motionFx',()=>renderMotionFx(c));
+  wireSecHeads(); applySecCollapse(); } // [R215] fresh node each render → not yet _wired, and its display must be re-applied from state.insCol.mfx
 /* wire every .fxcard under `sel` (reactive chain OR the Motion section); reRender() refreshes the host panel after edits.
    Reactive-only controls (band/mode/inv/shape/div) are absent from Motion cards, so their `if(el)` guards simply no-op.
    Collapse state is namespaced per view (`m:` for Motion) so a card's collapse in one panel doesn't move it in the other. */

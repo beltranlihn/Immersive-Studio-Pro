@@ -1,5 +1,29 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 215 — Code review de R214: 9 correcciones aplicadas
+
+`/code-review` (8 revisores independientes) sobre R214 encontró regresiones reales; todas aplicadas y verificadas:
+
+1. **`purgeMediaTrash` reescrita** (la grave): early-out real con trash vacío; CERO `JSON.parse` (extrae los
+   `trashIds` del string del snapshot por regex dirigida + `clipsDelProyecto()` para clips vivos — antes parseaba
+   hasta 250MB de undo/redo síncronos en CADA Ctrl+S); corre FUERA del try de escritura, solo tras éxito
+   confirmado y con catch propio (antes un fallo del purge mostraba "Could not save" en un guardado exitoso);
+   el branch web ya NO purga (la descarga no confirma escritura); `saveIncremental` también purga tras éxito.
+   Medido: save real en ~9ms.
+2. **"Effects" al sistema estándar de colapso**: `.sechead[data-sec="mfx"]` + `wireSecHeads`/`applySecCollapse`
+   (antes: toggle reconstruía TODAS las tarjetas de efectos); `mfx` en los defaults de `insColState` y en el
+   `secLbl` de `applyLang`.
+3. **Aviso de códec por CSS** (`.exs-row.hintwrap` + `.exs-hint.wrap` con clamp de 3 líneas, fila `.span` a todo
+   el ancho): sin estilos inline inalcanzables y el footer del diálogo ya no puede quedar fuera de pantalla.
+4. **Hint de sala 360 correcto y honesto**: `MENU_ROOM_LABEL()` compartida entre el menú y el hint (sin drift),
+   traducido de verdad y avisando que reemplaza el proyecto actual.
+5. **Tooltips localizados**: `ttl()` para `#vzOut`/`#vzIn` y `#nestCacheToggle` (islas en inglés).
+6. **Chips de automatización**: title = info + affordance ("… · Click to change"), escapado con `lchEsc`.
+7. **`_exportCleanup`**: orden original restaurado (dims de glc ANTES de quitar la máscara [R2]) y sin el flag
+   `dxt` (dxtFree es idempotente — el flag reconstruía la trampa que el refactor eliminaba).
+8. **`lchAspect`** siempre bien formada (fallback `0:0` para w/h falsy; el comentario del tope vive en fmtAspect).
+9. **COMPONENTS.md** al día con todo lo anterior.
+
 ## ROUND 214 — Etapas 3+4 de la auditoría: deuda preventiva + pulido UX
 
 **Deuda (Etapa 3):** `_exportCleanup()` factoriza los dos bloques de limpieza duplicados de `runExport` (la
