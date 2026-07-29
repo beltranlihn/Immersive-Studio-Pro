@@ -1113,8 +1113,23 @@ function buildRoomGeo(seq){ const room=seq.room; const plan=roomPlan(room.walls)
   gl.enableVertexAttribArray(LR.shade); gl.vertexAttribPointer(LR.shade,1,gl.FLOAT,false,32,20);
   gl.enableVertexAttribArray(LR.nrm); gl.vertexAttribPointer(LR.nrm,2,gl.FLOAT,false,32,24); gl.bindVertexArray(null);
   _roomGeo={ wallVerts, floorVerts, norm:{ cx,cy,sc, midZ:(maxH*0.5)*sc, standZ:Math.min(maxH*0.95,1.7)*sc, radius:rad*sc } }; _roomGeoSeq=seq.id; }
+/* [R219] cheap check for the 3D viewers' "Preparing media…" pill: is any video (or nest-cache) clip active at the CURRENT
+   playhead still without a texture? Reuses collectDrawnVideoClips (same "active clips" resolution play()/motionTick already
+   use) so this stays O(active clips), no extra allocation beyond what that helper already does. A static fallback frame
+   (m.tex) counts as "ready enough" — only a totally blank clip (no decoder frame yet, no fallback) counts as warming. */
+function mediaWarming(){
+  const warm=(clips,lanes)=>{ if(!clips||!lanes)return false; for(const {c,m} of collectDrawnVideoClips(clips,lanes,state.playhead,0,[])){ const vi=_vinst.get(c.id); if(!(vi&&vi.ready&&vi.vtex)&&!m.tex)return true; } return false; };
+  if(warm(state.clips,state.lanes))return true;
+  if(isRoom()){ const seq=activeSeq(); const room=seq&&seq.room;
+    if(room&&room.floorSeqId){ const fm=mediaById(room.floorSeqId); if(fm&&isSeqMedia(fm)&&warm(fm.nestClips||[],(fm.nestLanes&&fm.nestLanes.length?fm.nestLanes:defLanes())))return true; } }
+  return false; }
+/* discreet centered-top pill, same visual language as the wall-role labels — shown while mediaWarming() is true */
+function drawPreparingPill(){ const lbl=T('Preparing media…','Preparando medios…'); gx.font='11px Geist'; gx.textAlign='center'; gx.textBaseline='middle';
+  const tw=Math.max(1,gx.measureText(lbl).width); const cx=view.cw/2, cy=22;
+  gx.fillStyle='rgba(6,7,9,0.55)'; gx.fillRect(cx-tw/2-8,cy-10,tw+16,20);
+  gx.fillStyle='rgba(196,201,208,0.82)'; gx.fillText(lbl,cx,cy); }
 /* project the room's wall grid (3×4 subdivision, proportional) + per-wall role labels onto the 2D overlay, using the same 3D camera matrix. Gated by the Grid toggle. */
-function drawRoomLabels3D(mvp){ gx.clearRect(0,0,view.cw,view.ch); if(!state.view.showGrid||!_roomGeo||!_roomGeo.norm)return; const seq=activeSeq(); const room=seq&&seq.room; if(!room)return;
+function drawRoomLabels3D(mvp){ gx.clearRect(0,0,view.cw,view.ch); if(mediaWarming())drawPreparingPill(); if(!state.view.showGrid||!_roomGeo||!_roomGeo.norm)return; const seq=activeSeq(); const room=seq&&seq.room; if(!room)return;
   const {cx,cy,sc}=_roomGeo.norm; const N=(x,y,z)=>[(x-cx)*sc,(y-cy)*sc,z*sc]; const P=(x,y,z)=>proj3(N(x,y,z),mvp,1);
   const plan=roomPlan(room.walls); const seg=(l0)=>{gx.beginPath();gx.moveTo(l0[0][0],l0[0][1]);gx.lineTo(l0[1][0],l0[1][1]);gx.stroke();};
   for(const s of plan.seg){ const h=s.h; const pt=(u,v)=>{ const x=s.a[0]+(s.b[0]-s.a[0])*u, y=s.a[1]+(s.b[1]-s.a[1])*u; return P(x,y,h*v); };
@@ -1571,7 +1586,7 @@ function cameraMVP(spec,cam,asp){cam=cam||state.view.cam;asp=asp||(glc.width/glc
   else{ctr=[0,0,0.3];const d=cam.dist;eye=[Math.cos(cam.pitch)*Math.cos(cam.yaw)*d,Math.cos(cam.pitch)*Math.sin(cam.yaw)*d,ctr[2]+Math.sin(cam.pitch)*d];}
   return mul4(proj,lookAt(eye,ctr,[0,0,1]));}
 function proj3(P,mvp,flipx){const x=P[0],y=P[1],z=P[2];let cx=mvp[0]*x+mvp[4]*y+mvp[8]*z+mvp[12],cy=mvp[1]*x+mvp[5]*y+mvp[9]*z+mvp[13],cw=mvp[3]*x+mvp[7]*y+mvp[11]*z+mvp[15];if(cw<=1e-4)return null;cx*=flipx;return[(cx/cw*0.5+0.5)*view.cw,(1-(cy/cw*0.5+0.5))*view.ch];}
-function drawLabels3D(mvp,spec){const fx=-1;gx.clearRect(0,0,view.cw,view.ch);gx.font='11px Geist';gx.textAlign='center';gx.textBaseline='middle';
+function drawLabels3D(mvp,spec){const fx=-1;gx.clearRect(0,0,view.cw,view.ch);if(mediaWarming())drawPreparingPill();gx.font='11px Geist';gx.textAlign='center';gx.textBaseline='middle';
   const L=[[T('FRONT','FRENTE'),[1.05,0,0.02],'#B4BAC1'],[T('RIGHT','DERECHA'),[0,1.05,0.02],'#71777F'],[T('BACK','ATRÁS'),[-1.05,0,0.02],'#71777F'],[T('LEFT','IZQUIERDA'),[0,-1.05,0.02],'#71777F'],[T('ZENITH','CENIT'),[0,0,1.06],'#71777F']];
   for(const[t,P,c] of L){const p=proj3(P,mvp,fx);if(p){gx.fillStyle=c;gx.fillText(t,p[0],p[1]);}}}
 
