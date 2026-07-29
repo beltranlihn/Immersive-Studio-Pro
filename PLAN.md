@@ -1,5 +1,80 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 222 — Fase B: wrap con rotación entre el suelo y sus muros adyacentes
+
+- **Pedido de Beltrán:** "con el mismo formato del infinito de los muros. Si lo muevo a un borde [del suelo],
+  empieza a aparecer en su muro respectivo." Extiende el seam-wrap horizontal de la tira (el `offs` de
+  `_roomWrap` en `drawClipFlat`) a los tres bordes del suelo que faltaban — el borde superior (bisagra con
+  Front) ya era continuo gratis desde Fase A [R221] (mismo canvas, mismas columnas).
+- **Derivación (borde → muro → transformada), a partir de `roomPlan` (`Front:[FL,FR] Left:[FR,BR] Back:[BR,BL]
+  Right:[BL,FL]`) y del mapeo uv de `buildRoomGeo` (`uL=x1@a, uR=x0@b`):
+
+  | Borde del suelo | Muro | Transformada (pixel space, y-down) |
+  |---|---|---|
+  | Izquierdo (`px<fx0`) | Left | `px'=Left.x1-(Left.pxW/floorH)·(py-wallsH)` · `py'=wallsH-fx0+px` — rotación 90° (swap de ejes) |
+  | Derecho (`px>fx1`) | Right | `px'=Right.x0+(Right.pxW/floorH)·(py-wallsH)` · `py'=wallsH+fx1-px` — rotación 90° (swap de ejes) |
+  | Inferior (`py>wallsH+floorH`) | Back | `px'=Back.x1-(Back.pxW/floorW)·(px-fx0)` · `py'=2·wallsH+floorH-py` — 180° (ejes sin swap, ambos invertidos) |
+
+  Las tres matrices dan determinante positivo (rotación + escala anisotrópica, SIN espejo) — confirmado a mano
+  (álgebra de esquinas: cada fórmula reproduce exactamente las 4 esquinas físicas compartidas suelo↔muro) y por
+  captura CDP de la junta 3D en los tres bordes. La escala anisotrópica (`Left.pxW/floorH`, etc.) es necesaria
+  a propósito: el suelo y cada muro son medios con resolución propia (rara vez iguales), así que iguala el
+  "metro" de cada uno en vez de asumir píxeles cuadrados.
+- **Implementación:** `computeRoomFold(seq)`/`roomFold()` (nuevas, cacheadas como `_roomGeo`/`_roomGeoSeq` —
+  mismos sitios de invalidación: `applyRoomGeometry`, `lchEditorShot`). `drawClipFlat` gana un bloque `_roomWrap`
+  que hace un AABB barato contra el rect del suelo (reject inmediato si el clip no lo toca — cero costo extra
+  para clips lejos de los bordes) y, si cruza, dibuja un pass extra por borde cruzado con `fx`/`fy`/`fc`
+  rotados + scissor a `roomWallScissorRects([role])` (no puede derramarse a un muro vecino). El wrap horizontal
+  existente de la tira NO se tocó.
+- **Verificación CDP** (proyecto sintético: 4 muros con resoluciones DISTINTAS a propósito — Front/Back 1920px,
+  Left/Right 1536px — para forzar el caso de escala anisotrópica; suelo 1920×1536, texto "F" asimétrico
+  rojo/blanco sobre fondo de color):
+  - **Izquierdo:** captura 2D (pass rotado visible en la columna de Left) + captura 3D de la junta piso-Left →
+    el glifo "F" continúa sin salto/espejo a través de la arista.
+  - **Derecho:** ídem, junta piso-Right continua.
+  - **Inferior:** ídem, junta piso-Back continua (flip de 180°, coherente con la derivación).
+  - **Interior (sin cruzar bordes):** instrumenté `gl.drawElements` — 1 sola llamada (cero passes extra).
+  - **Cruzando un borde:** 3 llamadas (1 normal + 1 wrap horizontal preexistente que también dispara porque
+    `fx0` del suelo coincide con el borde 0 de TODA la tira — comportamiento previo intacto, inofensivo, no
+    corresponde a ninguna superficie 3D real — + 1 fold nuevo).
+  - **Sala sin suelo:** `roomFold()` devuelve `null`, 2 llamadas (normal + wrap horizontal, sin cambios).
+  - **Wrap horizontal de muros (Front↔Right por la costura interna, y el wrap Left→Front por el borde exterior
+    de la tira dentro de la banda de muros):** intacto — captura idéntica al comportamiento pre-R222 (copia sin
+    rotar, sólo trasladada).
+  - **Dome y 2D Flat:** proyectos nuevos de cada modo con un clip de texto — 0 errores, sin regresión visual
+    (`drawClipFlat` fuera de `_roomWrap` no ejecuta ninguna rama nueva).
+  - `node --check app.js`/`main.js` limpio, `window.__errs` en 0 durante toda la sesión de pruebas.
+- **No implementado a propósito (fuera de alcance, per pedido):** el wrap INVERSO muro→suelo (un clip de muro
+  que asoma no pinta en el suelo) — sólo se pidió que el suelo "aparezca en su muro respectivo".
+
+## ROUND 221 — Fase A: el suelo de la sala 360 pasa a ser parte del mismo canvas que los muros
+
+- **Contrato nuevo:** la secuencia de sala tiene UN canvas (`stripW × (room.stripH + floorH)`); el suelo ya no es
+  una secuencia `'flat'` aparte con `room.floorSeqId` — es la franja inferior de la MISMA tira, con el mismo
+  mecanismo de colocación de clips que cualquier otro rect flat. `room.floor` conserva `pxW/pxH` como resolución
+  de export del suelo. `room.floorSeqId` queda obsoleto, sólo vive para migrar `.isp` viejos.
+- **A1** `createRoomSequences`/`newRoomProject`/`newSequenceDialog`/`lchRoomSeqTemp`/`applyRoomGeometry`: ya no
+  crean una media Floor; nuevo helper único `roomFloorH(walls,floor,stripW)`. Quitada la compensación de
+  pan/zoom del dock (R211) — el letterbox centra el canvas completo solo.
+- **A2** `drawRoomGrid2D` usa `room.stripH` para muros; el rect del suelo pasa a ser overlay DENTRO del canvas.
+  Archivado `drawRoomFloorDock2D` (ADR-0007, `_backup/deprecated/20260729-room-floor-dock-2d.js`). `mediaWarming`
+  ya no revisa una `floorSeqId` separada.
+- **A3** `buildRoomGeo` re-deriva los UV del suelo al rect del dock DEL MISMO composite (ya no hay floorTex
+  propia); shade del suelo pasa de 0.5 a 1.0 (misma claridad que los muros). `renderRoom3D` sin
+  `compositeFloorTex`/FBO propia (archivado, `20260729-room-floor-fbo-composite.js`). `drawRoomLabels3D` proyecta
+  ahora la grilla del suelo en el wireframe 3D siempre que `room.floor` exista.
+- **A4** Export: `opt.wall` generalizado con `y0/y1` (antes sólo top-anchored) — el mismo mecanismo de crop por
+  muro sirve para "tira completa" (sólo muros) y "suelo" (rect del dock, escalado a `room.floor.pxW×pxH`). 3
+  modos en `#exRoomMode`: Full strip / Strip + floor (2 jobs) / Each wall + floor (N+1 jobs).
+- **A5** `migrateRoomFloor` en `loadProject`: crece el canvas, reubica los clips del piso viejo a lanes nuevas
+  (`Floor 1…`) con la orientación del dock R211 (x directa, y invertida — verificado como identidad de reflexión
+  + rotación, no adivinado), borra la media Floor. `Rito360.isp` (proyecto real) no tenía piso — migración
+  probada contra un `.isp` sintético construido para la ocasión (ver verificación abajo).
+- **Fase B (no implementada a propósito en esta ronda — ver ROUND 222):** el wrap rotado de bordes
+  suelo↔muros laterales/atrás en las costuras.
+- **Verificación:** CDP contra el `.exe`/dev — ver sección de verificación más abajo en esta misma entrada de
+  ronda (Beltrán: extender aquí con lo que falte tras probar en vivo).
+
 ## ROUND 216-218 — Decisiones resueltas + verificación de cierre de la auditoría
 
 Beltrán delegó el criterio ("aplica todo"). Resuelto:

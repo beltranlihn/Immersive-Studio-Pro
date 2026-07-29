@@ -568,7 +568,8 @@ const PR=prog(VSR,FSR);
 const LR={pos:gl.getAttribLocation(PR,'a_pos'),uv:gl.getAttribLocation(PR,'a_uv'),shade:gl.getAttribLocation(PR,'a_shade'),nrm:gl.getAttribLocation(PR,'a_nrm'),mvp:gl.getUniformLocation(PR,'u_mvp'),tex:gl.getUniformLocation(PR,'u_tex'),base:gl.getUniformLocation(PR,'u_base'),cam:gl.getUniformLocation(PR,'u_cam'),pass:gl.getUniformLocation(PR,'u_pass'),outTex:gl.getUniformLocation(PR,'u_outTex'),backA:gl.getUniformLocation(PR,'u_backA')};
 const roomVAO=gl.createVertexArray(), roomVB=gl.createBuffer();
 let _roomGeo=null, _roomGeoSeq=null;
-let _roomFloorFBO=null,_roomFloorTex=null,_roomFloorSize=0;
+// [archivado 20260729 · R221] _roomFloorFBO/_roomFloorTex/_roomFloorSize — con ensureRoomFloorFBO/compositeFloorTex, ver _backup/deprecated/20260729-room-floor-fbo-composite.js
+let _roomFold=null, _roomFoldSeq=null; // [R222] floor↔wall fold-wrap geometry cache, keyed like _roomGeo — see computeRoomFold() near drawClipFlat
 
 gl.enable(gl.BLEND); gl.blendFuncSeparate(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA,gl.ONE,gl.ONE_MINUS_SRC_ALPHA);
 
@@ -786,6 +787,38 @@ function flatPlace(c,m,t){ const A=_compAspect||1; const s=Math.min(2/A,2), Fx=s
   const rot=(evalR(c,'rot',t)||0)*D2R, cs=Math.cos(rot), sn=Math.sin(rot);
   const x=(evalR(c,'x',t)||0)/100, y=(evalR(c,'y',t)||0)/100; // x/y are % of the frame half-extent (−100..100)
   return { fc:[x*Fx, y*Fy], fx:[s*hw*cs, s*hw*sn], fy:[s*hh*(-sn), s*hh*cs], hw, hh }; }
+/* [R222] Floor↔wall fold-wrap — same "infinite" feel as the horizontal seam wrap below, but the floor meets its
+   Left/Right/Back walls at a 90° hinge instead of sitting side by side in the strip, so crossing those edges needs
+   a ROTATION (not just an x-shift). The Front edge (room.walls.Front's row) is already contiguous for free: floor
+   and Front sit in the SAME canvas, at the SAME columns (fx0..fx1) and adjacent rows (wallsH) — no wrap needed.
+   Derivation (pixel space, y-down — same coords as room.walls x0/x1/pxW and room.stripH):
+   buildRoomGeo bottom-anchors every wall's floor-contact row at py=wallsH, and its uv mapping runs a→b as
+   uL=x1@a, uR=x0@b (comment there: "the wall's a→b runs right→left"). Combined with roomPlan's corner loop
+   (Front:[FL,FR] Left:[FR,BR] Back:[BR,BL] Right:[BL,FL]) and the floor's own fuv (X flipped, Y direct, dock
+   rect = Front's column span fx0..fx1), each floor↔wall corner correspondence works out to:
+     LEFT   (floor px<fx0   → Left wall):  px'=Left.x1 -(Left.pxW/floorH)*(py-wallsH)   py'=wallsH-fx0+px
+     RIGHT  (floor px>fx1   → Right wall): px'=Right.x0+(Right.pxW/floorH)*(py-wallsH)  py'=wallsH+fx1-px
+     BOTTOM (floor py>wallsH+floorH → Back wall): px'=Back.x1-(Back.pxW/floorW)*(px-fx0) py'=2·wallsH+floorH-py
+   Each is stored as a RAW pixel affine map px'=a·px+b·py+c, py'=d·px+e·py+f (not pre-rotated into NDC) so the
+   scale mismatch between the floor's own resolution and each wall's own resolution — independently authored
+   media, rarely equal — falls out for free instead of assuming square pixels. All three have positive
+   determinant (pure rotation+anisotropic-scale, no mirroring) — verified by hand and confirmed by the CDP capture
+   at each seam (see R222 verification notes in PLAN.md). */
+function computeRoomFold(seq){ const room=seq&&seq.room; if(!room||!room.floor)return null;
+  const walls=room.walls||[]; const byRole={}; for(const w of walls)byRole[w.role]=w;
+  const fw=byRole.Front; if(!fw)return null;
+  const stripW=seq.w||1, wallsH=room.stripH||seq.h||1, floorH=Math.max(1,(seq.h||1)-wallsH);
+  const fx0=fw.x0||0, fx1=fw.x1||stripW, floorW=Math.max(1,fx1-fx0);
+  const edges={}; const L=byRole.Left, R=byRole.Right, B=byRole.Back;
+  if(L&&L.x1>L.x0){ const w=L.x1-L.x0; edges.left  ={a:0,          b:-w/floorH, c:L.x1+(w/floorH)*wallsH, d:1, e:0,  f:wallsH-fx0, role:'Left'}; }
+  if(R&&R.x1>R.x0){ const w=R.x1-R.x0; edges.right ={a:0,          b: w/floorH, c:R.x0-(w/floorH)*wallsH, d:-1,e:0,  f:wallsH+fx1, role:'Right'}; }
+  if(B&&B.x1>B.x0){ const w=B.x1-B.x0; edges.bottom={a:-w/floorW,  b:0,         c:B.x1+(w/floorW)*fx0,    d:0, e:-1, f:2*wallsH+floorH, role:'Back'}; }
+  if(!Object.keys(edges).length)return null;
+  return {stripW,wallsH,floorH,fx0,fx1,floorW,edges}; }
+/* Cached like _roomGeo (keyed on state.activeSeqId, not re-derived per clip) — applyRoomGeometry() and
+   lchEditorShot() reset _roomFoldSeq=null wherever they already reset _roomGeoSeq for the same reason (geometry
+   can change without the sequence id changing). */
+function roomFold(){ if(_roomFoldSeq!==state.activeSeqId){ const seq=activeSeq(); _roomFold=(seq&&seq.room)?computeRoomFold(seq):null; _roomFoldSeq=state.activeSeqId; } return _roomFold; }
 function drawClipFlat(c,m,t,xf,ntex,op){ const P=flatPlace(c,m,t);
   gl.useProgram(PW); gl.bindVertexArray(meshVAO);
   gl.uniform1f(LW.fmode,1); gl.uniform2f(LW.fx,P.fx[0],P.fx[1]); gl.uniform2f(LW.fy,P.fy[0],P.fy[1]);
@@ -800,9 +833,31 @@ function drawClipFlat(c,m,t,xf,ntex,op){ const P=flatPlace(c,m,t);
   gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D,c.maskTex||ntex); gl.uniform1i(LW.maskTex,1);
   const bm=c.props.blend||'normal'; setBlend(bm); gl.uniform1f(LW.premul,(bm==='screen'||bm==='multiply')?1:0); gl.uniform1f(LW.blend,BLEND_ID[bm]||0);
   // seamless horizontal wrap (360-room strip only): a clip crossing the left/right seam reappears on the opposite side. One full strip = 2·Fx in fc-space.
-  const offs=[0];
-  if(_roomWrap){ const A=_compAspect||1, s=Math.min(2/A,2), Fx=s*A/2, span=2*Fx; const hx=Math.abs(P.fx[0])+Math.abs(P.fy[0]);
-    if(P.fc[0]+hx> Fx)offs.push(-span); if(P.fc[0]-hx<-Fx)offs.push(span); }
+  const offs=[0]; let foldPasses=null;
+  if(_roomWrap){ const A=_compAspect||1, s=Math.min(2/A,2), Fx=s*A/2, Fy=s/2, span=2*Fx;
+    const hx=Math.abs(P.fx[0])+Math.abs(P.fy[0]), hy=Math.abs(P.fx[1])+Math.abs(P.fy[1]);
+    if(P.fc[0]+hx> Fx)offs.push(-span); if(P.fc[0]-hx<-Fx)offs.push(span);
+    // [R222] floor↔wall fold-wrap — see computeRoomFold() above for the derivation. Cheap AABB reject first
+    // (floor-rect overlap test) so clips nowhere near the floor never pay for the per-edge math below.
+    const fold=roomFold();
+    if(fold){ const K=2*Fx/(fold.stripW||1); // NDC-per-pixel, uniform in x & y (flatPlace's square-inscribed frame — see its own comment)
+      const nx=px=>K*px-Fx, ny=py=>Fy-K*py;
+      const flL=nx(fold.fx0), flR=nx(fold.fx1), flT=ny(fold.wallsH), flB=ny(fold.wallsH+fold.floorH);
+      if(P.fc[0]+hx>flL && P.fc[0]-hx<flR && P.fc[1]-hy<flT && P.fc[1]+hy>flB){ // bbox overlaps the floor rect at all
+        foldPasses=[];
+        const tryEdge=(e,crosses)=>{ if(!e||!crosses)return;
+          const A_=e.a, Bm=-e.b, D_=-e.d, E_=e.e; // pixel affine → NDC linear part (derivation: nx'=a·nx-b·ny+C1, ny'=-d·nx+e·ny+C2)
+          const C1=e.a*Fx+e.b*Fy+K*e.c-Fx, C2=Fy-e.d*Fx-e.e*Fy-K*e.f;
+          foldPasses.push({ role:e.role,
+            fc:[A_*P.fc[0]+Bm*P.fc[1]+C1, D_*P.fc[0]+E_*P.fc[1]+C2],
+            fx:[A_*P.fx[0]+Bm*P.fx[1],    D_*P.fx[0]+E_*P.fx[1]],
+            fy:[A_*P.fy[0]+Bm*P.fy[1],    D_*P.fy[0]+E_*P.fy[1]] }); };
+        tryEdge(fold.edges.left,   P.fc[0]-hx<flL);
+        tryEdge(fold.edges.right,  P.fc[0]+hx>flR);
+        tryEdge(fold.edges.bottom, P.fc[1]-hy<flB); // NDC y is flipped vs pixel y → "past the floor's bottom edge" = below flB
+      }
+    }
+  }
   // vertical infinite tiling (Vertical-movement motion): repeat the clip by its own height to fill the frame → endless scroll
   let voffs=[0];
   if(clipVTile(c)){ const per=2*(Math.abs(P.fy[1])+Math.abs(P.fx[1]));
@@ -810,6 +865,11 @@ function drawClipFlat(c,m,t,xf,ntex,op){ const P=flatPlace(c,m,t);
   const drawCopies=()=>{ for(const dy of voffs)for(const dx of offs){ gl.uniform2f(LW.fc,P.fc[0]+dx,P.fc[1]+dy); gl.drawElements(gl.TRIANGLES,meshCount,gl.UNSIGNED_INT,0); } };
   const mw=(_roomWrap&&c.props.maskWalls&&c.props.maskWalls.length)?roomWallScissorRects(c.props.maskWalls):null; // Mask to wall: clip to the chosen walls' regions
   if(mw&&mw.length){ gl.enable(gl.SCISSOR_TEST); for(const r of mw){ gl.scissor(r.x,r.y,r.w,r.h); drawCopies(); } gl.disable(gl.SCISSOR_TEST); } else drawCopies();
+  if(foldPasses&&foldPasses.length){ gl.enable(gl.SCISSOR_TEST); // each fold-copy gets its own ROTATED fx/fy + scissor to its target wall, so it can't spill onto neighbouring walls
+    for(const p of foldPasses){ const r=roomWallScissorRects([p.role])[0]; if(!r)continue;
+      gl.scissor(r.x,r.y,r.w,r.h); gl.uniform2f(LW.fx,p.fx[0],p.fx[1]); gl.uniform2f(LW.fy,p.fy[0],p.fy[1]); gl.uniform2f(LW.fc,p.fc[0],p.fc[1]);
+      gl.drawElements(gl.TRIANGLES,meshCount,gl.UNSIGNED_INT,0); }
+    gl.disable(gl.SCISSOR_TEST); }
   if(bm!=='normal')NORMAL_BLEND(); gl.bindVertexArray(null); }
 function drawClip(c,m,t,xf){
   if(!m) return; let ntex; if(isSeqMedia(m)) ntex=(c._ntex||m.tex); else if(m.kind==='video'){ const vi=_vinst.get(c.id); ntex=(vi&&vi.ready&&vi.vtex)?vi.vtex:m.tex; } else ntex=m.tex; if(!ntex) return; // nests sample their per-clip pool tex; videos sample their PER-CLIP decode tex so duplicated clips show different frames (fallback m.tex until the private decoder has its first frame) — [R220] this readiness branching is mirrored by clipTexReady(), keep both in sync
@@ -1076,19 +1136,7 @@ async function renderAheadWork(){ if(typeof HAS_WC!=='undefined'&&!HAS_WC){ flas
   }catch(e){ console.warn('render-ahead',e); flashStatus(T('Render-ahead failed','Render-ahead falló'),'err'); } } // [R94-UT3·U-21]
 function renderAheadOff(){ raStopIdle(); _raOn=false; state.renderAhead=false; raReset(); flashStatus(T('Render-ahead off · cache cleared','Render-ahead apagado · caché limpiado')); render(); drawCacheMap(); }
 /* ===================== 3D ROOM VIEWER (F4) ===================== */
-function ensureRoomFloorFBO(sz){ if(_roomFloorFBO&&_roomFloorSize===sz)return;
-  if(_roomFloorFBO){ try{gl.deleteFramebuffer(_roomFloorFBO);gl.deleteTexture(_roomFloorTex);}catch(e){} }
-  _roomFloorTex=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,_roomFloorTex);
-  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,sz,sz,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
-  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
-  _roomFloorFBO=gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER,_roomFloorFBO); gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,_roomFloorTex,0); gl.bindFramebuffer(gl.FRAMEBUFFER,null); _roomFloorSize=sz; }
-/* composite a floor sequence's own clips into a square FBO (letterboxed to its aspect) → texture for the 3D floor */
-function compositeFloorTex(m,sz){ ensureRoomFloorFBO(sz);
-  const oc=state.clips,ol=state.lanes,odf=_drawFlat,oca=_compAspect,orw=_roomWrap;
-  state.clips=m.nestClips||[]; state.lanes=(m.nestLanes&&m.nestLanes.length?m.nestLanes:defLanes()); _drawFlat=true; _roomWrap=false; _compAspect=(m.w||1)/(m.h||1);
-  prepNests(state.clips,state.playhead,0);
-  gl.bindFramebuffer(gl.FRAMEBUFFER,_roomFloorFBO); composite(state.playhead,sz,false); gl.bindFramebuffer(gl.FRAMEBUFFER,null);
-  state.clips=oc; state.lanes=ol; _drawFlat=odf; _roomWrap=orw; _compAspect=oca; return _roomFloorTex; }
+// [archivado 20260729 · R221] ensureRoomFloorFBO/compositeFloorTex — el piso ya no compone a una FBO cuadrada propia, muestrea el mismo composite que los muros → _backup/deprecated/20260729-room-floor-fbo-composite.js
 /* build the room's textured-quad geometry (normalized + centered) into roomVB; caches per active seq id */
 function buildRoomGeo(seq){ const room=seq.room; const plan=roomPlan(room.walls); const stripW=seq.w||1, stripH=seq.h||1;
   let cx=0,cy=0,cnt=0; for(const s of plan.seg){ cx+=s.a[0]+s.b[0]; cy+=s.a[1]+s.b[1]; cnt+=2; } cx/=Math.max(1,cnt); cy/=Math.max(1,cnt);
@@ -1102,11 +1150,18 @@ function buildRoomGeo(seq){ const room=seq.room; const plan=roomPlan(room.walls)
     let nx=-(s.b[1]-s.a[1]), ny=(s.b[0]-s.a[0]); const nl=Math.hypot(nx,ny)||1; nx/=nl; ny/=nl; const sh=0.62+0.38*Math.max(0,0.5+0.5*(nx*L[0]+ny*L[1])); // nx,ny = inward normal (CCW loop → left of travel = interior)
     push(A0,uL,vBot,sh,nx,ny); push(B0,uR,vBot,sh,nx,ny); push(Bt,uR,vTop,sh,nx,ny); push(A0,uL,vBot,sh,nx,ny); push(Bt,uR,vTop,sh,nx,ny); push(At,uL,vTop,sh,nx,ny); }
   const wallVerts=V.length/8; let floorVerts=0;
+  /* [R221] the floor is no longer its own square texture — it samples the SAME composite as the walls, from the
+     dock rect (Front wall's x-span, the canvas slice below the walls). The world→uv orientation (X flipped, Y
+     direct) is UNCHANGED from before — only the destination rect moved from a dedicated floor-texture letterbox
+     into this composite's own dock sub-rect, which is what the R211 2D dock always showed. */
   if(room.floor && plan.poly && plan.poly.length>=3){ const poly=plan.poly; let mnx=1e9,mxx=-1e9,mny=1e9,mxy=-1e9; for(const p of poly){mnx=Math.min(mnx,p[0]);mxx=Math.max(mxx,p[0]);mny=Math.min(mny,p[1]);mxy=Math.max(mxy,p[1]);}
-    const Af=(room.floor.pxW||1)/(room.floor.pxH||1),Fxf=Math.min(1,Af),Fyf=Math.min(1,1/Af); const uMn=(1-Fxf)/2,uMx=(1+Fxf)/2,vMn=(1-Fyf)/2,vMx=(1+Fyf)/2;
-    const fuv=(x,y)=>[uMn+(mxx-x)/((mxx-mnx)||1)*(uMx-uMn), vMn+(y-mny)/((mxy-mny)||1)*(vMx-vMn)]; // U flipped to match the walls' inside-view handedness (2D floor editor orientation)
-    for(let i=1;i<poly.length-1;i++){ const q=[poly[0],poly[i],poly[i+1]]; for(const p of q){ const P=N(p[0],p[1],0),u=fuv(p[0],p[1]); push(P,u[0],u[1],0.5,0,0); } }
-    floorVerts=(V.length/8)-wallVerts; }
+    const wallsH=room.stripH||stripH, fw=room.walls.find(w=>w.role==='Front')||room.walls[0];
+    if(fw){ const fx0=fw.x0,fx1=fw.x1, floorH=Math.max(1,stripH-wallsH);
+      const fuv=(x,y)=>{ const u=(mxx-x)/((mxx-mnx)||1), v=(y-mny)/((mxy-mny)||1); // U flipped to match the walls' inside-view handedness (2D floor editor orientation) — same fuv as before, only the target rect changed
+        const px=fx0+u*(fx1-fx0), py=wallsH+v*floorH;
+        return [px/stripW, vMax-(py/stripH)*Fy]; };
+      for(let i=1;i<poly.length-1;i++){ const q=[poly[0],poly[i],poly[i+1]]; for(const p of q){ const P=N(p[0],p[1],0),u=fuv(p[0],p[1]); push(P,u[0],u[1],1.0,0,0); } } // [R221] shade=1.0 — same clarity as the walls (was a flat 0.5)
+      floorVerts=(V.length/8)-wallVerts; } }
   gl.bindVertexArray(roomVAO); gl.bindBuffer(gl.ARRAY_BUFFER,roomVB); gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(V),gl.DYNAMIC_DRAW);
   gl.enableVertexAttribArray(LR.pos); gl.vertexAttribPointer(LR.pos,3,gl.FLOAT,false,32,0);
   gl.enableVertexAttribArray(LR.uv); gl.vertexAttribPointer(LR.uv,2,gl.FLOAT,false,32,12);
@@ -1130,9 +1185,7 @@ function mediaWarming(){
   if(wc.t===state.playhead && wc.gen===_raGen && (now-wc.ts)<250){ val=wc.val; }
   else{
     const warm=(clips,lanes)=>{ if(!clips||!lanes)return false; for(const {c,m} of collectDrawnVideoClips(clips,lanes,state.playhead,0,[])){ if(!clipTexReady(c,m))return true; } return false; };
-    val=warm(state.clips,state.lanes);
-    if(!val&&isRoom()){ const seq=activeSeq(); const room=seq&&seq.room;
-      if(room&&room.floorSeqId){ const fm=mediaById(room.floorSeqId); if(fm&&isSeqMedia(fm)&&warm(fm.nestClips,(fm.nestLanes&&fm.nestLanes.length?fm.nestLanes:defLanes())))val=true; } }
+    val=warm(state.clips,state.lanes); // [R221] the floor's clips live in THIS SAME clips/lanes now (no more separate floorSeqId sequence to check)
     _warmCache={t:state.playhead,gen:_raGen,ts:now,val};
   }
   if(val)armWarmTimer();
@@ -1164,6 +1217,24 @@ function drawRoomLabels3D(mvp){ gx.clearRect(0,0,view.cw,view.ch); if(mediaWarmi
       gx.fillStyle='rgba(6,7,9,0.55)'; gx.fillRect(c[0]-tw/2-3,c[1]-7,tw+6,14);
       gx.fillStyle='rgba(196,201,208,0.82)'; gx.fillText(lbl,c[0],c[1]); }
   }
+  /* [R221] floor grid — the footprint polygon (z=0 plane), same 4×4 subdivision drawRoomIso draws for its
+     floorOn iso panel, projected through the SAME 3D camera. Beltrán: "si el proyecto tiene suelo, el 3D debe
+     mostrar esa grilla" — the wireframe never showed it before (the floor only ever had its own quad, no grid). */
+  if(room.floor && plan.poly && plan.poly.length>=3){ const poly=plan.poly; const fpt=(x,y)=>P(x,y,0);
+    gx.lineWidth=1; gx.strokeStyle='rgba(255,255,255,0.34)';
+    gx.beginPath(); let started=false;
+    for(const p of poly){ const q=fpt(p[0],p[1]); if(!q)continue; if(!started){gx.moveTo(q[0],q[1]);started=true;} else gx.lineTo(q[0],q[1]); }
+    if(started && plan.closed){ const q0=fpt(poly[0][0],poly[0][1]); if(q0)gx.lineTo(q0[0],q0[1]); }
+    gx.stroke();
+    if(poly.length===4){ const [FL,FR,BR,BL]=poly;
+      for(let i=1;i<ROOM_GRID_COLS;i++){ const u=i/ROOM_GRID_COLS;
+        const a=fpt(FL[0]+(FR[0]-FL[0])*u,FL[1]+(FR[1]-FL[1])*u), b=fpt(BL[0]+(BR[0]-BL[0])*u,BL[1]+(BR[1]-BL[1])*u);
+        if(a&&b){ gx.strokeStyle='rgba(255,255,255,0.13)'; seg([a,b]); } }
+      for(let j=1;j<ROOM_GRID_ROWS;j++){ const v=j/ROOM_GRID_ROWS;
+        const a=fpt(FL[0]+(BL[0]-FL[0])*v,FL[1]+(BL[1]-FL[1])*v), b=fpt(FR[0]+(BR[0]-FR[0])*v,FR[1]+(BR[1]-FR[1])*v);
+        if(a&&b){ gx.strokeStyle='rgba(255,255,255,0.13)'; seg([a,b]); } }
+    }
+  }
 }
 function roomCameraMVP(spec,aspect){ const g=(_roomGeo&&_roomGeo.norm)||{midZ:0.25,standZ:0.35,radius:1}; const cam=state.view.cam; aspect=aspect||(glc.width/glc.height||1);
   const proj=persp((spec?cam.fov:52)*D2R,aspect,0.005,60); let eye,ctr;
@@ -1174,8 +1245,7 @@ function renderRoom3D(wallsTex){ const seq=activeSeq(); const room=seq&&seq.room
   gl.bindFramebuffer(gl.FRAMEBUFFER,null); gl.viewport(0,0,W,H); gl.enable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE); gl.clearColor(0,0,0,state.view.checkerBg?0:1); gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT); // [F8] transparent → CSS checkerboard shows behind the room
   if(!room){ gl.disable(gl.DEPTH_TEST); return; }
   if(_roomGeoSeq!==seq.id||!_roomGeo)buildRoomGeo(seq);
-  let floorTex=null; if(room.floorSeqId){ const fm=mediaById(room.floorSeqId); if(fm&&isSeqMedia(fm))floorTex=compositeFloorTex(fm,1024); }
-  gl.bindFramebuffer(gl.FRAMEBUFFER,null); gl.viewport(0,0,W,H); // compositeFloorTex rebinds → restore
+  // [R221] the floor samples the SAME composite as the walls now — no separate compositeFloorTex/FBO to build or restore
   const cam=roomCameraMVP(state.view.three==='spec',W/H);
   gl.useProgram(PR); gl.uniformMatrix4fv(LR.mvp,false,(_mvpScratch.set(cam.mvp),_mvpScratch)); gl.uniform3f(LR.base,0,0,0); gl.uniform1i(LR.tex,0); // wall bg = black (matches the 2D strip); content shows over it, grid overlay gives structure
   gl.uniform3f(LR.cam,cam.eye[0],cam.eye[1],cam.eye[2]); gl.uniform1f(LR.outTex,state.view.roomOutTex?1:0); gl.uniform1f(LR.backA,0.17);
@@ -1183,30 +1253,9 @@ function renderRoom3D(wallsTex){ const seq=activeSeq(); const room=seq&&seq.room
   if(_roomGeo.wallVerts>0){ // pass 1: inside surfaces opaque (depth write) · pass 2: outside surfaces translucent (no depth write) → single composite, see-through from outside
     gl.depthMask(true); gl.uniform1f(LR.pass,1); gl.drawArrays(gl.TRIANGLES,0,_roomGeo.wallVerts);
     gl.depthMask(false); gl.uniform1f(LR.pass,0); gl.drawArrays(gl.TRIANGLES,0,_roomGeo.wallVerts); gl.depthMask(true); }
-  if(floorTex&&_roomGeo.floorVerts>0){ gl.bindTexture(gl.TEXTURE_2D,floorTex); gl.uniform1f(LR.pass,2); gl.drawArrays(gl.TRIANGLES,_roomGeo.wallVerts,_roomGeo.floorVerts); }
+  if(_roomGeo.floorVerts>0){ gl.uniform1f(LR.pass,2); gl.drawArrays(gl.TRIANGLES,_roomGeo.wallVerts,_roomGeo.floorVerts); } // same wallsTex still bound
   gl.bindVertexArray(null); gl.disable(gl.DEPTH_TEST); drawRoomLabels3D(cam.mvp); }
-/* [R211] floor "dock" — the room's floor sequence pinned just below the Front wall in the 2D strip viewer, like an
-   unfolded paper cube. Display-only (compositing/export/click-mapping untouched): reuses PB (already bound) and the
-   pan/zoom/aspect/flat uniforms render() just set for the strip, only swapping u_uvsc/u_uvof + a small dynamic quad
-   appended past the strip's bottom edge (a_p.y beyond -1, same coordinate space quadVAO already occupies). */
-let _dockVAO=null,_dockVB=null;
-function drawRoomFloorDock2D(seq,room,tex){
-  const stripW=seq.w||1, stripH=seq.h||1;
-  const fw=room.walls.find(w=>w.role==='Front')||room.walls[0]; if(!fw)return;
-  const fx0=fw.x0,fx1=fw.x1, fd=room.floor.pxH*((fx1-fx0)/(room.floor.pxW||1));
-  const ax0=-1+2*fx0/stripW, ax1=-1+2*fx1/stripW, ayTop=-1, ayBot=-1-2*fd/stripH;
-  if(!_dockVAO){ _dockVAO=gl.createVertexArray(); _dockVB=gl.createBuffer();
-    gl.bindVertexArray(_dockVAO); gl.bindBuffer(gl.ARRAY_BUFFER,_dockVB); gl.enableVertexAttribArray(LB.p); gl.vertexAttribPointer(LB.p,2,gl.FLOAT,false,0,0); gl.bindVertexArray(null); }
-  gl.bindVertexArray(_dockVAO); gl.bindBuffer(gl.ARRAY_BUFFER,_dockVB);
-  gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([ax0,ayTop, ax1,ayTop, ax0,ayBot, ax1,ayTop, ax1,ayBot, ax0,ayBot]),gl.DYNAMIC_DRAW);
-  const Af=(room.floor.pxW||1)/(room.floor.pxH||1), Fxf=Math.min(1,Af), Fyf=Math.min(1,1/Af);
-  const uMn=(1-Fxf)/2, uMx=(1+Fxf)/2, vMn=(1-Fyf)/2, vMx=(1+Fyf)/2;
-  const uvscX=(uMx-uMn)/(((ax1-ax0)*0.5)||1e-6), uvofX=uMn-(ax0*0.5+0.5)*uvscX;
-  const uvscY=(vMx-vMn)/(((ayBot-ayTop)*0.5)||-1e-6), uvofY=vMn-(ayTop*0.5+0.5)*uvscY; // negative: v flips vs the floor's own editor, matching the unfolded-cube fold
-  gl.uniform2f(LB.uvsc,uvscX,uvscY); gl.uniform2f(LB.uvof,uvofX,uvofY);
-  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,tex); gl.uniform1i(LB.tex,0);
-  gl.drawArrays(gl.TRIANGLES,0,6); gl.bindVertexArray(null);
-}
+// [archivado 20260729 · R221] drawRoomFloorDock2D (+ _dockVAO/_dockVB) — el suelo dejó de ser una tira dockeada aparte, ahora es parte del mismo composite → _backup/deprecated/20260729-room-floor-dock-2d.js
 function render(){ if(glLost)return;
   if(exporting)return;
   const _flat=isFlat(); _drawFlat=_flat; _roomWrap=isRoom(); _compAspect=(state.seqW||1)/(state.seqH||1); _arTime=state.playhead;
@@ -1234,10 +1283,6 @@ function render(){ if(glLost)return;
     gl.drawElements(gl.TRIANGLES,domeCount,gl.UNSIGNED_INT,0); gl.bindVertexArray(null); gl.disable(gl.DEPTH_TEST);
     drawLabels3D(mvp,spec);
   } else {
-    // [R211] floor dock texture — composited BEFORE the viewport/clear below because compositeFloorTex rebinds the FBO/state
-    let _dockTex=null,_dockSeq=null,_dockRoom=null;
-    if(isRoom()){ _dockSeq=activeSeq(); _dockRoom=_dockSeq&&_dockSeq.room;
-      if(_dockRoom&&_dockRoom.floor&&_dockRoom.floorSeqId){ const fm=mediaById(_dockRoom.floorSeqId); if(fm&&isSeqMedia(fm)){ _dockTex=compositeFloorTex(fm,1024); gl.bindFramebuffer(gl.FRAMEBUFFER,null); } } }
     gl.disable(gl.DEPTH_TEST); gl.viewport(0,0,W,H); gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT);
     gl.useProgram(PB); gl.bindVertexArray(quadVAO);
     gl.uniform2f(LB.pan,state.view.pan[0],state.view.pan[1]); gl.uniform1f(LB.zoom,state.view.zoom);
@@ -1246,7 +1291,7 @@ function render(){ if(glLost)return;
     else { const mn=Math.min(glc.width,glc.height); gl.uniform2f(LB.aspect, mn/glc.width, mn/glc.height); gl.uniform1f(LB.flat,0); gl.uniform2f(LB.uvsc,1,1); gl.uniform2f(LB.uvof,0,0); gl.uniform1f(LB.hfade, state.view.hfade?HFADE:0); }
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,_srcTex); gl.uniform1i(LB.tex,0);
     gl.drawArrays(gl.TRIANGLES,0,6); gl.bindVertexArray(null);
-    if(_dockTex)drawRoomFloorDock2D(_dockSeq,_dockRoom,_dockTex); // [R211] floor "dock" — same PB program + pan/zoom/aspect/flat uniforms just set, only geometry+uv change
+    // [R221] the floor is now part of the SAME composite as the walls — it paints with the quad above, no separate dock texture/draw (archived: drawRoomFloorDock2D, _backup/deprecated)
     drawGrid2D();
   }
   drawScopes();
@@ -1524,10 +1569,10 @@ function drawFlatFrame(){ const M=flatMap(); const a=M.px(-1,1), b=M.px(1,-1); c
     gx.restore(); } }
 /* R91b: 360-room wall grid over the flat strip — vertical dividers at wall seams, a subtle role label bottom-left of each wall, and a dimmed dead-zone under walls shorter than the strip. Drawn by EXACT PIXELS (wall.x0/x1/pxH), never by physical cm. Only the walls strip carries a .room; the floor is a plain flat sequence with no grid. */
 function drawRoomGrid2D(){ const as=activeSeq(); const room=as&&as.room; if(!room||!room.walls||!room.walls.length)return;
-  const M=flatMap(); const stripW=as.w||state.seqW||1, stripH=as.h||state.seqH||1;
-  const fx=px=>px/stripW*2-1, fy=py=>1-py/stripH*2; // fx: 0..stripW → -1..1 ; fy: py-from-top 0..stripH → 1..-1
-  // dead zone below any wall shorter than the strip (those pixels belong to no wall)
-  for(const w of room.walls){ if(w.pxH>=stripH)continue; const a=M.px(fx(w.x0),fy(w.pxH)), b=M.px(fx(w.x1),fy(stripH));
+  const M=flatMap(); const stripW=as.w||state.seqW||1, canvasH=as.h||state.seqH||1, wallsH=room.stripH||canvasH; // [R221] canvasH = whole lienzo (walls+floor); wallsH = walls-only slice at the top
+  const fx=px=>px/stripW*2-1, fy=py=>1-py/canvasH*2; // fx: 0..stripW → -1..1 ; fy: py-from-top 0..canvasH → 1..-1
+  // dead zone below any wall shorter than the walls slice (those pixels belong to no wall — still above the floor)
+  for(const w of room.walls){ if(w.pxH>=wallsH)continue; const a=M.px(fx(w.x0),fy(w.pxH)), b=M.px(fx(w.x1),fy(wallsH));
     gx.fillStyle='rgba(8,9,11,0.42)'; gx.fillRect(a[0],a[1],b[0]-a[0],b[1]-a[1]);
     gx.strokeStyle='rgba(255,255,255,0.16)'; gx.setLineDash([3,3]); gx.beginPath(); gx.moveTo(a[0],a[1]); gx.lineTo(b[0],a[1]); gx.stroke(); gx.setLineDash([]); }
   // per-wall subdivision grid (3 rows × 4 cols, proportional to each wall) — only when the Grid toggle is on
@@ -1539,21 +1584,23 @@ function drawRoomGrid2D(){ const as=activeSeq(); const room=as&&as.room; if(!roo
      sala. Se dibujan más marcadas que antes (0.24 → 0.34 y 1.5px): son la referencia de dónde dobla la pared, y
      con la cuadrícula de muro encendida se confundían con una línea más de la rejilla. */
   if(state.view.showSeam){ gx.strokeStyle='rgba(255,255,255,0.34)'; gx.lineWidth=1.5;
-    for(let i=1;i<room.walls.length;i++){ const x=fx(room.walls[i].x0); const p0=M.px(x,fy(0)), p1=M.px(x,fy(stripH)); gx.beginPath(); gx.moveTo(p0[0],p0[1]); gx.lineTo(p1[0],p1[1]); gx.stroke(); }
+    for(let i=1;i<room.walls.length;i++){ const x=fx(room.walls[i].x0); const p0=M.px(x,fy(0)), p1=M.px(x,fy(wallsH)); gx.beginPath(); gx.moveTo(p0[0],p0[1]); gx.lineTo(p1[0],p1[1]); gx.stroke(); }
     gx.lineWidth=1; }
   // subtle wall-role label, bottom-left inside each wall region
   gx.font='600 11px Geist'; gx.textAlign='left'; gx.textBaseline='alphabetic';
   for(const w of room.walls){ const p=M.px(fx(w.x0),fy(w.pxH)); const lbl=roomRoleLabel(w.role).toUpperCase(); const tw=gx.measureText(lbl).width;
     const lx=p[0]+7, ly=p[1]-7; gx.fillStyle='rgba(6,7,9,0.55)'; gx.fillRect(lx-3,ly-10,tw+6,14); gx.fillStyle='rgba(196,201,208,0.82)'; gx.fillText(lbl,lx,ly); }
-  // [R211] floor "dock" — the floor's rect glued under the Front wall, unfolded-cube style. Drawn whenever room.floor
-  // exists, even with no floorSeqId linked (the landing's temp room preview has no floor sequence, only the outline).
+  /* [R221] floor rect — now just an OVERLAY (outline + grid + label) over the bottom slice of the SAME canvas;
+     the pixel content itself paints as part of the normal composite blit (no separate quad/texture anymore, see
+     the archived drawRoomFloorDock2D in _backup/deprecated). Same rect the R211 dock used to draw (Front wall's
+     x0/x1, height = canvasH-wallsH), just measured inside the canvas instead of glued below it. */
   if(room.floor){ const fw=room.walls.find(w=>w.role==='Front')||room.walls[0];
-    if(fw){ const fx0=fw.x0,fx1=fw.x1, fd=room.floor.pxH*((fx1-fx0)/(room.floor.pxW||1)), dY1=stripH+fd;
-      const a=M.px(fx(fx0),fy(stripH)), b=M.px(fx(fx1),fy(dY1));
+    if(fw){ const fx0=fw.x0,fx1=fw.x1, dY1=canvasH;
+      const a=M.px(fx(fx0),fy(wallsH)), b=M.px(fx(fx1),fy(dY1));
       gx.strokeStyle='rgba(255,255,255,0.34)'; gx.lineWidth=1; gx.strokeRect(a[0],a[1],b[0]-a[0],b[1]-a[1]);
       if(state.view.showGrid){ gx.strokeStyle='rgba(255,255,255,0.11)';
-        for(let i=1;i<ROOM_GRID_COLS;i++){ const x=fx(fx0+(fx1-fx0)*i/ROOM_GRID_COLS); const p0=M.px(x,fy(stripH)), p1=M.px(x,fy(dY1)); gx.beginPath(); gx.moveTo(p0[0],p0[1]); gx.lineTo(p1[0],p1[1]); gx.stroke(); }
-        for(let j=1;j<ROOM_GRID_ROWS;j++){ const yy=fy(stripH+fd*j/ROOM_GRID_ROWS); const p0=M.px(fx(fx0),yy), p1=M.px(fx(fx1),yy); gx.beginPath(); gx.moveTo(p0[0],p0[1]); gx.lineTo(p1[0],p1[1]); gx.stroke(); } }
+        for(let i=1;i<ROOM_GRID_COLS;i++){ const x=fx(fx0+(fx1-fx0)*i/ROOM_GRID_COLS); const p0=M.px(x,fy(wallsH)), p1=M.px(x,fy(dY1)); gx.beginPath(); gx.moveTo(p0[0],p0[1]); gx.lineTo(p1[0],p1[1]); gx.stroke(); }
+        for(let j=1;j<ROOM_GRID_ROWS;j++){ const yy=fy(wallsH+(dY1-wallsH)*j/ROOM_GRID_ROWS); const p0=M.px(fx(fx0),yy), p1=M.px(fx(fx1),yy); gx.beginPath(); gx.moveTo(p0[0],p0[1]); gx.lineTo(p1[0],p1[1]); gx.stroke(); } }
       gx.font='600 11px Geist'; gx.textAlign='left'; gx.textBaseline='alphabetic';
       const p=M.px(fx(fx0),fy(dY1)); const lbl=T('FLOOR','SUELO'); const tw=gx.measureText(lbl).width;
       const lx=p[0]+7, ly=p[1]-7; gx.fillStyle='rgba(6,7,9,0.55)'; gx.fillRect(lx-3,ly-10,tw+6,14); gx.fillStyle='rgba(196,201,208,0.82)'; gx.fillText(lbl,lx,ly); } }
@@ -3011,12 +3058,23 @@ function layoutWallStrip(walls){
   const stripW=Math.max(16,Math.round(x));
   return {stripW,stripH};
 }
+/* [R221] Floor height once merged into the SAME canvas as the walls strip: floor.pxH scaled by the ratio of the
+   Front wall's strip width to the floor's own native width — this keeps the dock rect's aspect exactly equal to
+   floor.pxW:floor.pxH (so the floor's own resolution stays its export size, "adapts to whatever res you work at").
+   Shared by every place that lays out or re-derives the room canvas (was about to be re-duplicated 3× again). */
+function roomFloorH(walls,floor,stripW){
+  if(!floor)return 0;
+  const fw=(walls||[]).find(w=>w.role==='Front')||(walls&&walls[0]);
+  const frontW=Math.max(1,(fw?(fw.x1-fw.x0):stripW)||stripW||1);
+  return Math.max(1,Math.round((floor.pxH||1)*(frontW/Math.max(1,floor.pxW||1))));
+}
 function lchRoomSeqTemp(cfg){
   const walls=(cfg.walls||[]).map(w=>({...w}));
   if(!walls.length)return null;
   const {stripW,stripH}=layoutWallStrip(walls);
-  return { id:'__lchRoom', kind:'nest', name:'', fps:60, w:stripW, h:stripH, mode:'room', cov:null,
-           nestClips:[], nestLanes:[], room:{ walls, floorSeqId:null, floor:cfg.floor||null } };
+  const floorH=roomFloorH(walls,cfg.floor,stripW); // [R221] canvas = walls strip + floor, one lienzo
+  return { id:'__lchRoom', kind:'nest', name:'', fps:60, w:stripW, h:stripH+floorH, mode:'room', cov:null,
+           nestClips:[], nestLanes:[], room:{ walls, floorSeqId:null, floor:cfg.floor||null, stripH } };
 }
 function lchEditorShot(cv,o){
   if(!cv||typeof render!=='function')return false;
@@ -3024,7 +3082,7 @@ function lchEditorShot(cv,o){
   const S=state, V=state.view;
   const bak={ w:S.seqW,h:S.seqH,mode:S.seqMode,cov:S.seqCov, clips:S.clips, vmode:V.mode, zoom:V.zoom, pan:V.pan.slice(),
               cw:view.cw, ch:view.ch, vs:VSIZE, gw:glc.width, gh:glc.height, rw:gridc.width, rh:gridc.height,
-              media:S.media, aseq:S.activeSeqId, three:V.three, cam:{...V.cam}, geo:_roomGeo, geoSeq:_roomGeoSeq, ra:_raOn };
+              media:S.media, aseq:S.activeSeqId, three:V.three, cam:{...V.cam}, geo:_roomGeo, geoSeq:_roomGeoSeq, fold:_roomFold, foldSeq:_roomFoldSeq, ra:_raOn };
   try{
     const r=cv.getBoundingClientRect(); if(!r.width||!r.height)return false;
     const dpr=Math.min(2,window.devicePixelRatio||1);
@@ -3034,12 +3092,9 @@ function lchEditorShot(cv,o){
     _raOn=false; // el caché de render-ahead es del proyecto de detrás: ni se lee ni se ensucia con fotogramas del launcher
     if(o.room){ const seq=lchRoomSeqTemp(o.room); if(!seq)return false;
       S.media=[seq]; S.activeSeqId=seq.id; S.seqW=seq.w; S.seqH=seq.h; S.seqMode='room';
-      _roomGeo=null; _roomGeoSeq=null;                       // la malla se cachea por id de secuencia y el id no cambia al editar los muros
-      if(o.room.floor && o.view==='2d'){ // [R211] encuadre tira + suelo dockeado (mismo cálculo que newRoomProject)
-        const fw=seq.room.walls.find(w=>w.role==='Front')||seq.room.walls[0];
-        const fd=o.room.floor.pxH*((fw.x1-fw.x0)/Math.max(1,o.room.floor.pxW));
-        const k=1+fd/seq.h, wa=r.width/r.height, A=seq.w/seq.h, sy=(A>=wa)?(wa/A):1;
-        V.pan=[0,-fd/seq.h]; if(sy*k*0.92>0.95)V.zoom=0.95/(sy*k); } }
+      _roomGeo=null; _roomGeoSeq=null; _roomFold=null; _roomFoldSeq=null; // la malla (y el fold-wrap, R222) se cachean por id de secuencia y el id ('__lchRoom') no cambia al editar los muros
+      // [R221] el suelo ya es parte del mismo canvas — el letterbox por defecto (V.zoom/pan de arriba) lo centra solo, sin compensación de dock
+    }
     // [R200] la cámara vale para los DOS visores 3D (domo y sala); `orbit` porque el modo `spec` ignora yaw/dist
     if(o.cam){ V.three='orbit'; V.cam={...V.cam,...o.cam}; }
     view.cw=r.width; view.ch=r.height; VSIZE=Math.min(r.width,r.height);
@@ -3053,7 +3108,7 @@ function lchEditorShot(cv,o){
   finally{
     S.seqW=bak.w; S.seqH=bak.h; S.seqMode=bak.mode; S.seqCov=bak.cov; S.clips=bak.clips;
     V.mode=bak.vmode; V.zoom=bak.zoom; V.pan=bak.pan; V.three=bak.three; V.cam=bak.cam;
-    S.media=bak.media; S.activeSeqId=bak.aseq; _roomGeo=bak.geo; _roomGeoSeq=bak.geoSeq; _raOn=bak.ra;
+    S.media=bak.media; S.activeSeqId=bak.aseq; _roomGeo=bak.geo; _roomGeoSeq=bak.geoSeq; _roomFold=bak.fold; _roomFoldSeq=bak.foldSeq; _raOn=bak.ra;
     view.cw=bak.cw; view.ch=bak.ch; VSIZE=bak.vs;
     glc.width=bak.gw; glc.height=bak.gh; gridc.width=bak.rw; gridc.height=bak.rh;
     try{ gx.setTransform(Math.min(2,window.devicePixelRatio||1),0,0,Math.min(2,window.devicePixelRatio||1),0,0); }catch(_){}
@@ -3803,7 +3858,7 @@ function flatHandleHit(px,py){ if(!_flatHandles)return null; for(const h of _fla
 function _resizeCursor(sx,sy){ if(sx&&sy)return (sx*sy>0)?'nesw-resize':'nwse-resize'; return sx?'ew-resize':'ns-resize'; } // frame Y is up, screen Y is down → the diagonal cursor is flipped vs frame-space sign
 /* 360-room snap targets in flat-frame coords (−1..1): vertical seams = wall x0/x1 + strip edges; horizontal = wall pxH bottoms + strip edges */
 function roomSeamX(){ const as=activeSeq(),room=as&&as.room; const out=[-1,0,1]; if(room){ const sw=as.w||1; for(const w of room.walls)out.push(w.x0/sw*2-1, w.x1/sw*2-1, (w.x0+w.x1)/sw-1); } return out; } // strip edges + h-center + each wall's edges AND its horizontal centre
-function roomSeamY(){ const as=activeSeq(),room=as&&as.room; const out=[-1,0,1]; if(room){ const sh=as.h||1; for(const w of room.walls){ out.push(1-2*w.pxH/sh, 1-w.pxH/sh); } } return out; } // strip edges + v-center + each wall's bottom AND its vertical centre (pxH/2 from top)
+function roomSeamY(){ const as=activeSeq(),room=as&&as.room; const out=[-1,0,1]; if(room){ const sh=as.h||1; for(const w of room.walls){ out.push(1-2*w.pxH/sh, 1-w.pxH/sh); } } if(room&&room.floor){ const sh=as.h||1, wallsH=room.stripH||sh; out.push(1-2*wallsH/sh); } return out; } // sh = FULL canvas (matches flatMap's fy convention, same as drawRoomGrid2D) — strip edges + v-center + each wall's bottom AND vertical centre (pxH/2 from top) + [R221] the walls/floor seam itself, now that it can sit inside the frame instead of at the bottom edge
 /* "Mask to wall": GL scissor rects (in the current square FBO) for the selected wall roles → the clip only paints inside those walls' strip regions. */
 function roomWallScissorRects(roles){ const as=activeSeq(),room=as&&as.room; if(!room)return []; const vp=gl.getParameter(gl.VIEWPORT); const size=vp[2]||1; const sw=as.w||1, Fy=Math.min(1,(as.h||1)/sw); const out=[];
   for(const w of room.walls){ if(!roles.includes(w.role))continue; const x0=Math.round(w.x0/sw*size), x1=Math.round(w.x1/sw*size);
@@ -5637,8 +5692,9 @@ function renderExportFrame(t,res,ss,wall){ const flat=isFlat(); _drawFlat=flat; 
   gl.bindFramebuffer(gl.FRAMEBUFFER,_exFBO); composite(t,SR,true);
   gl.bindFramebuffer(gl.FRAMEBUFFER,null); gl.viewport(0,0,glc.width,glc.height); gl.disable(gl.DEPTH_TEST); gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT);
   gl.useProgram(PB); gl.bindVertexArray(quadVAO); gl.uniform2f(LB.pan,0,0); gl.uniform1f(LB.zoom,1); gl.uniform2f(LB.aspect,1,1);
-  if(wall){ const A=_compAspect, s=Math.min(2/A,2), Fx=s*A/2, Fy=s/2; const sw=wall.stripW||1, sh=wall.stripH||1; // F5 per-wall: crop this wall's strip sub-rect (top-aligned) → resample into glc (pxW×pxH)
-    const uSc=(wall.x1-wall.x0)/sw*Fx, uOf=(1-Fx)/2+wall.x0/sw*Fx, vSc=(wall.pxH/sh)*Fy, vOf=(1+Fy)/2-(wall.pxH/sh)*Fy;
+  if(wall){ const A=_compAspect, s=Math.min(2/A,2), Fx=s*A/2, Fy=s/2; const sw=wall.stripW||1, sh=wall.stripH||1; // F5 per-wall (+ [R221] whole-strip / floor) crop: crop a sub-rect of the room composite → resample into glc (pxW×pxH)
+    const y0=wall.y0||0, y1=(wall.y1!=null)?wall.y1:(y0+(wall.pxH||0)); // [R221] y0/y1 generalize the old top-anchored (y0=0,y1=pxH) crop so a floor/strip-only job can crop an arbitrary vertical slice of the taller room canvas
+    const uSc=(wall.x1-wall.x0)/sw*Fx, uOf=(1-Fx)/2+wall.x0/sw*Fx, vSc=(y1-y0)/sh*Fy, vOf=(1+Fy)/2-(y1/sh)*Fy;
     gl.uniform1f(LB.flat,1); gl.uniform2f(LB.uvsc,uSc,vSc); gl.uniform2f(LB.uvof,uOf,vOf); gl.uniform1f(LB.hfade,0); }
   /* [R180] `_ncSquare` = estoy horneando el caché de un nest. Entonces la salida tiene que quedar EXACTAMENTE
      como la textura que produce `prepNests`: el composite cuadrado CON su letterbox, sin recortar y sin fundido
@@ -5788,7 +5844,7 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
   const flat=isFlat(); const wall=opt.wall||null; const stripW=state.seqW||1920, stripH=state.seqH||1080; // F5 per-wall: composite the full strip at native res, then crop this wall to its own pxW×pxH file
   let eW=wall?wall.pxW:(flat?(state.seqW||1920):res), eH=wall?wall.pxH:(flat?(state.seqH||1080):res), qRes=wall?Math.max(stripW,stripH):(flat?Math.max(eW,eH):res), dimStr=wall?(wall.pxW+'x'+wall.pxH):(flat?(eW+'x'+eH):(res+'')); // flat exports at the sequence's W×H (rect); dome stays square
   if(opt.outW&&opt.outH&&!wall){ eW=Math.max(16,Math.round(opt.outW/2)*2); eH=Math.max(16,Math.round(opt.outH/2)*2); qRes=Math.max(eW,eH); dimStr=eW+'x'+eH; } // [R180] salida a escala: el caché de un nest se hornea a media resolución (o menos) — es material de trabajo, no de entrega
-  const filePre=wall?('wall_'+String(wall.role||'').toLowerCase()):(flat?'2d':'dome');
+  const filePre=wall?(wall.kind==='floor'?'floor':wall.kind==='strip'?'walls':('wall_'+String(wall.role||'').toLowerCase())):(flat?'2d':'dome'); // [R221] 'strip'/'floor' are the whole-canvas crops queueJob now uses for room "Full strip"/floor jobs — same crop mechanism as per-wall, different rect
   const job=opt.job; const oW=glc.width,oH=glc.height; if(state.playing)pause(); // never export over a live transport — the playback rAF loop and the export seeker would fight over the media elements
   /* [R214→R215] Shared teardown for runExport's two mutually-exclusive exits: the streaming-save-cancelled early return
      (below) and the normal end-of-function exit. They used to be two literal copies of this block — R212's fix
@@ -6553,7 +6609,11 @@ async function exWaitPause(){ while(_exPaused&&!cancelExport)await new Promise(r
    el bitrate automático, los bpp, el recuento de fotogramas, el aspecto del monitor y el nombre del render. */
 function exPx(S){
   const as=activeSeq()||{}, dome=!isFlat();
-  const sw=Math.max(16,as.w||(dome?4096:1920)), sh=Math.max(16,dome?sw:(as.h||1080));
+  /* [R221] room match-size: 'strip'/'stripfloor' export the walls-only slice (room.stripH), not the whole
+     walls+floor canvas — as.h now includes the floor, so showing it unqualified here would overstate the
+     primary job's size in the estimate/monitor/codec probe. */
+  const roomH=(isRoom()&&as.room&&(!S||S.roomMode!=='walls'))?(as.room.stripH||as.h):as.h;
+  const sw=Math.max(16,as.w||(dome?4096:1920)), sh=Math.max(16,dome?sw:(roomH||1080));
   if(S.szMode==='preset'){ const p=Math.max(16,S.szPreset||sw);
     return dome?{w:p,h:p,src:'preset'}:{w:p,h:Math.max(16,Math.round(p*sh/sw/2)*2),src:'preset'}; }
   if(S.szMode==='custom'){ const w=Math.max(16,Math.min(16384,S.szW||sw));
@@ -6567,14 +6627,14 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
   const as=activeSeq()||{}, dome=!isFlat(), room=isRoom();
   const S={ szMode:'match', szPreset:(as.w||4096), szW:(as.w||1920), szH:(dome?(as.w||4096):(as.h||1080)),
             codec:'png', fps:(as.fps||state.fps||60), br:120, brTouched:false, chunks:'auto',
-            roomMode:'strip', floor:true, phase:'idle', pct:0, frame:0, frames:0, t0:0, tPause:0, bytes:0, warns:[], batch:[], batchDone:0 };
+            roomMode:'strip', phase:'idle', pct:0, frame:0, frames:0, t0:0, tPause:0, bytes:0, warns:[], batch:[], batchDone:0 };
   { const L=lastExportGet(); if(L){ if(L.codec)S.codec=L.codec; if(L.fps)S.fps=+L.fps; if(L.br)S.br=+L.br; // [R191] H.265 vuelve a la lista, así que una memoria vieja con 'hevc' ya es válida
       if(L.res){ S.szMode='preset'; S.szPreset=+L.res; } } } // [R102·D-T4] abre con lo último que usaste, no con valores de fábrica
 
   const ov=document.createElement('div'); ov.className='exs-scrim'; ov.id='exOv';
   const title=room?T('Export 360 room','Exportar sala 360'):(dome?T('Export dome master','Exportar máster del domo'):T('Export 2D master','Exportar máster 2D'));
   const roomWalls=(room&&as.room&&as.room.walls&&as.room.walls.length)||0;
-  const hasFloor=!!(room&&as.room&&as.room.floorSeqId&&mediaById(as.room.floorSeqId));
+  const hasFloor=!!(room&&as.room&&as.room.floor); // [R221] the floor is a region of THIS sequence now — no separate floorSeqId media to check
   ov.innerHTML=`<div class="exs" id="exSheet">
    <div class="exs-hd" id="exHd"><span class="ic">${ICO('share',13)}</span><span class="t">${title}</span>
      <span class="exs-chip" id="exChip">${T('Idle','En reposo')}</span>
@@ -6618,8 +6678,11 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
           <span id="exSzCtl" style="display:flex;align-items:center;gap:6px;min-width:0;flex:1;"></span></div></div>
       <div class="exs-row" id="exBrRow"><label>${T('Bitrate','Tasa de bits')}</label><input type="number" id="exBr" min="1" max="800" style="width:66px;"><span class="exs-unit">Mbps</span><button class="exs-btn" id="exBrAuto">${T('Auto','Auto')}</button></div>
       <div class="exs-row" id="exChunkRow"><label>${T('Chunks','Trozos')}</label><select id="exChunks"><option value="auto">${T('Auto','Auto')}</option><option value="1">1</option><option value="2">2</option><option value="4">4</option><option value="8">8</option><option value="16">16</option></select><span class="exs-hint" id="exChunkHint"></span></div>
-      ${room?`<div class="exs-row" id="exRoomRow"><label>${T('Room','Sala')}</label><div class="exs-seg" id="exRoomMode"><button data-rm="strip" class="on">${T('Full strip','Tira completa')}</button><button data-rm="walls">${T('Per wall','Por muro')} · ${roomWalls}</button></div></div>`:''}
-      ${(room&&hasFloor)?`<div class="exs-row"><label></label><label style="display:flex;align-items:center;gap:6px;font-size:10.5px;color:#8C8C8C;cursor:pointer;"><input type="checkbox" id="exFloor" checked> ${T('Also export the floor','Exportar también el piso')}</label></div>`:''}
+      ${room?`<div class="exs-row" id="exRoomRow"><label>${T('Room','Sala')}</label><div class="exs-seg" id="exRoomMode">
+        <button data-rm="strip" class="on">${T('Full strip','Tira completa')}</button>
+        ${hasFloor?`<button data-rm="stripfloor">${T('Strip + floor','Tira + suelo')} · 2</button>`:''}
+        <button data-rm="walls">${hasFloor?(T('Each wall + floor','Cada muro + suelo')+' · '+(roomWalls+1)):(T('Per wall','Por muro')+' · '+roomWalls)}</button>
+      </div></div>`:''}
       <div class="exs-est" id="exEst">—</div>
     </div>
    </div>
@@ -6903,13 +6966,23 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
           try{ if(IS_ELEC&&DSP.setProgress)DSP.setProgress(-1); }catch(e){} updExportUI(); } };
       const opt=Object.assign({codec,res:p.w,outW:p.w,outH:p.h,fps,bitrate:br,chunks:S.chunks,range,job,_rec:rec},extra||{});
       rec.opt=opt; _exq.push(opt); updExportUI(); renderExQueue(); };
+    /* [R221] room export, 3 modes (only room.floor makes "stripfloor" meaningful — the segmented control only
+       offers it when hasFloor). All three reuse the SAME per-wall crop mechanism (opt.wall — now generalized with
+       y0/y1 so it can crop any horizontal slice of the taller walls+floor canvas, not just a top-anchored one):
+       'strip'      → one job, walls-only slice (y<room.stripH) at native stripW×stripH — the floor never renders.
+       'stripfloor' → the strip job above, PLUS a second job cropping the floor's dock rect, scaled to room.floor.pxW×pxH.
+       'walls'      → one job per wall (unchanged) + the floor job if the room has one (N+1 files). */
+    const addFloorJob=()=>{ const room=as.room; const fw=(room.walls||[]).find(w=>w.role==='Front')||room.walls[0]; if(!fw||!room.floor)return;
+      const sw=as.w||1, sh=as.h||1, wallsH=room.stripH||sh, floorH=Math.max(1,sh-wallsH);
+      addJob({wall:{kind:'floor',x0:fw.x0,x1:fw.x1,y0:wallsH,y1:wallsH+floorH,pxW:room.floor.pxW,pxH:room.floor.pxH,stripW:sw,stripH:sh}}, T('Floor','Piso')+' · '+room.floor.pxW+'×'+room.floor.pxH+' '+cLbl); };
     const queueJob=()=>{ const rm=room?S.roomMode:null;
       if(room&&rm==='walls'){ const sw=as.w||1, sh=as.h||1;
-        for(const w of as.room.walls) addJob({wall:{role:w.role,x0:w.x0,x1:w.x1,pxW:w.pxW,pxH:w.pxH,stripW:sw,stripH:sh}}, roomRoleLabel(w.role)+' · '+w.pxW+'×'+w.pxH+' '+cLbl); }
-      else addJob(null,(room?(T('Walls','Muros')+' · '):'')+p.w+'×'+p.h+' '+cLbl);
-      if(room && $$('#exFloor') && $$('#exFloor').checked){ const fm=mediaById(as.room.floorSeqId);
-        if(fm&&(fm.nestClips||[]).length) addJob({seqId:fm.id}, T('Floor','Piso')+' · '+(fm.w||1920)+'×'+(fm.h||1080)+' '+cLbl);
-        else if(fm) flashStatus(T('Floor has no clips — skipped','El piso no tiene clips — omitido'),'err'); }
+        for(const w of as.room.walls) addJob({wall:{role:w.role,x0:w.x0,x1:w.x1,pxW:w.pxW,pxH:w.pxH,stripW:sw,stripH:sh}}, roomRoleLabel(w.role)+' · '+w.pxW+'×'+w.pxH+' '+cLbl);
+        if(hasFloor)addFloorJob(); }
+      else if(room && hasFloor){ const sw=as.w||1, sh=as.h||1, wallsH=as.room.stripH||sh;
+        addJob({wall:{kind:'strip',x0:0,x1:sw,y0:0,y1:wallsH,pxW:sw,pxH:wallsH,stripW:sw,stripH:sh}}, T('Walls','Muros')+' · '+sw+'×'+wallsH+' '+cLbl);
+        if(rm==='stripfloor')addFloorJob(); }
+      else addJob(null,(room?(T('Walls','Muros')+' · '):'')+p.w+'×'+p.h+' '+cLbl); // no floor at all → seq.h is already the walls-only canvas, no crop needed
       pumpExportQ(); };
     if((codec==='mp4'||codec==='hevc') && !(IS_ELEC && DSP.fileOpen)){ const estGB=br/8*exSecs()/1e9; // sólo avisa cuando NO se puede escribir en streaming (navegador); el .exe escribe el MP4 trozo a trozo
       if(estGB>1.8){ appConfirm(T('This MP4 is about ','Este MP4 pesa ~')+estGB.toFixed(1)+T(' GB and is assembled in memory before saving — it may run out of RAM. Use a PNG sequence for very large renders. Continue anyway?',' GB y se arma en memoria antes de guardar — podría quedarse sin RAM. Usa una secuencia PNG para renders muy grandes. ¿Continuar igual?'),
@@ -7072,7 +7145,6 @@ function newSequenceDialog(){ const n=state.media.filter(isSeqMedia).length+1; c
     if(mode==='room'){ const walls=roomWalls(); const floor=$('#nsRoomFloor').checked?{pxW:walls[0].pxW,pxH:walls[0].pxH}:null;
       saveActiveSeq(); const wseq=createRoomSequences({walls,floor,fps}); if(name)wseq.name=name; // [R217] same media-creation path as newRoomProject, without the wipe — adds to the CURRENT project
       state.openSeqs=state.openSeqs||[]; state.openSeqs.push(wseq.id);
-      const fseq=wseq.room.floorSeqId?mediaById(wseq.room.floorSeqId):null; if(fseq&&!state.openSeqs.includes(fseq.id))state.openSeqs.push(fseq.id);
       state.activeSeqId=wseq.id; loadSeqIntoState(wseq); // [R92-T1] fresh sequence starts with its own empty per-seq undo stack
       renderMedia(); renderSeqBar(); renderTimeline(); renderInspector(); renderWork(); render(); updStatus(); updFmtChip(); markDirty(); close();
       flashStatus(T('New 360 room','Nueva sala 360')+' · '+walls.length+' '+T('walls','muros')+(floor?' + '+T('floor','piso'):'')); return; }
@@ -7510,24 +7582,20 @@ function applyRoomGeometry(cfg){
   const idPorRol=new Map((room.walls||[]).map(w=>[w.role,w.id]));
   const walls=cfg.walls.map(w=>({ id:idPorRol.get(w.role)||uid(), ...w })).sort((a,b)=>a.order-b.order);
   const {stripW,stripH}=layoutWallStrip(walls); // [R214] was duplicated inline here — see layoutWallStrip
-  room.walls=walls;
-  wseq.w=stripW; wseq.h=stripH;
-  if(state.activeSeqId===wseq.id){ state.seqW=stripW; state.seqH=stripH; }
-  const fseq=room.floorSeqId?mediaById(room.floorSeqId):null;
-  if(cfg.floor){
-    if(fseq){ fseq.w=cfg.floor.pxW; fseq.h=cfg.floor.pxH; }
-    else { const nf=newSeqMedia(T('Floor','Piso'),state.fps,cfg.floor.pxW,cfg.floor.pxH,null,null,'flat');
-      nf.roomFloorOf=wseq.id; room.floorSeqId=nf.id; state.media.push(nf);
-      if(state.openSeqs&&!state.openSeqs.includes(nf.id))state.openSeqs.push(nf.id); }
-  } else if(fseq){ room.floorSeqId=null; delete fseq.roomFloorOf;
-    flashStatus(T('Floor detached — its sequence is still in Media','Piso desvinculado — su secuencia sigue en Medios')); }
-  room.floor=cfg.floor||null;
+  /* [R221] the floor is a pixel region of THIS SAME sequence now (no separate floorSeqId media to create/detach/
+     resize) — re-deriving the geometry just means growing/shrinking this sequence's own canvas. Clips already
+     placed on the floor area keep their pixel position; they simply fall outside the visible canvas if the floor
+     is turned off (nothing is deleted — same "never lose material" rule the rest of this function already follows). */
+  room.walls=walls; room.stripH=stripH; room.floor=cfg.floor||null;
+  const floorH=roomFloorH(walls,room.floor,stripW);
+  wseq.w=stripW; wseq.h=stripH+floorH;
+  if(state.activeSeqId===wseq.id){ state.seqW=wseq.w; state.seqH=wseq.h; }
   const rolesVivos=new Set(walls.map(w=>w.role)); // un clip enmascarado a un muro que ya no existe perdería su máscara
   for(const c of state.clips){ if(!c.props||!c.props.maskWalls)continue;
     const q=c.props.maskWalls.filter(r=>rolesVivos.has(r)); if(q.length)c.props.maskWalls=q; else delete c.props.maskWalls; }
   /* la malla 3D de la sala se cachea por ID DE SECUENCIA (`_roomGeoSeq`), y el id no cambia al editar la
      geometría → hay que invalidarla a mano o el visor 3D seguiría dibujando los muros viejos */
-  _roomGeo=null; _roomGeoSeq=null; _arCache=null; try{raInvalidate();}catch(e){}
+  _roomGeo=null; _roomGeoSeq=null; _roomFold=null; _roomFoldSeq=null; _arCache=null; try{raInvalidate();}catch(e){} // [R222] the fold-wrap cache is keyed the same way _roomGeo is — same staleness risk, same fix
   resize(); renderTimeline(); renderInspector(); renderMedia(); render(); markDirty(); updStatus();
   flashStatus(T('Room geometry updated','Geometría de la sala actualizada'));
 }
@@ -7540,9 +7608,12 @@ function createRoomSequences(cfg){
   const walls=cfg.walls.map(w=>({id:uid(),...w})).sort((a,b)=>a.order-b.order); // strip order = the 2D "order" number
   // R91b: the flat strip is laid out by NATIVE PIXELS per wall — the 2D editor is exact pixelage, not physical size. Each wall keeps its own pxW×pxH buffer; the cm (wcm/hcm) are geometry-only, consumed by the 3D viewer to place walls (angles fall out of the dimensions, not forced 90°) and to stretch each wall's pixels onto its real quad.
   const {stripW,stripH}=layoutWallStrip(walls); // [R214] was duplicated inline here — see layoutWallStrip
-  const room={ walls, floorSeqId:null, floor:cfg.floor||null };
-  const wseq=newSeqMedia(T('Walls','Muros'),fps,stripW,stripH,null,null,'room'); wseq.room=room; state.media.push(wseq);
-  if(cfg.floor){ const fseq=newSeqMedia(T('Floor','Piso'),fps,cfg.floor.pxW,cfg.floor.pxH,null,null,'flat'); fseq.roomFloorOf=wseq.id; room.floorSeqId=fseq.id; state.media.push(fseq); }
+  /* [R221] the floor is no longer a separate sequence — it's the bottom slice of the SAME canvas as the walls
+     strip (h = stripH + floorH). room.floorSeqId stays null going forward; it only exists for migration (an
+     old .isp still carrying it gets folded into this model by loadProject → migrateRoomFloor). */
+  const floorH=roomFloorH(walls,cfg.floor,stripW);
+  const room={ walls, floorSeqId:null, floor:cfg.floor||null, stripH };
+  const wseq=newSeqMedia(T('Walls','Muros'),fps,stripW,stripH+floorH,null,null,'room'); wseq.room=room; state.media.push(wseq);
   return wseq;
 }
 async function newRoomProject(cfg){ if(!(await confirmDiscard()))return; if(state.playing)pause(); disposeAllVinst();
@@ -7554,10 +7625,7 @@ async function newRoomProject(cfg){ if(!(await confirmDiscard()))return; if(stat
   const wseq=createRoomSequences(cfg), room=wseq.room, walls=room.walls, stripW=wseq.w, stripH=wseq.h; // [R217] wall/floor media creation now lives in createRoomSequences (shared with newSequenceDialog's Room type) — same locals as before so the framing code below is untouched
   state.seqMode='room'; state.seqW=stripW; state.seqH=stripH;
   state.view.cam.yaw=1.99; state.view.cam.pitch=0.42; // [R211] vista 3D inicial desde detrás de Back → FRONT al fondo/arriba, calza con el plano (sólo al crear; el domo conserva su default)
-  if(cfg.floor){ // [R211] encuadre inicial: tira + suelo dockeado centrados como un solo canvas (el pan ya participa en blit, overlay y ratón → sin riesgo de mapeo)
-    const fw=walls.find(w=>w.role==='Front')||walls[0]; const fd=cfg.floor.pxH*((fw.x1-fw.x0)/Math.max(1,cfg.floor.pxW));
-    const k=1+fd/stripH, wa=(view.cw||1)/(view.ch||1), A=stripW/stripH, sy=(A>=wa)?(wa/A):1;
-    state.view.pan=[0,-fd/stripH]; state.view.zoom=(sy*k*0.92>0.95)?(0.95/(sy*k)):0.92; }
+  state.view.pan=[0,0]; state.view.zoom=0.92; // [R221] el suelo ya es parte del mismo canvas — el letterbox centra la tira+suelo solo, sin compensación de dock
   state.openSeqs=state.media.filter(isSeqMedia).map(s=>s.id); state.activeSeqId=wseq.id; loadSeqIntoState(wseq);
   clearAllUndo(); currentPath=null; state.dirty=false;
   renderMedia(); renderSeqBar(); renderTimeline(); renderInspector(); render(); updStatus(); projTitle(); updFmtChip();
@@ -7585,6 +7653,67 @@ function rasterizePenMasks(c){ if(!c)return;
   }
   x.globalCompositeOperation='source-over';
   if(!c.maskTex)c.maskTex=newTex(); upTex(c.maskTex,cv); c.props.mask='pen'; }
+/* [R221] migrate a room saved before the floor was merged into the walls canvas. Old model: `room.floorSeqId`
+   pointed at a SEPARATE 'flat' sequence, composited into its own square FBO and shown as a "dock" glued just
+   below Front (R211). New model: the floor is a pixel region of THIS SAME sequence (wseq.h = stripH + floorH).
+   This runs once per load (never re-saves floorSeqId back in) — it grows the walls sequence's canvas, remaps the
+   old floor sequence's clips into new lanes appended at the end, deletes the old floor media, and clears
+   floorSeqId/roomFloorOf. Position/scale/rotation map through the SAME orientation the R211 dock always showed
+   (mirrored vertically vs. the floor's own editor — "x directa, y invertida"): each param (x/y/scale/rot) turns
+   out to be an independent affine function of ITSELF alone (verified against flatPlace's math), so every stored
+   value — base prop AND every keyframe — can be transformed one at a time, no synchronized time-sampling needed.
+   Vertical mirroring flips clip CONTENT too (there's no dedicated vertical-mirror flag): reflecting a rectangle
+   rotated by θ with mirror=m is equivalent, in this engine's rot+mirror model, to rot'=180−θ, mirror'=!m — this
+   is a derived identity (reflect∘rotate = rotate(−θ)∘reflect, then reflect∘flipU(m) collapses to a single
+   180°+flip), not a guess; verified by direct 2×2 matrix composition. */
+function migrateRoomFloor(wseq){
+  const room=wseq.room; if(!room||!room.floorSeqId)return;
+  const fseq=mediaById(room.floorSeqId);
+  const stripH=room.stripH||wseq.h||1;
+  const floor=room.floor||(fseq?{pxW:fseq.w||1920,pxH:fseq.h||1080}:null);
+  const floorH=floor?roomFloorH(room.walls,floor,wseq.w):0;
+  room.stripH=stripH; wseq.h=stripH+floorH;
+  if(fseq&&floor){
+    const fw=(room.walls||[]).find(w=>w.role==='Front')||(room.walls||[])[0];
+    if(fw){
+      const Aold=Math.max(0.01,(fseq.w||floor.pxW||1)/(fseq.h||floor.pxH||1));
+      const An=Math.max(0.01,wseq.w/wseq.h);
+      const s=Math.max(0.0001,(fw.x1-fw.x0)/Math.max(1,floor.pxW||fseq.w||1));
+      const offX=fw.x0, offY=stripH;
+      const contain=(A,ca)=>(ca>=A)?{wW:A,wH:A/ca}:{wW:ca,wH:1}; // matches flatPlace's own contain-fit exactly
+      const mapX=X=>{ const px=(fseq.w||1)*(0.5+(X==null?0:X)/200); const spx=offX+px*s; return ((spx/wseq.w)-0.5)*200; };
+      const mapY=Y=>{ const py=(fseq.h||1)*(0.5-(Y==null?0:Y)/200); const py2=(fseq.h||1)-py; const spy=offY+py2*s; return (0.5-(spy/wseq.h))*200; };
+      const mapScale=(scale,ca)=>{ const sc0=scale==null?100:scale; const {wW,wH}=contain(Aold,ca);
+        const halfWpx=(wW/2*sc0/100)*(fseq.h||1)*s, halfHpx=(wH/2*sc0/100)*(fseq.h||1)*s;
+        const {wW:wWn,wH:wHn}=contain(An,ca);
+        if(wWn>1e-6)return (halfWpx/(wseq.h*(wWn/2)))*100;
+        if(wHn>1e-6)return (halfHpx/(wseq.h*(wHn/2)))*100;
+        return sc0; };
+      const mapRot=rot=>{ let r=180-(rot==null?0:rot); r=((r%360)+360)%360; return r; };
+      const srcClips=(fseq.nestClips||[]).map(c=>({...c,props:{...c.props},kf:JSON.parse(JSON.stringify(c.kf||{}))}));
+      const srcLanes=(fseq.nestLanes&&fseq.nestLanes.length)?fseq.nestLanes:defLanes();
+      if(!wseq.nestLanes||!wseq.nestLanes.length)wseq.nestLanes=defLanes();
+      const laneOffset=wseq.nestLanes.length;
+      srcLanes.forEach((l,i)=>wseq.nestLanes.push({...l,id:uid(),name:T('Floor ','Piso ')+(i+1),tag:'F'+(i+1)}));
+      if(srcClips.length){
+        for(const c of srcClips){
+          const m=mediaById(c.mediaId); const ca=m?Math.max(0.01,(m.w||16)/(m.h||9)):1;
+          const P=c.props||(c.props={});
+          const doX=v=>mapX(v), doY=v=>mapY(v), doScale=v=>mapScale(v,ca), doRot=v=>mapRot(v);
+          P.x=doX(P.x); P.y=doY(P.y); P.scale=doScale(P.scale); P.rot=doRot(P.rot); P.mirror=!P.mirror;
+          if(P.maskWalls)delete P.maskWalls; // wall-mask roles never applied to the floor's own sequence
+          if(c.kf){ if(c.kf.x)for(const k of c.kf.x)k.v=doX(k.v); if(c.kf.y)for(const k of c.kf.y)k.v=doY(k.v);
+            if(c.kf.scale)for(const k of c.kf.scale)k.v=doScale(k.v); if(c.kf.rot)for(const k of c.kf.rot)k.v=doRot(k.v); }
+          c.id=uid(); c.lane=laneOffset+(c.lane||0);
+          wseq.nestClips.push(c);
+        }
+        flashStatus(T('Room floor migrated into the walls canvas','Suelo de la sala migrado al lienzo de muros'));
+      }
+    }
+    state.media=state.media.filter(x=>x.id!==fseq.id); // its content now lives in wseq.nestClips — the standalone sequence is gone
+  }
+  room.floorSeqId=null;
+}
 function loadProject(obj){ relinkReset(); // [R204] el índice de reenlace es de ESTE proyecto: se tira al cargar otro
   try{ if(!_bootEsperandoProyecto)showLoadingScreen(T('Loading project…','Cargando proyecto…')); else bootMark(72); }catch(e){} /* [R175] durante el arranque la cuenta la lleva el splash, no una segunda pantalla encima del editor */ // [U9] logo-loop loading screen while the project + its proxies buffer
   if(state.playing)pause(); disposeAllVinst(); try{freeFxResources();}catch(e){} for(const _tid in (state.mediaTrash||{})) disposeMedia(state.mediaTrash[_tid]); state.mediaTrash={}; resetLutReg(); // free deleted-media textures + FX history from the previous project
@@ -7599,6 +7728,13 @@ function loadProject(obj){ relinkReset(); // [R204] el índice de reenlace es de
   for(const m of state.media) if(m.kind==='nest'&&m.ncPath) ncReattach(m); // [R180] los cachés de nest se re-enganchan al reabrir; la firma decide si siguen valiendo (va después del bucle: nestSig desciende a otros medios) // text/shape re-render from params; nest = a sequence (keeps its own w/h/fps)
   for(const m of state.media)if(m.missing===false)m._loading=false; // text/shape/ndi/nest are ready synchronously → not loading
   let mx=0; const fxMx=c=>{ if(c&&c.fx)for(const f of c.fx)mx=Math.max(mx,f.id||0); }; for(const c of state.clips){mx=Math.max(mx,c.id);fxMx(c);} for(const l of state.lanes)mx=Math.max(mx,l.id); for(const m of state.media){ mx=Math.max(mx,m.id); if(m.nestClips)for(const c of m.nestClips){mx=Math.max(mx,c.id);fxMx(c);} if(m.nestLanes)for(const l of m.nestLanes)mx=Math.max(mx,l.id); if(m.nestMarkers)for(const k of m.nestMarkers)mx=Math.max(mx,k.id); if(m.nestGroups)for(const g of m.nestGroups)mx=Math.max(mx,g.id); if(m.comp&&m.comp.id)mx=Math.max(mx,m.comp.id); } for(const g of (state.groups||[]))mx=Math.max(mx,g.id); for(const k of state.markers)mx=Math.max(mx,k.id); _id=mx+1;
+  /* [R221] room canvas migration — AFTER _id is set (migrateRoomFloor calls uid() for new clips/lanes; doing it
+     before the scan above would collide with ids the scan hasn't accounted for yet). Every pre-R221 room gets
+     room.stripH backfilled here too (old .isp files never had that field — wseq.h WAS the walls-only height). */
+  for(const m of state.media){ if(m.kind==='nest'&&m.mode==='room'&&m.room){
+    if(m.room.stripH==null)m.room.stripH=m.h;
+    if(m.room.floorSeqId)migrateRoomFloor(m);
+  } }
   state.selId=null; state.dirty=false;
   state.autoItems=(obj.autoItems&&typeof obj.autoItems==='object')?obj.autoItems:{}; // [R95·D2]
   state.workIn=(obj.workIn!=null?obj.workIn:null); state.workOut=(obj.workOut!=null?obj.workOut:null); state.folders=Array.isArray(obj.folders)?obj.folders:[]; state.folderColors=(obj.folderColors&&typeof obj.folderColors==='object')?obj.folderColors:{}; state.exportPresets=Array.isArray(obj.exportPresets)?obj.exportPresets:[];

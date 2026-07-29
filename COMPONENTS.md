@@ -41,7 +41,7 @@
 | Bifurcación flat/domo/sala | Predicados rect vs fisheye | app.js · `isFlat`/`isRoom`/`flatLikeMode` (~L633) | ✅ | [F2] |
 | Cobertura de domo (FOV) | Fuente única; rho=zenith/covHalf | app.js · `curCovHalf`/`f2azel`/`azel2f` (~L632) | ✅ | — |
 | Blit 2D + mapeo flat | Blit aspect-correcto + grilla 2D | app.js · `render` blit (~L943) · `flatMap`/`drawGrid2D` | ✅ | [U3] |
-| Ruta sala 3D | Quads de muros + piso, cámara orbit/stand | app.js · `renderRoom3D`/`compositeFloorTex` (~L906) | ✅ | [D4] |
+| Ruta sala 3D | Quads de muros + piso (mismo composite, [R221]), cámara orbit/stand | app.js · `renderRoom3D`/`buildRoomGeo` (~L1184) | ✅ | [D4] |
 | `resize()` | Dimensiona #gl/#grid al #stage con DPR | app.js · `resize` (~L1233) · #stage | ✅ | — |
 | Render-ahead cache | Cache de composite plano para playback pesado | app.js · `_raOn`/`raInvalidate`/`drawCacheMap` (~L801) | ✅🚧 flag-off | — |
 | `markDirty()` (hub) | Marca dirty + título + invalida render-ahead | app.js · `markDirty` (~L4900) | ✅ | — |
@@ -150,20 +150,21 @@
 ### 7 · Sala/360, Compose/Nest & formatos → [detalle](#7--sala360-composenest--formatos-detalle)
 | Componente | Qué hace | Ubicación | Estado | Roadmap |
 |---|---|---|---|---|
-| `renderRoom3D` | Dibuja la sala 3D (muros+piso+grilla); rótulos [R211] en espacio de pantalla vía `drawRoomLabels3D` (siempre legibles) | app.js · `renderRoom3D` (~L906) | ✅ | [D4] f2 |
-| `buildRoomGeo` | Geometría de quads de la sala (cacheada) | app.js · `buildRoomGeo` (~L863) | ✅ | — |
-| `roomPlan` | Lazo de muros → planta; [R211] envuelve en sentido natural (desde dentro mirando Front, Right a la DERECHA = lado x−) | app.js · `roomPlan` (~L6889) | ✅ | — |
+| `renderRoom3D` | Dibuja la sala 3D (muros+piso+grilla); rótulos [R211] en espacio de pantalla vía `drawRoomLabels3D` (siempre legibles). [R221] piso ya no compone a FBO propia — muestrea el MISMO `wallsTex` que los muros | app.js · `renderRoom3D` (~L1184) | ✅ | [D4] f2 |
+| `buildRoomGeo` | Geometría de quads de la sala (cacheada). [R221] UV del piso re-derivados: mapean al rect del dock DEL MISMO composite (antes, una textura cuadrada propia); shade del piso = 1.0 (antes 0.5, misma claridad que los muros) | app.js · `buildRoomGeo` (~L1081) | ✅ | — |
+| `roomPlan` | Lazo de muros → planta; [R211] envuelve en sentido natural (desde dentro mirando Front, Right a la DERECHA = lado x−) | app.js · `roomPlan` (~L7143) | ✅ | — |
 | Tira de muros desenrollada | Compositing rectangular, costuras, wall-mask | app.js · `roomWallScissorRects` (~L2621) | ✅ | — |
-| `layoutWallStrip(walls)` | [R214] Layout de la tira (x0/x1 por muro cosidos por pxW + stripW/stripH); MUTA `walls` y devuelve `{stripW,stripH}`. Antes vivía TRIPLICADO (`lchRoomSeqTemp`, `applyRoomGeometry`, `newRoomProject`) — unificado en una sola función | app.js · `layoutWallStrip` (~L2970) | ✅ | — |
-| Piso / compositeFloorTex | Piso como secuencia flat aparte | app.js · `compositeFloorTex` (~L856) | ✅ | [F4] |
-| Suelo dockeado 2D [R211] | Cubo desenvuelto: suelo pegado bajo Front en el canvas 2D (display-only; textura vía PB + contorno/label en grid; encuadre en `newRoomProject`/`lchEditorShot`) | app.js · `drawRoomFloorDock2D` (antes de `render()`) | ✅ | — |
-| `drawRoomGrid2D` | Grilla 2D por-muro (px) + costuras + labels + rect FLOOR del dock [R211] | app.js · `drawRoomGrid2D` (~L1154) | ✅ | — |
-| `roomCameraMVP` | Cámara Orbit + Viewer/stand | app.js · `roomCameraMVP` (~L901) | ✅ | — |
-| `roomSetupDialog` | Setup de sala: muros/roles/piso/tira | app.js · `roomSetupDialog` (~L5127) | ✅ | [F3][F4][F5] |
-| `createRoomSequences(cfg)` | [R217] Extraído de `newRoomProject`: crea SÓLO las media walls+floor (sin wipe/vista/tour) — lo comparten `newRoomProject` (proyecto nuevo) y el tipo "360 Room" de `newSequenceDialog` (añade la sala al proyecto ACTUAL) | app.js · `createRoomSequences` (~L7475) | ✅ | — |
-| `newRoomProject` | Crear PROYECTO nuevo de sala (wipe + `createRoomSequences` + vista/tour) | app.js · `newRoomProject` (~L5256) | ✅ | — |
-| "360 Room" en New sequence [R217] | Tercer tipo del diálogo `newSequenceDialog` (junto a Dome/2D): muros 2/3/4 + preset de resolución (reusa `LCH_ROOM_PRE`) + toggle de piso; preview con `drawRoomIso(...,'plan')`; crea vía `createRoomSequences` y activa la nueva secuencia SIN tocar el resto del proyecto (sin confirmDiscard, sin tour) | app.js · `newSequenceDialog` (~L7004) | ✅ | — |
-| Export por-muro/piso | Tira completa / crop por muro / piso | app.js · `queueJob` (~L4887) · `opt.wall`/`opt.seqId` | ✅ | [R1][D2] |
+| `layoutWallStrip(walls)` | [R214] Layout de la tira (x0/x1 por muro cosidos por pxW + stripW/stripH); MUTA `walls` y devuelve `{stripW,stripH}` (stripH = SÓLO muros, `room.stripH`). Antes vivía TRIPLICADO — unificado en una sola función | app.js · `layoutWallStrip` (~L2995) | ✅ | — |
+| `roomFloorH(walls,floor,stripW)` [R221] | Alto del piso en píxeles de tira, una vez fusionado al canvas: `floor.pxH` escalado por `frontW/floor.pxW` (conserva el aspecto de `floor.pxW×pxH`). Fuente única — la usan `createRoomSequences`/`lchRoomSeqTemp`/`applyRoomGeometry`/`migrateRoomFloor`/export | app.js · `roomFloorH` (~L3005) | ✅ | — |
+| Canvas único muros+piso [R221] | El suelo dejó de ser una secuencia flat aparte "dockeada" bajo Front (R211) — es la franja inferior del MISMO canvas que los muros (`seq.h = room.stripH + floorH`). Pinta con el blit normal del composite (sin segunda textura). Migración de proyectos viejos: `migrateRoomFloor` | app.js · `render()` rama flat + `drawRoomGrid2D` (rect del piso) | ✅ | — |
+| `drawRoomGrid2D` | Grilla 2D por-muro (px) + costuras + labels + rect FLOOR (overlay, ahora DENTRO del canvas vía `room.stripH`, [R221]) | app.js · `drawRoomGrid2D` (~L1511) | ✅ | — |
+| `roomCameraMVP` | Cámara Orbit + Viewer/stand | app.js · `roomCameraMVP` (~L1179) | ✅ | — |
+| `roomSetupDialog` | Setup de sala: muros/roles/piso/tira | app.js · `roomSetupDialog` (~L7343) | ✅ | [F3][F4][F5] |
+| `createRoomSequences(cfg)` | [R217] Extraído de `newRoomProject`: crea SÓLO la media walls (sin wipe/vista/tour) — [R221] ya no crea una media Floor aparte; `wseq.h` incluye el piso vía `roomFloorH`, `room.stripH` guarda el alto sólo-muros. Lo comparten `newRoomProject` y el tipo "360 Room" de `newSequenceDialog` | app.js · `createRoomSequences` (~L7546) | ✅ | — |
+| `newRoomProject` | Crear PROYECTO nuevo de sala (wipe + `createRoomSequences` + vista/tour). [R221] sin compensación de pan/zoom para el dock (ya no hace falta, el letterbox centra el canvas completo) | app.js · `newRoomProject` (~L7559) | ✅ | — |
+| `migrateRoomFloor(wseq)` [R221] | Migra un `.isp` guardado antes de R221: si `room.floorSeqId` sigue puesto, crece `wseq.h` (+`room.stripH`), reubica los clips del piso viejo a lanes nuevas (`Floor 1…`) con la transformación de orientación del dock (x directa, y invertida — escala uniforme `s=frontW/floor.pxW`; rot'=180−rot, mirror'=!mirror, identidad verificada por composición de matrices), borra la media Floor y limpia `floorSeqId`. Corre desde `loadProject`, tras fijar `_id` (usa `uid()`) | app.js · `migrateRoomFloor` (~L7609), llamado desde `loadProject` | ✅ | — |
+| "360 Room" en New sequence [R217] | Tercer tipo del diálogo `newSequenceDialog` (junto a Dome/2D): muros 2/3/4 + preset de resolución (reusa `LCH_ROOM_PRE`) + toggle de piso; preview con `drawRoomIso(...,'plan')`; crea vía `createRoomSequences` y activa la nueva secuencia SIN tocar el resto del proyecto (sin confirmDiscard, sin tour) | app.js · `newSequenceDialog` (~L7055) | ✅ | — |
+| Export sala: tira/piso/por-muro [R221] | 3 modos en `#exRoomMode`: Full strip (sólo muros, crop `y<room.stripH`) · Strip + floor (2 jobs) · Each wall + floor (N+1 jobs, sólo si hay piso). El crop de `opt.wall` se generalizó con `y0/y1` (antes sólo top-anchored) — el piso y la tira completa reusan el mismo mecanismo que el crop por muro, ya no dependen de `floorSeqId` | app.js · `queueJob`/`addFloorJob` (~L6905) · `renderExportFrame` (~L5631) · `opt.wall={x0,x1,y0,y1,pxW,pxH,stripW,stripH,kind?}` | ✅ | [R1][D2] |
 | Secuencias = nest media | activeSeq, switch/load/save | app.js · `loadSeqIntoState`/`switchSeq` (~L4926) | ✅ | [R3] |
 | nestSelection / makeClipUnique | Anidar clips; copia independiente | app.js · `nestSelection`/`makeClipUnique` | ✅ | — |
 | Compose media (`m.comp`) | Nest generado por parámetros | app.js · `createComposition`/`regenComposeNest` (~L6086) | ✅ | [N1][N2][N3] |
@@ -361,10 +362,10 @@ Constants (L3): `PI`, `HALF_PI=PI/2`, `D2R`, `R2D`, `COMP=2048` (dome composite 
 - **Roadmap:** [U4] (spring line grey), [dome-coverage-r114]
 
 ## PR — 3D room program (VSR/FSR): walls + floor quads
-- **Purpose:** Renders the 360 immersive room in 3D: textured wall quads (each samples its sub-rect of the unwrapped strip) + floor quad (samples the floor sequence). Multi-pass (outside translucent / inside opaque / floor) with per-face shade + normal-based cull.
-- **Location:** app.js · `VSR` (~L412), `FSR` (~L415), `PR=prog(VSR,FSR)` (~L422) · draws via `roomVAO`/`roomVB`
-- **Key symbols:** `PR` (~L422), `LR` struct (~L423), `roomVAO`+`roomVB` (~L424), geo cache `_roomGeo`/`_roomGeoSeq` (~L425), floor FBO `_roomFloorFBO`/`_roomFloorTex`/`_roomFloorSize` (~L426), `compositeFloorTex(m,sz)` (~L856)
-- **Invariants / gotchas:** `u_pass`: >1.5 floor (opaque), >0.5 inside (opaque, `inward>0` else discard), else outside (translucent `u_backA`, `u_outTex` toggles texture vs flat). `inward = nrm·(cam−wp)`. `compositeFloorTex` rebinds FBO → caller must restore viewport/FBO (see ~L910-911).
+- **Purpose:** Renders the 360 immersive room in 3D: textured wall quads (each samples its sub-rect of the unwrapped strip) + floor quad. **[R221]** the floor quad samples the SAME composite/texture as the walls (its own sub-rect, the "dock"), not a separate floor sequence. Multi-pass (outside translucent / inside opaque / floor) with per-face shade + normal-based cull.
+- **Location:** app.js · `VSR`/`FSR`, `PR=prog(VSR,FSR)` · draws via `roomVAO`/`roomVB`
+- **Key symbols:** `PR`, `LR` struct, `roomVAO`+`roomVB`, geo cache `_roomGeo`/`_roomGeoSeq`, `buildRoomGeo` (builds both wall AND floor UVs into the one buffer)
+- **Invariants / gotchas:** `u_pass`: >1.5 floor (opaque), >0.5 inside (opaque, `inward>0` else discard), else outside (translucent `u_backA`, `u_outTex` toggles texture vs flat). `inward = nrm·(cam−wp)`. **[R221]** no more `compositeFloorTex`/second FBO to rebind — archived (`_backup/deprecated/20260729-room-floor-fbo-composite.js`).
 - **Status:** ✅ stable
 - **Roadmap:** —
 
@@ -489,11 +490,11 @@ Constants (L3): `PI`, `HALF_PI=PI/2`, `D2R`, `R2D`, `COMP=2048` (dome composite 
 - **Roadmap:** [U3] hide-grid toggle (`showGrid`).
 
 ## 3D room path
-- **Purpose:** Renders the 360-room as textured wall quads (sampling their sub-rect of the composite strip) + floor (from `compositeFloorTex`), with an orbit / viewer-stand camera.
-- **Location:** app.js · `renderRoom3D(wallsTex)` (L906) · `compositeFloorTex()` (L856) · `ensureRoomFloorFBO()` (L849).
-- **State owned:** `state.view.three` ('spec'=viewer-stand vs orbit), `state.view.checkerBg/roomOutTex`, `seq.room`, `room.floorSeqId`.
-- **Key symbols:** program **PR**/`roomVAO`; `buildRoomGeo(seq)` cached by `_roomGeoSeq`; two-pass depth (inside opaque, outside translucent). Floor is a separate flat sequence composited to `_roomFloorTex`.
-- **Invariants / gotchas:** `compositeFloorTex` rebinds FBO/viewport → must restore (L911). Walls strip is by exact pixels; cm are 3D-geometry-only. **[R211]** el lazo de `roomPlan` envuelve con Right en x− (natural desde dentro); los UVs de `buildRoomGeo` (uL=x1 en a / uR=x0 en b) y el `fuv` del suelo siguen válidos con ese lazo — NO "corregirlos" por separado. Rótulos 3D en espacio de pantalla (`drawRoomLabels3D`), nunca decals sobre el muro. Cámara por defecto de sala detrás de Back (`yaw:1.99`). En 2D, `drawRoomFloorDock2D` dockea el suelo bajo Front (display-only, mismo PB/pan/zoom → el mapeo de clics no se toca).
+- **Purpose:** Renders the 360-room as textured wall quads (sampling their sub-rect of the composite strip) + floor (**[R221]** samples the SAME composite, its own dock sub-rect — no longer a separate texture), with an orbit / viewer-stand camera.
+- **Location:** app.js · `renderRoom3D(wallsTex)`.
+- **State owned:** `state.view.three` ('spec'=viewer-stand vs orbit), `state.view.checkerBg/roomOutTex`, `seq.room`, `room.stripH` (walls-only height — [R221]).
+- **Key symbols:** program **PR**/`roomVAO`; `buildRoomGeo(seq)` cached by `_roomGeoSeq`; two-pass depth (inside opaque, outside translucent) + floor pass (same texture).
+- **Invariants / gotchas:** Walls strip is by exact pixels; cm are 3D-geometry-only. **[R211]** el lazo de `roomPlan` envuelve con Right en x− (natural desde dentro); los UVs de `buildRoomGeo` (uL=x1 en a / uR=x0 en b) y el `fuv` del suelo siguen válidos con ese lazo — NO "corregirlos" por separado. Rótulos 3D en espacio de pantalla (`drawRoomLabels3D`), nunca decals sobre el muro. Cámara por defecto de sala detrás de Back (`yaw:1.99`). **[R221]** En 2D el suelo ya no "dockea" fuera del canvas — es la franja inferior del MISMO canvas (`drawRoomGrid2D` dibuja su contorno/grilla/etiqueta; el contenido pinta con el blit normal, sin quad aparte). El wireframe 3D también proyecta la grilla del suelo (`drawRoomLabels3D`) siempre que `room.floor` exista.
 - **Status:** ✅
 - **Roadmap:** [D4] (fase 2) 3D infinite grid over the same room seam.
 
@@ -527,8 +528,8 @@ Constants (L3): `PI`, `HALF_PI=PI/2`, `D2R`, `R2D`, `COMP=2048` (dome composite 
 ## [R220] "Preparing media…" pill — mediaWarming/drawPreparingPill/clipTexReady
 - **Purpose:** Discreet centered-top overlay telling the user a video (or nest-cache) clip active at the current playhead doesn't have a texture yet (decoder still spinning up). Shown in BOTH the 2D viewers (dome disc, flat, room strip) and the 3D viewers (dome orbit/spec, room orbit/stand).
 - **Location:** app.js · `clipTexReady(c,m)` (~L1119) · `mediaWarming()` (~L1128) · `armWarmTimer()` (~L1144) · `drawPreparingPill()` (~L1147). Called from `drawRoomLabels3D` (~L1153), `drawLabels3D` (~L1200-ish, dome 3D), and `drawGrid2D()` (both the `isFlat()` early-return branch and its final line, ~L1563/1577).
-- **State/data:** module cache `_warmCache={t,gen,ts,val}`, single-flight timer `_warmTimer`, pill width cache `_pillW`/`_pillWLang`. Reads `state.playhead`, `_raGen`, `state.clips/lanes`, room `floorSeqId`.
-- **Key symbols:** `clipTexReady(c,m)` — single source of truth for "is this clip's texture actually ready", mirrors the `ntex` branching `drawClip()` does at its own top (~L815) so the hot draw path and this check can't drift apart. `mediaWarming()` — memoized: recomputes `collectDrawnVideoClips()` (O(lanes×clips log clips) via `compositeClips`) only when `state.playhead` OR `_raGen` changed, OR when >250ms elapsed since the last compute (catches a decoder finishing mid-pause with the playhead not moving); otherwise returns the cached bool. At rest with media ready this is ≈free (was: recomputed on every overlay repaint, TWICE per frame in rooms with a floor). `armWarmTimer()` — since nothing else repaints while idle once warming ends (e.g. `addVideo` doesn't call `render()`), arms a single `setTimeout(300ms)` that calls `render()`; `render()` re-evaluates `mediaWarming()`, which either re-arms the same cycle (still warming) or lets it die (pill gone, no user interaction needed). Skipped while `exporting`/`glLost`. `lchShowing()` (app.js ~L2611) gates the 2D pill — checks `document.getElementById('landingOv')`, NOT the `_lch` module var (which is set once at first launcher init and never nulled back, so `!_lch` alone would permanently suppress the pill after the app's first boot — caught during R220 CDP verification).
+- **State/data:** module cache `_warmCache={t,gen,ts,val}`, single-flight timer `_warmTimer`, pill width cache `_pillW`/`_pillWLang`. Reads `state.playhead`, `_raGen`, `state.clips/lanes`. **[R221]** no longer checks a separate `room.floorSeqId` sequence — the floor's clips live in `state.clips`/`state.lanes` already (same sequence as the walls), so the single `warm(state.clips,state.lanes)` call covers them.
+- **Key symbols:** `clipTexReady(c,m)` — single source of truth for "is this clip's texture actually ready", mirrors the `ntex` branching `drawClip()` does at its own top so the hot draw path and this check can't drift apart. `mediaWarming()` — memoized: recomputes `collectDrawnVideoClips()` (O(lanes×clips log clips) via `compositeClips`) only when `state.playhead` OR `_raGen` changed, OR when >250ms elapsed since the last compute (catches a decoder finishing mid-pause with the playhead not moving); otherwise returns the cached bool. At rest with media ready this is ≈free. `armWarmTimer()` — since nothing else repaints while idle once warming ends (e.g. `addVideo` doesn't call `render()`), arms a single `setTimeout(300ms)` that calls `render()`; `render()` re-evaluates `mediaWarming()`, which either re-arms the same cycle (still warming) or lets it die (pill gone, no user interaction needed). Skipped while `exporting`/`glLost`. `lchShowing()` gates the 2D pill — checks `document.getElementById('landingOv')`, NOT the `_lch` module var (which is set once at first launcher init and never nulled back, so `!_lch` alone would permanently suppress the pill after the app's first boot — caught during R220 CDP verification).
 - **Invariants / gotchas:** Don't change `drawClip`'s `ntex` branching without mirroring it in `clipTexReady`. The 3D call sites paint the pill FIRST (right after `clearRect`, before grid/labels); the 2D call sites paint it LAST (after all overlay drawing) so it sits on top — same visual outcome, different code shape, intentional per R220 ticket (only the 2D path needed the explicit ordering fix).
 - **Status:** ✅
 - **Roadmap:** —
@@ -1402,19 +1403,19 @@ Reference map of `app.js` (single-file WebGL2 renderer). Line numbers verified a
 
 ## renderRoom3D
 - **Purpose:** Draws the assembled 3D room to the default framebuffer: walls as textured quads (two passes — inside opaque + outside translucent), then the floor, then the projected grid/labels overlay. Called from `render()` when `view.mode==='3d' && isRoom()`.
-- **Location:** app.js · `renderRoom3D(wallsTex)` (~L906) · called at L930 · program `PR`, uniforms `LR.*`
+- **Location:** app.js · `renderRoom3D(wallsTex)` (~L1184) · program `PR`, uniforms `LR.*`
 - **State/data:** `activeSeq().room`, `state.view.three` ('spec'|orbit), `state.view.checkerBg`, `state.view.roomOutTex`, `_roomGeo`, `_roomGeoSeq`
-- **Key symbols:** `roomVAO`, `LR.pass` (1=inside,0=outside,2=floor), `LR.backA=0.17`, `compositeFloorTex`, `buildRoomGeo`, `drawRoomLabels3D`, `roomCameraMVP`
-- **Invariants / gotchas:** `wallsTex` is the live master composite (`_srcTex` from `render()`). `compositeFloorTex` rebinds the FBO/viewport → renderRoom3D restores default FBO + viewport (L911) after computing the floor. depthMask toggled between passes; DEPTH_TEST + CULL disabled around it. Rebuilds geometry lazily when `_roomGeoSeq!==seq.id`.
+- **Key symbols:** `roomVAO`, `LR.pass` (1=inside,0=outside,2=floor), `LR.backA=0.17`, `buildRoomGeo`, `drawRoomLabels3D`, `roomCameraMVP`
+- **Invariants / gotchas:** `wallsTex` is the live master composite (`_srcTex` from `render()`). **[R221]** the floor pass reuses the SAME `wallsTex` (no more `compositeFloorTex`/second FBO — archived, see `_backup/deprecated/20260729-room-floor-fbo-composite.js`); its UVs come from `buildRoomGeo` pointing at the composite's own dock sub-rect. depthMask toggled between wall passes; DEPTH_TEST + CULL disabled around it. Rebuilds geometry lazily when `_roomGeoSeq!==seq.id`.
 - **Status:** ✅
 - **Roadmap:** [D4] fase 2 (output-target layer) — not built
 
 ## buildRoomGeo / _roomGeo / _roomGeoSeq
-- **Purpose:** Builds the room's textured-quad vertex buffer (normalized + centered) into `roomVB`: one quad per wall sampling its own sub-rect of the strip, plus a triangulated floor fan. Caches per active-seq id.
-- **Location:** app.js · `buildRoomGeo(seq)` (~L863); globals `_roomGeo`,`_roomGeoSeq` (L425)
-- **State/data:** `seq.room.walls`, `seq.w`/`seq.h` (stripW/stripH), `room.floor`, `room.floor.pxW/pxH`, `roomPlan(room.walls)`
+- **Purpose:** Builds the room's textured-quad vertex buffer (normalized + centered) into `roomVB`: one quad per wall sampling its own sub-rect of the strip, plus a triangulated floor fan sampling the SAME composite's dock rect. Caches per active-seq id.
+- **Location:** app.js · `buildRoomGeo(seq)` (~L1081); globals `_roomGeo`,`_roomGeoSeq`
+- **State/data:** `seq.room.walls`, `seq.w`/`seq.h` (stripW × walls+floor canvas height), `room.stripH` (walls-only height), `room.floor`, `room.floor.pxW/pxH`, `roomPlan(room.walls)`
 - **Key symbols:** vertex layout = pos(3)+uv(2)+shade(1)+inward-normal xy(2) = 8 floats/32 bytes (`LR.pos/uv/shade/nrm`). `_roomGeo={wallVerts,floorVerts,norm:{cx,cy,sc,midZ,standZ,radius}}`. `standZ=min(maxH*0.95,1.7)*sc` (eye at ~1.7 m). Strip UV: `uL=w.x1/stripW, uR=w.x0/stripW` (swapped so inside-view a→b runs right→left, matches 2D viewer, not mirrored).
-- **Invariants / gotchas:** Per-wall vBot/vTop derive from `pxH/stripH` (walls shorter than strip don't fill full height). Floor U is flipped (`fuv`) to match walls' inside-view handedness. Normalization scale `sc=1/max(rad,maxH*0.6,0.5)`.
+- **Invariants / gotchas:** Per-wall vBot/vTop derive from `pxH/seq.h` (now the FULL canvas — walls automatically occupy a smaller fraction once the floor grows `seq.h`, no separate math needed). **[R221]** Floor UV: same world→uv orientation as before (X flipped, Y direct — `fuv`), but the destination is the dock rect (Front wall's x-span, `[room.stripH, seq.h]` in y) of THIS composite, not a dedicated floor-texture letterbox. Floor vertex shade is a flat `1.0` (was `0.5`) — same clarity as the walls, per Beltrán. Normalization scale `sc=1/max(rad,maxH*0.6,0.5)`.
 - **Status:** ✅
 - **Roadmap:** —
 
@@ -1427,21 +1428,30 @@ Reference map of `app.js` (single-file WebGL2 renderer). Line numbers verified a
 - **Status:** ✅
 - **Roadmap:** —
 
-## Floor — room.floorSeqId / compositeFloorTex / _roomFloorFBO
-- **Purpose:** The floor is a separate flat sequence (`room.floorSeqId`) composited into its own square FBO and fed to the 3D floor quads. `roomFloorOf` back-links the floor seq to its walls seq.
-- **Location:** app.js · `ensureRoomFloorFBO(sz)` (~L849), `compositeFloorTex(m,sz)` (~L856); globals `_roomFloorFBO/_roomFloorTex/_roomFloorSize` (L426); usage L910
-- **State/data:** `room.floorSeqId`, `fseq.roomFloorOf`, `room.floor` (cm+px cfg), floor seq mode `'flat'`
-- **Key symbols:** letterboxes floor to its aspect via `_compAspect=(m.w/m.h)`; swaps `state.clips/lanes/_drawFlat/_roomWrap/_compAspect` around `composite()`, restores after. Called with sz=1024 from renderRoom3D.
-- **Invariants / gotchas:** Rebinds FBO+viewport (caller must restore). `_drawFlat=true,_roomWrap=false` for the floor. Floor sequence has no `.room` and no per-wall grid.
-- **Status:** ✅
-- **Roadmap:** [F4] floor edits px-only (no cm) — enforced at setup
+## Canvas único muros+piso — room.stripH / roomFloorH / migrateRoomFloor [R221]
+- **Purpose:** The floor stopped being a separate `'flat'` sequence (`room.floorSeqId`) composited into its own square FBO and shown as a "dock" glued below the canvas (R211). It is now the bottom pixel slice of the SAME sequence as the walls: `seq.h = room.stripH (walls-only) + floorH`. Its content paints with the normal flat blit — no second texture, no second quad, no FBO to rebind/restore.
+- **Location:** app.js · `roomFloorH(walls,floor,stripW)` (~L3005, single source for the floor-height formula) · `createRoomSequences`/`applyRoomGeometry`/`lchRoomSeqTemp` (build the canvas this way) · `migrateRoomFloor(wseq)` (~L7609, called from `loadProject`) migrates a pre-R221 `.isp` that still has `room.floorSeqId` set.
+- **State/data:** `room.floorSeqId` (obsolete — kept only so `migrateRoomFloor` can detect an old project and fold it in; always `null` on anything created after R221), `room.stripH` (walls-only height, the field everything that used to assume `seq.h===stripH` now reads), `room.floor` (`{pxW,pxH,wcm,dcm}` — unchanged meaning: the floor's OWN resolution, used as its export size).
+- **Key symbols:** `roomFloorH` = `round(floor.pxH * frontW/floor.pxW)` (keeps the dock rect's aspect exactly `floor.pxW:floor.pxH`, so "the floor adapts to whatever resolution you work at"). Dock rect = `x∈[fw.x0,fw.x1], y∈[room.stripH, seq.h]`.
+- **Invariants / gotchas:** Every place that used to treat `seq.h` as "the strip height" now needs `room.stripH` instead (walls-only spans, wall dead-zone/seam drawing, `roomFloorH`'s `frontW`); places that need the FULL canvas (letterbox/`_compAspect`, mouse↔frame mapping, `roomSeamY`'s NDC conversion) keep using `seq.h` as-is — it grew, and that's correct for them. `migrateRoomFloor` maps each clip's x/y/scale/rot (base value AND every keyframe) through the SAME orientation the R211 dock always showed (mirrored vertically vs. the floor's own editor); verified as a derived identity (reflect∘rotate(θ) = rotate(180−θ)∘mirror), not guessed.
+- **Status:** ✅ (Fase A + Fase B [R222] — wrap rotado del suelo↔muros laterales/atrás, ver `computeRoomFold` más abajo).
+- **Roadmap:** —
+
+## Floor↔wall fold-wrap — computeRoomFold / roomFold [R222]
+- **Purpose:** Extends the strip's horizontal seam-wrap to the floor's OTHER three edges (left/right/bottom), which meet their wall at a 90° hinge instead of sitting side by side — a clip crossing one reappears ROTATED on the matching wall (Left/Right/Back), same "infinite" feel Beltrán asked for. The Front edge is already free (floor's top row = every wall's bottom row, same canvas, same columns as Front — no wrap needed).
+- **Location:** app.js · `computeRoomFold(seq)`/`roomFold()` (~L789, right before `drawClipFlat` — full derivation comment there) · fold-pass block + draw loop inside `drawClipFlat` (~L802-836) · cache resets in `applyRoomGeometry` and `lchEditorShot` (mirrors `_roomGeo`/`_roomGeoSeq`'s own reset sites).
+- **State/data:** `_roomFold`/`_roomFoldSeq` (module cache, keyed on `state.activeSeqId` like `_roomGeo`). `computeRoomFold` returns `{stripW,wallsH,floorH,fx0,fx1,floorW,edges:{left?,right?,bottom?}}`, each edge a raw PIXEL affine `px'=a·px+b·py+c, py'=d·px+e·py+f` (not pre-rotated into NDC, so the floor's own resolution vs. each wall's own resolution — independent media, rarely equal — falls out for free).
+- **Key symbols:** `roomFold()` returns `null` when the room has no floor or no Front wall (cheap early-out). `drawClipFlat` does an AABB reject (bbox vs. the floor rect in NDC) before touching per-edge math; on a real crossing it draws an EXTRA pass per crossed edge with a rotated `fx`/`fy`/`fc` (derived from the pixel affine via `nx'=a·nx-b·ny+C1, ny'=-d·nx+e·ny+C2`) scissored to `roomWallScissorRects([role])` so it can't spill onto a neighbouring wall.
+- **Invariants / gotchas:** Determinant of all three edge matrices is positive (rotation + anisotropic scale, no mirroring — verified both by corner-point algebra and by CDP screenshot of the 3D joint). The floor's LEFT edge sits at `px=0`, which is ALSO the strip's own outer seam (Front is always first in the strip) — a clip crossing it fires BOTH the old horizontal wrap (lands in unused canvas space below the Left wall's own rows, harmless, invisible in 3D) AND the new fold pass; this is pre-existing behaviour of the old wrap, not a bug introduced here. No new passes fire for clips that don't touch the floor rect at all, nor for the top (Front) edge, nor when `room.floor` is null.
+- **Status:** ✅ — verified by CDP: los 3 bordes con captura 2D + 3D (junta física continua, sin espejo/salto), interior sin passes extra (1 `drawElements`), sala sin suelo (0 cambios, `roomFold()` null), wrap horizontal de muros intacto, dome/2D sin regresión.
+- **Roadmap:** —
 
 ## 2D strip editor overlay — drawRoomGrid2D
-- **Purpose:** Draws the room's per-wall grid on the flat 2D strip: dead-zones under short walls, per-wall 3×4 subdivision (Grid toggle), vertical seams between walls, and bottom-left role labels. All by exact pixels, never cm.
-- **Location:** app.js · `drawRoomGrid2D()` (~L1154); dispatched from `drawGrid2D()` (L1175, only when `isFlat()&&isRoom()`)
-- **State/data:** `activeSeq().room.walls`, `as.w/as.h` (stripW/stripH), `state.view.showGrid`, `flatMap()`
-- **Key symbols:** `ROOM_GRID_COLS=4, ROOM_GRID_ROWS=3` (L5030), `roomRoleLabel`, `fx/fy` px→NDC mappers
-- **Invariants / gotchas:** Outer L/R edges drawn by `drawFlatFrame` (not here). Room uses this grid instead of the generic thirds grid (see L1147 comment).
+- **Purpose:** Draws the room's per-wall grid on the flat 2D strip: dead-zones under short walls, per-wall 3×4 subdivision (Grid toggle), vertical seams between walls, bottom-left role labels, and **[R221]** the floor's outline/grid/label — now just an overlay over the bottom slice of the SAME canvas (the pixel content paints via the normal blit, see above). All by exact pixels, never cm.
+- **Location:** app.js · `drawRoomGrid2D()` (~L1511); dispatched from `drawGrid2D()` (only when `isFlat()&&isRoom()`)
+- **State/data:** `activeSeq().room.walls`, `as.w` (stripW), `as.h` (FULL canvas height, walls+floor), `room.stripH` (walls-only height), `state.view.showGrid`, `flatMap()`
+- **Key symbols:** `ROOM_GRID_COLS=4, ROOM_GRID_ROWS=3`, `roomRoleLabel`, `fx/fy` px→NDC mappers (`fy` denominator = `as.h`, the FULL canvas)
+- **Invariants / gotchas:** Outer L/R edges drawn by `drawFlatFrame` (not here). Room uses this grid instead of the generic thirds grid. **[R221]** wall dead-zone/seams/labels use `room.stripH` as their bound (walls only occupy the top slice now); the floor rect overlay spans `[room.stripH, as.h]` — no longer glued past the frame's bottom edge like the old dock.
 - **Status:** ✅
 - **Roadmap:** —
 
@@ -1487,20 +1497,20 @@ Reference map of `app.js` (single-file WebGL2 renderer). Line numbers verified a
 - **Roadmap:** [F3] wall fixed ✅, [F4] floor px-only ✅, [F5] order canvas ✅ (`drawRoomStrip`)
 
 ## newRoomProject
-- **Purpose:** Creates a 360-room project from the setup cfg: a `'room'` walls sequence (strip = Σ pxW × max pxH, `.room` attached) + optional `'flat'` floor sequence, linked via `room.floorSeqId` / `fseq.roomFloorOf`.
-- **Location:** app.js · `newRoomProject(cfg)` (~L5256)
-- **State/data:** sets `state.seqMode='room'`, `state.seqW=stripW`, `state.seqH=stripH`; `room={walls,floorSeqId,floor}`
-- **Key symbols:** strip layout `w.x0/w.x1` by native pixels (L5265); `stripH=max(pxH)`; `newSeqMedia(...,'room')`; opens all seq media, active=walls seq.
-- **Invariants / gotchas:** cm (wcm/hcm) are geometry-only (3D wall placement); the 2D strip is exact pixelage. `clearAllUndo()` after (undo belongs to previous project).
+- **Purpose:** Creates a 360-room project from the setup cfg: a single `'room'` walls sequence whose canvas is `stripW × (stripH + floorH)` — **[R221]** the floor is no longer a second `'flat'` sequence; `createRoomSequences` folds it into this one canvas via `roomFloorH`.
+- **Location:** app.js · `newRoomProject(cfg)` (~L7559)
+- **State/data:** sets `state.seqMode='room'`, `state.seqW/seqH` = the full canvas; `room={walls,floorSeqId:null,floor,stripH}`
+- **Key symbols:** strip layout `w.x0/w.x1` by native pixels (`layoutWallStrip`); `newSeqMedia(...,'room')`; opens all seq media, active=walls seq.
+- **Invariants / gotchas:** cm (wcm/hcm) are geometry-only (3D wall placement); the 2D strip is exact pixelage. `clearAllUndo()` after (undo belongs to previous project). **[R221]** no more pan/zoom compensation for a "dock outside the canvas" — the default letterbox (`pan=[0,0], zoom=0.92`) already centers the whole canvas since the floor is inside it now.
 - **Status:** ✅
 - **Roadmap:** —
 
-## Per-wall / floor export hooks
-- **Purpose:** Room export offers Full strip OR one file per wall (native pxW×pxH crop) + optional floor as its own file/job.
-- **Location:** app.js · export dialog room row build (~L4813–4817); `queueJob` per-wall/floor (~L4887–4892); `runExport` wall/seqId params (L4303 seqId switch, L4310–4311 wall crop); `renderExportFrame` wall UV crop (L4242, L4247)
-- **State/data:** job `opt.wall={role,x0,x1,pxW,pxH,stripW,stripH}`, job `opt.seqId` (floor exports as its own sequence then restores active). `#exRoomMode` (strip|walls), `#exFloor` checkbox.
-- **Key symbols:** wall crop composites full strip at native res then extracts the wall's sub-rect (`uSc/uOf/vSc/vOf` at L4247); floor job switches to the floor seq via `switchSeq` and restores (`_rsSeq`).
-- **Invariants / gotchas:** Floor job skipped with warning if it has no clips (L4891). Per-wall label = ROLE · pxW×pxH.
+## Room export — Full strip / Strip+floor / Each wall+floor [R221]
+- **Purpose:** Room export offers 3 modes in `#exRoomMode`: **Full strip** (walls only, crop `y<room.stripH`) · **Strip + floor** (2 files) · **Each wall + floor** (N+1 files) — the last two only offered when `room.floor` exists.
+- **Location:** app.js · export dialog room row (~L6617); `queueJob`/`addFloorJob` (~L6905); `runExport` wall params (`opt.wall`); `renderExportFrame` crop (~L5631)
+- **State/data:** job `opt.wall={x0,x1,y0,y1,pxW,pxH,stripW,stripH,role?,kind?}` — **[R221]** generalized with `y0/y1` (strip-space vertical crop range; defaults to `[0,pxH]` for plain per-wall jobs, unchanged behaviour) so the SAME mechanism crops a per-wall rect, the walls-only strip (`kind:'strip'`), or the floor's dock rect (`kind:'floor'`, scaled to `room.floor.pxW×pxH`). `S.roomMode` ∈ `strip|stripfloor|walls`.
+- **Key symbols:** `addFloorJob()` builds the floor's crop descriptor from the Front wall's x-span + `[room.stripH, seq.h]`. No more `opt.seqId`/`switchSeq` dance for the floor — it's the SAME active sequence, just a different crop.
+- **Invariants / gotchas:** `exPx(S)` returns the walls-only height (`room.stripH`) for the "match source" size when the room has a floor and mode isn't `walls` — otherwise the estimate/monitor/codec-probe would overstate the primary job's size using the taller merged canvas. Per-wall label = ROLE · pxW×pxH.
 - **Status:** ✅
 - **Roadmap:** [R1] render in-place flexibility, [D2] queued encoder snapshot
 
