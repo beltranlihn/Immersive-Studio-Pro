@@ -6996,24 +6996,49 @@ function drawSeqViz(cv,kind,o){ if(!cv)return; const ctx=cv.getContext('2d'); co
   ctx.fillStyle='rgba(224,224,224,0.7)'; ctx.beginPath();ctx.arc(cx,cy,1.8*U,0,7);ctx.fill();
   ctx.textAlign='left'; ctx.textBaseline='alphabetic'; ctx.fillStyle='rgba(150,150,150,0.9)'; ctx.font=`600 ${8*U}px Geist,system-ui`; ctx.fillText((o.cov||180)+'° '+T('coverage','cobertura'), 10*U, H-9*U); }
 const MENU_ROOM_LABEL=()=>T('New 360 room…','Nueva sala 360…'); // [R215] single source for the File-menu item's label (~8397) and the New-sequence hint below, so a rename of one can't desync the other
+/* [R217] Room-type defaults for the New-sequence dialog: same wall roles/order the launcher's roomSetupDialog
+   uses for 2/3/4 walls, and the same wcm/hcm defaults (defWall there) — kept minimal (one shared px preset for
+   every wall + the floor) rather than the launcher's per-wall table, since this is meant to be a quick add, not
+   a full geometry editor (that's still "Room geometry…" on an existing room, or the launcher for a fresh one). */
+const NS_ROOM_ROLES_BY_N={2:['Left','Front'],3:['Left','Front','Right'],4:['Front','Right','Back','Left']};
 function newSequenceDialog(){ const n=state.media.filter(isSeqMedia).length+1; const ov=document.createElement('div'); ov.className='overlay';
   ov.innerHTML=`<div class="modal" style="width:440px;"><div class="mh"><span class="t">${T('New sequence','Nueva secuencia')}</span></div><div class="mb">
     <canvas id="nsViz" class="rs-cv" width="816" height="300" style="height:150px;margin-bottom:12px;"></canvas>
     <div class="frow"><label>${T('Name','Nombre')}</label><input id="nsName" value="${T('Sequence','Secuencia')} ${n}"></div>
-    <div class="frow"><label>${T('Type','Tipo')}</label><div class="kindseg" id="nsMode" style="flex:1;"><button data-m="dome" class="on">${T('Dome','Domo')}</button><button data-m="flat">${T('2D (flat)','2D (plano)')}</button></div></div>
+    <div class="frow"><label>${T('Type','Tipo')}</label><div class="kindseg" id="nsMode" style="flex:1;"><button data-m="dome" class="on">${T('Dome','Domo')}</button><button data-m="flat">${T('2D (flat)','2D (plano)')}</button><button data-m="room">${T('360 Room','Sala 360')}</button></div></div>
     <div class="frow" id="nsDomeRow"><label>${T('Resolution','Resolución')}</label><select id="nsRes"><option>2048</option><option>3072</option><option selected>4096</option><option>6144</option><option>8192</option></select><span class="tnum" style="color:var(--ink-dim);">px²</span></div>
     <div class="frow" id="nsCovRow"><label>${T('Coverage','Cobertura')}</label><select id="nsCov">${DOME_COV.map(c=>`<option value="${c}" ${c===180?'selected':''}>${c}°${c===180?' · '+T('fulldome','domo completo'):''}</option>`).join('')}</select><span class="tnum" style="color:var(--ink-dim);">FOV</span></div>
     <div class="frow" id="nsFlatRow" style="display:none;"><label>${T('Resolution','Resolución')}</label><input type="number" class="tnum" id="nsW" value="1920" min="16" max="8192" style="width:74px;"><span style="color:var(--ink-dim);">×</span><input type="number" class="tnum" id="nsH" value="1080" min="16" max="8192" style="width:74px;"><span class="tnum" style="color:var(--ink-dim);">px</span></div>
-    <div class="frow"><label>${T('Frame rate','Cuadros/s')}</label><select id="nsFps"><option>24</option><option>25</option><option>30</option><option>48</option><option>50</option><option selected>60</option></select><span class="tnum" style="color:var(--ink-dim);">fps</span></div>
-    <div style="font-size:11px;color:var(--ink-dim);margin-top:2px;">${T("Need a 360 room? It's a project type: ",'¿Necesitas una sala 360? Es un tipo de proyecto: ')}${T('File','Archivo')} → ${MENU_ROOM_LABEL()} ${T('(replaces the current project)','(reemplaza el proyecto actual)')}</div><!-- [R214→R215] Dome/2D are the only two types here — the room needs its own wall-layout wizard, this just points the way. R214's text named a menu item ("New 360 room project…") that doesn't exist (the real item is "New 360 room…") and was untranslated in ES; R215 pulls the real label from MENU_ROOM_LABEL() and says outright that it replaces the current project (confirmDiscard still gates it, but this dialog itself doesn't warn otherwise) -->
+    <div class="frow" id="nsRoomWallsRow" style="display:none;"><label>${T('Walls','Muros')}</label><div class="kindseg" id="nsRoomN" style="max-width:160px;">${[2,3,4].map(k=>`<button data-n="${k}" class="${k===4?'on':''}">${k}</button>`).join('')}</div></div>
+    <div class="frow" id="nsRoomResRow" style="display:none;"><label>${T('Resolution','Resolución')}</label><select id="nsRoomRes" style="flex:1;">${LCH_ROOM_PRE.map(p=>`<option value="${p.v}" ${p.v==='1920x1080'?'selected':''}>${p.label} · ${p.v.replace('x',' × ')}</option>`).join('')}</select><span class="tnum" style="color:var(--ink-dim);">${T('per wall','por muro')}</span></div>
+    <div class="frow" id="nsRoomFloorRow" style="display:none;"><label>${T('Floor','Piso')}</label><label class="chk" style="display:flex;align-items:center;gap:7px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="nsRoomFloor" checked> ${T('Add a floor sequence','Añadir secuencia de piso')}</label></div>
+    <div class="frow" id="nsFpsRow"><label>${T('Frame rate','Cuadros/s')}</label><select id="nsFps"><option>24</option><option>25</option><option>30</option><option>48</option><option>50</option><option selected>60</option></select><span class="tnum" style="color:var(--ink-dim);">fps</span></div>
+    <div style="font-size:11px;color:var(--ink-dim);margin-top:2px;">${T('Creates the walls + floor sequences in this project. For a standalone room project: ','Crea las secuencias de muros y piso en este proyecto. Para un proyecto de sala independiente: ')}${T('File','Archivo')} → ${MENU_ROOM_LABEL()}</div><!-- [R214→R215→R217] R217: the room can now be created HERE too (as sequences of the current project) — the hint no longer points elsewhere for it; it now only explains the difference with the File-menu path, which instead REPLACES the whole project -->
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;"><button class="mbtn" id="nsCancel">${T('Cancel','Cancelar')}</button><button class="mbtn pri" id="nsGo">${T('Create','Crear')}</button></div></div></div>`;
   document.body.appendChild(ov); const close=()=>ov.remove(); $('#nsCancel').onclick=close; ov.addEventListener('pointerdown',e=>{if(e.target===ov)close();});
-  let mode='dome';
-  const viz=()=>{ try{ drawSeqViz($('#nsViz'), mode, mode==='dome'?{cov:+$('#nsCov').value||180}:{w:+$('#nsW').value||1920,h:+$('#nsH').value||1080}); }catch(e){} };
-  ov.querySelectorAll('#nsMode button').forEach(b=>b.onclick=()=>{ mode=b.dataset.m; ov.querySelectorAll('#nsMode button').forEach(x=>x.classList.toggle('on',x===b)); const dm=mode==='dome'; $('#nsDomeRow').style.display=dm?'flex':'none'; $('#nsCovRow').style.display=dm?'flex':'none'; $('#nsFlatRow').style.display=dm?'none':'flex'; viz(); });
+  let mode='dome', roomN=4;
+  const roomWalls=()=>{ const p=($('#nsRoomRes').value||'1920x1080').split('x'); const pw=+p[0]||1920, ph=+p[1]||1080;
+    return NS_ROOM_ROLES_BY_N[roomN].map((r,i)=>({role:r,order:i+1,wcm:(r==='Left'||r==='Right')?400:500,hcm:300,pxW:pw,pxH:ph})); };
+  const viz=()=>{ try{ if(mode==='room') drawRoomIso($('#nsViz'), roomWalls(), $('#nsRoomFloor').checked, null, null, 'plan');
+    else drawSeqViz($('#nsViz'), mode, mode==='dome'?{cov:+$('#nsCov').value||180}:{w:+$('#nsW').value||1920,h:+$('#nsH').value||1080}); }catch(e){} };
+  ov.querySelectorAll('#nsMode button').forEach(b=>b.onclick=()=>{ mode=b.dataset.m; ov.querySelectorAll('#nsMode button').forEach(x=>x.classList.toggle('on',x===b));
+    const dm=mode==='dome', fl=mode==='flat', rm=mode==='room';
+    $('#nsDomeRow').style.display=dm?'flex':'none'; $('#nsCovRow').style.display=dm?'flex':'none'; $('#nsFlatRow').style.display=fl?'flex':'none';
+    $('#nsRoomWallsRow').style.display=rm?'flex':'none'; $('#nsRoomResRow').style.display=rm?'flex':'none'; $('#nsRoomFloorRow').style.display=rm?'flex':'none';
+    viz(); });
   $('#nsCov').onchange=viz; { const h=()=>viz(); $('#nsW').oninput=h; $('#nsH').oninput=h; }
+  ov.querySelectorAll('#nsRoomN button').forEach(b=>b.onclick=()=>{ roomN=+b.dataset.n; ov.querySelectorAll('#nsRoomN button').forEach(x=>x.classList.toggle('on',x===b)); viz(); });
+  $('#nsRoomRes').onchange=viz; $('#nsRoomFloor').onchange=viz;
   viz();
-  $('#nsGo').onclick=()=>{ const fps=+$('#nsFps').value, name=($('#nsName').value||(T('Sequence','Secuencia')+' '+n)).trim(); const cov=+$('#nsCov').value||180;
+  $('#nsGo').onclick=()=>{ const fps=+$('#nsFps').value, name=($('#nsName').value||(T('Sequence','Secuencia')+' '+n)).trim();
+    if(mode==='room'){ const walls=roomWalls(); const floor=$('#nsRoomFloor').checked?{pxW:walls[0].pxW,pxH:walls[0].pxH}:null;
+      saveActiveSeq(); const wseq=createRoomSequences({walls,floor,fps}); if(name)wseq.name=name; // [R217] same media-creation path as newRoomProject, without the wipe — adds to the CURRENT project
+      state.openSeqs=state.openSeqs||[]; state.openSeqs.push(wseq.id);
+      const fseq=wseq.room.floorSeqId?mediaById(wseq.room.floorSeqId):null; if(fseq&&!state.openSeqs.includes(fseq.id))state.openSeqs.push(fseq.id);
+      state.activeSeqId=wseq.id; loadSeqIntoState(wseq); // [R92-T1] fresh sequence starts with its own empty per-seq undo stack
+      renderMedia(); renderSeqBar(); renderTimeline(); renderInspector(); renderWork(); render(); updStatus(); updFmtChip(); markDirty(); close();
+      flashStatus(T('New 360 room','Nueva sala 360')+' · '+walls.length+' '+T('walls','muros')+(floor?' + '+T('floor','piso'):'')); return; }
+    const cov=+$('#nsCov').value||180;
     let w,h; if(mode==='flat'){ w=Math.max(16,Math.min(8192,+$('#nsW').value||1920)); h=Math.max(16,Math.min(8192,+$('#nsH').value||1080)); } else { w=h=+$('#nsRes').value; }
     saveActiveSeq(); const m=newSeqMedia(name,fps,w,h,null,null,mode,cov); state.media.push(m); state.openSeqs=state.openSeqs||[]; state.openSeqs.push(m.id); state.activeSeqId=m.id; loadSeqIntoState(m); // [R92-T1] fresh sequence starts with its own empty per-seq undo stack
     renderMedia(); renderSeqBar(); renderTimeline(); renderInspector(); renderWork(); render(); updStatus(); updFmtChip(); markDirty(); close(); flashStatus(T('New sequence','Nueva secuencia')+': '+name); }; }
@@ -7468,18 +7493,27 @@ function applyRoomGeometry(cfg){
   resize(); renderTimeline(); renderInspector(); renderMedia(); render(); markDirty(); updStatus();
   flashStatus(T('Room geometry updated','Geometría de la sala actualizada'));
 }
+/* [R217] Extracted from newRoomProject: builds the walls sequence (+ optional floor sequence) media for a room
+   and pushes them onto state.media, WITHOUT touching anything else (no wipe, no view/tour, no activation). Lets
+   newSequenceDialog's "360 Room" type add a room to the CURRENT project the same way newRoomProject builds one
+   for a fresh project. cfg={walls:[{role,order,wcm,hcm,pxW,pxH}...], floor:{pxW,pxH}|null, fps}. Returns wseq. */
+function createRoomSequences(cfg){
+  const fps=cfg.fps||state.fps||60;
+  const walls=cfg.walls.map(w=>({id:uid(),...w})).sort((a,b)=>a.order-b.order); // strip order = the 2D "order" number
+  // R91b: the flat strip is laid out by NATIVE PIXELS per wall — the 2D editor is exact pixelage, not physical size. Each wall keeps its own pxW×pxH buffer; the cm (wcm/hcm) are geometry-only, consumed by the 3D viewer to place walls (angles fall out of the dimensions, not forced 90°) and to stretch each wall's pixels onto its real quad.
+  const {stripW,stripH}=layoutWallStrip(walls); // [R214] was duplicated inline here — see layoutWallStrip
+  const room={ walls, floorSeqId:null, floor:cfg.floor||null };
+  const wseq=newSeqMedia(T('Walls','Muros'),fps,stripW,stripH,null,null,'room'); wseq.room=room; state.media.push(wseq);
+  if(cfg.floor){ const fseq=newSeqMedia(T('Floor','Piso'),fps,cfg.floor.pxW,cfg.floor.pxH,null,null,'flat'); fseq.roomFloorOf=wseq.id; room.floorSeqId=fseq.id; state.media.push(fseq); }
+  return wseq;
+}
 async function newRoomProject(cfg){ if(!(await confirmDiscard()))return; if(state.playing)pause(); disposeAllVinst();
   for(const c of state.clips){ try{ if(c.maskTex)gl.deleteTexture(c.maskTex); }catch(e){} }
   try{ closeAllNdi(); }catch(e){} for(const m of state.media) disposeMedia(m); for(const id in (state.mediaTrash||{})) disposeMedia(state.mediaTrash[id]); state.mediaTrash={}; clearFrameCache(); resetLutReg();
   state.media=[]; state.clips=[]; state.groups=[]; state.markers=[]; state.selId=null; state.selGroupId=null; state.selMarkerId=null; state.playhead=0; state.workIn=null; state.workOut=null; state.folders=[]; state.folderColors={}; state.selFolder=null; state.mediaFolder=null; state.selIds=[];
   state.reactive=null; _arCache=null; _fxEnvCache.clear(); try{freeFxResources();}catch(e){}
   state.lanes=defLanes(); if(cfg.fps)state.fps=cfg.fps;
-  const walls=cfg.walls.map(w=>({id:uid(),...w})).sort((a,b)=>a.order-b.order); // strip order = the 2D "order" number
-  // R91b: the flat strip is laid out by NATIVE PIXELS per wall — the 2D editor is exact pixelage, not physical size. Each wall keeps its own pxW×pxH buffer; the cm (wcm/hcm) are geometry-only, consumed by the 3D viewer to place walls (angles fall out of the dimensions, not forced 90°) and to stretch each wall's pixels onto its real quad.
-  const {stripW,stripH}=layoutWallStrip(walls); // [R214] was duplicated inline here — see layoutWallStrip
-  const room={ walls, floorSeqId:null, floor:cfg.floor||null };
-  const wseq=newSeqMedia(T('Walls','Muros'),state.fps,stripW,stripH,null,null,'room'); wseq.room=room; state.media.push(wseq);
-  if(cfg.floor){ const fseq=newSeqMedia(T('Floor','Piso'),state.fps,cfg.floor.pxW,cfg.floor.pxH,null,null,'flat'); fseq.roomFloorOf=wseq.id; room.floorSeqId=fseq.id; state.media.push(fseq); }
+  const wseq=createRoomSequences(cfg), room=wseq.room, walls=room.walls, stripW=wseq.w, stripH=wseq.h; // [R217] wall/floor media creation now lives in createRoomSequences (shared with newSequenceDialog's Room type) — same locals as before so the framing code below is untouched
   state.seqMode='room'; state.seqW=stripW; state.seqH=stripH;
   state.view.cam.yaw=1.99; state.view.cam.pitch=0.42; // [R211] vista 3D inicial desde detrás de Back → FRONT al fondo/arriba, calza con el plano (sólo al crear; el domo conserva su default)
   if(cfg.floor){ // [R211] encuadre inicial: tira + suelo dockeado centrados como un solo canvas (el pan ya participa en blit, overlay y ratón → sin riesgo de mapeo)

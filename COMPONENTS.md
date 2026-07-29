@@ -159,7 +159,9 @@
 | `drawRoomGrid2D` | Grilla 2D por-muro (px) + costuras + labels + rect FLOOR del dock [R211] | app.js · `drawRoomGrid2D` (~L1154) | ✅ | — |
 | `roomCameraMVP` | Cámara Orbit + Viewer/stand | app.js · `roomCameraMVP` (~L901) | ✅ | — |
 | `roomSetupDialog` | Setup de sala: muros/roles/piso/tira | app.js · `roomSetupDialog` (~L5127) | ✅ | [F3][F4][F5] |
-| `newRoomProject` | Crear secuencias de muros + piso | app.js · `newRoomProject` (~L5256) | ✅ | — |
+| `createRoomSequences(cfg)` | [R217] Extraído de `newRoomProject`: crea SÓLO las media walls+floor (sin wipe/vista/tour) — lo comparten `newRoomProject` (proyecto nuevo) y el tipo "360 Room" de `newSequenceDialog` (añade la sala al proyecto ACTUAL) | app.js · `createRoomSequences` (~L7475) | ✅ | — |
+| `newRoomProject` | Crear PROYECTO nuevo de sala (wipe + `createRoomSequences` + vista/tour) | app.js · `newRoomProject` (~L5256) | ✅ | — |
+| "360 Room" en New sequence [R217] | Tercer tipo del diálogo `newSequenceDialog` (junto a Dome/2D): muros 2/3/4 + preset de resolución (reusa `LCH_ROOM_PRE`) + toggle de piso; preview con `drawRoomIso(...,'plan')`; crea vía `createRoomSequences` y activa la nueva secuencia SIN tocar el resto del proyecto (sin confirmDiscard, sin tour) | app.js · `newSequenceDialog` (~L7004) | ✅ | — |
 | Export por-muro/piso | Tira completa / crop por muro / piso | app.js · `queueJob` (~L4887) · `opt.wall`/`opt.seqId` | ✅ | [R1][D2] |
 | Secuencias = nest media | activeSeq, switch/load/save | app.js · `loadSeqIntoState`/`switchSeq` (~L4926) | ✅ | [R3] |
 | nestSelection / makeClipUnique | Anidar clips; copia independiente | app.js · `nestSelection`/`makeClipUnique` | ✅ | — |
