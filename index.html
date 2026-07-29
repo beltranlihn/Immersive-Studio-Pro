@@ -606,6 +606,11 @@
      esquina superior donde se agarran los keyframes, así que arrastrar uno era una lotería. Se ocultan; el fade
      se sigue editando desde el inspector (Clip · Fade in / Fade out) y volviendo a modo normal. */
   body.automode .clip .fadeh{display:none;pointer-events:none;}
+  /* [R224] Y con ellos se va la LÍNEA del fundido: en modo automatización la única polilínea que cruza el clip
+     debe ser la curva del parámetro. La envolvente de fundido dibujaba una segunda línea del mismo grosor y color
+     (var(--ink-2)) que se leía como una curva más — y no editable, porque sus handles ya no están. El fundido se
+     sigue VIENDO por el degradado oscuro de las esquinas, que sí se queda. */
+  body.automode .clip .fadeenv{display:none;}
   .xfade{position:absolute;top:4px;bottom:4px;z-index:3;pointer-events:none;background-color:rgba(201,205,211,0.10);background-image:linear-gradient(to top right,transparent 48%,rgba(201,205,211,0.55) 50%,transparent 52%),linear-gradient(to bottom right,transparent 48%,rgba(201,205,211,0.55) 50%,transparent 52%);}
   .clip .fadeenv{position:absolute;inset:0;z-index:3;pointer-events:none;overflow:visible;}
   .clip .fadeenv polyline{fill:none;stroke:var(--ink-2);stroke-width:1.4;vector-effect:non-scaling-stroke;opacity:.92;}

@@ -645,12 +645,28 @@ const ANIM_PRESETS_FLAT=[
 function curAnimPresets(){ return isFlat()?ANIM_PRESETS_FLAT:ANIM_PRESETS; }
 function hasLiveAnim(c){ return !!(c&&c.anim&&c.anim.some(a=>a.on)); }
 function clipVTile(c){ return !!(c&&c.anim&&c.anim.some(a=>a.on&&a.tile&&a.param==='y')); } // vertical-movement modifier → tile the clip vertically for a seamless infinite scroll
-function addAnimPreset(c,key){ if(!c)return; if(!c.anim)c.anim=[]; const p=ANIM_PRESETS.concat(ANIM_PRESETS_FLAT).find(x=>x.key===key)||ANIM_PRESETS[0]; c.anim.push({id:uid(),param:p.param,mode:p.mode,speed:p.speed,amp:p.amp,phase:0,on:true,tile:p.tile||false}); }
+function addAnimPreset(c,key){ if(!c)return; if(!c.anim)c.anim=[]; const p=ANIM_PRESETS.concat(ANIM_PRESETS_FLAT).find(x=>x.key===key)||ANIM_PRESETS[0]; c.anim.push({id:uid(),param:p.param,mode:p.mode,speed:p.speed,amp:p.amp,phase:0,on:true,tile:p.tile||false});
+  c.props=c.props||{}; const mk='mot:'+p.param+':mix'; if(c.props[mk]==null)c.props[mk]=100; } // [R224] el Mix nace al 100 % como valor base del parámetro (antes era `a.wet` ausente = 1)
 let _previewClock=0,_prevRaf=0,_prevLast=0;
 function animTime(t){ return (state.playing||exporting)?t:(t+_previewClock); } // paused editor advances a preview clock; export/playback use the real frame time (deterministic)
 /* per-modifier dry/wet (0..1) — keyframeable so the user can decide WHEN a motion ramps in on the timeline.
    Uses the real render time t (not the preview clock) so the ramp is anchored to the playhead; multiplies the offset. */
-function evalWet(c,a,t){ const ks=a.wetKf; const base=(a.wet!=null?a.wet:1);
+/* [R224] El Mix de un Motion pasa a ser un PARÁMETRO como cualquier otro: su curva vive en `c.kf['mot:<param>:mix']`
+   (0–100 %) y su valor estático en `c.props` con la misma clave. Antes vivía aparte, en `a.wetKf`/`a.wet`, y por eso
+   era el único automatizable que el editor de curvas no podía dibujar ni el chooser de la cabecera ofrecer (ítem 3 de
+   la Etapa 2: "Motion→MIX"). Con la clave dentro de `c.kf` hereda gratis TODO: evalP, setKf, drawAutoCurve,
+   bindAutoCurve, copiar/pegar, el pool de items y el rebase de keyframes al recortar/partir/cambiar la velocidad.
+   La identidad del Motion es su `param` — que es también lo que suma `animOffset`, así que dos modificadores del
+   mismo parámetro comparten Mix igual que comparten destino.
+   Cadena de lectura (aditiva: nada se rompe si la clave no existe): curva → valor estático → `a.wetKf` legacy → `a.wet`. */
+function isMotKey(p){ return typeof p==='string'&&p.indexOf('mot:')===0; }
+function motKeyFor(a){ return 'mot:'+(a&&a.param)+':mix'; }
+function animOfMotKey(c,p){ const q=String(p).split(':'); return ((c&&c.anim)||[]).find(a=>a.param===q[1])||null; } // null = este clip no tiene ese Motion (mismo contrato que laneKey con fxt)
+function motParamLabel(mp){ const d=ANIM_PARAMS.find(x=>x[0]===mp); return d?T(d[1],d[2]):mp; }
+function evalWet(c,a,t){ const key=motKeyFor(a); const cl=v=>Math.max(0,Math.min(1,v));
+  if(c.kf&&c.kf[key]&&c.kf[key].length) return cl(evalP(c,key,t)/100);
+  if(c.props&&c.props[key]!=null) return cl(c.props[key]/100);
+  const ks=a.wetKf; const base=(a.wet!=null?a.wet:1); // [legacy] proyectos anteriores a R224 (migrateMotionWet los convierte al abrir; esta rama es el cinturón)
   if(!ks||!ks.length) return base;
   const lt=t-c.start; if(lt<=ks[0].t)return ks[0].v; const last=ks[ks.length-1]; if(lt>=last.t)return last.v;
   for(let i=0;i<ks.length-1;i++) if(lt>=ks[i].t&&lt<=ks[i+1].t){ const f=easeF((lt-ks[i].t)/((ks[i+1].t-ks[i].t)||1),ks[i].e||'linear'); return ks[i].v+(ks[i+1].v-ks[i].v)*f; }
@@ -2434,6 +2450,7 @@ function redrawAudioWaves(){ const sc=$('#tlscroll'); if(!sc)return; const pps=s
 function scheduleWaves(){ if(_waveRaf)return; _waveRaf=requestAnimationFrame(()=>{ _waveRaf=0; redrawAudioWaves(); }); }
 function renderTimeline(){ reconcileVinst(); // free private decoders of clips that were deleted
   migrateArAuto(); // [R93] legacy per-clip Audio-React lanes → unified track lanes (idempotent, no-op when clean)
+  migrateMotionWet(); // [R224] Mix de Motion legacy (a.wetKf/a.wet) → parámetro 'mot:<param>:mix' (idempotente, no-op cuando está limpio)
   const tracks=$('#tracks'), heads=$('#laneHeaders'); const pps=state.tl.pxPerSec; const dur=Math.max(12,neededSec()); state.tl._w=dur; const W=dur*pps;
   // ruler
   $('#ruler').style.width=W+'px'; drawRuler(); // ruler canvas is windowed to the viewport (full-width overflowed the canvas size limit at high zoom → white-out)
@@ -2487,11 +2504,11 @@ function renderTimeline(){ reconcileVinst(); // free private decoders of clips t
         const txt=off?T('Proxy off','Proxy apagado'):(m.ncStale?'⚠ '+T('Proxy stale','Proxy viejo'):T('Proxy','Proxy'));
         const tip=off?T('Nest proxy exists but the Comp switch is off — rebuilding from every source clip','El proxy existe pero el interruptor Comp está apagado — recomponiendo desde cada clip fuente'):(m.ncStale?T('Nest proxy out of date — right-click to regenerate','Proxy de composición desactualizado — clic-derecho para regenerar'):T('Playing the nest proxy (export always rebuilds from sources)','Reproduciendo el proxy de composición (el export siempre reconstruye desde las fuentes)'));
         pxTag='<span class="cpx cnc'+((m.ncStale&&!off)?' stale':'')+(off?' offsw':'')+'" data-mid="'+c.mediaId+'" title="'+tip+'">'+txt+'</span>'; }
-      const animBadge=hasLiveAnim(c)?`<div class="animbadge" title="${T('Live motion','Movimiento activo')}" style="position:absolute;top:3px;right:5px;width:15px;height:15px;border-radius:50%;background:var(--ink-2);color:#0b0d10;font-size:11px;line-height:15px;text-align:center;pointer-events:none;font-weight:700;z-index:3;">↻</div>`:'';
+      // [archivado 20260730 · R224] chapa ↻ de "movimiento activo" sobre el clip → _backup/deprecated/20260730-clip-motion-badge.js (la info vive en el inspector y en el chooser de la cabecera)
       const mutedBadge=(lane.mute&&!c.disabled)?`<div class="mutebadge" title="${T('Track muted','Pista silenciada')}">${ICO('mute',11)}</div>`:''; // [T5] chapa de mute (signo de forma, no de color → daltonismo)
       let loopMarks=''; const lcyc=loopCycleSec(c); // R81: subtle boundary ticks + a ↻ badge at each loop repeat
       if(lcyc>0.02){ for(let k=1;k*lcyc<c.dur-1e-3;k++){ const lx=k*lcyc*pps; loopMarks+=`<div style="position:absolute;left:${lx}px;top:0;bottom:0;width:1px;background:repeating-linear-gradient(180deg,rgba(255,255,255,0.55) 0 3px,transparent 3px 6px);pointer-events:none;z-index:2;"></div><div style="position:absolute;left:${lx+2}px;bottom:2px;font-size:11px;line-height:1;color:rgba(255,255,255,0.55);pointer-events:none;z-index:2;">↻</div>`; } }
-      const _ct=clipTint(c,m); cd.innerHTML=`<div class="fill" style="background-image:${fillBg};background-color:${_ct}"></div><div class="scrim"></div>${cth}${fades}${loopMarks}<div class="tt" style="background:${_ct};color:${textOn(_ct)}">${c.loop?'↻ ':''}${c.name}${pxTag}</div>${px2}${animBadge}${mutedBadge}<div class="hd l"></div><div class="hd r"></div><div class="fadeh fadeL" style="left:${fiPx}px"></div><div class="fadeh fadeR" style="right:${foPx}px"></div>${kf}`; // R84c: clips use their OWN colour (lane colour tints only the header)
+      const _ct=clipTint(c,m); cd.innerHTML=`<div class="fill" style="background-image:${fillBg};background-color:${_ct}"></div><div class="scrim"></div>${cth}${fades}${loopMarks}<div class="tt" style="background:${_ct};color:${textOn(_ct)}">${c.loop?'↻ ':''}${c.name}${pxTag}</div>${px2}${mutedBadge}<div class="hd l"></div><div class="hd r"></div><div class="fadeh fadeL" style="left:${fiPx}px"></div><div class="fadeh fadeR" style="right:${foPx}px"></div>${kf}`; // R84c: clips use their OWN colour (lane colour tints only the header)
       cd.tabIndex=0; cd.setAttribute('aria-label',c.name||T('Clip','Clip')); // [R94-UT5·U-10b] Tab reaches every clip; Enter/Space selects (keydown delegated on #tracks)
       row.appendChild(cd);
       // drag-and-drop a Motion chip onto a clip to animate it
@@ -2516,12 +2533,16 @@ function renderTimeline(){ reconcileVinst(); // free private decoders of clips t
         <span class="tag"${lane.color?' style="color:'+lane.color+'"':''}>${lane.tag}</span><span class="nm"${lane.color?' style="color:'+lane.color+'"':''}>${lane.name}</span>
         <button class="ms ${lane.mute?'on':''}" data-m="mute">M</button><button class="ms solo ${lane.solo?'on':''}" data-m="solo">S</button>
       </div>`;
-    hd.onclick=ev=>{ if(_laneJustDragged||ev.target.isContentEditable||ev.target.closest('[data-m]'))return; clearMediaSel(); state.selLane=li;
+    /* [R224 · ítem 7] Los chips de automatización CONSUMEN el clic: elegir qué curva se ve es navegación dentro de la
+       pista, no seleccionarla. Antes el clic llegaba aquí y `state.selId=null` se llevaba por delante la selección de
+       clip — así que abrir el chooser deseleccionaba justo el clip cuyos parámetros se querían enfocar. La pista se
+       sigue seleccionando clicando en cualquier otro punto de la cabecera. */
+    hd.onclick=ev=>{ if(_laneJustDragged||ev.target.isContentEditable||ev.target.closest('[data-m]')||ev.target.closest('.autoctl'))return; clearMediaSel(); state.selLane=li;
       state.selId=null; state.selIds=[]; state.selGroupId=null; state.selMarkerId=null; renderInspector(); updStatus(); renderTimeline(); }; // [R93] selecting a TRACK deselects the clip (they were simultaneous → Ctrl+D was ambiguous) · [R223] y el locator (bug Ctrl+R)
     hd.tabIndex=0; hd.setAttribute('aria-label',lane.name); // [R94-UT5·U-10b] Tab reaches the track header; Enter/Space = same selection as a click
     hd.addEventListener('keydown',ev=>{ if(ev.target!==hd||!hd.matches(':focus-visible'))return; if(ev.key==='Enter'||ev.code==='Space'){ ev.preventDefault(); ev.stopPropagation(); hd.onclick(ev); } }); // :focus-visible → only KEYBOARD focus consumes Enter/Space (a mouse click leaves Space = play)
     hd.addEventListener('pointerdown',ev=>{ if(ev.button!==0)return; if(ev.target.closest('[data-m]')||ev.target.closest('button')||ev.target.isContentEditable)return; startLaneDrag(ev,li); }); // drag the header to reorder tracks
-    hd.ondblclick=ev=>{ if(ev.target.isContentEditable||ev.target.closest('[data-m]'))return; renameLane(li); };
+    hd.ondblclick=ev=>{ if(ev.target.isContentEditable||ev.target.closest('[data-m]')||ev.target.closest('.autoctl'))return; renameLane(li); }; // [R224 · ítem 7] doble clic rápido en un chip tampoco debe abrir el renombrado de la pista
     hd.querySelector('[data-m=mute]').onclick=()=>{pushUndo();lane.mute=!lane.mute;renderTimeline();render();reschedAudio();};
     hd.querySelector('[data-m=solo]').onclick=()=>{pushUndo();lane.solo=!lane.solo;renderTimeline();render();reschedAudio();};
     hd.querySelector('[data-m=collapse]').onclick=ev=>{ev.stopPropagation();pushUndo();lane.collapsed=!lane.collapsed;renderTimeline();};
@@ -4568,16 +4589,23 @@ function buildPenMaskUI(host,c){ if(!c)return; const S=220; const masks=c.penMas
   rebuildList(); if(masks.length)draw();
 }
 /* build the per-clip list of active motion modifiers into #animList */
-function animWetKfAt(a,c){ if(!a.wetKf)return null; const lt=state.playhead-c.start; return a.wetKf.find(k=>Math.abs(k.t-lt)<0.03)||null; }
-function animSetWet(a,c,v){ v=Math.max(0,Math.min(1,v)); if(a.wetKf&&a.wetKf.length){ const lt=Math.max(0,state.playhead-c.start); const i=a.wetKf.findIndex(k=>Math.abs(k.t-lt)<0.03); if(i>=0)a.wetKf[i].v=v; else { a.wetKf.push({t:lt,v,e:'linear'}); a.wetKf.sort((x,y)=>x.t-y.t); } } else a.wet=v; }
-function animToggleWetKf(a,c){ if(!a.wetKf)a.wetKf=[]; const ex=animWetKfAt(a,c); if(ex){ a.wetKf=a.wetKf.filter(k=>k!==ex); if(!a.wetKf.length){ a.wet=(a.wet!=null?a.wet:1); delete a.wetKf; } } else { const lt=Math.max(0,state.playhead-c.start); a.wetKf.push({t:lt, v:Math.max(0,Math.min(1,evalWet(c,a,state.playhead))), e:'linear'}); a.wetKf.sort((x,y)=>x.t-y.t); } }
+/* [R224] Los tres ayudantes del Mix pasan a operar sobre el parámetro `mot:<param>:mix` (c.kf / c.props, 0-100 %) en vez
+   de sobre `a.wetKf`/`a.wet`. Con eso el Mix se comporta EXACTAMENTE como cualquier fila del inspector: `manualEdit`
+   decide si el arrastre escribe keyframe (ya automatizado) o mueve el valor estático, y su curva es visible y editable
+   en la línea de tiempo. `migrateMotionWet` convierte los proyectos anteriores al abrirlos. */
+function animWetKfAt(a,c){ return kfAt(c,motKeyFor(a)); }
+function animSetWet(a,c,v){ manualEdit(c,motKeyFor(a),Math.max(0,Math.min(100,v*100))); }
+function animHasWetKf(a,c){ return !!hasKf(c,motKeyFor(a)); }
+function animToggleWetKf(a,c){ const key=motKeyFor(a), cur=Math.max(0,Math.min(100,evalWet(c,a,state.playhead)*100)); const ex=animWetKfAt(a,c);
+  if(ex){ c.kf[key]=c.kf[key].filter(k=>k!==ex); if(!c.kf[key].length){ delete c.kf[key]; c.props[key]=cur; } } // al quitar el último punto el valor se congela donde estaba (mismo trato que el diamante del inspector)
+  else setKf(c,key,state.playhead,cur,curEase()); }
 /* keep the Mix sliders / keyframe dots in sync with the playhead (called from refreshInspector on scrub) */
-function refreshMotionWet(){ const c=selClip(); const host=$('#animList'); if(!c||!c.anim||!host)return; host.querySelectorAll('[data-ai]').forEach(it=>{ const a=c.anim[+it.dataset.ai]; if(!a)return; const p=Math.round(Math.max(0,Math.min(1,evalWet(c,a,state.playhead)))*100); const r=it.querySelector('.awet'), v=it.querySelector('.awetv'), kb=it.querySelector('.awetkf'); if(r&&document.activeElement!==r)r.value=p; if(v)v.textContent=p+'%'+((a.wetKf&&a.wetKf.length)?' ◆':''); if(kb){ const hasKf=!!(a.wetKf&&a.wetKf.length), kfHere=!!animWetKfAt(a,c); kb.style.color=hasKf?(kfHere?'#FFFFFF':'#C9CDD3'):'#5A6069'; } }); }
+function refreshMotionWet(){ const c=selClip(); const host=$('#animList'); if(!c||!c.anim||!host)return; host.querySelectorAll('[data-ai]').forEach(it=>{ const a=c.anim[+it.dataset.ai]; if(!a)return; const p=Math.round(Math.max(0,Math.min(1,evalWet(c,a,state.playhead)))*100); const r=it.querySelector('.awet'), v=it.querySelector('.awetv'), kb=it.querySelector('.awetkf'); const hasWK=animHasWetKf(a,c); if(r&&document.activeElement!==r)r.value=p; if(v)v.textContent=p+'%'+(hasWK?' ◆':''); if(kb){ const kfHere=!!animWetKfAt(a,c); kb.style.color=hasWK?(kfHere?'#FFFFFF':'#C9CDD3'):'#5A6069'; } }); } // [R224] `hasWK` lee el parámetro mot:…:mix (antes a.wetKf, y la variable local se llamaba `hasKf` — tapaba la función global del mismo nombre)
 function buildAnimList(c){ const host=$('#animList'); if(!host)return; host.innerHTML='';
   if(!c||!c.anim||!c.anim.length){ host.innerHTML=`<span style="font-size:11px;color:#4d525a;">${T('No motion yet.','Sin movimiento aún.')}</span>`; return; }
   c.anim.forEach((a,i)=>{ const item=document.createElement('div'); item.dataset.ai=i; item.style.cssText='display:flex;flex-direction:column;gap:4px;background:#1b1e24;border:.5px solid rgba(255,255,255,0.09);border-radius:2px;padding:5px 6px;';
     const isWave=a.mode==='wave'; const wetPct=Math.round(Math.max(0,Math.min(1,evalWet(c,a,state.playhead)))*100);
-    const hasKf=!!(a.wetKf&&a.wetKf.length), kfHere=!!animWetKfAt(a,c);
+    const hasWK=animHasWetKf(a,c), kfHere=!!animWetKfAt(a,c); // [R224] ídem: sin sombra sobre la función global hasKf
     item.innerHTML=`<div style="display:flex;align-items:center;gap:6px;">
         <button class="animon" title="${T('On/off','Activar/desactivar')}" style="width:15px;height:15px;border-radius:50%;border:none;cursor:pointer;background:${a.on?'#C9CDD3':'#3a3f47'};flex-shrink:0;"></button>
         <select class="asel aparam" style="height:18px;flex:1;min-width:58px;">${ANIM_PARAMS.map(([v,en,es])=>`<option value="${v}" ${a.param===v?'selected':''}>${T(en,es)}</option>`).join('')}</select>
@@ -4586,7 +4614,7 @@ function buildAnimList(c){ const host=$('#animList'); if(!host)return; host.inne
         <input class="anum aamp" type="number" step="1" value="${a.amp}" title="${T('Amount','Amplitud')}" style="width:42px;height:24px;text-align:center;${isWave?'':'visibility:hidden;'}">
         <button class="animdel" title="${T('Remove','Quitar')}" style="width:15px;height:22px;border:none;background:none;color:var(--ink-2);cursor:pointer;font-size:13px;line-height:1;">×</button></div>
       <div style="display:flex;align-items:center;gap:6px;">
-        <button class="awetkf" title="${T('Keyframe the mix at the playhead — define when it ramps in','Fotograma del mix en el cabezal — define cuándo entra')}" style="width:16px;height:16px;border:none;background:none;cursor:pointer;color:${hasKf?(kfHere?'#FFFFFF':'#C9CDD3'):'#5A6069'};font-size:11px;line-height:1;flex-shrink:0;">◆</button>
+        <button class="awetkf" title="${T('Keyframe the mix at the playhead — define when it ramps in','Fotograma del mix en el cabezal — define cuándo entra')}" style="width:16px;height:16px;border:none;background:none;cursor:pointer;color:${hasWK?(kfHere?'#FFFFFF':'#C9CDD3'):'#5A6069'};font-size:11px;line-height:1;flex-shrink:0;">◆</button>
         <span style="font-size:11px;color:var(--ink-3);width:22px;">${T('Mix','Mix')}</span>
         <input class="awet" type="range" min="0" max="100" value="${wetPct}" title="${T('Dry/wet 0–100% (multiplier)','Dry/wet 0–100% (multiplicador)')}" style="flex:1;height:15px;">
         <span class="awetv" style="font-size:11px;color:var(--ink-2);width:36px;text-align:right;">${wetPct}%${hasKf?' ◆':''}</span></div>`;
@@ -4596,11 +4624,18 @@ function buildAnimList(c){ const host=$('#animList'); if(!host)return; host.inne
     item.querySelector('.amode').onchange=e=>{ a.mode=e.target.value; if(a.mode==='wave'&&!a.amp)a.amp=15; buildAnimList(selClip()); render(); startMotionPreview(); markDirty(); };
     item.querySelector('.aspeed').onchange=e=>{ a.speed=+e.target.value||0; render(); startMotionPreview(); markDirty(); };
     item.querySelector('.aamp').onchange=e=>{ a.amp=+e.target.value||0; render(); startMotionPreview(); markDirty(); };
-    item.querySelector('.animdel').onclick=()=>{ pushUndo(); c.anim.splice(i,1); if(!c.anim.length)delete c.anim; buildAnimList(selClip()); render(); renderTimeline(); markDirty(); if(!anyAnim())stopMotionPreview(); };
+    /* [R224 · ítem 2] Al quitar el movimiento su automatización MUERE con él: se borra la curva del Mix (y su valor
+       estático), se suelta la selección de puntos si apuntaba ahí, y cualquier pista cuya superposición fuera ese
+       Mix la deja caer — como ya hacía el borrado de un efecto con sus claves `fxt:`. */
+    item.querySelector('.animdel').onclick=()=>{ pushUndo(); const key=motKeyFor(a); c.anim.splice(i,1); if(!c.anim.length)delete c.anim;
+      if(!(c.anim||[]).some(x=>x.param===a.param)){ if(c.kf)delete c.kf[key]; if(c.props)delete c.props[key]; if(state.autoSel&&state.autoSel.cid===c.id&&state.autoSel.p===key)state.autoSel=null; if(state.shapeBox&&state.shapeBox.cid===c.id&&state.shapeBox.p===key)state.shapeBox=null; }
+      for(const l of state.lanes){ if(l._autoP&&isMotKey(l._autoP)&&!laneMotParams(state.lanes.indexOf(l)).includes(l._autoP.split(':')[1]))delete l._autoP; }
+      buildAnimList(selClip()); render(); renderTimeline(); markDirty(); if(!anyAnim())stopMotionPreview(); };
     const wetR=item.querySelector('.awet'), wetV=item.querySelector('.awetv');
-    wetR.oninput=()=>{ animSetWet(a,c,(+wetR.value)/100); wetV.textContent=(+wetR.value)+'%'+((a.wetKf&&a.wetKf.length)?' ◆':''); render(); startMotionPreview(); };
+    wetR.addEventListener('pointerdown',()=>focusAutoParam(c,motKeyFor(a))); // [R224 · ítem 4] tocar el Mix pone SU curva a la vista
+    wetR.oninput=()=>{ animSetWet(a,c,(+wetR.value)/100); wetV.textContent=(+wetR.value)+'%'+(animHasWetKf(a,c)?' ◆':''); render(); startMotionPreview(); };
     wetR.onchange=()=>markDirty();
-    item.querySelector('.awetkf').onclick=()=>{ pushUndo(); animToggleWetKf(a,c); buildAnimList(selClip()); render(); renderTimeline(); startMotionPreview(); markDirty(); };
+    item.querySelector('.awetkf').onclick=()=>{ pushUndo(); animToggleWetKf(a,c); focusAutoParam(c,motKeyFor(a)); buildAnimList(selClip()); render(); renderTimeline(); startMotionPreview(); markDirty(); };
     host.appendChild(item); });
 }
 function fadeDrag(box,key){ box.addEventListener('pointerdown',e=>{e.preventDefault();const c=selClip();const x0=e.clientX,v0=c[key]||0;pushUndo();
@@ -4637,15 +4672,26 @@ function buildRows(sel,defs,c){ const host=$(sel); host.innerHTML='';
       const wasAuto=hasKf(cc,p), onKf=kfAt(cc,p); pushUndo();
       if(onKf){ cc.kf[p]=cc.kf[p].filter(k=>k!==onKf); if(!cc.kf[p].length){ const v=evalP(cc,p,state.playhead); delete cc.kf[p]; cc.props[p]=v; } } // remove the point under the playhead; last one freezes the value
       else { setKf(cc,p,state.playhead,evalP(cc,p,state.playhead),curEase()); if(!wasAuto)openAuto(cc,p); } // first point reveals the single automation overlay on the track
+      focusAutoParam(cc,p); // [R224 · ítem 4] y a partir del segundo también: el keyframe que acabo de tocar es el que quiero ver
       renderInspector();renderTimeline();render();markDirty(); };
     row.querySelector('[data-k=add]').oncontextmenu=e=>{ e.preventDefault(); const cc=selClip(); if(!cc||!hasKf(cc,p))return; const v=evalP(cc,p,state.playhead); pushUndo(); clearKf(cc,p); cc.props[p]=v; flashStatus(T('Automation cleared — Ctrl+Z restores it','Automatización borrada — Ctrl+Z la restaura')); renderInspector();renderTimeline();render();markDirty(); }; // [A1] right-click the diamond = remove the whole curve (freezes at the current value)
     /* [R159] prev/next salieron de la fila (el prototipo tiene un solo botón y esos 40px eran los que le faltaban
        al fader). El salto entre fotogramas vive ahora en Alt+, / Alt+. — ver jumpAnyKf. */
     const field=row.querySelector('.field'); const box=row.querySelector('.box');
-    field.addEventListener('pointerdown',e=>{ if(e.target.tagName==='INPUT')return; startValDrag(e,p,mn,mx); });
-    box.addEventListener('dblclick',e=>{ e.stopPropagation(); editNumberBox(box,p,mn,mx); });
-    box.addEventListener('wheel',e=>{ e.preventDefault(); const cc=selClip(); if(!cc)return; const step=(e.shiftKey?0.1:e.altKey?5:1)*(e.deltaY<0?1:-1); const lo=UNBOUNDED_P.has(p)?-1e6:mn, hi=UNBOUNDED_P.has(p)?1e6:mx; pushUndo(); manualEdit(cc,p,Math.max(lo,Math.min(hi,evalP(cc,p,state.playhead)+step))); refreshInspector(); renderTimeline(); render(); },{passive:false}); // Pos X/Y unbounded when driven directly on the number (the fader keeps its visual range)
-    field.addEventListener('contextmenu',e=>{ e.preventDefault(); const cc=selClip(); const def=P_DEF[p]; if(def==null)return; pushUndo(); if(hasKf(cc,p))setKf(cc,p,state.playhead,def,curEase());else cc.props[p]=def; refreshInspector();renderTimeline();render(); });
+    /* [R224 · ítem 4] Cualquier gesto sobre la fila (arrastrar el fader, escribir el número, la rueda) pone SU curva a
+       la vista en modo automatización. Se hace UNA vez por gesto, al empezar — no dentro del bucle de arrastre. */
+    field.addEventListener('pointerdown',e=>{ if(e.target.tagName==='INPUT')return; const cc=selClip(); if(cc)focusAutoParam(cc,p); startValDrag(e,p,mn,mx); });
+    box.addEventListener('dblclick',e=>{ e.stopPropagation(); { const cc=selClip(); if(cc)focusAutoParam(cc,p); } editNumberBox(box,p,mn,mx); });
+    box.addEventListener('wheel',e=>{ e.preventDefault(); const cc=selClip(); if(!cc)return; focusAutoParam(cc,p); const step=(e.shiftKey?0.1:e.altKey?5:1)*(e.deltaY<0?1:-1); const lo=UNBOUNDED_P.has(p)?-1e6:mn, hi=UNBOUNDED_P.has(p)?1e6:mx; pushUndo(); manualEdit(cc,p,Math.max(lo,Math.min(hi,evalP(cc,p,state.playhead)+step))); refreshInspector(); renderTimeline(); render(); },{passive:false}); // Pos X/Y unbounded when driven directly on the number (the fader keeps its visual range)
+    /* [R224 · ítem 5] La fila estrena MENÚ contextual. Antes el clic derecho sobre el surco restablecía el valor de
+       fábrica y nada más: un gesto útil pero invisible (ningún tooltip lo decía) y el único que había. Ahora esas
+       entradas se ven, y con ellas la que pedía Beltrán: "Show automation" — enciende la vista de automatización si
+       está apagada y deja la curva de ESTE parámetro delante. */
+    row.addEventListener('contextmenu',e=>{ e.preventDefault(); e.stopPropagation(); const cc=selClip(); if(!cc)return;
+      const items=[{label:T('Show automation','Mostrar automatización'),ico:'curves',fn:()=>showAutomationParam(cc,p)}];
+      if(P_DEF[p]!=null)items.push({label:T('Reset to default','Restablecer valor'),fn:()=>{ const def=P_DEF[p]; pushUndo(); if(hasKf(cc,p))setKf(cc,p,state.playhead,def,curEase()); else cc.props[p]=def; refreshInspector();renderTimeline();render();markDirty(); }});
+      if(hasKf(cc,p))items.push('sep',{label:T('Clear automation','Borrar automatización'),danger:true,fn:()=>{ const v=evalP(cc,p,state.playhead); pushUndo(); clearKf(cc,p); cc.props[p]=v; flashStatus(T('Automation cleared — Ctrl+Z restores it','Automatización borrada — Ctrl+Z la restaura')); renderInspector();renderTimeline();render();markDirty(); }});
+      openMenu(e.clientX,e.clientY,items); });
   }
 }
 const UNBOUNDED_P=new Set(['x','y']); // params whose typed/wheeled number is not clamped to the fader range (Pos X / Pos Y → infinite)
@@ -4746,16 +4792,20 @@ function initBez(c,p,k){ const ks=c.kf[p]; const i=ks.indexOf(k); k.e='bezier';
 
 /* ===================== INLINE AUTOMATION SUB-LANES (Ableton-style) — item [2] + re-enable [21] ===================== */
 const AUTO_H=58, AUTO_MIN_H=30, AUTO_MAX_H=240, RES_TOP=15;
-function autoColor(p){ if(PCOLOR[p])return PCOLOR[p]; if(typeof p==='string'&&(p.indexOf('fx:')===0||p.indexOf('fxt:')===0)){ let h=0; for(let i=0;i<p.length;i++)h=(h*31+p.charCodeAt(i))>>>0; return 'hsl('+(h%360)+',42%,62%)'; } return '#9AA0A8'; } // [R92-T4] fx-param lanes get a stable hue from their key (they were 0%-saturation greys)
+/* [R224] 'mot:<param>:mix' entra en la rama de claves compuestas: mismo hue estable derivado de la clave */
+function autoColor(p){ if(PCOLOR[p])return PCOLOR[p]; if(typeof p==='string'&&(p.indexOf('fx:')===0||p.indexOf('fxt:')===0||p.indexOf('mot:')===0)){ let h=0; for(let i=0;i<p.length;i++)h=(h*31+p.charCodeAt(i))>>>0; return 'hsl('+(h%360)+',42%,62%)'; } return '#9AA0A8'; } // [R92-T4] fx-param lanes get a stable hue from their key (they were 0%-saturation greys)
 /* param resolvers that understand BOTH inspector params (CURVE_PARAMS) and reactive-fx keys 'fx:<id>:<param>' */
 function isFxKey(p){ return typeof p==='string'&&p.indexOf('fx:')===0; }
 function fxBaseFor(c,key){ const parts=key.split(':'); const fx=(c&&c.fx)?c.fx.find(f=>f.id===+parts[1]):null; if(!fx)return 0; const k=parts[2]; return (k==='int')?(fx.int!=null?fx.int:0):(k==='amt')?(fx.amt!=null?fx.amt:100):((fx.params&&fx.params[k]!=null)?fx.params[k]:0); }
 function paramBase(c,p){ return isFxKey(p)?fxBaseFor(c,p):c.props[p]; }
 function setParamBase(c,p,v){ if(isFxKey(p)){ const parts=p.split(':'); const fx=(c.fx||[]).find(f=>f.id===+parts[1]); if(fx){ const k=parts[2]; if(k==='int')fx.int=v; else if(k==='amt')fx.amt=v; else {fx.params=fx.params||{};fx.params[k]=v;} } } else c.props[p]=v; }
 function isFxtKey(p){ return typeof p==='string'&&p.indexOf('fxt:')===0; } // [R93] TRACK-level fx key 'fxt:<type>:<param>' — Ableton model: the lane names an EFFECT TYPE; each clip resolves it to its own instance
-function laneKey(c,p){ if(isFxtKey(p)){ const q=p.split(':'); const fx=(c&&c.fx||[]).find(f=>f.type===q[1]&&FXBY[f.type]); return fx?('fx:'+fx.id+':'+q[2]):null; } return p; } // null = this clip has no instance of the lane's effect
+function laneKey(c,p){ if(isFxtKey(p)){ const q=p.split(':'); const fx=(c&&c.fx||[]).find(f=>f.type===q[1]&&FXBY[f.type]); return fx?('fx:'+fx.id+':'+q[2]):null; }
+  if(isMotKey(p)) return animOfMotKey(c,p)?p:null; // [R224] el Mix de un Motion: la clave es la MISMA en pista y en clip (la identidad es el param), pero sólo existe si el clip lleva ese movimiento
+  return p; } // null = this clip has no instance of the lane's effect
 function fxParamDefOf(def,p,k){ const nm=T(def.label[0],def.label[1]); if(k==='int')return [p,nm+' · '+T('Intensity','Intensidad'),'%',0,100]; if(k==='amt')return [p,nm+' · '+T('Reactivity','Reactividad'),'%',0,100]; const pd=(def.params||[]).find(x=>x.k===k); return pd?[p,nm+' · '+T(pd.label[0],pd.label[1]),pd.unit,pd.min,pd.max]:null; }
-function paramDef(c,p){ if(isFxtKey(p)){ const q=p.split(':'); const def=(typeof FXBY!=='undefined')?FXBY[q[1]]:null; return def?fxParamDefOf(def,p,q[2]):null; } // type-based → no clip needed (lane headers/ranges work with an empty track)
+function paramDef(c,p){ if(isMotKey(p)){ const mp=String(p).split(':')[1]; return [p,T('Motion','Movimiento')+' · '+motParamLabel(mp)+' · '+T('Mix','Mix'),'%',0,100]; } // [R224] def sin clip: la cabecera de pista pinta el rango aunque no haya clip debajo
+  if(isFxtKey(p)){ const q=p.split(':'); const def=(typeof FXBY!=='undefined')?FXBY[q[1]]:null; return def?fxParamDefOf(def,p,q[2]):null; } // type-based → no clip needed (lane headers/ranges work with an empty track)
   if(isFxKey(p)){ const parts=p.split(':'); const fx=(c&&c.fx)?c.fx.find(f=>f.id===+parts[1]):null; if(!fx)return null; const def=(typeof FXBY!=='undefined')?FXBY[fx.type]:null; return def?fxParamDefOf(def,p,parts[2]):null; } return CURVE_PARAMS.find(d=>d[0]===p); }
 /* deep-copy the per-clip automation UI-state arrays onto a clone, so split/duplicate/nest don't share (and corrupt) them by reference */
 function sepAuto(n,c){ if(Array.isArray(c.anim)) n.anim=JSON.parse(JSON.stringify(c.anim)); /* [R143] la copia de c._auto (lista legacy de clip) se archivó — ya no existe */ if(c.mod&&typeof c.mod==='object'){ n.mod=JSON.parse(JSON.stringify(c.mod)); for(const p in n.mod)for(const m of n.mod[p])m.id=uid(); }
@@ -4767,60 +4817,74 @@ function openAuto(c,p){ if(!c||isAudioClip(c))return; const lane=state.lanes[c.l
 /* [R93] which fx TYPES exist on a track's clips (device dropdown), + all their lane keys */
 function laneFxTypes(li){ const seen=[]; for(const c of state.clips)if(c.lane===li)for(const f of (c.fx||[]))if(FXBY[f.type]&&!seen.includes(f.type))seen.push(f.type); return seen; }
 function laneFxKeys(li){ const out=[]; for(const ty of laneFxTypes(li)){ out.push('fxt:'+ty+':int','fxt:'+ty+':amt'); for(const p of (FXBY[ty].params||[]))out.push('fxt:'+ty+':'+p.k); } return out; }
+/* [R224] lo mismo para los Motion: qué movimientos (por `param`) viven en los clips de una pista, y sus claves de Mix */
+function laneMotParams(li){ const seen=[]; for(const c of state.clips)if(c.lane===li)for(const a of (c.anim||[]))if(a.param&&!seen.includes(a.param))seen.push(a.param); return seen; }
+function laneMotKeys(li){ return laneMotParams(li).map(mp=>'mot:'+mp+':mix'); }
 function laneHasKf(li,p){ return state.clips.some(c=>{ if(c.lane!==li)return false; const kp=laneKey(c,p); return !!(kp&&c.kf&&c.kf[kp]&&c.kf[kp].length); }); }
 /* [R93] the track's PRIMARY overlay param (drawn over the clips; chosen via the two dropdowns in the track header) */
-function laneAutoP(lane,li){ const p=lane._autoP; if(p&&paramDef(null,p)&&(!isFxtKey(p)||laneFxTypes(li).includes(p.split(':')[1])))return p; // saved choice, unless its fx type left the track
+function laneAutoP(lane,li){ const p=lane._autoP;
+  if(p&&paramDef(null,p)&&(!isFxtKey(p)||laneFxTypes(li).includes(p.split(':')[1]))&&(!isMotKey(p)||laneMotParams(li).includes(p.split(':')[1])))return p; // saved choice, unless its fx type / motion left the track ([R224] misma regla para los Motion)
   const anim=CURVE_PARAMS.find(d=>laneHasKf(li,d[0])); if(anim)return anim[0];
-  return laneFxKeys(li).find(k=>laneHasKf(li,k))||'opacity'; }
+  return laneMotKeys(li).find(k=>laneHasKf(li,k))||laneFxKeys(li).find(k=>laneHasKf(li,k))||'opacity'; }
 /* [R143] addAutoLaneAt/addAutoLane (creaban sub-carriles apilados en lane._auto, ya sin render) ARCHIVADOS → _backup/deprecated/20260723-automation-sublanes-and-clip-auto.js */
 /* [R93] the Ableton chooser pair: device (Clip | fx type on this track) + parameter. Reused by the track header and every sub-lane header. */
-const XFORM_P=TF.concat(TF_FLAT).filter((d,i,a)=>a.findIndex(x=>x[0]===d[0])===i); // transform group (dome + flat, 'rot' deduped)
+const XFORM_P=TF.concat(TF_FLAT).filter((d,i,a)=>a.findIndex(x=>x[0]===d[0])===i); // transform group (dome + flat, 'rot' deduped) — se usa para VALIDAR/clasificar; el chooser lista sólo los del modo activo
+/* ===================== [R224] EL CHOOSER, REDISEÑADO (ítems 2-3 de la Etapa 2) =====================
+   IZQUIERDA = tres CATEGORÍAS fijas (Transform · Clip · Color) + un DISPOSITIVO por cada Motion y cada Effect
+   APLICADO. Antes eran dos entradas fijas: "Transform" (dome y flat mezclados, así que en 2D ofrecía azimut) y un
+   cajón "Effects" que metía en la misma lista la opacidad, el desenfoque, el recorte y las siete del grado de color;
+   los efectos aparecían por tipo, sin distinguir si el clip los llevaba, y los Motion no aparecían en absoluto.
+   DERECHA = dependiente de la izquierda, con la lista exacta de esa categoría (ver `autoCats`).
+   Los dispositivos salen del CLIP SELECCIONADO cuando está en esta pista (es lo que el usuario tiene delante en el
+   inspector); si no hay selección en la pista, de la unión de sus clips, para que la cabecera siga siendo navegable.
+   Corolario del ítem 2: si se borra el motion/effect del clip, deja de listarse — y `laneAutoP` deja caer la elección
+   guardada, así que la superposición vuelve a un parámetro que existe. */
+const CLIP_P=['opacity','blur','feather','crop'];        // "Clip"  = óptica del clip
+const COLOR_P=['exposure','contrast','saturation','temperature','tint','glow','chroma']; // "Color" = el grado por clip
+function autoDevClip(li){ const c=selClip(); return (c&&c.lane===li&&!isAudioClip(c))?c:null; }
+function autoDevFxTypes(li){ const c=autoDevClip(li); if(!c)return laneFxTypes(li); const seen=[]; for(const f of (c.fx||[]))if(FXBY[f.type]&&!seen.includes(f.type))seen.push(f.type); return seen; }
+function autoDevMotParams(li){ const c=autoDevClip(li); if(!c)return laneMotParams(li); const seen=[]; for(const a of (c.anim||[]))if(a.param&&!seen.includes(a.param))seen.push(a.param); return seen; }
+function autoHasKf(li,key){ const c=autoDevClip(li); if(!c)return laneHasKf(li,key); const kp=laneKey(c,key); return !!(kp&&c.kf&&c.kf[kp]&&c.kf[kp].length); } // el ◆ dice "automatizado EN ESTE CLIP" (o en la pista, si no hay clip seleccionado aquí)
+/* cada entrada del desplegable izquierdo = {k, label, params:[[valor, etiqueta, CLAVE DE PISTA]]} */
+function autoCats(li){ const xf=(isFlat()?TF_FLAT:TF).slice(); // los parámetros del modo de secuencia activo (2D no tiene azimut)
+  for(const d of XFORM_P) if(!xf.some(x=>x[0]===d[0])&&autoHasKf(li,d[0])) xf.push(d); // …salvo que uno del OTRO modo lleve automatización: nada automatizado puede quedar sin entrada en el menú, o su curva sería inalcanzable (ítem 6)
+  const out=[{k:'xf',label:T('Transform','Transformar'),params:xf.map(d=>[d[0],propLabel(d[0]),d[0]])},
+             {k:'cl',label:T('Clip','Clip'),params:CLIP_P.map(p=>[p,propLabel(p),p])},
+             {k:'co',label:T('Color','Color'),params:COLOR_P.map(p=>[p,propLabel(p),p])}];
+  for(const mp of autoDevMotParams(li)) out.push({k:'mot:'+mp,label:T('Motion','Movimiento')+' · '+motParamLabel(mp),params:[['mix',T('Mix','Mix'),'mot:'+mp+':mix']]});
+  for(const ty of autoDevFxTypes(li)){ const def=FXBY[ty]; if(!def)continue; // genérico: Intensity + Reactivity + los parámetros REALES que declare el efecto
+    out.push({k:'fx:'+ty,label:T(def.label[0],def.label[1]),
+      params:[['int',T('Intensity','Intensidad')],['amt',T('Reactivity','Reactividad')]].concat((def.params||[]).map(p=>[p.k,T(p.label[0],p.label[1])])).map(pp=>[pp[0],pp[1],'fxt:'+ty+':'+pp[0]])}); }
+  return out; }
+function autoCatKeyOf(cur){ if(isFxtKey(cur))return 'fx:'+String(cur).split(':')[1]; if(isMotKey(cur))return 'mot:'+String(cur).split(':')[1];
+  if(CLIP_P.includes(cur))return 'cl'; if(COLOR_P.includes(cur))return 'co'; return 'xf'; }
+function autoParamLabel(cur){ if(isFxtKey(cur)){ const q=String(cur).split(':'); return fxParamLabel(q[1],q[2]); } if(isMotKey(cur))return T('Mix','Mix'); return propLabel(cur); }
 /* [R95·E4] Ableton's model: only the lane with focus shows the two dropdowns; the rest show the same information as
    plain 2-line text (device / parameter). Two selects + three buttons in a 152px header truncated to "Tra∨ ◆S∨" —
    unreadable. Clicking the text swaps it back to the live choosers. */
 function autoDuoText(li,cur,onPick){ const wrap=document.createElement('div'); wrap.className='autoduo txt'; wrap.title=T('Click to change device / parameter','Clic para cambiar dispositivo / parámetro');
-  const isT=isFxtKey(cur); const q=isT?cur.split(':'):null;
-  const dev=isT?T(FXBY[q[1]].label[0],FXBY[q[1]].label[1]):(XFORM_P.some(d=>d[0]===cur)?T('Transform','Transformar'):T('Effects','Efectos'));
-  const par=isT?fxParamLabel(q[1],q[2]):propLabel(cur);
+  const cats=autoCats(li); const ck=autoCatKeyOf(cur); const cat=cats.find(x=>x.k===ck)||cats[0]; // [R224] la categoría se DERIVA de la clave visible: los dos chips nunca pueden discrepar
+  const dev=cat.label, par=autoParamLabel(cur);
   wrap.innerHTML=`<span class="achip acat" title="${lchEsc(dev)} · ${T('Click to change','Clic para cambiar')}"><span class="alab">${dev}</span>${ICO('chevDown',8)}</span><span class="achip apac" title="${lchEsc(par)} · ${T('Click to change','Clic para cambiar')}"><span class="asw2" style="background:${autoColor(cur)}"></span><span class="alab">${par}</span>${ICO('chevDown',8)}</span>`; // [REDISEÑO Rev1] 2 chips (Effect-type + Parameter con swatch) · [R214] per-chip title = full text (the .alab ellipsis was truncating "Opa…" with no way to read the rest) · [R215] the R214 per-chip title fully covered the wrapper's "Click to change device / parameter" — combined here so hovering a chip still surfaces the click affordance
   /* [R156] Cada chip abre un MENÚ, no se transforma en dos <select> inline.
      Antes, la pista con el clip seleccionado cambiaba a la versión con selects (`autoDuo`), que es más alta: a 57px
      de pista —la altura del diseño— empujaba la fila de identidad fuera de la cabecera y esa pista se veía rota.
      El prototipo tiene UNA sola representación (dos chips) y despliega un menú al pulsarlos. */
-  const devKey=isT?q[1]:(XFORM_P.some(d=>d[0]===cur)?'xf':'ef');
-  const paramsOf=dv=>{ if(dv==='xf'||dv==='ef') return (dv==='xf'?XFORM_P:FX).map(d=>[d[0],propLabel(d[0]),d[0]]);
-    const def=FXBY[dv]||{}; return [['int',T('Intensity','Intensidad')],['amt',T('Reactivity','Reactividad')]]
-      .concat((def.params||[]).map(p=>[p.k,T(p.label[0],p.label[1])])).map(pp=>[pp[0],pp[1],'fxt:'+dv+':'+pp[0]]); };
   const menu=(el,items)=>{ const r=el.getBoundingClientRect(); openMenu(r.left,r.bottom+4,items); };
+  /* [R224] Resaltado de "ya automatizado": rombo en cian vivo (--auto-live, el color que ya significa "vivo" en toda
+     la app) delante de la entrada. En la IZQUIERDA basta con que UNO de sus parámetros esté automatizado. La entrada
+     vigente va en negrita, para que el menú diga también dónde estás. */
+  const dia='<span style="color:var(--auto-live);font-size:10px;">◆</span>&nbsp;&nbsp;';
+  const ent=(lab,on,sel)=>(on?dia:'')+(sel?'<b>'+lab+'</b>':lab);
   wrap.querySelector('.acat').addEventListener('pointerdown',e=>{ e.stopPropagation();
-    const items=[{label:T('Transform','Transformar'),fn:()=>onPick(XFORM_P[0][0])},{label:T('Effects','Efectos'),fn:()=>onPick('opacity')}]
-      .concat(laneFxTypes(li).map(ty=>({label:T(FXBY[ty].label[0],FXBY[ty].label[1]),fn:()=>onPick('fxt:'+ty+':int')})));
-    menu(e.currentTarget,items); });
+    menu(e.currentTarget, cats.map(x=>{ const auto=x.params.find(pp=>autoHasKf(li,pp[2])); // al elegir un dispositivo se aterriza en su parámetro AUTOMATIZADO si lo hay (nunca en uno vacío teniendo curva a mano)
+      return {label:ent(x.label,!!auto,x.k===cat.k), fn:()=>onPick((auto||x.params[0])[2])}; })); });
   wrap.querySelector('.apac').addEventListener('pointerdown',e=>{ e.stopPropagation();
-    menu(e.currentTarget, paramsOf(devKey).map(([k,lab,key])=>({label:(laneHasKf(li,key)?'◆  ':'')+lab,fn:()=>onPick(key)}))); });
+    menu(e.currentTarget, cat.params.map(([k,lab,key])=>({label:ent(lab,autoHasKf(li,key),key===cur),fn:()=>onPick(key)}))); });
   return wrap; }
 function fxParamLabel(ty,k){ const def=FXBY[ty]; if(!def)return k; if(k==='int')return T('Intensity','Intensidad'); if(k==='amt')return T('Reactivity','Reactividad'); const pd=(def.params||[]).find(x=>x.k===k); return pd?T(pd.label[0],pd.label[1]):k; }
-function autoDuo(li,cur,onPick){ const types=laneFxTypes(li); const isT=isFxtKey(cur); const cq=isT?cur.split(':'):null;
-  const isX=!isT&&XFORM_P.some(d=>d[0]===cur); // [R94b] device groups: Transform · Effects · each reactive fx loaded on the track's clips
-  const wrap=document.createElement('div'); wrap.className='autoduo';
-  const dev=document.createElement('select'); dev.className='aselect adev'; dev.title=T('Device / effect','Dispositivo / efecto');
-  dev.innerHTML=`<option value="xf"${isX?' selected':''}>${T('Transform','Transformar')}</option>`+
-    `<option value="ef"${(!isT&&!isX)?' selected':''}>${T('Effects','Efectos')}</option>`+
-    types.map(ty=>`<option value="${ty}"${(isT&&ty===cq[1])?' selected':''}>${T(FXBY[ty].label[0],FXBY[ty].label[1])}</option>`).join('');
-  const par=document.createElement('select'); par.className='aselect apar'; par.title=T('Parameter','Parámetro');
-  const fill=sel=>{ const dv=dev.value;
-    if(dv==='xf'||dv==='ef'){ const list=dv==='xf'?XFORM_P:FX; par.innerHTML=list.map(d=>`<option value="${d[0]}"${d[0]===sel?' selected':''}>${laneHasKf(li,d[0])?'◆ ':''}${propLabel(d[0])}</option>`).join(''); } // ◆ = already automated on this track
-    else { const def=FXBY[dv]; const plist=[['int',T('Intensity','Intensidad')],['amt',T('Reactivity','Reactividad')]].concat((def.params||[]).map(p=>[p.k,T(p.label[0],p.label[1])]));
-      par.innerHTML=plist.map(pp=>`<option value="${pp[0]}"${pp[0]===sel?' selected':''}>${laneHasKf(li,'fxt:'+dv+':'+pp[0])?'◆ ':''}${pp[1]}</option>`).join(''); } };
-  fill(isT?cq[2]:cur);
-  // [R94-UT2·U-15] the narrow selects truncate ("Opac∨") — mirror the selected option's full text into the tooltip
-  const syncT=()=>{ const o1=dev.selectedOptions&&dev.selectedOptions[0], o2=par.selectedOptions&&par.selectedOptions[0];
-    dev.title=o1?o1.textContent:T('Device / effect','Dispositivo / efecto'); par.title=o2?o2.textContent:T('Parameter','Parámetro'); };
-  syncT();
-  const emit=()=>{ const dv=dev.value; syncT(); onPick((dv==='xf'||dv==='ef')?par.value:('fxt:'+dv+':'+par.value)); };
-  dev.onchange=()=>{ const dv=dev.value; fill(dv==='xf'?XFORM_P[0][0]:dv==='ef'?'opacity':'int'); emit(); }; par.onchange=emit;
-  for(const ev of ['pointerdown','click','dblclick'])wrap.addEventListener(ev,e=>e.stopPropagation()); // the track header selects/drag-reorders/renames on these — the dropdowns must not trigger that
-  wrap.appendChild(dev); wrap.appendChild(par); return wrap; }
+/* [archivado 20260730 · R224] `autoDuo` (la variante del chooser con dos <select>) — sin llamadores desde R156 y con un
+   modelo de categorías ya sustituido por `autoCats` → _backup/deprecated/20260730-auto-duo-selects.js */
 /* [R93] legacy per-clip Audio-React lanes (c._arAuto, keys 'fx:<id>:<p>') → track lanes with type-keys */
 function migrateArAuto(){ for(const c of state.clips){ if(!Array.isArray(c._arAuto)){ if(c._arAuto!=null)delete c._arAuto; continue; } const lane=state.lanes[c.lane];
   if(lane&&lane.kind!=='audio'){ for(const key of c._arAuto){ const q=String(key).split(':'); const fx=(c.fx||[]).find(f=>f.id===+q[1]); if(fx&&FXBY[fx.type]){ const lk='fxt:'+fx.type+':'+q[2]; if(!lane._autoP)lane._autoP=lk; } } } // [A5] one automation at a time — the first migrated key becomes the single overlay
@@ -5065,9 +5129,43 @@ function refreshModFormula(){ if(!_modPanel)return; const el=_modPanel.querySele
   _modPanel.querySelectorAll('.mpspeccv').forEach(cv=>{ if(cv._paint)cv._paint(); }); } // [R95·C2] the spectrum must be LIVE — it repaints with the playhead, like Notch's
 /* [A5] Show Automation: ensure inline lanes are visible and at least one lane is open for this clip */
 function showAutomation(c){ if(!c||isAudioClip(c))return; state.inlineCurves=true; syncAutoUI(); const cb=$('#curvesBtn'); if(cb)cb.classList.add('on');
-  { const lane=state.lanes[c.lane]; if(lane&&lane.kind!=='audio'){ const armed=CURVE_PARAMS.filter(d=>hasKf(c,d[0])).map(d=>d[0]);
+  { const lane=state.lanes[c.lane]; if(lane&&lane.kind!=='audio'){ const armed=clipArmedTrackKeys(c);
     if(armed.length&&!(lane._autoP&&armed.includes(lane._autoP)))lane._autoP=armed[0]; } } // [A5] the clip's animated params open on ITS TRACK as the SINGLE overlay (first one, unless the current choice is already one of them) — one at a time
   renderTimeline(); }
+/* [R224 · ítem 6] TODAS las claves automatizadas de un clip, ya expresadas como claves DE PISTA (las que entiende el
+   chooser). Antes `showAutomation` sólo miraba `CURVE_PARAMS`, así que un clip cuya única automatización estuviera en un
+   efecto o en el Mix de un movimiento abría "opacity" y su curva no aparecía por ningún lado. */
+function clipArmedTrackKeys(c){ const out=[]; if(!c||!c.kf)return out;
+  for(const [p] of CURVE_PARAMS) if(hasKf(c,p)) out.push(p);
+  for(const a of (c.anim||[])){ const k=motKeyFor(a); if(hasKf(c,k)&&!out.includes(k))out.push(k); }
+  for(const f of (c.fx||[])){ if(!FXBY[f.type])continue; const def=FXBY[f.type];
+    for(const k of ['int','amt'].concat((def.params||[]).map(x=>x.k))){ if(fxHasKf(c,f,k)){ const tk='fxt:'+f.type+':'+k; if(!out.includes(tk))out.push(tk); } } }
+  return out; }
+/* ===================== [R224] SINCRONÍA INSPECTOR → CURVA (ítems 4-5 de la Etapa 2) =====================
+   El bug central del feedback: inspector y curva no se hablaban. Con el modo automatización encendido, el clip mostraba
+   la curva del parámetro que dijera `lane._autoP` — que sólo cambiaba desde los dos chips de la cabecera o al CREAR el
+   primer keyframe (`openAuto`). Se podía estar arrastrando la opacidad y viendo la curva del azimut.
+   `trackKeyFor` traduce la clave con la que trabaja el inspector (per-clip: `fx:<id>:<p>`) a la clave de PISTA que
+   guarda el chooser (`fxt:<type>:<p>`); las demás (parámetros normales y `mot:<param>:mix`) son la misma en los dos
+   niveles. `focusAutoParam` es el gesto barato — un cambio de foco, no una acción de edición: no toca automatización,
+   no exige que haya keyframes y no hace nada si el modo automatización está apagado. `showAutomationParam` es la
+   versión explícita del menú contextual: ENCIENDE el modo si hace falta y luego enfoca. */
+function trackKeyFor(c,p){ if(isFxKey(p)){ const q=String(p).split(':'); const fx=((c&&c.fx)||[]).find(f=>f.id===+q[1]); return (fx&&FXBY[fx.type])?('fxt:'+fx.type+':'+q[2]):null; } return p; }
+function focusAutoParam(c,p){ if(!state.inlineCurves||!c||isAudioClip(c))return; const lane=state.lanes[c.lane]; if(!lane||lane.kind==='audio')return;
+  const np=trackKeyFor(c,p); if(!np||lane._autoP===np)return; lane._autoP=np; renderTimeline(); markDirty(); } // markDirty porque `_autoP` se guarda en el .isp (es parte de la vista del proyecto)
+function showAutomationParam(c,p){ if(!c)return;
+  if(isAudioClip(c)){ flashStatus(T('Audio clips have no visual automation','Los clips de audio no tienen automatización visual'),'err'); return; }
+  const lane=state.lanes[c.lane]; const np=trackKeyFor(c,p); if(!np)return;
+  state.inlineCurves=true; syncAutoUI(); { const b=$('#curvesBtn'); if(b)b.classList.add('on'); }
+  if(lane&&lane.kind!=='audio')lane._autoP=np;
+  renderTimeline(); markDirty(); const d=paramDef(c,np); flashStatus(T('Showing automation · ','Mostrando automatización · ')+(d?d[1]:np)); }
+/* [R224] Mix de Motion legacy (`a.wetKf` 0..1 / `a.wet`) → parámetro `mot:<param>:mix` (c.kf / c.props, 0-100 %).
+   Idempotente y sin pérdida: si la clave nueva ya existe se respeta, y el `.isp` viejo se sigue abriendo igual. */
+function migrateMotionWet(){ for(const c of state.clips){ if(!Array.isArray(c.anim))continue;
+  for(const a of c.anim){ const key=motKeyFor(a); const cl=v=>Math.max(0,Math.min(100,v*100));
+    if(Array.isArray(a.wetKf)&&a.wetKf.length){ c.kf=c.kf||{}; if(!(c.kf[key]&&c.kf[key].length))c.kf[key]=a.wetKf.map(k=>({t:k.t,v:cl(k.v),e:k.e||'linear'})); }
+    c.props=c.props||{}; if(c.props[key]==null)c.props[key]=(a.wet!=null?cl(a.wet):100); // el VALOR BASE tiene que existir siempre: es lo que dibuja la curva de un Mix sin keyframes (evalP lee c.props). Sin él, un movimiento creado por `compose` —que arma `c.anim` a mano, sin pasar por addAnimPreset— dejaba la curva sin suelo.
+    delete a.wetKf; delete a.wet; } } }
 /* [A5] Return to Default: drop all automation on the clip, freezing each param at its current value (curve removed) */
 function returnToDefault(c){ if(!c)return; pushUndo(); for(const [p] of CURVE_PARAMS){ if(hasKf(c,p)){ c.props[p]=evalP(c,p,state.playhead); clearKf(c,p); } } renderTimeline(); renderInspector(); render(); flashStatus(T('Automation returned to default','Automatización restablecida')); } // [R143] c._auto=[] (lista legacy de clip) archivado
 // [archivado 20260722 · R137] reenableAuto/setAutoOff → _backup/deprecated/20260722-automation-override-and-perform-bake.js · sin efecto bajo el modelo After Effects (ADR-0006)
@@ -10038,8 +10136,15 @@ function wireFxCards(c,sel,reRender){ if(!c)return; const cp=(sel==='#motionFx')
   const shp=card.querySelector('.fxshape'); if(shp)shp.onchange=e=>{ pushUndo(); f.lfoShape=e.target.value; if(_raOn)raInvalidate(); render(); markDirty(); };
   const dv=card.querySelector('.fxdiv'); if(dv)dv.onchange=e=>{ pushUndo(); f.lfoDiv=e.target.value; if(_raOn)raInvalidate(); render(); markDirty(); };
   card.querySelectorAll('.fxrow').forEach(row=>{ const k=row.dataset.k, field=row.querySelector('.field');
-    if(field){ field.addEventListener('pointerdown',ev=>{ if(ev.button!==0||ev.target.tagName==='INPUT')return; startFxFader(ev,c,f,k,+field.dataset.mn,+field.dataset.mx); }); field.addEventListener('dblclick',()=>fxEditVal(c,f,k,field,reRender)); }
-    const kf=row.querySelector('.kf[data-kf]'); if(kf)kf.onclick=()=>{ fxKfToggle(c,f,k); reRender(); render(); }; });
+    const kf=row.querySelector('.kf[data-kf]');
+    /* [R224 · ítem 4] Igual que las filas de Transform/Clip/Color: tocar el parámetro de un efecto pone SU curva a la
+       vista. Sólo en las filas automatizables (las que llevan diamante) — atk/rel/curve/spring son forma de la
+       respuesta reactiva, no parámetros del shader, y no tienen curva que mostrar. */
+    const foc=()=>{ if(kf)focusAutoParam(c,fxKey(f,k)); };
+    if(field){ field.addEventListener('pointerdown',ev=>{ if(ev.button!==0||ev.target.tagName==='INPUT')return; foc(); startFxFader(ev,c,f,k,+field.dataset.mn,+field.dataset.mx); }); field.addEventListener('dblclick',()=>{ foc(); fxEditVal(c,f,k,field,reRender); }); }
+    /* [R224 · ítem 5] y su menú contextual con la misma entrada explícita */
+    row.addEventListener('contextmenu',ev=>{ if(!kf)return; ev.preventDefault(); ev.stopPropagation(); openMenu(ev.clientX,ev.clientY,[{label:T('Show automation','Mostrar automatización'),ico:'curves',fn:()=>showAutomationParam(c,fxKey(f,k))}]); });
+    if(kf)kf.onclick=()=>{ fxKfToggle(c,f,k); focusAutoParam(c,fxKey(f,k)); reRender(); render(); }; });
 }); }
 function addFxToClip(c,key,motion){ if(!c)return; pushUndo(); if(!c.fx)c.fx=[]; const f=newFx(key);
   if(motion){ f.int=60; f.band='none'; } // [I2·Motion] added from Motion → a visible STATIC effect, but int<100 leaves headroom so it can still be driven by audio (Reactivity adds on top) if made reactive later

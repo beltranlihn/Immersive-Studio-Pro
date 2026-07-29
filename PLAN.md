@@ -1,5 +1,22 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 224 — Feedback, Etapa 2: automatización que dialoga
+
+Los 8 ítems de la Etapa 2 de `docs/NEXT.md` cerrados y verificados por CDP (detalle por ítem ahí). El corazón:
+**una sola fuente de verdad para la curva visible** (`lane._autoP`, resuelta por `laneAutoP` y escrita solo por
+tres gestos: chips del header, cualquier gesto del inspector con el modo encendido —`focusAutoParam`—, y
+Show automation/openAuto que además lo encienden). Chooser rediseñado: izquierda = Transform/Clip/Color + cada
+Motion/Effect aplicado (con ◆ donde ya hay automatización), derecha dependiente con las listas exactas del
+feedback; borrar un fx/motion mata su entrada y su curva. Clic-derecho en cualquier fila de parámetro →
+Show automation / Reset to default / Clear automation. La línea de fade no se dibuja en automode. Los chips del
+header ya no roban la selección del clip. Chapa ↻ de motion archivada (ADR-0007), igual que el `autoDuo` viejo.
+
+**Cambio de modelo con migración:** el Mix de los motions deja `a.wetKf` y pasa a ser el parámetro
+`mot:<param>:mix` (0-100%) en `c.kf`/`c.props` — hereda evalP/setKf/curvas/copy-paste/rebase gratis;
+`migrateMotionWet` convierte los `.isp` viejos (verificado numéricamente, spin intacto en 2 tiempos).
+Tres agujeros de acceso a curvas cerrados (curvas de efecto/Mix inalcanzables desde el menú de clip; Transform
+sin parámetros del otro modo; dispositivo cayendo al primer parámetro y no al automatizado).
+
 ## ROUND 223 — Feedback post-prueba de Beltrán, Etapa 1: timeline core + clips linkeados
 
 Primera de 5 etapas de la tanda 2026-07-29 (30 ítems; plan completo y decisiones en `docs/NEXT.md`). Los 8

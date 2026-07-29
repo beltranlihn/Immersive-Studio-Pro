@@ -40,18 +40,52 @@
 - [x] BUG Ctrl+R: con un locator presente renombra el locator en vez del elemento seleccionado. _(R223)_
       `state.selMarkerId` pasa a ser una selección EXCLUSIVA con clip/pista en las dos direcciones.
 
-### Etapa 2 · Automatización [R224]
-- [ ] Línea de fade oculta en modo automatización.
-- [ ] Dropdown IZQUIERDO: Transform, Clip, Color + cada Motion/Effect aplicado (Spin, Glitch…). Resaltar las
-      opciones que YA tienen automatización. Si se elimina el motion/effect, desaparece del chooser.
-- [ ] Dropdown DERECHO dependiente: Transform→azimuth/elevation/size/rotation · Clip→opacity/blur/feather/crop ·
-      Color→exposure/contrast/saturation/temp/tint/glow/chroma · Motion→MIX · Effect→sus parámetros.
-- [ ] Sincronía inspector↔curva visible: en modo automatización, tocar cualquier parámetro muestra SU curva en
-      el clip (aunque no haya keyframe); los dropdowns siguen la selección.
-- [ ] Clic-derecho en un parámetro del inspector → "Show automation" (activa vista + curva de ese parámetro).
-- [ ] Auditoría del diálogo de visualizadores (hoy puede quedar una curva inaccesible).
-- [ ] Clic en los menús de automatización del header NO selecciona la pista.
-- [ ] Sin icono de motion sobre el clip.
+### Etapa 2 · Automatización [R224] — CERRADA ✅
+> Verificada por CDP (dominio domo, 2 clips, un Motion **Spin** y un Effect **Glitch** aplicados); capturas en
+> `scratchpad/r224/`, guiones `scratchpad/r224-{setup,chooser,sync,regress,roundtrip,shots}.mjs`. `__errs` vacío.
+> **Quién decide la curva visible:** una sola fuente, `lane._autoP` (clave DE PISTA, persistida), resuelta por
+> `laneAutoP` (elección guardada → si su motion/effect se fue, primer parámetro automatizado → `opacity`) y
+> traducida a cada clip por `laneKey`. La escriben tres gestos: los chips del header, `focusAutoParam` (cualquier
+> gesto del inspector, sólo si el modo está encendido) y `showAutomationParam`/`showAutomation` (que además lo
+> encienden). Sigue siendo **una automatización a la vez** por pista [A5].
+- [x] Línea de fade oculta en modo automatización. _(R224)_ `body.automode .clip .fadeenv{display:none}` — los
+      handles ya se ocultaban desde R155, faltaba la polilínea, que se leía como una segunda curva no editable.
+      El degradado oscuro de las esquinas se queda (es lo que sigue diciendo que hay fundido).
+- [x] Dropdown IZQUIERDO: Transform, Clip, Color + cada Motion/Effect aplicado (Spin, Glitch…). Resaltar las
+      opciones que YA tienen automatización. Si se elimina el motion/effect, desaparece del chooser. _(R224)_
+      `autoCats(li)` es la fuente de las dos listas. Los dispositivos salen del **clip seleccionado** si está en esa
+      pista, y de la unión de la pista si no. Resaltado = rombo en `--auto-live` (`autoHasKf`, alcance de clip) y la
+      entrada vigente en negrita. Elegir un dispositivo aterriza en su parámetro **ya automatizado** si lo hay.
+      Borrar el efecto/movimiento lo saca de la lista y `laneAutoP` deja caer la elección guardada.
+- [x] Dropdown DERECHO dependiente: Transform→azimuth/elevation/size/rotation · Clip→opacity/blur/feather/crop ·
+      Color→exposure/contrast/saturation/temp/tint/glow/chroma · Motion→MIX · Effect→sus parámetros. _(R224)_
+      Transform lista los del **modo de secuencia activo** (en 2D ya no ofrece azimut) + cualquiera del otro modo que
+      lleve automatización, para que ninguna curva quede inalcanzable. Effect = Intensity + **Reactivity** + sus
+      parámetros reales (Reactivity se queda: es automatizable y sacarla del menú la volvía huérfana).
+      **Motion→MIX exigió modelo nuevo:** el Mix vivía aparte, en `a.wetKf`/`a.wet` (0..1), y era el único
+      automatizable que el editor de curvas no sabía dibujar. Ahora es el parámetro `mot:<param>:mix` (0-100 %) en
+      `c.kf`/`c.props` — hereda evalP, setKf, drawAutoCurve, bindAutoCurve, copiar/pegar, el pool de items y el
+      rebase de keyframes al recortar/partir/cambiar velocidad. `migrateMotionWet` convierte los `.isp` viejos.
+- [x] Sincronía inspector↔curva visible: en modo automatización, tocar cualquier parámetro muestra SU curva en
+      el clip (aunque no haya keyframe); los dropdowns siguen la selección. _(R224)_ `focusAutoParam(c,p)` +
+      `trackKeyFor` (clave de clip `fx:<id>:<p>` → clave de pista `fxt:<type>:<p>`), enganchado UNA vez por gesto
+      —no dentro del bucle de arrastre— en las filas de Transform/Clip/Color (fader, número, rueda, diamante), en
+      las de efecto (Motion y Reactive) y en el Mix de cada Motion.
+- [x] Clic-derecho en un parámetro del inspector → "Show automation" (activa vista + curva de ese parámetro).
+      _(R224)_ La fila estrena menú contextual: **Show automation · Reset to default · Clear automation**. El clic
+      derecho sobre el surco ya restablecía el valor de fábrica, pero era un gesto invisible y el único que había;
+      ahora se ve, y las filas de parámetro de efecto tienen su propia entrada equivalente.
+- [x] Auditoría del diálogo de visualizadores (hoy puede quedar una curva inaccesible). _(R224)_ Tres agujeros
+      cerrados: (a) `showAutomation` del menú de clip sólo miraba `CURVE_PARAMS` → un clip cuya única automatización
+      estuviera en un efecto o en un Mix abría `opacity` y su curva no aparecía por ningún lado (`clipArmedTrackKeys`);
+      (b) el chooser no ofrecía los parámetros de Transform del otro modo aunque estuvieran automatizados;
+      (c) elegir un dispositivo caía siempre en su primer parámetro, no en el que tenía curva.
+- [x] Clic en los menús de automatización del header NO selecciona la pista. _(R224)_ Guarda `.autoctl` en
+      `hd.onclick` y en `hd.ondblclick`. El `stopPropagation` de los chips era de `pointerdown`: el `click` posterior
+      llegaba igual a la cabecera y `state.selId=null` se llevaba por delante el clip cuyos parámetros se querían ver.
+- [x] Sin icono de motion sobre el clip. _(R224)_ Chapa ↻ archivada en
+      `_backup/deprecated/20260730-clip-motion-badge.js`. También sale del código `autoDuo` (variante del chooser con
+      `<select>`, sin llamadores desde R156) → `20260730-auto-duo-selects.js`.
 
 ### Etapa 3 · Inspector + adjustment + nest/compose [R225]
 - [ ] Adjustment layer: todos los efectos; afecta lo de abajo como un solo clip fulldome; default fulldome full.

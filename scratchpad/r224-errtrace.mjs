@@ -1,0 +1,30 @@
+import { evalInApp } from './cdp.mjs';
+const expr = `(async function(){
+  window.__errs=[]; window.__stacks=[];
+  if(!window.__errHook2){ window.__errHook2=1; window.addEventListener('error',e=>{ window.__stacks.push(String((e.error&&e.error.stack)||e.message)); }); }
+  const out={}; const A=()=>state.clips.find(c=>c.lane===0); const lane=()=>state.lanes[0];
+  const row=p=>[...document.querySelectorAll('#tfRows .prow, #fxRows .prow, #colorRows .prow')].find(r=>{const f=r.querySelector('.field');return f&&f.dataset.p===p;});
+  if(!state.inlineCurves)toggleCurves();
+  state.selId=A().id; state.selIds=[A().id]; state.inspTab='clip'; renderInspector(); renderTimeline();
+  const step=(name,fn)=>{ const n0=window.__stacks.length; try{fn();}catch(e){ window.__stacks.push('THROWN '+name+': '+e.stack); } out[name]=window.__stacks.length>n0?window.__stacks.slice(n0):'ok'; };
+  step('opacityDrag',()=>{ const f=row('opacity').querySelector('.field'); const r=f.getBoundingClientRect();
+    f.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,cancelable:true,button:0,clientX:r.left+40,clientY:r.top+6}));
+    window.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,clientX:r.left+10,clientY:r.top+6}));
+    window.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,clientX:r.left+10,clientY:r.top+6})); });
+  await new Promise(r=>setTimeout(r,120));
+  step('azKf',()=>{ renderInspector(); row('az').querySelector('[data-k=add]').click(); });
+  await new Promise(r=>setTimeout(r,120));
+  step('ctxSat',()=>{ renderInspector(); const r0=row('saturation'); const r=r0.getBoundingClientRect();
+    r0.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:r.left+20,clientY:r.top+6}));
+    [...document.querySelector('.menu').querySelectorAll('button')][0].click(); });
+  await new Promise(r=>setTimeout(r,120));
+  step('motionTab',()=>{ state.inspTab='motion'; renderInspector(); });
+  await new Promise(r=>setTimeout(r,120));
+  step('motionKf',()=>{ const kb=document.querySelector('#animList .awetkf'); kb.click(); });
+  await new Promise(r=>setTimeout(r,150));
+  step('scrub',()=>{ state.playhead=3; refreshInspector(); renderTimeline(); render(); });
+  await new Promise(r=>setTimeout(r,150));
+  out.stacks=window.__stacks;
+  return out;
+})()`;
+evalInApp(expr).then(r=>console.log(JSON.stringify(r,null,2))).catch(e=>{console.error('ERR',e.message);process.exit(1);});
