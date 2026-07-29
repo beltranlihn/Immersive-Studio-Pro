@@ -1,0 +1,245 @@
+{
+  "build": {
+    "n": 4,
+    "ids": {
+      "A": 27,
+      "B": 28,
+      "Aa": 32,
+      "Ba": 30
+    },
+    "clips": [
+      {
+        "id": 27,
+        "lane": 0,
+        "start": 0,
+        "dur": 6,
+        "role": "v"
+      },
+      {
+        "id": 28,
+        "lane": 0,
+        "start": 6,
+        "dur": 6,
+        "role": "v"
+      },
+      {
+        "id": 30,
+        "lane": 4,
+        "start": 6,
+        "dur": 6,
+        "role": "a"
+      },
+      {
+        "id": 32,
+        "lane": 4,
+        "start": 0,
+        "dur": 6,
+        "role": "a"
+      }
+    ],
+    "lanes": [
+      "video",
+      "video",
+      "video",
+      "video",
+      "audio"
+    ],
+    "buffers": [
+      true,
+      true
+    ]
+  },
+  "item1": {
+    "tint": "rgba(150,175,130,0.045)",
+    "rows": [
+      {
+        "lane": 4,
+        "aud": true,
+        "bg": "rgba(150, 175, 130, 0.043)"
+      },
+      {
+        "lane": 3,
+        "aud": false,
+        "bg": "rgba(255, 255, 255, 0.02)"
+      },
+      {
+        "lane": 2,
+        "aud": false,
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "lane": 1,
+        "aud": false,
+        "bg": "rgba(255, 255, 255, 0.02)"
+      },
+      {
+        "lane": 0,
+        "aud": false,
+        "bg": "rgba(0, 0, 0, 0)"
+      }
+    ],
+    "hdrs": [
+      {
+        "lane": 4,
+        "aud": true
+      },
+      {
+        "lane": 3,
+        "aud": false
+      },
+      {
+        "lane": 2,
+        "aud": false
+      },
+      {
+        "lane": 1,
+        "aud": false
+      },
+      {
+        "lane": 0,
+        "aud": false
+      }
+    ],
+    "audioLaneIdx": [
+      4
+    ]
+  },
+  "item2": {
+    "trackSw": {
+      "n": 11,
+      "sample": [
+        {
+          "t": "#E0645C",
+          "w": 18,
+          "h": 18,
+          "sq": true
+        },
+        {
+          "t": "#E0954B",
+          "w": 18,
+          "h": 18,
+          "sq": true
+        },
+        {
+          "t": "#D8C24B",
+          "w": 18,
+          "h": 18,
+          "sq": true
+        }
+      ],
+      "allSquare": false
+    },
+    "clipSw": {
+      "n": 0,
+      "sample": [],
+      "allSquare": false
+    }
+  },
+  "item2_shot": true,
+  "item3": {
+    "onAudio": [
+      "Rename trackCtrl+R",
+      "Set track color…",
+      "New video trackCtrl+T",
+      "New audio track",
+      "Duplicate track",
+      "Delete track"
+    ],
+    "onVideo": [
+      "Rename trackCtrl+R",
+      "Set track color…",
+      "New video trackCtrl+T",
+      "New audio track",
+      "Duplicate track",
+      "Delete track"
+    ],
+    "audioHasBoth": true,
+    "videoHasBoth": true
+  },
+  "item4_sel": {
+    "selId": 27,
+    "selIds": [
+      27
+    ],
+    "A": 27,
+    "Aa": 32,
+    "audioSelected": false
+  },
+  "item4_fade": {
+    "videoFadeIn": 1,
+    "audioFadeIn": 0,
+    "audioUntouched": true
+  },
+  "item4_link": {
+    "speed": {
+      "v": 2,
+      "a": 2,
+      "vdur": 3,
+      "adur": 3
+    },
+    "loopOn": {
+      "v": true,
+      "a": true
+    },
+    "loopOff": {
+      "v": false,
+      "a": false
+    },
+    "trimBefore": {
+      "v": 6,
+      "a": 6
+    },
+    "trimAfter": {
+      "v": 6.25,
+      "a": 6.25
+    },
+    "trimTogether": true
+  },
+  "item5": {
+    "before": {
+      "vLane": 0,
+      "aLane": 4
+    },
+    "after": {
+      "vLane": 1,
+      "aLane": 4
+    },
+    "videoMoved": true,
+    "audioStayed": true,
+    "audioLaneKind": "audio",
+    "misplacedAudioClips": 0
+  },
+  "item7": {
+    "rulerH": 24,
+    "cvH": 24,
+    "half": 12,
+    "topInk": 0,
+    "botInk": 26,
+    "inLowerHalf": true,
+    "markers": [
+      {
+        "t": 3,
+        "name": "LOC1"
+      }
+    ]
+  },
+  "item8": {
+    "blockers": {
+      "overlay": false,
+      "exOv": false,
+      "selFolder": null,
+      "mediaSel": 0
+    },
+    "afterClick": {
+      "selMarkerId": null,
+      "selId": 27,
+      "markers": 1
+    },
+    "editingClip": true,
+    "editingClipId": 27,
+    "editingLocator": false,
+    "targetIsSelectedClip": true,
+    "locatorPathStillWorks": true
+  }
+}
+\nERRS []

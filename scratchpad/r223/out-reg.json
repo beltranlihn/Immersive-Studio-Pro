@@ -1,0 +1,291 @@
+{
+  "build": {
+    "clips": [
+      {
+        "id": 9,
+        "lane": 0,
+        "start": 0,
+        "dur": 6,
+        "inP": 0,
+        "fi": 0,
+        "fo": 0,
+        "role": "v",
+        "name": "Multimedia2.mp4"
+      },
+      {
+        "id": 11,
+        "lane": 4,
+        "start": 0,
+        "dur": 6,
+        "inP": 0,
+        "fi": 0,
+        "fo": 1.5,
+        "role": "a",
+        "name": "Multimedia2.mp4"
+      },
+      {
+        "id": 12,
+        "lane": 0,
+        "start": 4.5,
+        "dur": 7.5,
+        "inP": 1.5,
+        "fi": 0,
+        "fo": 0,
+        "role": "v",
+        "name": "Multimedia3.mp4"
+      },
+      {
+        "id": 14,
+        "lane": 4,
+        "start": 4.5,
+        "dur": 7.5,
+        "inP": 1.5,
+        "fi": 1.5,
+        "fo": 0,
+        "role": "a",
+        "name": "Multimedia3.mp4"
+      }
+    ],
+    "lanes": [
+      "0:video",
+      "1:video",
+      "2:video",
+      "3:video",
+      "4:audio"
+    ],
+    "vLane": 0,
+    "aLane": 4,
+    "vOverlaps": [
+      {
+        "a": 9,
+        "b": 12,
+        "from": 4.5,
+        "to": 6,
+        "len": 1.5
+      }
+    ],
+    "aOverlaps": [
+      {
+        "a": 11,
+        "b": 14,
+        "from": 4.5,
+        "to": 6,
+        "len": 1.5
+      }
+    ],
+    "ids": {
+      "A": 9,
+      "B": 12,
+      "Aa": 11,
+      "Ba": 14,
+      "vL": 0,
+      "aL": 4
+    }
+  },
+  "r1_linkSync": {
+    "video": {
+      "start": 4.5,
+      "dur": 7.5,
+      "inP": 1.5,
+      "fi": 0
+    },
+    "audio": {
+      "start": 4.5,
+      "dur": 7.5,
+      "inP": 1.5,
+      "fi": 1.5
+    },
+    "prevAudioFo": 1.5,
+    "prevVideoFo": 0,
+    "avInSync": true,
+    "audioCrossesByGain": true,
+    "videoStaysGeometric": true
+  },
+  "r2_playback": {
+    "playing": true,
+    "ph": 1.6,
+    "actxState": "running",
+    "events": [
+      {
+        "id": 11,
+        "start": 0,
+        "dur": 6,
+        "fi": 0,
+        "fo": 1.5,
+        "vol": 1,
+        "buf": true
+      },
+      {
+        "id": 14,
+        "start": 4.5,
+        "dur": 7.5,
+        "fi": 1.5,
+        "fo": 0,
+        "vol": 1,
+        "buf": true
+      }
+    ],
+    "srcCount": null,
+    "advanced": true,
+    "audioScheduled": true
+  },
+  "r3_dome3d": {
+    "mode": "3d",
+    "canvas": "991x468",
+    "nonBlackPx": 46085,
+    "renders3D": true
+  },
+  "r4_roundtrip": {
+    "bytes": 4364,
+    "before": [
+      {
+        "id": 9,
+        "lane": 0,
+        "start": 0,
+        "dur": 6,
+        "inP": 0,
+        "fi": 0,
+        "fo": 0,
+        "role": "v",
+        "name": "Multimedia2.mp4"
+      },
+      {
+        "id": 11,
+        "lane": 4,
+        "start": 0,
+        "dur": 6,
+        "inP": 0,
+        "fi": 0,
+        "fo": 1.5,
+        "role": "a",
+        "name": "Multimedia2.mp4"
+      },
+      {
+        "id": 12,
+        "lane": 0,
+        "start": 4.5,
+        "dur": 7.5,
+        "inP": 1.5,
+        "fi": 0,
+        "fo": 0,
+        "role": "v",
+        "name": "Multimedia3.mp4"
+      },
+      {
+        "id": 14,
+        "lane": 4,
+        "start": 4.5,
+        "dur": 7.5,
+        "inP": 1.5,
+        "fi": 1.5,
+        "fo": 0,
+        "role": "a",
+        "name": "Multimedia3.mp4"
+      }
+    ],
+    "after": [
+      {
+        "id": 9,
+        "lane": 0,
+        "start": 0,
+        "dur": 6,
+        "inP": 0,
+        "fi": 0,
+        "fo": 0,
+        "role": "v",
+        "name": "Multimedia2.mp4"
+      },
+      {
+        "id": 11,
+        "lane": 4,
+        "start": 0,
+        "dur": 6,
+        "inP": 0,
+        "fi": 0,
+        "fo": 1.5,
+        "role": "a",
+        "name": "Multimedia2.mp4"
+      },
+      {
+        "id": 12,
+        "lane": 0,
+        "start": 4.5,
+        "dur": 7.5,
+        "inP": 1.5,
+        "fi": 0,
+        "fo": 0,
+        "role": "v",
+        "name": "Multimedia3.mp4"
+      },
+      {
+        "id": 14,
+        "lane": 4,
+        "start": 4.5,
+        "dur": 7.5,
+        "inP": 1.5,
+        "fi": 1.5,
+        "fo": 0,
+        "role": "a",
+        "name": "Multimedia3.mp4"
+      }
+    ],
+    "beforeOv": {
+      "v": [
+        {
+          "a": 9,
+          "b": 12,
+          "from": 4.5,
+          "to": 6,
+          "len": 1.5
+        }
+      ],
+      "a": [
+        {
+          "a": 11,
+          "b": 14,
+          "from": 4.5,
+          "to": 6,
+          "len": 1.5
+        }
+      ]
+    },
+    "afterOv": {
+      "v": [
+        {
+          "a": 9,
+          "b": 12,
+          "from": 4.5,
+          "to": 6,
+          "len": 1.5
+        }
+      ],
+      "a": [
+        {
+          "a": 11,
+          "b": 14,
+          "from": 4.5,
+          "to": 6,
+          "len": 1.5
+        }
+      ]
+    },
+    "geometrySurvived": true,
+    "crossfadesSurvived": true,
+    "linksSurvived": true
+  },
+  "r5_afterReload": {
+    "t": 5.25,
+    "draw": [
+      {
+        "name": "Multimedia2.mp4",
+        "xf": 1
+      },
+      {
+        "name": "Multimedia3.mp4",
+        "xf": 0.5
+      }
+    ],
+    "dissolveAlive": true
+  }
+}
+ERRS []

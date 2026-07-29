@@ -1,0 +1,502 @@
+{
+  "t1_cut": {
+    "before": [
+      {
+        "id": 9,
+        "lane": 0,
+        "start": 0,
+        "dur": 6,
+        "inP": 0,
+        "fi": 0,
+        "fo": 0,
+        "role": null,
+        "name": "A"
+      },
+      {
+        "id": 10,
+        "lane": 0,
+        "start": 8,
+        "dur": 6,
+        "inP": 0,
+        "fi": 0,
+        "fo": 0,
+        "role": null,
+        "name": "B"
+      }
+    ],
+    "after": [
+      {
+        "id": 9,
+        "lane": 0,
+        "start": 0,
+        "dur": 4,
+        "inP": 0,
+        "fi": 0,
+        "fo": 0,
+        "role": null,
+        "name": "A"
+      },
+      {
+        "id": 10,
+        "lane": 0,
+        "start": 4,
+        "dur": 6,
+        "inP": 0,
+        "fi": 0,
+        "fo": 0,
+        "role": null,
+        "name": "B"
+      }
+    ],
+    "overlaps": [],
+    "A": {
+      "dur": 4,
+      "inP": 0,
+      "fo": 0
+    },
+    "B": {
+      "start": 4,
+      "fi": 0
+    },
+    "noFades": true,
+    "noOverlap": true
+  },
+  "t2_reextend": {
+    "gap": {
+      "A": 4,
+      "B": 4
+    },
+    "rec": {
+      "A_dur": 6,
+      "A_inP": 0
+    },
+    "recovered": true,
+    "snap": [
+      {
+        "id": 9,
+        "lane": 0,
+        "start": 0,
+        "dur": 6,
+        "inP": 0,
+        "fi": 0,
+        "fo": 0,
+        "role": null,
+        "name": "A"
+      },
+      {
+        "id": 10,
+        "lane": 0,
+        "start": 6,
+        "dur": 4,
+        "inP": 2,
+        "fi": 0,
+        "fo": 0,
+        "role": null,
+        "name": "B"
+      }
+    ]
+  },
+  "t3_split": {
+    "n": 3,
+    "clips": [
+      {
+        "name": "A",
+        "start": 0,
+        "dur": 4,
+        "inP": 0
+      },
+      {
+        "name": "B",
+        "start": 4,
+        "dur": 3,
+        "inP": 0
+      },
+      {
+        "name": "A",
+        "start": 7,
+        "dur": 3,
+        "inP": 7
+      }
+    ],
+    "overlaps": [],
+    "splitIntoTwoRemnants": true
+  },
+  "t4_cover": {
+    "n": 1,
+    "clips": [
+      {
+        "id": 15,
+        "lane": 0,
+        "start": 3,
+        "dur": 8,
+        "inP": 0,
+        "fi": 0,
+        "fo": 0,
+        "role": null,
+        "name": "B"
+      }
+    ],
+    "covered": true,
+    "overlaps": []
+  },
+  "t5_xfade": {
+    "before": {
+      "B_start": 6,
+      "B_dur": 6,
+      "B_inP": 3
+    },
+    "after": {
+      "B_start": 5,
+      "B_dur": 7,
+      "B_inP": 2,
+      "B_fi": 0,
+      "A_fo": 0,
+      "A_dur": 6
+    },
+    "overlaps": [
+      {
+        "a": 16,
+        "b": 17,
+        "from": 5,
+        "to": 6,
+        "len": 1
+      }
+    ],
+    "compositeAtMid": {
+      "t": 5.5,
+      "draw": [
+        {
+          "id": 16,
+          "name": "A",
+          "xf": 1
+        },
+        {
+          "id": 17,
+          "name": "B",
+          "xf": 0.5
+        }
+      ]
+    },
+    "xfadeBadge": true,
+    "createdCrossfade": true,
+    "videoUsesGeometry": true,
+    "dissolveMid": true
+  },
+  "t5_shot": {
+    "playhead": 5.5,
+    "drawn": 2
+  },
+  "t5_shot_A": true,
+  "t5_shot_B": true,
+  "t6_readjust": {
+    "wide": [
+      {
+        "a": 16,
+        "b": 17,
+        "from": 4.2,
+        "to": 6,
+        "len": 1.8
+      }
+    ],
+    "gone": [],
+    "B": {
+      "start": 6,
+      "dur": 6,
+      "inP": 3,
+      "fi": 1.2
+    },
+    "widened": true,
+    "removed": true
+  },
+  "t8_limit": {
+    "overlaps": [
+      {
+        "a": 18,
+        "b": 19,
+        "from": 5.6,
+        "to": 6,
+        "len": 0.4
+      }
+    ],
+    "B_inP": 0,
+    "clampedToMaterial": true
+  },
+  "t9_audio": {
+    "overlaps": [
+      {
+        "a": 20,
+        "b": 21,
+        "from": 4.8,
+        "to": 6,
+        "len": 1.2
+      }
+    ],
+    "A": {
+      "fo": 1.2
+    },
+    "B": {
+      "fi": 1.2,
+      "start": 4.8
+    },
+    "audioEvents": [
+      {
+        "id": 20,
+        "start": 0,
+        "dur": 6,
+        "fi": 0,
+        "fo": 1.2
+      },
+      {
+        "id": 21,
+        "start": 4.8,
+        "dur": 7.2,
+        "fi": 1.2,
+        "fo": 0
+      }
+    ],
+    "buffers": [
+      {
+        "name": "Multimedia2.mp4",
+        "buf": true
+      },
+      {
+        "name": "Multimedia3.mp4",
+        "buf": true
+      }
+    ],
+    "gainSumAcrossCross": [
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "bothScheduled": true,
+    "equalGain": true,
+    "gainCrossSymmetric": true
+  },
+  "t10_undo": {
+    "s0": [
+      {
+        "id": 22,
+        "lane": 0,
+        "start": 0,
+        "dur": 6,
+        "inP": 0,
+        "fi": 0,
+        "fo": 0,
+        "role": null,
+        "name": "A"
+      },
+      {
+        "id": 23,
+        "lane": 0,
+        "start": 8,
+        "dur": 6,
+        "inP": 3,
+        "fi": 0,
+        "fo": 0,
+        "role": null,
+        "name": "B"
+      }
+    ],
+    "s1": [
+      {
+        "id": 22,
+        "lane": 0,
+        "start": 0,
+        "dur": 4,
+        "inP": 0,
+        "fi": 0,
+        "fo": 0,
+        "role": null,
+        "name": "A"
+      },
+      {
+        "id": 23,
+        "lane": 0,
+        "start": 4,
+        "dur": 6,
+        "inP": 3,
+        "fi": 0,
+        "fo": 0,
+        "role": null,
+        "name": "B"
+      }
+    ],
+    "s2": [
+      {
+        "id": 22,
+        "lane": 0,
+        "start": 0,
+        "dur": 4,
+        "inP": 0,
+        "fi": 0,
+        "fo": 0,
+        "role": null,
+        "name": "A"
+      },
+      {
+        "id": 23,
+        "lane": 0,
+        "start": 3,
+        "dur": 7,
+        "inP": 2,
+        "fi": 0,
+        "fo": 0,
+        "role": null,
+        "name": "B"
+      }
+    ],
+    "ov2": [
+      {
+        "a": 22,
+        "b": 23,
+        "from": 3,
+        "to": 4,
+        "len": 1
+      }
+    ],
+    "u1": [
+      {
+        "id": 22,
+        "lane": 0,
+        "start": 0,
+        "dur": 4,
+        "inP": 0,
+        "fi": 0,
+        "fo": 0,
+        "role": null,
+        "name": "A"
+      },
+      {
+        "id": 23,
+        "lane": 0,
+        "start": 4,
+        "dur": 6,
+        "inP": 3,
+        "fi": 0,
+        "fo": 0,
+        "role": null,
+        "name": "B"
+      }
+    ],
+    "u2": [
+      {
+        "id": 22,
+        "lane": 0,
+        "start": 0,
+        "dur": 6,
+        "inP": 0,
+        "fi": 0,
+        "fo": 0,
+        "role": null,
+        "name": "A"
+      },
+      {
+        "id": 23,
+        "lane": 0,
+        "start": 8,
+        "dur": 6,
+        "inP": 3,
+        "fi": 0,
+        "fo": 0,
+        "role": null,
+        "name": "B"
+      }
+    ],
+    "r1": [
+      {
+        "id": 22,
+        "lane": 0,
+        "start": 0,
+        "dur": 4,
+        "inP": 0,
+        "fi": 0,
+        "fo": 0,
+        "role": null,
+        "name": "A"
+      },
+      {
+        "id": 23,
+        "lane": 0,
+        "start": 4,
+        "dur": 6,
+        "inP": 3,
+        "fi": 0,
+        "fo": 0,
+        "role": null,
+        "name": "B"
+      }
+    ],
+    "r2": [
+      {
+        "id": 22,
+        "lane": 0,
+        "start": 0,
+        "dur": 4,
+        "inP": 0,
+        "fi": 0,
+        "fo": 0,
+        "role": null,
+        "name": "A"
+      },
+      {
+        "id": 23,
+        "lane": 0,
+        "start": 3,
+        "dur": 7,
+        "inP": 2,
+        "fi": 0,
+        "fo": 0,
+        "role": null,
+        "name": "B"
+      }
+    ],
+    "cutHappened": true,
+    "xfadeHappened": true,
+    "undoBackToCut": true,
+    "undoBackToStart": true,
+    "redoToCut": true,
+    "redoToXfade": true
+  },
+  "t11_undo_destructive": {
+    "n0": 2,
+    "n1": 3,
+    "nUndo": 2,
+    "nRedo": 3,
+    "splitTo3": true,
+    "undoRestores": true,
+    "redoRepeats": true
+  },
+  "t12_media_drop": {
+    "clips": [
+      {
+        "id": 27,
+        "lane": 0,
+        "start": 0,
+        "dur": 5,
+        "inP": 0,
+        "fi": 0,
+        "fo": 0,
+        "role": null,
+        "name": "A"
+      },
+      {
+        "id": 28,
+        "lane": 0,
+        "start": 5,
+        "dur": 21.269,
+        "inP": 0,
+        "fi": 0,
+        "fo": 0,
+        "role": "v",
+        "name": "Multimedia3.mp4"
+      }
+    ],
+    "overlaps": [],
+    "aTrimmedTo5": true,
+    "noOverlap": true
+  }
+}
+ERRS []

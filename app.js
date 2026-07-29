@@ -2393,10 +2393,11 @@ function drawRuler(){ const rc=$('#rulerCv'), sc=$('#tlscroll'); if(!rc||!sc)ret
       /* [R162] `ceil`, no `round`: con los ticks a 48px, 66/48=1.375 redondeaba a 1 y etiquetaba TODOS —
          y una etiqueta de timecode («00:00:30») mide ~52px, así que se pisaban unas con otras. */
       if((Math.round(tt/iv))%(Math.max(1,Math.ceil(66/(iv*pps))))===0) rx.fillText(fmtTime(tt),x+3,7); } }
+  // [R223] locators en la MITAD INFERIOR de la regla (antes competían arriba con los ticks/etiquetas de tiempo)
   for(const mk of state.markers){ const x=mk.time*pps; if(x<x0-40||x>x1+40)continue; const selM=mk.id===state.selMarkerId; const col=selM?'#F2F4F6':(mk.color||'#B4BAC1');
-    rx.fillStyle=col; rx.beginPath(); rx.moveTo(x,2); rx.lineTo(x+9,5); rx.lineTo(x,8); rx.closePath(); rx.fill(); rx.fillRect(x-0.5,2,1,18);
-    if(selM){ rx.strokeStyle='rgba(255,255,255,0.85)'; rx.lineWidth=1; rx.beginPath(); rx.moveTo(x,2); rx.lineTo(x+9,5); rx.lineTo(x,8); rx.closePath(); rx.stroke(); }
-    if(mk.name){ rx.font=(selM?'600 ':'')+'9px Inter'; rx.fillStyle=col; rx.textBaseline='middle'; rx.fillText(mk.name, x+12, 6); } }
+    rx.fillStyle=col; rx.beginPath(); rx.moveTo(x,14); rx.lineTo(x+9,17); rx.lineTo(x,20); rx.closePath(); rx.fill(); rx.fillRect(x-0.5,12,1,RULER_H-12);
+    if(selM){ rx.strokeStyle='rgba(255,255,255,0.85)'; rx.lineWidth=1; rx.beginPath(); rx.moveTo(x,14); rx.lineTo(x+9,17); rx.lineTo(x,20); rx.closePath(); rx.stroke(); }
+    if(mk.name){ rx.font=(selM?'600 ':'')+'9px Inter'; rx.fillStyle=col; rx.textBaseline='middle'; rx.fillText(mk.name, x+12, 17); } }
   drawCacheMap(); }
 /* draw the waveform for MEDIA-time range [t0,t1] into cvs (backing store already sized to display px).
    Sample-accurate min/max/RMS straight from the AudioBuffer when zoomed in (crisp transients), else the
@@ -2456,7 +2457,7 @@ function renderTimeline(){ reconcileVinst(); // free private decoders of clips t
     const _isAud=lane.kind==='audio'; const rowT=tracks; const hdrT=heads;
     if(!_isAud&&!_hasVideo){ _hasVideo=true; } // [R110b] VIDEO label goes in the existing ruler-pad corner (set after the loop) — NOT a separate band
     if(_isAud&&!_hasAudio){ _hasAudio=true; } // [REDISEÑO Rev1] sin barra "Audio" colapsable — audio es una pista normal en la columna unificada
-    const row=document.createElement('div'); row.className='lane'+(collapsed?' collapsed':''); row.style.height=LH+'px'; row.style.width=W+'px'; row.dataset.lane=li;
+    const row=document.createElement('div'); row.className='lane'+(collapsed?' collapsed':'')+(_isAud?' aud':''); row.style.height=LH+'px'; row.style.width=W+'px'; row.dataset.lane=li; // [R223] tinte sutil de fila de audio (clase ya existía en .lanehdr, faltaba en la fila)
     for(const c of state.clips.filter(c=>c.lane===li)){
       const m=mediaById(c.mediaId); const cd=document.createElement('div'); cd.className='clip'+(state.selIds.includes(c.id)?' sel':'')+((c.groupId!=null&&c.groupId===state.selGroupId)?' gsel':'')+((!m||(m.missing&&!m._loading))?' offline':''); cd.dataset.clip=c.id; // [M4] media deleted/missing → red offline clip
       if(c.disabled)cd.classList.add('off'); // [R102·D-T2] Ableton "0": ni se renderiza ni suena. Antes se decía SOLO con opacidad+desaturación — es decir, sólo con color. Ahora lleva además una trama diagonal: "Avoid using color as the only way of communicating status" (HIG de Blender), y Resolve hace lo mismo ("A slash indicates when a track is disabled"). Importa para daltonismo y para poder leerlo de un vistazo entre 30 clips.
@@ -2516,7 +2517,7 @@ function renderTimeline(){ reconcileVinst(); // free private decoders of clips t
         <button class="ms ${lane.mute?'on':''}" data-m="mute">M</button><button class="ms solo ${lane.solo?'on':''}" data-m="solo">S</button>
       </div>`;
     hd.onclick=ev=>{ if(_laneJustDragged||ev.target.isContentEditable||ev.target.closest('[data-m]'))return; clearMediaSel(); state.selLane=li;
-      state.selId=null; state.selIds=[]; state.selGroupId=null; renderInspector(); updStatus(); renderTimeline(); }; // [R93] selecting a TRACK deselects the clip (they were simultaneous → Ctrl+D was ambiguous)
+      state.selId=null; state.selIds=[]; state.selGroupId=null; state.selMarkerId=null; renderInspector(); updStatus(); renderTimeline(); }; // [R93] selecting a TRACK deselects the clip (they were simultaneous → Ctrl+D was ambiguous) · [R223] y el locator (bug Ctrl+R)
     hd.tabIndex=0; hd.setAttribute('aria-label',lane.name); // [R94-UT5·U-10b] Tab reaches the track header; Enter/Space = same selection as a click
     hd.addEventListener('keydown',ev=>{ if(ev.target!==hd||!hd.matches(':focus-visible'))return; if(ev.key==='Enter'||ev.code==='Space'){ ev.preventDefault(); ev.stopPropagation(); hd.onclick(ev); } }); // :focus-visible → only KEYBOARD focus consumes Enter/Space (a mouse click leaves Space = play)
     hd.addEventListener('pointerdown',ev=>{ if(ev.button!==0)return; if(ev.target.closest('[data-m]')||ev.target.closest('button')||ev.target.isContentEditable)return; startLaneDrag(ev,li); }); // drag the header to reorder tracks
@@ -2594,9 +2595,9 @@ function addLane(kind){ pushUndo(); const n=state.lanes.filter(l=>l.kind===kind)
   if(kind==='audio'){ const az=document.querySelector('#tracks .audiozone'); if(az){ az.scrollTop=az.scrollHeight; state.tl._audioScroll=az.scrollTop; const ah=$('#audioHeadZone'); if(ah)ah.scrollTop=az.scrollTop; } } // reveal the new bottom track (the module keeps its height and scrolls)
   flashStatus(T('Track added','Pista añadida')); }
 /* menu items for creating a track (Ctrl+T or right-click) — no toolbar button per request */
-function trackCreateItems(kind){ const it=[]; // [R110b] filter by the clicked track's kind: on a video track don't offer "create audio" (and vice versa); empty areas (no kind) offer both
-  if(kind!=='audio') it.push({label:T('Create video track','Crear pista de vídeo'),key:'⌘T',ico:'plus',fn:()=>addLane('video')});
-  if(kind!=='video') it.push({label:T('Create audio track','Crear pista de audio'),ico:'plus',fn:()=>addLane('audio')});
+function trackCreateItems(kind){ const it=[]; // [R223] revierte el filtro por kind de [R110b]: Beltrán pidió que CUALQUIER cabecera (video o audio) ofrezca ambas opciones
+  it.push({label:T('New video track','Nueva pista de vídeo'),key:'⌘T',ico:'plus',fn:()=>addLane('video')});
+  it.push({label:T('New audio track','Nueva pista de audio'),ico:'plus',fn:()=>addLane('audio')});
   return it; }
 function removeLane(li){ const lane=state.lanes[li]; if(!lane)return; const has=state.clips.some(c=>c.lane===li);
   if(lane.kind==='audio'&&state.lanes.filter(l=>l.kind==='audio').length<=1){ flashStatus(T('Keep at least one audio track','Mantén al menos una pista de audio')); return; } // [R92-T9] the audio module is always present
@@ -3357,7 +3358,7 @@ function startLaneDrag(e,li){ e.preventDefault(); const disp=lanesTopDown(); con
     _laneJustDragged=true; setTimeout(()=>{_laneJustDragged=false;},0); renderTimeline(); render(); markDirty(); flashStatus(T('Track moved','Pista movida')); };
   window.addEventListener('pointermove',move); window.addEventListener('pointerup',up); }
 /* markers */
-function addMarker(){ const nm={id:uid(),time:state.playhead,name:T('Locator','Localizador'),color:'#B4BAC1'}; state.markers.push(nm); state.markers.sort((a,b)=>a.time-b.time); state.selMarkerId=nm.id; renderTimeline(); markDirty(); setTimeout(()=>renameLocatorInline(nm),0); } // R88: drop straight into inline name editing (deferred a tick so the triggering key doesn't type into the field)
+function addMarker(){ const nm={id:uid(),time:state.playhead,name:T('Locator','Localizador'),color:'#B4BAC1'}; state.markers.push(nm); state.markers.sort((a,b)=>a.time-b.time); state.selMarkerId=nm.id; state.selId=null; state.selIds=[]; state.selGroupId=null; state.selLane=null; renderTimeline(); markDirty(); setTimeout(()=>renameLocatorInline(nm),0); } // R88: drop straight into inline name editing (deferred a tick so the triggering key doesn't type into the field) · [R223] locator nuevo es la selección "más reciente" (bug Ctrl+R)
 /* [R97] ↑/↓ jump between CUTS — every edit point on the timeline (clip starts and ends), the universal way to travel a cut */
 function jumpCut(dir){ const eps=1e-3; const pts=new Set([0]);
   for(const c of state.clips){ pts.add(+c.start.toFixed(4)); pts.add(+(c.start+c.dur).toFixed(4)); }
@@ -3416,6 +3417,7 @@ $('#tracks').addEventListener('pointerdown',e=>{
   if(e.button!==0)return; // middle/right handled elsewhere (middle = pan)
   if(e.target.isContentEditable)return; // inline rename in progress on a clip title — let the browser edit text
   clearMediaSel(); // touching the timeline hands Delete-priority back to the timeline selection (R86)
+  if(state.selMarkerId!=null){ state.selMarkerId=null; } // [R223] cualquier interacción con el cuerpo del timeline apaga la selección "más reciente" del locator (bug Ctrl+R: un locator residual ganaba sobre el clip recién seleccionado)
   const cd=e.target.closest('.clip'); const tool=state.tl.tool;
   if(tool==='hand'){ startPan(e); return; }
   if(!cd){ if(tool==='zoom'){tlZoomAt(e,e.altKey?-1:1);} else { startTimeSelect(e); } return; } // empty area → time selection (Ableton)
@@ -3435,7 +3437,10 @@ $('#tracks').addEventListener('pointerdown',e=>{
   if(tool==='trim'){ e.preventDefault(); const r=cd.getBoundingClientRect(); const z=trimZone(c,e.clientX-r.left,r.width,isTitle);
     if(z.kind==='slide'){ const nb=laneNeighbours(c); z.prev=nb.prev; z.next=nb.next; }
     const base={start:c.start,dur:c.dur,inP:c.inP||0};
-    if(z.kind==='roll'){ base.aDur=z.a.dur; base.aInP=z.a.inP||0; base.bStart=z.b.start; base.bDur=z.b.dur; base.bInP=z.b.inP||0; }
+    if(z.kind==='roll'){ base.aDur=z.a.dur; base.aInP=z.a.inP||0; base.bStart=z.b.start; base.bDur=z.b.dur; base.bInP=z.b.inP||0;
+      const pa=linkPartner(z.a); if(pa)base.aLinkBase={start:pa.start,dur:pa.dur,inP:pa.inP||0}; // [R223] link A/V: recorte junto
+      const pb=linkPartner(z.b); if(pb)base.bLinkBase={start:pb.start,dur:pb.dur,inP:pb.inP||0}; }
+    else { const pc=linkPartner(c); if(pc)base.linkBase={start:pc.start,dur:pc.dur,inP:pc.inP||0}; } // [R223] rippleL/rippleR/slip/slide: mismo espejo
     if(z.kind==='rippleL'||z.kind==='rippleR'){ base.after=new Map(); const edge=c.start+(z.kind==='rippleL'?0:c.dur);
       for(const o of state.clips)if(o.lane===c.lane&&o!==c&&o.start>=edge-0.002)base.after.set(o.id,o.start); }
     if(z.kind==='slide'){ if(z.prev)base.pDur=z.prev.dur; if(z.next){ base.nStart=z.next.start; base.nDur=z.next.dur; base.nInP=z.next.inP||0; } }
@@ -3456,17 +3461,17 @@ $('#tracks').addEventListener('pointerdown',e=>{
   if(e.shiftKey){ const i=state.selIds.indexOf(id); if(i>=0)state.selIds.splice(i,1); else state.selIds.push(id); if(!state.selIds.includes(id))state.selId=state.selIds[state.selIds.length-1]||null; else state.selId=id; }
   else if(!state.selIds.includes(id)){ state.selIds=[id]; state.selId=id; }
   else { state.selId=id; }
-  /* [R170] El enlace A/V vive AQUÍ, en la selección: seleccionar una mitad arrastra a la otra a la selección, y
-     desde ahí el arrastre multi-clip, el recorte y el borrado en grupo —que ya existían— la mueven sola. No hay
-     que parchear mover, recortar ni borrar por separado. */
-  state.selIds=linkedIds(state.selIds);
+  /* [R223] Selección INDEPENDIENTE: clic selecciona SOLO este clip (antes `linkedIds` arrastraba también al
+     partner A/V a la selección visual). El link ahora sólo actúa en el GESTO (mover/trim más abajo, vía
+     `drag.items` que sigue incluyendo al partner) — no en qué queda resaltado/editable. */
   state.selGroupId=null; laneDesel(); renderInspector(); $$('.clip').forEach(x=>x.classList.toggle('sel',state.selIds.includes(+x.dataset.clip))); updStatus(); ensureClipVisible(c); // [R94-UT2·U-01]
   // [R155] el fade no se toca en modo automatización (el CSS ya los oculta; esta guarda cubre un nodo que quedara
   // de un render anterior, para que no arranque un arrastre invisible encima de la curva)
   if(isFade){ if(state.inlineCurves)return; startFadeDrag(e,c,e.target.classList.contains('fadeR')?'fadeOut':'fadeIn'); return; }
   // pushUndo is deferred until the drag actually changes something (avoids dead undo entries from a plain click)
-  drag={id,mode:isL?'trimL':isR?'trimR':'move',x0:e.clientX,y0:e.clientY,start0:c.start,dur0:c.dur,inP0:c.inP,lane0:c.lane,_undone:false,
-    items:state.selIds.map(sid=>{const sc=clipById(sid);return sc?{id:sid,start0:sc.start,dur0:sc.dur,inP0:sc.inP,kf0:JSON.parse(JSON.stringify(sc.kf||{})),anim0:sc.anim?JSON.parse(JSON.stringify(sc.anim)):null}:null;}).filter(Boolean)};
+  { const _primary=new Set(state.selIds); // [R223] mover/trim SÍ arrastran al partner enlazado (aunque no esté seleccionado); sólo los ids de `_primary` pueden cambiar de lane
+    drag={id,mode:isL?'trimL':isR?'trimR':'move',x0:e.clientX,y0:e.clientY,start0:c.start,dur0:c.dur,inP0:c.inP,lane0:c.lane,_undone:false,primaryIds:_primary,
+      items:linkedIds(state.selIds).map(sid=>{const sc=clipById(sid);return sc?{id:sid,start0:sc.start,dur0:sc.dur,inP0:sc.inP,lane0:sc.lane,linked:!_primary.has(sid),kf0:JSON.parse(JSON.stringify(sc.kf||{})),anim0:sc.anim?JSON.parse(JSON.stringify(sc.anim)):null}:null;}).filter(Boolean)}; }
   _dragLaneRects=null; _dragLaneScrollTop=null; // [R213] refresca el cache de rects de pistas al empezar un nuevo drag
   window.addEventListener('pointermove',onTLMove); window.addEventListener('pointerup',onTLUp);
 });
@@ -3475,7 +3480,7 @@ $('#tracks').addEventListener('pointerdown',e=>{
    (focus without ring) the keys fall through so Space keeps toggling playback like always. */
 $('#tracks').addEventListener('keydown',e=>{ if(e.key!=='Enter'&&e.code!=='Space')return; const cd=e.target.closest&&e.target.closest('.clip'); if(!cd||!cd.matches(':focus-visible'))return;
   e.preventDefault(); e.stopPropagation(); const id=+cd.dataset.clip, c=clipById(id); if(!c)return;
-  clearMediaSel(); state.selIds=[id]; state.selId=id; state.selGroupId=null; laneDesel(); renderInspector();
+  clearMediaSel(); state.selIds=[id]; state.selId=id; state.selGroupId=null; state.selMarkerId=null; laneDesel(); renderInspector(); // [R223]
   $$('.clip').forEach(x=>x.classList.toggle('sel',+x.dataset.clip===id)); updStatus(); ensureClipVisible(c); });
 /* lanes whose row overlaps a vertical screen range [yA,yB] (Ableton: time selection is bound to the tracks you drag across) */
 function lanesBetweenY(yA,yB){ const lo=Math.min(yA,yB),hi=Math.max(yA,yB); const out=[]; for(const r of $$('#tracks .lane')){ const rr=r.getBoundingClientRect(); if(rr.bottom>=lo-0.5&&rr.top<=hi+0.5)out.push(+r.dataset.lane); } return out; }
@@ -3548,6 +3553,14 @@ function trimZone(c,px,w,isTitle){ const EDGE=12; const nb=laneNeighbours(c);
   if(isTitle) return {kind:'slide',c};
   return {kind:'slip',c}; }
 const TRIM_LABEL={roll:['Roll — move the cut','Roll — mover el corte'],rippleL:['Ripple in','Ripple de entrada'],rippleR:['Ripple out','Ripple de salida'],slide:['Slide — move clip, neighbours absorb','Slide — mover clip, los vecinos absorben'],slip:['Slip — change the media inside','Slip — cambiar el material interior']};
+/* [R223] Link A/V: el trim (de cualquier tipo) arrastra al partner enlazado con el MISMO delta absoluto que
+   acaba de aplicarse al clip principal respecto de su propio `base` — el partner tiene su propia base congelada
+   (`base.linkBase`/`aLinkBase`/`bLinkBase`, capturada al pointerdown) así que no importa si sus valores de
+   partida difieren. Sólo un piso mínimo (dur≥0.05, inP/start≥0); no reclama los límites de origen del partner. */
+function _mirrorLinkTrim(clip,cBase,lb){ if(!lb)return; const p=linkPartner(clip); if(!p)return;
+  p.start=Math.max(0, lb.start+(clip.start-cBase.start));
+  p.dur=Math.max(0.05, lb.dur+(clip.dur-cBase.dur));
+  p.inP=Math.max(0, lb.inP+((clip.inP||0)-cBase.inP)); }
 /* apply a trim by dt seconds. base = the frozen start values captured at pointerdown (so every drag frame is absolute). */
 function applyTrim(z,dt,base){
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
@@ -3556,24 +3569,31 @@ function applyTrim(z,dt,base){
     if(sa.lim)hi=Math.min(hi,Math.max(0,(sa.sd-base.aInP)/(A.speed||1)-base.aDur)); // A can't grow past its source
     if(sb.lim)lo=Math.max(lo,-base.bInP/(B.speed||1));                              // B can't pull before its source start
     const d=clamp(dt,lo,hi);
-    A.dur=base.aDur+d; B.start=base.bStart+d; B.dur=base.bDur-d; B.inP=base.bInP+d*(B.speed||1); return d; }
+    A.dur=base.aDur+d; B.start=base.bStart+d; B.dur=base.bDur-d; B.inP=base.bInP+d*(B.speed||1);
+    if(base.aLinkBase)_mirrorLinkTrim(A,{start:A.start,dur:base.aDur,inP:base.aInP},base.aLinkBase); // A: sólo dur cambia (start no formaba parte del roll)
+    if(base.bLinkBase)_mirrorLinkTrim(B,{start:base.bStart,dur:base.bDur,inP:base.bInP},base.bLinkBase);
+    return d; }
   if(z.kind==='rippleL'){ const c=z.c, s=clipSrc(c);
     let lo=s.lim?-base.inP/(c.speed||1):-base.start, hi=base.dur-0.05; lo=Math.max(lo,-base.start);
     const d=clamp(dt,lo,hi);
     c.dur=base.dur-d; c.inP=base.inP+d*(c.speed||1); // the clip's START stays put; everything after slides to close/open the gap
-    for(const o of state.clips)if(o.lane===c.lane&&o!==c&&base.after.has(o.id))o.start=base.after.get(o.id)-d; return d; }
+    for(const o of state.clips)if(o.lane===c.lane&&o!==c&&base.after.has(o.id))o.start=base.after.get(o.id)-d;
+    _mirrorLinkTrim(c,base,base.linkBase); return d; }
   if(z.kind==='rippleR'){ const c=z.c, s=clipSrc(c);
     let lo=-(base.dur-0.05), hi=s.lim?Math.max(0,(s.sd-base.inP)/(c.speed||1)-base.dur):1e6;
     const d=clamp(dt,lo,hi); c.dur=base.dur+d;
-    for(const o of state.clips)if(o.lane===c.lane&&o!==c&&base.after.has(o.id))o.start=base.after.get(o.id)+d; return d; }
+    for(const o of state.clips)if(o.lane===c.lane&&o!==c&&base.after.has(o.id))o.start=base.after.get(o.id)+d;
+    _mirrorLinkTrim(c,base,base.linkBase); return d; }
   if(z.kind==='slip'){ const c=z.c, s=clipSrc(c); if(!s.lim)return 0; // nothing to slip inside a generator/still
     const lo=-base.inP/(c.speed||1), hi=Math.max(0,(s.sd-base.inP)/(c.speed||1)-base.dur);
-    const d=clamp(-dt,lo,hi); c.inP=base.inP+d*(c.speed||1); return d; } // drag right → reveal EARLIER material (film under the window)
+    const d=clamp(-dt,lo,hi); c.inP=base.inP+d*(c.speed||1);
+    _mirrorLinkTrim(c,base,base.linkBase); return d; } // drag right → reveal EARLIER material (film under the window)
   if(z.kind==='slide'){ const c=z.c; const P=z.prev,N=z.next;
     let lo=-1e6,hi=1e6;
     if(P){ lo=Math.max(lo,-(base.pDur-0.05)); } else lo=Math.max(lo,-base.start);
     if(N){ const sn=clipSrc(N); hi=Math.min(hi,base.nDur-0.05); if(sn.lim)lo=Math.max(lo,-base.nInP/(N.speed||1)); }
     const d=clamp(dt,lo,hi); c.start=base.start+d;
+    _mirrorLinkTrim(c,base,base.linkBase);
     if(P)P.dur=base.pDur+d;
     if(N){ N.start=base.nStart+d; N.dur=base.nDur-d; N.inP=base.nInP+d*(N.speed||1); } return d; }
   return 0; }
@@ -3582,15 +3602,19 @@ function trimNudge(dir,frames){ const c=selClip(); if(!c)return; const dt=dir*fr
   const nb=laneNeighbours(c); const dL=Math.abs(state.playhead-c.start), dR=Math.abs(state.playhead-(c.start+c.dur));
   const atL=dL<=dR; const z=atL?(nb.prev?{kind:'roll',a:nb.prev,b:c}:{kind:'rippleL',c}):(nb.next?{kind:'roll',a:c,b:nb.next}:{kind:'rippleR',c});
   const base={start:c.start,dur:c.dur,inP:c.inP||0};
-  if(z.kind==='roll'){ base.aDur=z.a.dur; base.aInP=z.a.inP||0; base.bStart=z.b.start; base.bDur=z.b.dur; base.bInP=z.b.inP||0; }
+  if(z.kind==='roll'){ base.aDur=z.a.dur; base.aInP=z.a.inP||0; base.bStart=z.b.start; base.bDur=z.b.dur; base.bInP=z.b.inP||0;
+    const pa=linkPartner(z.a); if(pa)base.aLinkBase={start:pa.start,dur:pa.dur,inP:pa.inP||0}; // [R223]
+    const pb=linkPartner(z.b); if(pb)base.bLinkBase={start:pb.start,dur:pb.dur,inP:pb.inP||0}; }
   else { base.after=new Map(); const edge=c.start+(z.kind==='rippleL'?0:c.dur);
-    for(const o of state.clips)if(o.lane===c.lane&&o!==c&&o.start>=edge-0.002)base.after.set(o.id,o.start); }
+    for(const o of state.clips)if(o.lane===c.lane&&o!==c&&o.start>=edge-0.002)base.after.set(o.id,o.start);
+    const pc=linkPartner(c); if(pc)base.linkBase={start:pc.start,dur:pc.dur,inP:pc.inP||0}; } // [R223]
   pushUndo(); const d=applyTrim(z,dt,base); renderTimeline(); renderInspector(); render(); reschedAudio(); markDirty();
   flashStatus(T(TRIM_LABEL[z.kind][0],TRIM_LABEL[z.kind][1])+'  '+(d>=0?'+':'')+Math.round(d*(state.fps||30))+'f'); }
 /* Ableton-style move: the original clip stays put; a translucent ghost shows where it will land. [R94e] Alt = copy (Premiere). Applied on pointerup. */
 function clearMoveGhosts(){ $$('#tracks .moveghost').forEach(g=>g.remove()); }
-function showMoveGhosts(d,applied,targetLane,copy){ clearMoveGhosts(); const pps=state.tl.pxPerSec, tracks=$('#tracks'); const single=!(d.items&&d.items.length>1);
-  for(const it of d.items){ const oc=clipById(it.id); if(!oc)continue; const li=single?((targetLane!=null)?targetLane:oc.lane):(oc.lane+(d._laneDelta||0)); const rowEl=tracks.querySelector('.lane[data-lane="'+li+'"]'); if(!rowEl)continue;
+function showMoveGhosts(d,applied,targetLane,copy){ clearMoveGhosts(); const pps=state.tl.pxPerSec, tracks=$('#tracks');
+  const primaryCount=d.primaryIds?d.primaryIds.size:(d.items?d.items.length:1); const single=primaryCount<=1; // [R223] ver nota en onTLMove
+  for(const it of d.items){ const oc=clipById(it.id); if(!oc)continue; const li=it.linked?oc.lane:(single?((targetLane!=null)?targetLane:oc.lane):(oc.lane+(d._laneDelta||0))); const rowEl=tracks.querySelector('.lane[data-lane="'+li+'"]'); if(!rowEl)continue; // [R223] el ghost del partner enlazado nunca cambia de fila (libertad vertical)
     const ns=Math.max(0,it.start0+applied); const g=document.createElement('div'); g.className='moveghost'+(copy?' copy':'');
     g.style.cssText='position:absolute;pointer-events:none;z-index:30;border:1px solid '+(copy?'#C9CDD3':'rgba(255,255,255,0.7)')+';background:'+oc.color+';opacity:.42;border-radius:2px;box-shadow:0 2px 8px rgba(0,0,0,0.4);overflow:hidden;';
     const _gp=rowEl.offsetParent||tracks; // [R92-T9] audio rows live inside the sticky #audioZone (its own offsetParent) → append the ghost there so offsetTop lines up
@@ -3612,14 +3636,15 @@ function onTLMove(e){ if(!drag)return; const c=clipById(drag.id);if(!c)return; c
     else { ns=Math.max(0,sn.val); snap=sn.snap; }
     const applied=ns-drag.start0;
     let targetLane=null;
-    if(!(drag.items&&drag.items.length>1)){ // single: pick the lane under the cursor (same kind)
+    const primaryCount=drag.primaryIds?drag.primaryIds.size:(drag.items?drag.items.length:1); // [R223] "single/multi" se decide por la SELECCIÓN real, no por drag.items (que ahora también trae al partner enlazado)
+    if(primaryCount<=1){ // single: pick the lane under the cursor (same kind)
       const wantKind=(m&&m.kind==='audio')?'audio':'video';
       const rows=getDragLaneRects(); for(const rc of rows){ if(e.clientY>=rc.top&&e.clientY<=rc.bottom){ const li=rc.li; if(state.lanes[li]&&state.lanes[li].kind===wantKind)targetLane=li; break; } }
       drag._laneDelta=0;
     } else { // multi: RELATIVE lane shift (Premiere-style) — the anchor follows the cursor and every clip keeps its lane offset; only applied if every destination lane exists and kind-matches
       let hoverLane=null; const rows=getDragLaneRects(); for(const rc of rows){ if(e.clientY>=rc.top&&e.clientY<=rc.bottom){ hoverLane=rc.li; break; } }
       let delta=(hoverLane!=null)?(hoverLane-c.lane):0;
-      if(delta!==0){ for(const it of drag.items){ const oc=clipById(it.id); if(!oc){delta=0;break;} const mm=mediaById(oc.mediaId); const kind=(mm&&mm.kind==='audio')?'audio':'video'; const nl=state.lanes[oc.lane+delta]; if(!nl||nl.kind!==kind){ delta=0; break; } } }
+      if(delta!==0){ for(const it of drag.items){ if(it.linked)continue; /* [R223] el partner enlazado NO cambia de pista — libertad vertical: sólo lo primario valida/mueve de lane */ const oc=clipById(it.id); if(!oc){delta=0;break;} const mm=mediaById(oc.mediaId); const kind=(mm&&mm.kind==='audio')?'audio':'video'; const nl=state.lanes[oc.lane+delta]; if(!nl||nl.kind!==kind){ delta=0; break; } } }
       drag._laneDelta=delta; }
     drag._applied=applied; drag._lane=(targetLane!=null?targetLane:c.lane); drag._copy=!!e.altKey; // [R94e] Alt-drag duplicates (Premiere); Ctrl is free again
     showSnap(snap); showMoveGhosts(drag,applied,targetLane,drag._copy); return; // original stays; ghost shows destination, applied on pointerup
@@ -3650,23 +3675,142 @@ function positionClips(){ const tr=$('#tracks'); if(!tr)return false; const pps=
 let _tlRaf=0; function scheduleTimeline(){ if(_tlRaf)return; _tlRaf=requestAnimationFrame(()=>{_tlRaf=0;
   if(drag&&(drag.mode==='trimL'||drag.mode==='trimR')&&positionClips()){ scheduleWaves(); scheduleAutoCvs(); return; } // full rebuild happens once, on pointerup
   renderTimeline(); }); }
+/* [R223] Solape = CORTE, no crossfade automático. Al soltar (mover/copiar/redimensionar, o soltar desde el bin de
+   medios) un clip que ahora pisa a otro en la MISMA pista, el clip QUIETO se recorta por el borde que invadió el
+   que se movió — NO DESTRUCTIVO: sólo cambia start/dur/inP (nunca el medio), así que apartar al intruso y volver a
+   arrastrar el borde recupera el material, hasta donde haya. Cuatro casos: tapa completa → el viejo desaparece ·
+   entra por la izquierda o por la derecha → un recorte · cae DENTRO → dos restos (overwrite de Premiere).
+   Sin fundido: el crossfade es el gesto EXPLÍCITO del handle de fade (ver startFadeDrag) — por eso esta función
+   jamás se invoca desde ahí. `movedIds` = clips que acaban de moverse/crecer en este gesto (no se cortan entre sí,
+   sólo cortan a los que NO se movieron). */
+const CUT_MIN=0.05; // por debajo de esto no queda clip: un resto de 2 frames sólo estorba (y seguiría solapando)
+/* [R223] mueve UN borde de `oc` a la posición absoluta `val` reutilizando `trimItem` — así el recorte hereda
+   gratis los límites de origen, el rebase de keyframes (con keyframe de frontera) y el de las rampas de motion.
+   Sin esto el recorte por la izquierda desplazaba start/inP sin tocar `kf` → la automatización se descolgaba
+   del material. */
+function _cutEdgeTo(oc,edge,val){
+  const it={id:oc.id,start0:oc.start,dur0:oc.dur,inP0:oc.inP||0,
+    kf0:JSON.parse(JSON.stringify(oc.kf||{})),anim0:oc.anim?JSON.parse(JSON.stringify(oc.anim)):null};
+  trimItem(it,edge,(edge==='L')?(val-oc.start):(val-oc.start-oc.dur));
+  if(oc.fadeIn!=null)oc.fadeIn=Math.min(oc.fadeIn,oc.dur); if(oc.fadeOut!=null)oc.fadeOut=Math.min(oc.fadeOut,oc.dur); }
+function _dropClip(oc){ const p=linkPartner(oc); if(p){ delete p.link; delete p.avRole; } // el superviviente no queda con un `link` colgando
+  state.clips=state.clips.filter(x=>x!==oc); if(state.selId===oc.id)state.selId=null; state.selIds=state.selIds.filter(i=>i!==oc.id); }
+function cutOverlapsOnDrop(movedIds){
+  if(!movedIds||!movedIds.length)return; const moved=new Set(movedIds); let n=0;
+  const lanes=new Set(); for(const id of movedIds){ const c=clipById(id); if(c)lanes.add(c.lane); }
+  for(const li of lanes){
+    const laneClips=state.clips.filter(x=>x.lane===li);
+    for(const mid of movedIds){ const mc=clipById(mid); if(!mc||mc.lane!==li)continue;
+      for(const oc of laneClips){ if(oc===mc||moved.has(oc.id)||!state.clips.includes(oc))continue; // `includes`: un oc ya eliminado por un mc anterior del mismo gesto
+        const mS=mc.start, mE=mc.start+mc.dur, oS=oc.start, oE=oc.start+oc.dur;
+        if(Math.min(mE,oE)<=Math.max(mS,oS)+1e-4)continue; // sin solape real
+        n++;
+        if(mS<=oS+1e-4&&mE>=oE-1e-4){ _dropClip(oc); continue; }            // mc tapa a oc por completo → oc desaparece
+        if(mS<=oS+1e-4){ if(oE-mE<CUT_MIN)_dropClip(oc); else _cutEdgeTo(oc,'L',mE); continue; } // entra por la izquierda
+        if(mE>=oE-1e-4){ if(mS-oS<CUT_MIN)_dropClip(oc); else _cutEdgeTo(oc,'R',mS); continue; } // entra por la derecha
+        /* mc cae DENTRO de oc: se parte en dos restos (como el overwrite de Premiere / el solape de Ableton) en
+           vez de tirar la cola. razorCore ya reparte keyframes, máscaras y fades entre las mitades. */
+        const rest=(mS-oS>=CUT_MIN)?razorCore(oc,mS):null;
+        if(!rest){ if(oE-mE<CUT_MIN)_dropClip(oc); else _cutEdgeTo(oc,'L',mE); continue; } // el corte no cabía por la izquierda → sólo queda la cola
+        delete rest.link; delete rest.avRole; // tres clips con el mismo `link` harían que linkPartner eligiera al azar (ver razorClip)
+        if(oE-mE<CUT_MIN)_dropClip(rest); else _cutEdgeTo(rest,'L',mE);
+      } } }
+  if(n)flashStatus(T('Overlap trimmed — drag a fade handle over the cut to crossfade','Solape recortado — arrastra un tirador de fundido sobre el corte para fundir')); }
 function onTLUp(){ showSnap(null); _dragLaneRects=null; _dragLaneScrollTop=null; // [R213] invalida el cache de rects al soltar
-  if(drag&&drag.mode==='move'){ const applied=drag._applied||0; const tgt=drag._lane; const single=!(drag.items&&drag.items.length>1);
+  if(drag&&drag.mode==='move'){ const applied=drag._applied||0; const tgt=drag._lane;
+    const primaryCount=drag.primaryIds?drag.primaryIds.size:(drag.items?drag.items.length:1); const single=primaryCount<=1; // [R223] ver nota en onTLMove
     const laneDelta=drag._laneDelta||0;
     const changed=drag._copy||Math.abs(applied)>1e-6||(single&&tgt!=null&&tgt!==drag.lane0)||laneDelta!==0; if(changed&&!drag._undone){pushUndo();drag._undone=true;} // only record undo if the move/copy actually changes something
     if(drag._copy){ const newIds=[];
-      for(const it of drag.items){ const oc=clipById(it.id); if(!oc)continue; const nc=duplicateClipAt(oc, it.start0+applied, single?tgt:(oc.lane+laneDelta)); state.clips.push(nc); newIds.push(nc.id); }
-      if(newIds.length){ state.selIds=newIds; state.selId=newIds[newIds.length-1]; state.selGroupId=null; }
+      for(const it of drag.items){ const oc=clipById(it.id); if(!oc)continue; const nc=duplicateClipAt(oc, it.start0+applied, it.linked?oc.lane:(single?tgt:(oc.lane+laneDelta))); state.clips.push(nc); newIds.push(nc.id); } // [R223] la copia del partner enlazado se queda en su propia pista
+      if(newIds.length){ state.selIds=newIds; state.selId=newIds[newIds.length-1]; state.selGroupId=null; cutOverlapsOnDrop(newIds); }
       flashStatus(T('Copied','Copiado')+' '+drag.items.length+' '+(drag.items.length===1?T('clip','clip'):T('clips','clips')));
-    } else { for(const it of drag.items){ const oc=clipById(it.id); if(oc){ oc.start=Math.max(0,it.start0+applied); if(!single)oc.lane=oc.lane+laneDelta; } }
-      if(single){ const oc=clipById(drag.id); if(oc&&tgt!=null)oc.lane=tgt; } } }
+    } else { for(const it of drag.items){ const oc=clipById(it.id); if(oc){ oc.start=Math.max(0,it.start0+applied); if(!single&&!it.linked)oc.lane=oc.lane+laneDelta; } } // [R223] libertad vertical: el partner enlazado sólo se mueve horizontalmente, nunca cambia de pista
+      if(single){ const oc=clipById(drag.id); if(oc&&tgt!=null)oc.lane=tgt; }
+      cutOverlapsOnDrop(drag.items.map(it=>it.id)); } }
+  else if(drag&&(drag.mode==='trimL'||drag.mode==='trimR')){ cutOverlapsOnDrop(drag.items.map(it=>it.id)); } // [R223] crecer con el handle de resize hacia un vecino también corta, no funde
   clearMoveGhosts(); drag=null; window.removeEventListener('pointermove',onTLMove); window.removeEventListener('pointerup',onTLUp); renderTimeline(); renderInspector(); render(); updStatus(); reschedAudio(); }
-/* Ableton-style fade: drag the corner handle inward to set fadeIn/fadeOut. Applies to every selected clip (multi-track fade). */
+/* [R223] vecino de crossfade para `which`: el clip de la misma pista que cc ya TOCA o ya SOLAPA por ese lado
+   (gap<=10ms). A diferencia de laneNeighbours (sólo tocantes), esto también encuentra al vecino cuando se
+   REAJUSTA un crossfade ya creado — cc y el vecino dejan de "tocarse" en sentido estricto en cuanto solapan. */
+function crossfadeNeighbor(cc,which){
+  const cands=state.clips.filter(x=>x.lane===cc.lane&&x!==cc); let best=null,bestGap=Infinity;
+  /* El candidato tiene que estar REALMENTE a ese lado (empezar después de cc para el fadeOut, antes para el
+     fadeIn): sin esa guarda, `gap` muy negativo hacía ganar a un clip que estaba al otro lado — el fadeIn de un
+     clip pegado al origen "encontraba" al siguiente y el arrastre lo estiraba diez segundos. Con la guarda
+     puesta, gap mínimo = el vecino inmediato (su borde es el más cercano al de cc). */
+  if(which==='fadeOut'){ for(const x of cands){ if(x.start<=cc.start+1e-4)continue; const gap=x.start-(cc.start+cc.dur); if(gap>0.01)continue; if(gap<bestGap){bestGap=gap;best=x;} } }
+  else { for(const x of cands){ if(x.start>=cc.start-1e-4)continue; const gap=cc.start-(x.start+x.dur); if(gap>0.01)continue; if(gap<bestGap){bestGap=gap;best=x;} } }
+  return best; }
+/* Ableton-style fade: drag the corner handle inward to set fadeIn/fadeOut. Applies to every selected clip (multi-track fade).
+   [R223] Solape = corte (ver cutOverlapsOnDrop): ya no hay crossfade automático por solape crudo. Este MISMO handle
+   es ahora también el gesto de CROSSFADE MANUAL — arrastrarlo más allá del propio borde del clip, hacia un vecino
+   TOCANTE (o ya solapado, si se reajusta) en la misma pista, hace crecer el clip hacia ese vecino (recorte no-
+   destructivo revertido: recupera material propio, limitado por lo que quede de origen Y por el propio largo del
+   vecino). Para VÍDEO no hace falta tocar fadeIn/fadeOut — el solape geométrico ya dispara el dissolve limpio de
+   compositeClips (se reutiliza tal cual, sin tocarlo). Para AUDIO no existe ese mecanismo geométrico, así que aquí
+   SÍ se usa fadeOut/fadeIn (ya conectados a la ganancia, ver startAudio) — espejados con el vecino para que la
+   ganancia cruce simétricamente. `extPrev`/`plainDur` se recalculan GEOMÉTRICAMENTE (nunca de fadeOut, que en
+   vídeo se mantiene siempre en 0) para que reajustar un crossfade ya creado no salte al agarrar el handle de
+   nuevo. Sólo con UN clip seleccionado (el gesto multi-clip clásico sigue clamped a su propio largo, sin vecino).
+   Arrastrar de vuelta al punto de contacto original deshace el crossfade. */
 function startFadeDrag(e,c,which){ e.preventDefault(); e.stopPropagation(); const x0=e.clientX, pps=state.tl.pxPerSec; let _undone=false;
   const sel=(state.selIds&&state.selIds.includes(c.id)&&state.selIds.length>1?state.selIds:[c.id]).map(id=>clipById(id)).filter(Boolean);
   const base=sel.map(cc=>({cc,f0:cc[which]||0}));
-  const mv=ev=>{ const d=(ev.clientX-x0)/pps; if(d!==0&&!_undone){pushUndo();_undone=true;} for(const {cc,f0} of base){ let nf=(which==='fadeIn')?(f0+d):(f0-d); nf=Math.max(0,Math.min(cc.dur, nf)); cc[which]=nf; } scheduleTimeline(); render(); };
-  const up=()=>{ window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up); renderTimeline(); refreshInspector(); }; window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); }
+  let xf=null;
+  if(sel.length===1){ const cc=sel[0]; const nb=crossfadeNeighbor(cc,which);
+    if(nb){ const s=clipSrc(cc); const sp=(cc.speed||1); const m=mediaById(cc.mediaId); const isAud=isAudioClip(cc)||(m&&m.kind==='audio');
+      const touchEdge=(which==='fadeOut')?nb.start:(nb.start+nb.dur); // el punto donde cc y nb tocarían sin crossfade — estable, nb nunca se mueve en este gesto
+      const extPrev=Math.max(0,(which==='fadeOut')?((cc.start+cc.dur)-touchEdge):(touchEdge-cc.start)); // solape YA existente, si se reajusta
+      const plainDur=Math.max(0.05,cc.dur-extPrev); // el dur que tendría cc sin crossfade
+      const rightEdge0=cc.start+cc.dur, inP0=cc.inP||0;
+      /* Todo se mide contra el estado de CONTACTO (sin crossfade), no contra el actual: crecer por la izquierda
+         GASTA inP, así que volver al contacto lo DEVUELVE — de ahí el `+`. Con un `-` (bug original) reajustar un
+         crossfade ya hecho perdía material en cada pasada y el clip acababa con inP=0, es decir mostrando otro
+         trozo de la fuente. `room` = material propio disponible más allá del contacto, por ese lado. */
+      const inPTouch=(which==='fadeIn')?(inP0+extPrev*sp):inP0;
+      const room=(which==='fadeOut')?(s.lim?Math.max(0,(s.sd-inP0)/sp-plainDur):1e6):(s.lim?inPTouch/sp:1e6);
+      const nbFk=(which==='fadeOut')?'fadeIn':'fadeOut'; // el fade del vecino que forma la otra mitad de la ganancia cruzada
+      /* Enlace A/V: el crossfade es un RECORTE geométrico, y el recorte viaja junto (ítem 4) — si la mitad de
+         vídeo creciera sola, su audio quedaría desfasado justo el ancho del fundido. Se mueve con el mismo delta
+         (`_mirrorLinkTrim`) y, como el partner SÍ es audio, se le pone la ganancia cruzada contra SU vecino. */
+      const pp=linkPartner(cc); const ppNb=pp?crossfadeNeighbor(pp,which):null;
+      const ppm=pp?mediaById(pp.mediaId):null; const ppIsAud=!!pp&&(isAudioClip(pp)||(ppm&&ppm.kind==='audio')); // sólo la MITAD DE AUDIO lleva fundidos; ponerlos en la de vídeo la haría fundir a negro ENCIMA del dissolve
+      xf={cc,nb,nbFk,nbF0:nb[nbFk]||0,touchEdge,plainDur,rightEdge0,inPTouch,ppIsAud,ppF0:pp?(pp[which]||0):0,
+        maxExt:Math.max(extPrev,Math.min(room,nb.dur-0.05)),isAud, // `room` ya se mide desde el contacto → no se le suma extPrev
+        startBase:cc.start,durBase:cc.dur,inPBase:inP0,
+        kfBase:JSON.parse(JSON.stringify(cc.kf||{})),animBase:cc.anim?JSON.parse(JSON.stringify(cc.anim)):null,
+        pp,ppNb,ppBase:pp?{start:pp.start,dur:pp.dur,inP:pp.inP||0}:null,ppNbF0:ppNb?(ppNb[nbFk]||0):0,
+        f0eff:extPrev>0?-extPrev:(cc[which]||0)}; // geométrico si ya hay solape (fadeOut de vídeo no lo refleja); si no, el valor real (conserva un fade plano previo)
+    } }
+  /* al crecer/encoger por la IZQUIERDA el borde se come contenido: los keyframes son clip-locales, así que hay que
+     rebasarlos desde la copia congelada (`kfBase`) — si no, la automatización se descuelga del material. Se
+     recalcula desde la base en cada frame, de modo que volver atrás en el mismo arrastre restaura lo filtrado. */
+  const rebaseKf=cc=>{ const sh=xf.startBase-cc.start; const nk={};
+    for(const p in xf.kfBase){ const a=xf.kfBase[p].map(k=>({...k,t:k.t+sh,hOut:k.hOut?{...k.hOut}:undefined,hIn:k.hIn?{...k.hIn}:undefined})).filter(k=>k.t>=-1e-6); if(a.length)nk[p]=a; }
+    cc.kf=nk;
+    if(xf.animBase)cc.anim=xf.animBase.map(aa=>({...aa,wetKf:Array.isArray(aa.wetKf)?aa.wetKf.map(k=>({...k,t:k.t+sh})).filter(k=>k.t>=-1e-6):aa.wetKf})); };
+  const mirrorLink=()=>{ if(xf.pp)_mirrorLinkTrim(xf.cc,{start:xf.startBase,dur:xf.durBase,inP:xf.inPBase},xf.ppBase); };
+  const mv=ev=>{ const d=(ev.clientX-x0)/pps; if(d!==0&&!_undone){pushUndo();_undone=true;}
+    for(const {cc,f0} of base){
+      if(xf&&cc===xf.cc){
+        const raw=(which==='fadeIn')?(xf.f0eff+d):(xf.f0eff-d);
+        if(raw>=0){ // dentro del propio clip: fade normal, sin crossfade con el vecino
+          cc.dur=xf.plainDur; if(which==='fadeIn'){ cc.start=xf.touchEdge; cc.inP=xf.inPTouch; rebaseKf(cc); }
+          cc[which]=Math.max(0,Math.min(raw,xf.plainDur));
+          xf.nb[xf.nbFk]=xf.nbF0; // el fundido propio del vecino, intacto: sólo lo pisa el crossfade
+          mirrorLink(); if(xf.ppIsAud){ xf.pp[which]=xf.ppF0; if(xf.ppNb)xf.ppNb[xf.nbFk]=xf.ppNbF0; } // fuera del crossfade, los fundidos propios del partner y de su vecino quedan como estaban
+        } else { // más allá del propio borde: crece hacia el vecino tocante → crossfade manual
+          const ext=Math.min(xf.maxExt,-raw);
+          if(which==='fadeOut'){ cc.dur=xf.plainDur+ext; cc.fadeOut=xf.isAud?ext:0; }
+          else { cc.dur=xf.plainDur+ext; cc.start=xf.rightEdge0-cc.dur; cc.inP=Math.max(0,xf.inPTouch-ext*(cc.speed||1)); cc.fadeIn=xf.isAud?ext:0; rebaseKf(cc); }
+          xf.nb[xf.nbFk]=xf.isAud?ext:xf.nbF0; // vídeo: el dissolve lo da el solape geométrico (compositeClips), no los fades
+          mirrorLink(); if(xf.ppIsAud){ xf.pp[which]=ext; if(xf.ppNb)xf.ppNb[xf.nbFk]=ext; } // la mitad de AUDIO sí cruza por ganancia (la de vídeo, sólo geometría)
+        }
+      } else { let nf=(which==='fadeIn')?(f0+d):(f0-d); nf=Math.max(0,Math.min(cc.dur, nf)); cc[which]=nf; }
+    }
+    scheduleTimeline(); render(); };
+  const up=()=>{ window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up); renderTimeline(); refreshInspector(); render(); reschedAudio(); if(_undone)markDirty(); }; window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); } // [R223] el crossfade cambia geometría: hay que reprogramar el audio y marcar el proyecto sucio
 /* core split (no undo/render) → reusable by the razor tool and the Ctrl+E multi-split */
 function razorCore(c,tAbs){ if(tAbs<=c.start+0.02||tAbs>=c.start+c.dur-0.02)return null; const left=tAbs-c.start;
   // [R70] value continuity at the cut: insert a boundary keyframe on every automated param whose segment crosses the cut,
@@ -3755,7 +3899,7 @@ $('#ruler').addEventListener('pointerdown',e=>{ if(e.button!==0)return;
   const t0=Math.max(0,xAt(e)/state.tl.pxPerSec); const tol=8/state.tl.pxPerSec;
   const mk=state.markers.find(m=>Math.abs(m.time-t0)<tol);
   if(mk){ // select & drag locator
-    state.selMarkerId=mk.id; pushUndo(); renderTimeline();
+    state.selMarkerId=mk.id; state.selId=null; state.selIds=[]; state.selGroupId=null; state.selLane=null; pushUndo(); renderTimeline(); // [R223] el locator pasa a ser la selección "más reciente" (bug Ctrl+R)
     const move=ev=>{ let nt=Math.max(0,xAt(ev)/state.tl.pxPerSec); const sn=applySnap(nt,mk.id); mk.time=sn.val; showSnap(sn.snap); scheduleTimeline(); };
     const up=()=>{ window.removeEventListener('pointermove',move); window.removeEventListener('pointerup',up); showSnap(null); state.markers.sort((a,b)=>a.time-b.time); renderTimeline(); };
     window.addEventListener('pointermove',move); window.addEventListener('pointerup',up); return; }
@@ -3764,7 +3908,7 @@ $('#ruler').addEventListener('pointerdown',e=>{ if(e.button!==0)return;
   const go=ev=>{ state.playhead=frameSnap(xAt(ev)/state.tl.pxPerSec); scrubRender(); }; go(e); /* [T7] scrub snaps to frame grid */
   const up=()=>{window.removeEventListener('pointermove',go);window.removeEventListener('pointerup',up);}; window.addEventListener('pointermove',go);window.addEventListener('pointerup',up); });
 /* rename a locator INLINE, over its own label on the ruler (not in a floating dialog) */
-function renameLocatorInline(mk){ if(!mk)return; state.selMarkerId=mk.id; renderTimeline();
+function renameLocatorInline(mk){ if(!mk)return; state.selMarkerId=mk.id; state.selId=null; state.selIds=[]; state.selGroupId=null; state.selLane=null; renderTimeline(); // [R223] idem: entrar a renombrar un locator lo vuelve la selección activa
   const rr=$('#ruler').getBoundingClientRect(); const pps=state.tl.pxPerSec;
   const inp=document.createElement('input'); inp.type='text'; inp.spellcheck=false; inp.value=mk.name||'';
   const sx=Math.max(2,Math.min(innerWidth-96,rr.left+mk.time*pps+11)), sy=rr.top+1; // +11 = the label's x-offset in drawRuler
@@ -3776,7 +3920,7 @@ function renameLocatorInline(mk){ if(!mk)return; state.selMarkerId=mk.id; render
 $('#ruler').addEventListener('dblclick',e=>{ const t=Math.max(0,(e.clientX-$('#ruler').getBoundingClientRect().left)/state.tl.pxPerSec); const tol=8/state.tl.pxPerSec;
   const mk=state.markers.find(m=>Math.abs(m.time-t)<tol);
   if(mk){ renameLocatorInline(mk); }
-  else { pushUndo(); const nm={id:uid(),time:t,name:T('Locator','Localizador'),color:'#B4BAC1'}; state.markers.push(nm); state.markers.sort((a,b)=>a.time-b.time); state.selMarkerId=nm.id; renderTimeline(); } });
+  else { pushUndo(); const nm={id:uid(),time:t,name:T('Locator','Localizador'),color:'#B4BAC1'}; state.markers.push(nm); state.markers.sort((a,b)=>a.time-b.time); state.selMarkerId=nm.id; state.selId=null; state.selIds=[]; state.selGroupId=null; state.selLane=null; renderTimeline(); } });
 /* [R93b] video and audio are INDEPENDENT places: the wheel acts only on the section under the pointer.
    plain = scroll that section (video = #tlscroll, audio = inside its pinned module) · Alt = vertical zoom of
    that section's tracks only · Ctrl = timeline zoom · Shift = horizontal. */
@@ -3843,9 +3987,12 @@ function startMediaDrag(e,m){ const ghost=e.currentTarget.cloneNode(true); ghost
   const up=ev=>{ window.removeEventListener('pointermove',mv);window.removeEventListener('pointerup',up); ghost.remove(); if(tlg)tlg.remove(); showSnap(null); _clearDropFX();
     const L=landing(ev); if(L){ // [M5] drop the whole selection: Ctrl = stack onto lanes below, default = side by side on the same lane
       const ids=selectedMediaIds(); const sel=(ids.length>1&&ids.includes(m.id))?ids.map(mediaById).filter(x=>x&&(((x.kind==='audio')?'audio':'video')===wantKind)):null;
+      const before=new Set(state.clips.map(x=>x.id)); // [R223] los clips recién soltados son los "movidos" del corte por solape (addClip no devuelve el clip)
       if(sel&&sel.length>1){ if(ev.ctrlKey||ev.metaKey){ let li=L.li; for(const mm of sel){ while(li<state.lanes.length&&state.lanes[li]&&state.lanes[li].kind!==wantKind)li++; const target=(li<state.lanes.length)?li:null; addClip(mm,target,L.start); li=(target==null?state.lanes.length:li+1); } }
         else { let start=L.start; for(const mm of sel){ addClip(mm,L.li,start); start+=(mm.dur||6); } } }
-      else addClip(m,L.li,L.start); return; }
+      else addClip(m,L.li,L.start);
+      cutOverlapsOnDrop(state.clips.filter(x=>!before.has(x.id)).map(x=>x.id)); // [R223] soltar sobre un clip existente = corte, igual que mover uno ya en la línea de tiempo
+      renderTimeline(); render(); reschedAudio(); return; }
     { const t=_dropTargetAt(ev); if(t){ const ids=selectedMediaIds().includes(m.id)?selectedMediaIds():[m.id]; const dest=t.path||null; if(ids.some(id=>{const mm=mediaById(id);return mm&&(mm.folder||null)!==dest;}))moveMediaTo(ids,dest); return; } } // R88: dropped on a folder / back / grid bg → file the (multi-)selection there
     if(m.kind==='audio'){ const el2=document.elementFromPoint(ev.clientX,ev.clientY); if(el2&&el2.closest('#tlscroll')){ const tr=tracks.getBoundingClientRect(); let start=Math.max(0,(ev.clientX-tr.left)/state.tl.pxPerSec); const sn=applySnap(start,null); start=Math.max(0,sn.val); addClip(m,null,start); } } }; // audio dropped without an audio track → auto-create one and drop there
   window.addEventListener('pointermove',mv);window.addEventListener('pointerup',up); }
@@ -8168,7 +8315,7 @@ const LANE_PALETTE=['#E0645C','#E0954B','#D8C24B','#6FBF95','#4FB3C9','#5B8DEF',
 function colorPopup(x,y,cur,onPick,onClear){ document.querySelectorAll('.lanecolpop').forEach(m=>m.remove());
   const m=document.createElement('div'); m.className='menu lanecolpop'; m.style.left=x+'px'; m.style.top=y+'px'; m.style.minWidth='0'; m.style.padding='8px';
   const grid=document.createElement('div'); grid.style.cssText='display:grid;grid-template-columns:repeat(5,18px);gap:6px;';
-  LANE_PALETTE.forEach(col=>{ const b=document.createElement('button'); b.title=col; b.style.cssText='width:18px;height:18px;border-radius:3px;border:.5px solid rgba(255,255,255,0.25);background:'+col+';cursor:pointer;padding:0;'+(cur===col?'box-shadow:0 0 0 2px #E8EAED;':''); b.onclick=()=>{ onPick(col); m.remove(); }; grid.appendChild(b); });
+  LANE_PALETTE.forEach(col=>{ const b=document.createElement('button'); b.title=col; b.style.cssText='width:18px;height:18px;min-height:18px;border-radius:3px;border:.5px solid rgba(255,255,255,0.25);background:'+col+';cursor:pointer;padding:0;'+(cur===col?'box-shadow:0 0 0 2px #E8EAED;':''); b.onclick=()=>{ onPick(col); m.remove(); }; grid.appendChild(b); }); // [R223] min-height explícito: `.menu button{min-height:26px}` global convertía el cuadrado en rectángulo alto
   m.appendChild(grid);
   const none=document.createElement('button'); none.textContent=T('Default (no color)','Por defecto (sin color)'); none.style.cssText='display:block;width:100%;margin-top:8px;padding:5px 8px;border:none;border-radius:2px;background:transparent;color:var(--ink-2);cursor:pointer;font-size:11px;text-align:left;'; none.onmouseenter=()=>none.style.background='#2B2F35'; none.onmouseleave=()=>none.style.background='transparent'; none.onclick=()=>{ onClear(); m.remove(); };
   m.appendChild(none); document.body.appendChild(m);
@@ -8608,8 +8755,8 @@ function openMenu(x,y,items){
   const m=document.createElement('div'); m.className='menu'; m.setAttribute('role','menu'); m.style.left=x+'px'; m.style.top=y+'px'; // [R94-UT5·U-10a]
   for(const it of items){ if(it==='sep'){const s=document.createElement('div');s.className='sep';m.appendChild(s);continue;}
     if(it.swatches){ const row=document.createElement('div'); row.style.cssText='display:flex;gap:6px;padding:6px 11px;flex-wrap:wrap;max-width:150px;align-items:center;'; // R90b: inline colour row INSIDE the menu (no extra popup)
-      LANE_PALETTE.forEach(col=>{ const b=document.createElement('button'); b.title=col; b.style.cssText='width:16px;height:16px;border-radius:3px;border:.5px solid rgba(255,255,255,0.25);background:'+col+';cursor:pointer;padding:0;flex:0 0 auto;'+(it.swatches.cur===col?'box-shadow:0 0 0 2px #E8EAED;':''); b.onclick=e=>{ e.stopPropagation(); closeMenu(); it.swatches.onPick(col); }; row.appendChild(b); });
-      const nx=document.createElement('button'); nx.title=T('No color','Sin color'); nx.textContent='✕'; nx.style.cssText='width:16px;height:16px;border-radius:3px;border:.5px dashed rgba(255,255,255,0.35);background:transparent;color:var(--ink-2);cursor:pointer;padding:0;font-size:11px;line-height:1;flex:0 0 auto;'; nx.onclick=e=>{ e.stopPropagation(); closeMenu(); it.swatches.onClear(); }; row.appendChild(nx);
+      LANE_PALETTE.forEach(col=>{ const b=document.createElement('button'); b.title=col; b.style.cssText='width:18px;height:18px;min-height:18px;border-radius:3px;border:.5px solid rgba(255,255,255,0.25);background:'+col+';cursor:pointer;padding:0;flex:0 0 auto;'+(it.swatches.cur===col?'box-shadow:0 0 0 2px #E8EAED;':''); b.onclick=e=>{ e.stopPropagation(); closeMenu(); it.swatches.onPick(col); }; row.appendChild(b); }); // [R223] mismo tamaño cuadrado (18px) que colorPopup + min-height explícito (ver nota arriba)
+      const nx=document.createElement('button'); nx.title=T('No color','Sin color'); nx.textContent='✕'; nx.style.cssText='width:18px;height:18px;min-height:18px;border-radius:3px;border:.5px dashed rgba(255,255,255,0.35);background:transparent;color:var(--ink-2);cursor:pointer;padding:0;font-size:11px;line-height:1;flex:0 0 auto;'; nx.onclick=e=>{ e.stopPropagation(); closeMenu(); it.swatches.onClear(); }; row.appendChild(nx);
       m.appendChild(row); continue; }
     const b=document.createElement('button'); if(it.danger)b.className='danger'; b.setAttribute('role','menuitem'); b.innerHTML=(it.ico?ICO(it.ico,13):'')+'<span style="flex:1">'+it.label+'</span>'+(it.key?('<span class="tnum" style="color:var(--ink-2);font-size:11px">'+fmtKey(it.key)+'</span>'):''); b.style.gap='9px'; // [R94-UT5·U-10a]
     b.onclick=()=>{closeMenu();it.fn();}; m.appendChild(b); }
@@ -8732,7 +8879,7 @@ function makeClipUnique(c){ if(!c)return; const m=mediaById(c.mediaId); if(!m||!
    escalan por el mismo factor: un movimiento que empezaba a media duración sigue empezando a media duración.
    Los fundidos se recortan a la nueva duración si se pasan; un clip a 4× no puede tener un fundido más largo que
    él mismo. Un clip en bucle no se toca: su largo lo decide el usuario arrastrando, no el material. */
-function setClipSpeed(c,pct){ const sp=Math.max(6.25,Math.min(1600,pct))/100; const antes=(c.speed||1); pushUndo();
+function _applyClipSpeed(c,sp){ const antes=(c.speed||1); // [R223] núcleo sin pushUndo/render, para poder aplicarlo también al partner enlazado en la misma transacción
   c.speed=(Math.abs(sp-1)<1e-4)?undefined:sp; if(c.speed===undefined)delete c.speed;
   const f=antes/sp;
   if(!c.loop && c.dur!=null && isFinite(f) && f>0 && Math.abs(f-1)>1e-6){
@@ -8740,27 +8887,36 @@ function setClipSpeed(c,pct){ const sp=Math.max(6.25,Math.min(1600,pct))/100; co
     if(c.kf)for(const p in c.kf){ const ks=c.kf[p]; if(!ks)continue; for(const k of ks)k.t=Math.max(0,Math.min(c.dur,k.t*f)); }
     if(c.fadeIn!=null)c.fadeIn=Math.min(c.fadeIn,c.dur);
     if(c.fadeOut!=null)c.fadeOut=Math.min(c.fadeOut,c.dur);
-  }
+  } }
+function setClipSpeed(c,pct){ const sp=Math.max(6.25,Math.min(1600,pct))/100; pushUndo();
+  _applyClipSpeed(c,sp);
+  const p=linkPartner(c); if(p)_applyClipSpeed(p,sp); // [R223] Link A/V: la velocidad (y su estiramiento de extensión) viaja junta
   disposeAllVinst(); renderTimeline(); renderInspector(); scheduleWaves(); render(); markDirty(); reschedAudio(); flashStatus(T('Speed: ','Velocidad: ')+Math.round(sp*100)+'%'); }
 function speedMenu(c){ const cur=Math.round((c.speed||1)*100); const opts=[25,50,75,100,150,200,400];
   openMenu(innerWidth/2-80,innerHeight/2-120,[...opts.map(p=>({label:p+'%'+(p===cur?'  ✓':''),fn:()=>setClipSpeed(c,p)})),'sep',
     {label:T('Custom…','Personalizada…'),fn:()=>appPrompt(T('Speed % (100 = normal)','Velocidad % (100 = normal)'),String(cur),v=>{ if(v==null)return; const nv=parseFloat(String(v).replace(',','.')); if(!isNaN(nv)&&nv>0)setClipSpeed(c,nv); })}]); }
 /* ---- R81: loopable clip (Ableton-style) — the source [inP, inP+loopLen) repeats; the right edge can be
    dragged out forever, and subtle ticks mark each loop boundary ---- */
-function toggleLoop(c){ if(!c)return; const m=mediaById(c.mediaId); if(!(m&&(m.kind==='video'||m.kind==='audio'||isSeqMedia(m)))){ flashStatus(T('Only video / audio / sequence clips can loop','Solo clips de vídeo / audio / secuencia pueden loopear')); return; }
-  pushUndo();
+function _applyLoopToggle(c,m){ // [R223] núcleo sin pushUndo/render, reutilizado para el clip y su partner enlazado
   if(c.loop){ // turn OFF — clamp dur back to the available source (a stretched clip would otherwise show past-source frozen frames)
     const srcDur=isSeqMedia(m)?seqDur(m):(m.dur||Infinity); const maxDur=Math.max(0.05,(srcDur-(c.inP||0))/(c.speed||1));
-    c.loop=false; delete c.loopLen; if(c.dur>maxDur)c.dur=maxDur; flashStatus(T('Loop off','Loop desactivado'));
+    c.loop=false; delete c.loopLen; if(c.dur>maxDur)c.dur=maxDur;
   } else { const srcDur=isSeqMedia(m)?seqDur(m):(m.dur||Infinity); // capture the CURRENT source segment as the loop cycle
-    c.loopLen=Math.max(0.05,Math.min(c.dur*(c.speed||1), srcDur-(c.inP||0))); c.loop=true; flashStatus(T('Loop on — drag the right edge to extend','Loop activado — arrastra el borde derecho para extender'));
+    c.loopLen=Math.max(0.05,Math.min(c.dur*(c.speed||1), srcDur-(c.inP||0))); c.loop=true;
   }
-  if(!c.loop)delete c.loopRev; // loop off → reverse no longer applies
+  if(!c.loop)delete c.loopRev; } // loop off → reverse no longer applies
+function toggleLoop(c){ if(!c)return; const m=mediaById(c.mediaId); if(!(m&&(m.kind==='video'||m.kind==='audio'||isSeqMedia(m)))){ flashStatus(T('Only video / audio / sequence clips can loop','Solo clips de vídeo / audio / secuencia pueden loopear')); return; }
+  pushUndo(); const wasOn=!!c.loop;
+  _applyLoopToggle(c,m);
+  const p=linkPartner(c); if(p){ const pm=mediaById(p.mediaId); if(pm&&(pm.kind==='video'||pm.kind==='audio'||isSeqMedia(pm))&&!!p.loop===wasOn)_applyLoopToggle(p,pm); } // [R223] Link A/V: el loop viaja junto (sólo si el partner partía del mismo estado, para no des-sincronizar un loop ya editado a mano)
+  flashStatus(c.loop?T('Loop on — drag the right edge to extend','Loop activado — arrastra el borde derecho para extender'):T('Loop off','Loop desactivado'));
   disposeAllVinst(); renderTimeline(); renderInspector(); render(); markDirty(); reschedAudio(); }
 /* R88: ping-pong loop — forward one cycle, backward the next. Turns loop on if it wasn't. */
 function toggleLoopReverse(c){ if(!c)return; const m=mediaById(c.mediaId); if(!(m&&(m.kind==='video'||isSeqMedia(m)))){ flashStatus(T('Loop reverse works on video / sequence clips','El loop inverso funciona en clips de vídeo / secuencia')); return; }
   if(!c.loop){ toggleLoop(c); if(!c.loop)return; } // needs a loop region first
-  pushUndo(); c.loopRev=!c.loopRev; disposeAllVinst(); renderTimeline(); renderInspector(); render(); markDirty(); flashStatus(c.loopRev?T('Loop reverse on (ping-pong)','Loop inverso activado (ping-pong)'):T('Loop reverse off','Loop inverso desactivado')); }
+  pushUndo(); c.loopRev=!c.loopRev;
+  const p=linkPartner(c); if(p&&p.loop)p.loopRev=c.loopRev; // [R223] loop juntos: el ping-pong también
+  disposeAllVinst(); renderTimeline(); renderInspector(); render(); markDirty(); flashStatus(c.loopRev?T('Loop reverse on (ping-pong)','Loop inverso activado (ping-pong)'):T('Loop reverse off','Loop inverso desactivado')); }
 /* ---- R80-2: Ableton-style "0" — disable the selected clips, or the time-selection slice of them (split first) ---- */
 function toggleDisable(){ const a=state.tl.selA,b=state.tl.selB; const hasRange=(a!=null&&b!=null&&Math.abs(b-a)>1e-3);
   if(hasRange){ const lo=Math.min(a,b),hi=Math.max(a,b); const lanes=state.tl.selLanes&&state.tl.selLanes.length?new Set(state.tl.selLanes):null; pushUndo();
@@ -8830,10 +8986,10 @@ $('#tracks').addEventListener('contextmenu',e=>{ const cd=e.target.closest('.cli
 $('#ruler').addEventListener('contextmenu',e=>{ e.preventDefault(); const rect=$('#ruler').getBoundingClientRect(); const t=Math.max(0,(e.clientX-rect.left)/state.tl.pxPerSec);
   const tol=8/state.tl.pxPerSec; const near=state.markers.find(m=>Math.abs(m.time-t)<tol);
   const items=[];
-  if(near){ state.selMarkerId=near.id; renderTimeline();
+  if(near){ state.selMarkerId=near.id; state.selId=null; state.selIds=[]; state.selGroupId=null; state.selLane=null; renderTimeline(); // [R223]
     items.push({label:T('Rename locator','Cambiar nombre del localizador'),fn:()=>renameLocatorInline(near)});
     items.push({label:T('Delete this locator','Eliminar este localizador'),danger:true,fn:()=>{pushUndo();state.markers=state.markers.filter(m=>m!==near);if(state.selMarkerId===near.id)state.selMarkerId=null;renderTimeline();}}); items.push('sep'); }
-  items.push({label:T('Add locator here','Añadir localizador aquí'),ico:'flag',fn:()=>{pushUndo();const nm={id:uid(),time:t,name:T('Locator','Localizador'),color:'#B4BAC1'};state.markers.push(nm);state.markers.sort((a,b)=>a.time-b.time);state.selMarkerId=nm.id;renderTimeline();}});
+  items.push({label:T('Add locator here','Añadir localizador aquí'),ico:'flag',fn:()=>{pushUndo();const nm={id:uid(),time:t,name:T('Locator','Localizador'),color:'#B4BAC1'};state.markers.push(nm);state.markers.sort((a,b)=>a.time-b.time);state.selMarkerId=nm.id;state.selId=null;state.selIds=[];state.selGroupId=null;state.selLane=null;renderTimeline();}});
   items.push({label:T('Clear locators','Borrar localizadores'),danger:true,fn:()=>{pushUndo();state.markers=[];state.selMarkerId=null;renderTimeline();}});
   openMenu(e.clientX,e.clientY,items); });
 

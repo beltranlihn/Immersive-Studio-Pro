@@ -1,0 +1,21 @@
+import { fn, close } from './lib.mjs';
+console.log(JSON.stringify(await fn(`
+  const out={};
+  out.selClipFn = typeof selClip;
+  out.inlineEditFn = typeof inlineEdit;
+  const c=state.clips.find(x=>x.avRole==='v')||state.clips[0];
+  if(!c) return {err:'no clips'};
+  state.selId=c.id; state.selIds=[c.id]; state.selMarkerId=null; state.selLane=null; clearMediaSel(); state.selFolder=null;
+  renderTimeline();
+  out.selClip = selClip()? selClip().id : null;
+  out.ttEl = !!document.querySelector('.clip[data-clip="'+c.id+'"] .tt');
+  renameSelection();
+  await new Promise(r=>setTimeout(r,250));
+  out.ceAny = [...document.querySelectorAll('[contenteditable]')].map(e=>({cls:e.className, ce:e.getAttribute('contenteditable'), inClip:!!(e.closest&&e.closest('.clip'))}));
+  out.inputs = [...document.querySelectorAll('input[type=text]')].map(e=>({parent:e.parentElement&&e.parentElement.className, v:e.value}));
+  const ce=document.querySelector('.clip .tt[contenteditable=true]');
+  out.editingClipId = ce? +ce.closest('.clip').dataset.clip : null;
+  if(ce)ce.blur();
+  return out;
+`), null, 2));
+close();

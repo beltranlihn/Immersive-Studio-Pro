@@ -1,5 +1,25 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 223 — Feedback post-prueba de Beltrán, Etapa 1: timeline core + clips linkeados
+
+Primera de 5 etapas de la tanda 2026-07-29 (30 ítems; plan completo y decisiones en `docs/NEXT.md`). Los 8
+ítems cerrados y verificados por CDP con mp4 reales con audio (detalle por ítem, con el CÓMO, en el propio
+NEXT.md): tinte sutil en pistas de audio (`--audio-tint` en fila y cabecera) · swatches de color 18×18 en los
+tres menús · ctx menu de pista con New video/audio track desde cualquier pista · **semántica nueva de linkeados**
+(selección independiente; el enlace vive en el GESTO — `drag.primaryIds` vs `drag.items` —: mover/trim/speed/loop
+juntos y NADA más; fades independientes, el de audio es de volumen) · libertad vertical por tipo de pista (fix
+del bug del audio cayendo en pista de video) · **solape = corte no destructivo** con los 4 casos (tapa completa/
+izquierda/derecha/dentro→dos restos vía razorCore) + **crossfade manual estilo Ableton** arrastrando el handle
+de fade sobre el corte (video = dissolve por solape geométrico de compositeClips, audio = ganancia cruzada
+equal-gain; reajustable/eliminable; límite = material) · locators en la mitad inferior · Ctrl+R con selección
+exclusiva marker↔clip/pista.
+
+Nota de proceso: Sonnet implementó 7.5/8 ítems y cayó dos veces por 529 del API; un agente Opus fresco cerró el
+ítem 6 encontrando y corrigiendo 3 defectos reales del esqueleto (vecino del lado equivocado en
+`crossfadeNeighbor`, signo invertido en `inPTouch` que comía material, y `cutOverlapsOnDrop` incompleto).
+Decisión de diseño tomada (a confirmar con Beltrán): clip soltado DENTRO de otro → el viejo se parte en dos
+restos (overwrite estilo Premiere), coherente con el recorte no destructivo.
+
 ## ROUND 222 — Fase B: wrap con rotación entre el suelo y sus muros adyacentes
 
 - **Pedido de Beltrán:** "con el mismo formato del infinito de los muros. Si lo muevo a un borde [del suelo],

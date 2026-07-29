@@ -2,7 +2,84 @@
 
 > Tareas ordenadas de **más rápido de resolver → más complejo**. Marcá `[x]` a medida que se cierran (y actualizá la fila
 > en `COMPONENTS.md` + una entrada en `PLAN.md` en el mismo commit, como manda el ritual de `/commit`).
-> Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: 2026-07-23.
+> Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: 2026-07-29.
+
+## 🎯 Tanda de Beltrán — 2026-07-29 (post-prueba real) · EN CURSO · R223+
+> 30 ítems en 5 etapas. Decisiones tomadas con Beltrán: (1) al crear un compose, el audio linkeado de los clips
+> SE ELIMINA (evita audios superpuestos); (2) nest SIEMPRE dome master (eliminar toggle R216, archivar ADR-0007);
+> (3) crossfade = arrastrar el handle de fade sobre el corte (estilo Ableton); (4) demos del tour con shapes.
+> Commit por etapa · verificación CDP · deploy al cierre de la tanda.
+
+### Etapa 1 · Timeline core + clips linkeados [R223] — CERRADA ✅
+> Verificada por CDP con dos mp4 reales con audio (`Multimedia2/3.mp4`); capturas en `scratchpad/r223/shots/`.
+- [x] Pistas de audio con diferenciación visual sutil (tinte de fondo, propuesta propia). _(R223)_ `--audio-tint`
+      `rgba(150,175,130,0.045)` en `.lanehdr.aud` **y** `.lane.aud` (la clase existía sólo en la cabecera).
+- [x] Swatches de "Set color" (tracks y clips) CUADRADOS (hoy rectangulares verticales). _(R223)_ 18×18 en los tres
+      sitios (`colorPopup` de pista y de clip + la fila inline de `openMenu`). El truco era `min-height:18px`: la
+      regla global `.menu button{min-height:26px}` los estiraba.
+- [x] Clic-derecho en cualquier cabecera de pista: "New video track" Y "New audio track". _(R223)_ `trackCreateItems`
+      deja de filtrar por `kind` (revierte [R110b]).
+- [x] Linked video↔audio: selección INDEPENDIENTE. Link = mover juntos (horizontal), trim juntos, speed juntos,
+      loop juntos; NADA más. Fade manual de video NO crea fade en el audio; fade de clip de audio = volumen. _(R223)_
+      El enlace deja de vivir en la selección y pasa al GESTO: `drag.primaryIds` (selección real) vs `drag.items`
+      (incluye al partner, `linked:true`); `_mirrorLinkTrim` para el recorte; `_applyClipSpeed`/`_applyLoopToggle`
+      para velocidad y loop.
+- [x] Libertad vertical de linkeados: video solo entre pistas de video (el audio se queda), audio solo entre
+      pistas de audio. BUG: hoy mover el video linkeado arrastra el audio a una pista de video. _(R223)_ Sólo los ids
+      de `primaryIds` pueden cambiar de pista — el partner (y su ghost) se queda en la suya.
+- [x] Solape = CORTE sin fundido automático (no destructivo, estilo Ableton: el material recortado se puede
+      re-extender). Crossfade manual arrastrando el handle de fade sobre el corte (límite = material disponible;
+      efecto cross dissolve). _(R223)_ `cutOverlapsOnDrop` con los cuatro casos (tapa completa → el viejo se elimina ·
+      izquierda/derecha → recorte · **dentro → dos restos** vía `razorCore`), delegando en `trimItem` para heredar
+      límites de origen y rebase de keyframes. El crossfade es el gesto del handle de fade (`startFadeDrag` +
+      `crossfadeNeighbor`): en **vídeo** lo dibuja el solape geométrico que `compositeClips` ya sabía hacer (fades a
+      0), en **audio** la ganancia cruzada (equal-gain, suma 1). Reajustable, eliminable arrastrando de vuelta.
+      Nada quedó muerto del sistema anterior: el "crossfade automático" era ese mismo solape geométrico, que se
+      reutiliza — **no hay ADR que archivar**.
+- [x] Locators dibujados en la MITAD INFERIOR de la barra de tiempo. _(R223)_ Banderín y=14..20, tallo desde y=12.
+- [x] BUG Ctrl+R: con un locator presente renombra el locator en vez del elemento seleccionado. _(R223)_
+      `state.selMarkerId` pasa a ser una selección EXCLUSIVA con clip/pista en las dos direcciones.
+
+### Etapa 2 · Automatización [R224]
+- [ ] Línea de fade oculta en modo automatización.
+- [ ] Dropdown IZQUIERDO: Transform, Clip, Color + cada Motion/Effect aplicado (Spin, Glitch…). Resaltar las
+      opciones que YA tienen automatización. Si se elimina el motion/effect, desaparece del chooser.
+- [ ] Dropdown DERECHO dependiente: Transform→azimuth/elevation/size/rotation · Clip→opacity/blur/feather/crop ·
+      Color→exposure/contrast/saturation/temp/tint/glow/chroma · Motion→MIX · Effect→sus parámetros.
+- [ ] Sincronía inspector↔curva visible: en modo automatización, tocar cualquier parámetro muestra SU curva en
+      el clip (aunque no haya keyframe); los dropdowns siguen la selección.
+- [ ] Clic-derecho en un parámetro del inspector → "Show automation" (activa vista + curva de ese parámetro).
+- [ ] Auditoría del diálogo de visualizadores (hoy puede quedar una curva inaccesible).
+- [ ] Clic en los menús de automatización del header NO selecciona la pista.
+- [ ] Sin icono de motion sobre el clip.
+
+### Etapa 3 · Inspector + adjustment + nest/compose [R225]
+- [ ] Adjustment layer: todos los efectos; afecta lo de abajo como un solo clip fulldome; default fulldome full.
+- [ ] Nest SIEMPRE dome master: eliminar toggle R216 (archivar), sin dome placement, equirect deshabilitado.
+- [ ] Fisheye solo habilitado con fulldome src activo.
+- [ ] Sin textos instructivos en Motion/Effects del inspector.
+- [ ] Inspector de audio: sin fade in/out (queda el manual del clip) + escala del waveform.
+- [ ] Inspector de text: sin campos de pixelaje ni switch sin función.
+- [ ] Compose: duración = clip más largo (solo fotos: 5s); acortar dentro del nest acorta la instancia padre
+      automáticamente (hoy solo al intentar extender).
+- [ ] Compose desde clips con audio: el audio SE ELIMINA.
+- [ ] Audio de nest: si el nest tiene pistas de audio (agregadas dentro), el padre muestra clip de audio DERIVADO
+      linkeado (deslinkeable); doble clic entra al nest; acortar dentro acorta ambos; proxy conserva ese audio;
+      REGLA: nunca suena audio no visible en una pista de audio.
+- [ ] Botones ⚡Clip / ⚡Comp en la toolbar de proxy.
+- [ ] Al arrastrar un clip a media: buscar proxy existente en la carpeta de origen automáticamente.
+
+### Etapa 4 · Mask en canvas + viewer window [R226]
+- [ ] Pen mask editable EN EL CANVAS (no en el inspector).
+- [ ] Viewer-only window: arreglar el cuelgue + vista COMPLEMENTARIA (principal 2D ⇄ ventana 3D), domo y 360,
+      con las herramientas básicas del visor mostrado (2D/3D, grilla, borde, horizonte + las del 3D).
+
+### Etapa 5 · Tour/demos + File [R227]
+- [ ] File en proyecto: solo "New project…" → pregunta guardar si dirty → LANDING. El tour ya no aparece al
+      crear proyecto.
+- [ ] Botón de configuración en el landing → Demo Domo / Demo Flat / Demo 360 (generados con shapes/texto/solids
+      + automatizaciones + compose + efectos). Tour guiado completo (timeline, clip+inspector, automatización
+      con curvas, compose) y al terminar el demo queda libre para editar/guardar.
 
 ## 📋 Tanda de Beltrán — 2026-07-27 · EN CURSO
 > Orden: primero lo independiente y barato, luego el landing **de una sola pasada** (son 8 puntos del mismo sitio),

@@ -57,15 +57,16 @@
 | Herramientas + tool rail | 6 herramientas + cursor | app.js · `setTool`/`applyToolCursor` · #toolRail | ✅ | [U7] |
 | #tracks pointerdown | Dispatch selección/move/trim/razor/zoom | app.js · `$('#tracks')` pointerdown | ✅ | [T1],[T2] |
 | Clip DOM (`.clip`) | Nodo renderizado por clip | app.js · loop de renderTimeline · `.clip` | ✅ | [T5],[T2] |
-| Header de pista (`.lanehdr`) | Header + operaciones de lane | app.js · renderTimeline · `.lanehdr` | ✅ | [L1],[U1] |
+| Header de pista (`.lanehdr`) | Header + operaciones de lane. Pistas de audio con **tinte sutil** (`.aud` en cabecera Y fila) y menú con **ambas** opciones de pista nueva | app.js · renderTimeline · `.lanehdr`/`.lane.aud` · `trackCreateItems` | ✅ | [R223] |
 | Reorden de lanes | Arrastrar header para reordenar | app.js · `startLaneDrag` | ✅ | — |
 | ~~Módulo de audio anclado~~ | **RETIRADO R148** — audio unificado en la columna principal (#tracks/#laneHeaders), al final | app.js · renderTimeline · #audioZone/#audioHeadZone (vaciados) | 🗑️ | Rev1 §6 |
 | Barra vertical del timeline | Espejo de la horizontal: cuerpo = scroll · casquetes = alto de pistas. Una sola (la nativa se oculta) | app.js · `renderVZoom`/`startVBarDrag`/`startVCapDrag` · #tlVZoom | ✅ | R152 |
 | Menú "More" del visor | Repliega overlays/calidad/Output/lecturas **por medición** (umbrales del diseño + escalada mientras desborde) | app.js · `VP_BP`/`_vpHide`/`vpFits`/`updViewCtl`/`_updViewCtl`/`openVpMore` · #vpMoreBtn | ✅ | R152/R154 |
-| Gesto de mover | Move/copy de clip con ghost | app.js · `onTLMove`/`onTLUp` | ✅ | — |
-| Trim contextual | ripple/roll/slip/slide (T) | app.js · `trimZone`/`applyTrim` | ✅ | [T2] |
+| Gesto de mover | Move/copy de clip con ghost. Partner A/V enlazado: sólo horizontal (`primaryIds` vs `items`) | app.js · `onTLMove`/`onTLUp` | ✅ | [R223] |
+| **Solape = corte** | Al soltar, el clip movido RECORTA al quieto (no destructivo; parte en dos si cae dentro). Sin fundido automático | app.js · `cutOverlapsOnDrop`/`_cutEdgeTo`/`_dropClip` | ✅ | [R223] |
+| Trim contextual | ripple/roll/slip/slide (T); espeja el recorte en el partner enlazado | app.js · `trimZone`/`applyTrim`/`_mirrorLinkTrim` | ✅ | [T2],[R223] |
 | Trim por handle | `.hd.l`/`.hd.r` resize | app.js · `trimItem` / drag.trimL/R | ✅ | [T2] |
-| Fades | Envelope de fade con handles de esquina | app.js · `startFadeDrag` · `.fadeh` | ✅ | — |
+| Fades + **crossfade manual** | Handle de esquina: hacia dentro = fundido · hacia fuera sobre el corte = fundido cruzado (vídeo por geometría, audio por ganancia) | app.js · `startFadeDrag`/`crossfadeNeighbor` · `.fadeh`/`.xfade` | ✅ | [R223] |
 | Razor & split | Cortar clip / Ctrl+E | app.js · `razorCore`/`splitAtSelection` | ✅ | — |
 | Selección temporal & marquee | Selección por span/rect → loop | app.js · `startTimeSelect`/`startMarquee` | ✅ | — |
 | Snap | Snap a borde/playhead/marcador/grilla | app.js · `applySnap`/`snapTargets` | ✅ | [T2] |
@@ -73,7 +74,7 @@
 | Ruteo de rueda | Ctrl/Cmd=zoom · Alt=alto de pistas · Shift=pan H (deltaY o deltaX: macOS convierte Shift+rueda en deltaX) · **deltaX dominante=pan H** (rueda del pulgar MX Master / trackpad; hace falta porque `#tlscroll` va overflow-x hidden) · vertical=nativo | app.js · handlers `wheel` de `#tlscroll`/`#trackHdr` | ✅ | R208 |
 | Modo simple-clip | Agarre Premiere vs Ableton | app.js · `toggleSimpleClips` | ✅ | — |
 | Regla & playhead | Scrub + arrastre de locator | app.js · #ruler pointerdown / `positionPlayhead` | ✅ | — |
-| Marcadores / locators | Marcadores temporales con nombre | app.js · `addMarker`/`jumpMarker` | ✅ | — |
+| Marcadores / locators | Marcadores temporales con nombre, dibujados en la **mitad inferior** de la regla; selección exclusiva con clip/pista (prioridad de Ctrl+R) | app.js · `addMarker`/`jumpMarker`/`drawRuler` · `state.selMarkerId` | ✅ | [R223] |
 | Pestañas de secuencia | Barra de secuencias abiertas (drag para reordenar) — **movida al transport** (R148) | app.js · `renderSeqBar`/`startSeqTabDrag` · #seqTabs (dentro de `.transport`) | ✅ | Rev1 §5 |
 | Well de edición del transport | Simple · Auto · Grid · Fit | app.js · `toggleSimpleClips`/`toggleCurves`/`fitAll` · #tlEditSeg (#simpleClipBtn/#curvesBtn/#tlGridBtn/#fitAllBtn) | ✅ | Rev1 §5 |
 | Menú contextual de clip | Acciones clic-derecho sobre clip | app.js · #tracks contextmenu | ✅ | [T1] |
@@ -238,10 +239,11 @@
 - **Status:** ✅
 
 ### Clips enlazados A/V — `link` · `avRole` (app.js, ~L1990)
-- **Purpose:** un vídeo con sonido entra como DOS clips (imagen + audio en la pista de audio más cercana) unidos por `c.link`; se mueven, recortan y borran juntos. Clic derecho → Desenlazar / Enlazar.
-- **Key symbols:** `linkPartner(c)` · `linkedIds(ids)` · `armMediaAudio(m)` (decodifica el audio del vídeo a búfer + picos, tope `LINK_MAX_BYTES`) · `attachLinkedAudio(cv,m)` · `nearestAudioLane(li,start,dur)` → `{lane,creada}` · `unlinkClip` / `linkClips`.
-- **Invariants / gotchas:** **el enlace se apoya en la SELECCIÓN** (en el `pointerdown` del clip: `state.selIds=linkedIds(...)`), y de ahí el arrastre multi-clip, el recorte y el borrado en grupo lo mueven todo sin parchear nada más. `collectAudioEvents` decide por la PISTA (`lane.kind===audio`), NO por `avRole`: al desenlazar se borra el rol y con `avRole` la mitad de audio se quedaba muda. La mitad `avRole===v` se silencia en previsualización (`vinstAudio`) o sonaría dos veces. Copiar/duplicar/pegar produce clips SUELTOS: dos pares con el mismo `link` romperían `linkPartner`. Si el corte no puede partir la pareja, la mitad derecha queda suelta por el mismo motivo.
+- **Purpose:** un vídeo con sonido entra como DOS clips (imagen + audio en la pista de audio más cercana) unidos por `c.link`. **[R223]** El enlace significa exactamente esto y nada más: **mover juntos (sólo en horizontal), recortar juntos, velocidad juntos, loop juntos** y borrar juntos. La **selección es INDEPENDIENTE** (se edita una mitad sin tocar la otra) y los **fundidos son independientes** (el fade manual del vídeo no crea fade en el audio; el fade de un clip de audio es su volumen). Clic derecho → Desenlazar / Enlazar.
+- **Key symbols:** `linkPartner(c)` · `linkedIds(ids)` · `_mirrorLinkTrim(clip,cBase,lb)` **[R223]** (espeja en el partner el delta absoluto del recorte, con su propia base congelada) · `armMediaAudio(m)` (decodifica el audio del vídeo a búfer + picos, tope `LINK_MAX_BYTES`) · `attachLinkedAudio(cv,m)` · `nearestAudioLane(li,start,dur)` → `{lane,creada}` · `_applyClipSpeed` / `_applyLoopToggle` **[R223]** (núcleos sin undo/render, aplicados al clip y a su partner en la misma transacción) · `unlinkClip` / `linkClips`.
+- **Invariants / gotchas:** **[R223] el enlace ya NO vive en la selección, vive en el GESTO.** Antes el `pointerdown` hacía `state.selIds=linkedIds(...)` y todo lo demás salía gratis; ahora `drag.items` sí incluye al partner (`items[].linked=true`) pero `drag.primaryIds` guarda la selección REAL, y sólo lo primario puede cambiar de pista → **libertad vertical**: el vídeo se mueve entre pistas de vídeo y su audio se queda quieto (antes el audio acababa arrastrado a una pista de vídeo). Corolario: "single vs multi" en `onTLMove`/`onTLUp`/`showMoveGhosts` se decide por `primaryIds.size`, NO por `items.length`. El recorte de cualquier tipo (`applyTrim`, `trimNudge`, `trimL/trimR`) espeja al partner vía `base.linkBase`/`aLinkBase`/`bLinkBase`. `collectAudioEvents` decide por la PISTA (`lane.kind===audio`), NO por `avRole`: al desenlazar se borra el rol y con `avRole` la mitad de audio se quedaba muda. La mitad `avRole===v` se silencia en previsualización (`vinstAudio`) o sonaría dos veces. Copiar/duplicar/pegar produce clips SUELTOS: dos pares con el mismo `link` romperían `linkPartner`. Si el corte no puede partir la pareja, la mitad derecha queda suelta por el mismo motivo.
 - **Status:** ✅
+- **Ticket:** [R223] Etapa 1
 
 ### Alto del panel del timeline — `tlMaxH` / `clampTimelineH` (app.js ~L6720)
 - **Purpose:** el panel mide lo que miden sus pistas: ni banda vacía debajo de la última, ni pistas escondidas.
@@ -615,7 +617,7 @@ separate subsystem — only cross-references appear here.
 - **Location:** app.js · header build in `renderTimeline` (L1941–1969). Ops: `addLane()` (L2024), `removeLane()` (L2036), `duplicateLane()` (L2163), `renameLane()` (L2152), `startLaneDrag()` (L2173), `trackCreateItems()` (L2032), `defLanes()` (L4916).
 - **State owned:** `state.lanes[]` (each: `{id,name,tag,kind,color?,mute?,solo?,collapsed?,h?,_autoP?}`), `state.selLane`
 - **Key symbols:** classes `.lanehdr .sel .collapsed .aud`; buttons `[data-m=collapse|mute|solo]`, `.laneres [data-m=resize]`. `laneH(li)`. Constantes **del diseño (R152)**: `LANE_DEF_H=57, LANE_MIN_H=26, LANE_MAX_H=120, LANE_COLLAPSED_H=24`, `AUDIO_LANE_H=LANE_DEF_H` (**[R171]** el audio mide lo MISMO que el vídeo; sigue siendo sólo el valor por defecto), `RULER_H=24`, `TRACK_COLORS`. **[R163]** `AUTO_LANE_MIN_H=52` = suelo en modo automatización para pistas de vídeo (los desplegables de identidad necesitan margen); `laneFloorH(l)` es la fuente única y la usan `laneH`, `wheelResizeLanes` y el arrastre de la barra vertical. Por debajo del suelo la pista NO se queda a medias: `collapsed=true`. `lanesTopDown()` display order.
-- **Invariants / gotchas:** Selecting a track deselects the clip (mutual exclusion, [R93]). **[R152] AUDIO Y VÍDEO SE COMPORTAN IGUAL** — misma lista ordenable (el prototipo trae `trackOrder:['v4','v3','v2','v1','a1']`), mismo grip de resize, mismo colapso. `lanesTopDown()` ya **no** particiona por tipo y `startLaneDrag` ya **no** clampea el drop al grupo: una pista de audio se puede soltar entre las de vídeo. Si hace falta volver a separarlas, hay que restaurar TAMBIÉN el módulo sticky (ver `_backup/deprecated/20260725-audio-section-model.js`) — sin él la partición sólo impide reordenar. `laneH` chequea `collapsed` ANTES que el tipo. Resize mutará `lane.h` y llama a `scheduleTimeline()` (no debe mover la vista — [L1]). `removeLane` mantiene ≥1 de vídeo y ≥1 de audio. Cabecera 168px.
+- **Invariants / gotchas:** Selecting a track deselects the clip (mutual exclusion, [R93]) **y también el locator ([R223], ver *Markers / locators*)**. **[R223] `trackCreateItems(kind)` ignora el `kind`**: cualquier cabecera —vídeo o audio— ofrece **New video track** Y **New audio track** (revierte el filtro por tipo de [R110b], que en una pista de audio escondía la opción de crear vídeo). **[R223] Tinte de las pistas de audio:** `.lanehdr.aud` **y** `.lane.aud` (la clase ya existía en la cabecera; faltaba en la FILA) pintan `var(--audio-tint)` = `rgba(150,175,130,0.045)`, un verdoso apenas perceptible. Se aplica con `background-color` y las variantes hover / `:nth-child(even)` se superponen con `background-image:linear-gradient(...)` para no pisarlo. **[R152] AUDIO Y VÍDEO SE COMPORTAN IGUAL** — misma lista ordenable (el prototipo trae `trackOrder:['v4','v3','v2','v1','a1']`), mismo grip de resize, mismo colapso. `lanesTopDown()` ya **no** particiona por tipo y `startLaneDrag` ya **no** clampea el drop al grupo: una pista de audio se puede soltar entre las de vídeo. Si hace falta volver a separarlas, hay que restaurar TAMBIÉN el módulo sticky (ver `_backup/deprecated/20260725-audio-section-model.js`) — sin él la partición sólo impide reordenar. `laneH` chequea `collapsed` ANTES que el tipo. Resize mutará `lane.h` y llama a `scheduleTimeline()` (no debe mover la vista — [L1]). `removeLane` mantiene ≥1 de vídeo y ≥1 de audio. Cabecera 168px.
 - **Status:** ✅
 - **Roadmap:** [L1] resize-view glitch, [U1] VIDEO/AUDIO same grey-bar style
 
@@ -653,11 +655,20 @@ separate subsystem — only cross-references appear here.
 ## Move gesture — onTLMove / onTLUp / ghosts
 - **Purpose:** Ableton-style clip move: original stays put, a translucent ghost shows the destination, applied on pointerup. Supports multi-select (relative lane shift), lane retargeting (single), Alt-drag copy, and edge-snapping on both clip edges.
 - **Location:** app.js · `onTLMove()` (L2427–2456), `onTLUp()` (L2473–2483), `showMoveGhosts()` (L2416), `clearMoveGhosts()` (L2415), `duplicateClipAt()` (L2424).
-- **State owned:** `drag` (fields `_applied/_lane/_laneDelta/_copy/items`), `state.selIds/selId`
-- **Key symbols:** `applySnap()`, `showSnap()`, `mediaById`, `seqDur`, `sepAuto`, `rebuildMaskTex`.
-- **Invariants / gotchas:** Single move picks the lane under cursor (same kind only); multi move applies a RELATIVE `_laneDelta` only if every destination lane exists and kind-matches. End edge snaps too — whichever edge is nearer wins. Undo recorded only if something actually changed. Alt = copy (Premiere); Ctrl is free.
+- **State owned:** `drag` (fields `_applied/_lane/_laneDelta/_copy/items/primaryIds`), `state.selIds/selId`
+- **Key symbols:** `applySnap()`, `showSnap()`, `mediaById`, `seqDur`, `sepAuto`, `rebuildMaskTex`, `cutOverlapsOnDrop()` **[R223]**.
+- **Invariants / gotchas:** Single move picks the lane under cursor (same kind only); multi move applies a RELATIVE `_laneDelta` only if every destination lane exists and kind-matches. End edge snaps too — whichever edge is nearer wins. Undo recorded only if something actually changed. Alt = copy (Premiere); Ctrl is free. **[R223]** "single vs multi" se mide con `drag.primaryIds.size` (la selección real), no con `items.length` — `items` también trae al partner A/V enlazado, marcado `linked:true`, que se mueve en horizontal pero NUNCA cambia de pista (ni su ghost). Al soltar, `cutOverlapsOnDrop(ids)` recorta lo que se haya pisado: solape = corte, nunca fundido automático.
 - **Status:** ✅
 - **Roadmap:** —
+
+## Solape = corte no destructivo — cutOverlapsOnDrop() **[R223]**
+- **Purpose:** estilo Ableton/Premiere-overwrite: al soltar (mover, copiar, redimensionar o soltar desde el bin) un clip que pisa a otro **en la misma pista**, el clip QUIETO se recorta por el borde invadido — **no hay fundido automático** (el crossfade pasó a ser el gesto explícito del handle de fade, ver *Fades*). El recorte es **no destructivo**: sólo cambia `start/dur/inP`, así que mover el intruso y re-arrastrar el borde recupera el material.
+- **Location:** app.js · `cutOverlapsOnDrop()` · helpers `_cutEdgeTo()` / `_dropClip()` / `CUT_MIN`. Llamadas: `onTLUp()` (move, copia y `trimL/trimR`) y el `up` de `startMediaDrag` (soltar desde el bin).
+- **State owned:** `state.clips` (recorta, PARTE y elimina clips), `state.selId/selIds` (limpia los ids eliminados).
+- **Key symbols:** cuatro casos según cómo se solapan — tapa completa → `_dropClip` (el viejo desaparece) · entra por la izquierda → `_cutEdgeTo(oc,'L',mcEnd)` · por la derecha → `_cutEdgeTo(oc,'R',mcStart)` · **cae dentro** → `razorCore(oc,mcStart)` + recorte izquierdo del resto = **dos restos**, como el overwrite de Premiere. `flashStatus` avisa y menciona el gesto del crossfade.
+- **Invariants / gotchas:** `movedIds` = lo que acaba de moverse/crecer; esos clips **no se cortan entre sí**, sólo cortan a los quietos. `_cutEdgeTo` delega en **`trimItem`** a propósito: así hereda gratis los límites de origen y el rebase de keyframes con keyframe de frontera (recortar a mano `start/inP` descolgaba la automatización del material). Un resto menor que `CUT_MIN` (50 ms) se elimina en vez de dejar un muñón de dos frames que además seguiría solapando. El resto derecho de un split nace **suelto** (`delete link/avRole`): tres clips con el mismo `link` harían que `linkPartner` eligiera al azar. `_dropClip` también limpia el `link` del superviviente. **Nunca se llama desde `startFadeDrag`** — ahí el solape es intencionado.
+- **Status:** ✅
+- **Ticket:** [R223] Etapa 1
 
 ## Contextual trim — trimZone / applyTrim (ripple/roll/slip/slide)
 - **Purpose:** One trim tool (T); the cursor's zone inside the clip selects the trim kind: free edge = ripple, edge touching a neighbour = roll, title band = slide, body = slip. Source limits honoured exactly.
@@ -677,14 +688,14 @@ separate subsystem — only cross-references appear here.
 - **Status:** ✅
 - **Roadmap:** [T2]
 
-## Fades — startFadeDrag()
-- **Purpose:** Drag the `.fadeh` corner handle inward to set `fadeIn`/`fadeOut`; applies to every selected clip. Fade is drawn as the real opacity-envelope polyline (`.fadeenv` SVG) over the clip.
-- **Location:** app.js · `startFadeDrag()` (L2485–2489). Fade rendering in `renderTimeline` (L1913–1919). Handles `.fadeh.fadeL/.fadeR` (L1926).
-- **State owned:** `c.fadeIn`, `c.fadeOut`
-- **Key symbols:** `refreshInspector()` on up; envelope polyline points computed from `fiPx/foPx`.
-- **Invariants / gotchas:** `nf` clamped to `[0, c.dur]`. Multi-clip fade when >1 selected. `stopPropagation` prevents starting a move.
+## Fades + crossfade manual — startFadeDrag()
+- **Purpose:** dos gestos en el MISMO handle `.fadeh`. **(a) Fundido:** arrastrarlo hacia DENTRO fija `fadeIn`/`fadeOut` (a todos los clips seleccionados); se dibuja como la envolvente real de opacidad (`.fadeenv` SVG). **(b) [R223] Crossfade manual estilo Ableton:** con UN solo clip seleccionado, arrastrarlo hacia FUERA, sobre el corte con el vecino de la misma pista, hace crecer el clip hacia él y crea el fundido cruzado — reajustable (volver a arrastrar) y eliminable (arrastrar de vuelta al punto de contacto). Es la ÚNICA forma de tener un crossfade: el solape crudo ahora se corta (ver *Solape = corte*).
+- **Location:** app.js · `startFadeDrag()` · `crossfadeNeighbor(cc,which)`. Pintado del fade en `renderTimeline`; handles `.fadeh.fadeL/.fadeR`; chapa `.xfade` (X estilo Ableton) sobre el solape.
+- **State owned:** `c.fadeIn`, `c.fadeOut` y, en el camino de crossfade, `c.start/dur/inP/kf/anim` del clip y los fundidos del vecino + del partner A/V enlazado.
+- **Key symbols:** `xf` = estado congelado del gesto (`touchEdge`, `extPrev`, `plainDur`, `inPTouch`, `maxExt`, `f0eff`, `kfBase`, `ppBase`). `rebaseKf` (rebase de keyframes al crecer por la izquierda) · `mirrorLink` → `_mirrorLinkTrim`. `refreshInspector()` + `reschedAudio()` + `markDirty()` al soltar.
+- **Invariants / gotchas:** **Vídeo vs audio:** en vídeo el dissolve lo da el SOLAPE GEOMÉTRICO (`compositeClips` ya lo hacía y se reutiliza tal cual) → `fadeIn/fadeOut` se quedan en **0**; en audio no existe ese mecanismo, así que ahí SÍ se usan los fundidos, espejados con el vecino → ganancia cruzada equal-gain (suma 1 en todo el cruce). Un clip de vídeo con audio enlazado hace las dos cosas: geometría en la imagen y ganancia cruzada en su mitad de audio. **Todo se mide contra el estado de CONTACTO**, no contra el actual: `inPTouch = inP + extPrev·speed` (crecer por la izquierda GASTA `inP`, volver lo DEVUELVE — con el signo al revés reajustar un crossfade perdía material hasta dejar `inP=0`, es decir mostrando otro trozo de la fuente) y `room` se mide desde ahí, de modo que a `maxExt` **no** se le suma `extPrev`. **`crossfadeNeighbor` exige que el candidato esté REALMENTE a ese lado** (empezar después de `cc.start` para el `fadeOut`, antes para el `fadeIn`): sin esa guarda un `gap` muy negativo hacía ganar a un clip del otro lado y el arrastre estiraba el clip diez segundos. Límites del crossfade: material propio disponible **y** el largo del vecino (`nb.dur-0.05`, que además conserva el orden A→B del que depende `compositeClips`). `extPrev>0` → `f0eff=-extPrev` (geométrico), porque en vídeo `fadeOut` no refleja el solape y sin esto el handle saltaba al reagarrarlo. Multi-selección (>1 clip) mantiene el gesto clásico, sin vecino. `stopPropagation` evita que arranque un move.
 - **Status:** ✅
-- **Roadmap:** —
+- **Ticket:** [R223] Etapa 1
 
 ## Razor & split
 - **Purpose:** Razor tool cuts a clip wherever clicked (snapped); live cut-line preview follows the mouse. Ctrl+E splits every clip crossing the time-selection/playhead. Keyframes/beziers subdivided at the cut for value continuity.
@@ -745,10 +756,10 @@ separate subsystem — only cross-references appear here.
 - **Purpose:** Named time markers drawn as dashed lines across tracks + labelled flags on the ruler; add / jump / rename / delete.
 - **Location:** app.js · `addMarker()` (L2196), `jumpMarker()` (L2206), marker lines in `renderTimeline` (L1981), inline rename `renameLocatorInline` (L2549), transport buttons (L5646), ruler context menu (L5930).
 - **State owned:** `state.markers[]` (`{id,time,name,color}`), `state.selMarkerId`
-- **Key symbols:** `#addMk` (single button, as in the design); `,` / `.` jump prev/next locator; dashed line z-index 5.
-- **Invariants / gotchas:** Markers are a snap target. Add drops straight into inline rename (deferred a tick so the triggering key doesn't type into the field). NOTE: `serProject` currently serializes `markers:[]` at top level (L5230) — active-sequence markers live in the nest media.
+- **Key symbols:** `#addMk` (single button, as in the design); `,` / `.` jump prev/next locator; dashed line z-index 5. Banderín + etiqueta dibujados por `drawRuler`.
+- **Invariants / gotchas:** Markers are a snap target. Add drops straight into inline rename (deferred a tick so the triggering key doesn't type into the field). NOTE: `serProject` currently serializes `markers:[]` at top level (L5230) — active-sequence markers live in the nest media. **[R223] los locators se dibujan en la MITAD INFERIOR de la regla** (banderín en y=14..20, tallo desde y=12 hasta `RULER_H`, etiqueta en y=17): arriba competían con los ticks y las etiquetas de timecode. **[R223] `state.selMarkerId` es una selección EXCLUSIVA** con el clip/pista, porque `renameSelection` (Ctrl+R) da prioridad al locator sobre el clip: seleccionar/crear/renombrar un locator apaga `selId/selIds/selGroupId/selLane`, y **cualquier `pointerdown` en el cuerpo del timeline** (más la cabecera de pista y el Enter/Space sobre un clip) apaga `selMarkerId`. Sin eso, un locator viejo seguía "seleccionado" y Ctrl+R renombraba el locator en vez del clip recién elegido.
 - **Status:** ✅
-- **Roadmap:** —
+- **Ticket:** [R223] Etapa 1 (posición + bug de Ctrl+R)
 
 ## Sequence tabs (#seqTabs) — renderSeqBar
 - **Purpose:** Premiere-style tabs for open sequences/nests; click to switch, dblclick rename, right-click options, ✕ to close, ＋ to create, **drag to reorder** ([R3]).
@@ -1886,9 +1897,9 @@ Bootstrap constants (app.js): `HAS_WC` (~L1259) = WebCodecs + Mp4Muxer present; 
 - **Purpose:** The single popup-menu primitive used everywhere (media, timeline, folders, NDI, ruler, app menus). Keyboard-navigable; supports separators, danger items, shortcut glyphs, and an inline color-swatch row.
 - **Location:** app.js · `openMenu(x,y,items)` (L5788-5806), `closeMenu()` (L5785), `fmtKey(s)` (L5787). Outside-click close L5807.
 - **Key symbols:** item = `{label,fn,ico?,key?,danger?}` | `'sep'` | `{swatches:{cur,onPick,onClear}}`. Auto-repositions if it overflows the viewport; focuses the first enabled item; Arrow/Home/End/Esc handled inside (stopPropagation).
-- **Invariants / gotchas:** `fmtKey` rewrites ⌘/⇧/⌥ to Ctrl+/Shift+/Alt+ on non-Mac (the app is Windows).
+- **Invariants / gotchas:** `fmtKey` rewrites ⌘/⇧/⌥ to Ctrl+/Shift+/Alt+ on non-Mac (the app is Windows). **[R223] los swatches de color son CUADRADOS de 18×18** en los tres sitios que los muestran — la fila inline de `openMenu({swatches})` y el popup `colorPopup` (que sirve tanto a `openLaneColorPopup` como a `openClipColorPopup`). **Gotcha:** hay que declarar `min-height:18px` en el estilo inline; la regla global `.menu button{min-height:26px}` alargaba el cuadrado a un rectángulo vertical y `height:18px` sola no la vencía. El botón "Default (no color)" es texto, no swatch, y sí es rectangular a propósito.
 - **Status:** ✅
-- **Roadmap:** —
+- **Ticket:** [R223] Etapa 1 (swatches cuadrados)
 
 ## Command palette / help (Ctrl+K / F1 / ?)
 - **Purpose:** Searchable list of all commands + shortcuts across 9 categories; the `?` button and F1/? open it.
