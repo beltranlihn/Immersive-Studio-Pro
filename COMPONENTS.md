@@ -45,6 +45,7 @@
 | `resize()` | Dimensiona #gl/#grid al #stage con DPR | app.js · `resize` (~L1233) · #stage | ✅ | — |
 | Render-ahead cache | Cache de composite plano para playback pesado | app.js · `_raOn`/`raInvalidate`/`drawCacheMap` (~L801) | ✅🚧 flag-off | — |
 | `markDirty()` (hub) | Marca dirty + título + invalida render-ahead | app.js · `markDirty` (~L4900) | ✅ | — |
+| Pill "Preparing media…" | Overlay 2D+3D si algún clip de vídeo activo no tiene textura aún | app.js · `mediaWarming`/`drawPreparingPill`/`clipTexReady` (~L1116) | ✅ | [R220] |
 
 ### 3 · Timeline, herramientas & clips/lanes → [detalle](#3--timeline-herramientas--clipslanes-detalle)
 | Componente | Qué hace | Ubicación | Estado | Roadmap |
@@ -353,7 +354,7 @@ Constants (L3): `PI`, `HALF_PI=PI/2`, `D2R`, `R2D`, `COMP=2048` (dome composite 
 ## P3 — 3D dome mesh program (VS3/FS3)
 - **Purpose:** Renders the composite master onto a 3D spherical-cap mesh for the dome preview (orbit/viewer), with grid overlay + spring-line rim + horizon fade.
 - **Location:** app.js · `VS3` (~L372), `FS3` (~L375), `P3=prog(VS3,FS3)` (~L389) · draws via `domeVAO`
-- **Key symbols:** `P3` (~L389), `L3` struct (~L390), `buildDomeMesh(covHalf)` (~L396, cached by `_domeCov`; R=64 rings × S=256 segments), `domeVAO`/`domeCount`/`_domeVB` (~L391), initial `buildDomeMesh(HALF_PI)` (~L409)
+- **Key symbols:** `P3` (~L389), `L3` struct (~L390), `buildDomeMesh(covHalf)` (~L396, cached by `_domeCov`; R=64 rings × S=256 segments), `domeVAO`/`domeCount`/`_domeVB` (~L391), initial `buildDomeMesh(HALF_PI)` (~L409). Screen-space FRONT/RIGHT/BACK/LEFT/ZENITH card labels for this viewer are a separate 2D-overlay function, `drawLabels3D(mvp,spec)` (app.js ~L1589) — also where the [R220] "Preparing media…" pill is painted for this viewer (first thing, right after `clearRect`).
 - **Invariants / gotchas:** `u_flipx` = the ONE intentional 2D↔3D handedness inversion — do NOT "fix" it. Mesh UV (`rho=rr`) is coverage-independent; only cap geometry (`zen=rr·covHalf`) changes → coverage switch just re-uploads the VB. S=256 so the rim polygon hides facets ([R94f]). Rim/spring line is thin GREY (was amber) per [U4] (FS3 ~L386).
   **[R198] `u_rimDeg` — la línea de borde sigue al ángulo del domo.** El contorno del borde se dibujaba a `90.0` grados cenitales clavados, pero el borde de la malla está en `cov/2` (110° en un domo de 220°): en cualquier domo >180° la línea se quedaba en el horizonte con la superficie siguiendo por fuera. Ahora `u_rimDeg=curCovDeg()`, escrito en los DOS sitios que usan `P3` (`render` y `renderViewer`) + un valor por defecto de 90 tras enlazar el programa (un uniforme nunca escrito vale 0 → la línea saldría en el cenit). Medido por CDP proyectando el punto del casquete a cada ángulo cenital: la banda clara (gris 82, frente a 21-41 de una línea de rejilla) pasa de 90° a 100° en un domo de 200° y a 110° en uno de 220°; en 180° no cambia nada.
 - **Status:** ✅ stable
@@ -520,6 +521,15 @@ Constants (L3): `PI`, `HALF_PI=PI/2`, `D2R`, `R2D`, `COMP=2048` (dome composite 
 - **State owned:** `state.dirty`.
 - **Key symbols:** `state.dirty=true; projTitle(); raInvalidate();`.
 - **Invariants / gotchas:** Does NOT itself call `render()` — callers still must. Note `hasKf()` returns `undefined` (not false) → use `!!hasKf(...)` for WebIDL toggles.
+- **Status:** ✅
+- **Roadmap:** —
+
+## [R220] "Preparing media…" pill — mediaWarming/drawPreparingPill/clipTexReady
+- **Purpose:** Discreet centered-top overlay telling the user a video (or nest-cache) clip active at the current playhead doesn't have a texture yet (decoder still spinning up). Shown in BOTH the 2D viewers (dome disc, flat, room strip) and the 3D viewers (dome orbit/spec, room orbit/stand).
+- **Location:** app.js · `clipTexReady(c,m)` (~L1119) · `mediaWarming()` (~L1128) · `armWarmTimer()` (~L1144) · `drawPreparingPill()` (~L1147). Called from `drawRoomLabels3D` (~L1153), `drawLabels3D` (~L1200-ish, dome 3D), and `drawGrid2D()` (both the `isFlat()` early-return branch and its final line, ~L1563/1577).
+- **State/data:** module cache `_warmCache={t,gen,ts,val}`, single-flight timer `_warmTimer`, pill width cache `_pillW`/`_pillWLang`. Reads `state.playhead`, `_raGen`, `state.clips/lanes`, room `floorSeqId`.
+- **Key symbols:** `clipTexReady(c,m)` — single source of truth for "is this clip's texture actually ready", mirrors the `ntex` branching `drawClip()` does at its own top (~L815) so the hot draw path and this check can't drift apart. `mediaWarming()` — memoized: recomputes `collectDrawnVideoClips()` (O(lanes×clips log clips) via `compositeClips`) only when `state.playhead` OR `_raGen` changed, OR when >250ms elapsed since the last compute (catches a decoder finishing mid-pause with the playhead not moving); otherwise returns the cached bool. At rest with media ready this is ≈free (was: recomputed on every overlay repaint, TWICE per frame in rooms with a floor). `armWarmTimer()` — since nothing else repaints while idle once warming ends (e.g. `addVideo` doesn't call `render()`), arms a single `setTimeout(300ms)` that calls `render()`; `render()` re-evaluates `mediaWarming()`, which either re-arms the same cycle (still warming) or lets it die (pill gone, no user interaction needed). Skipped while `exporting`/`glLost`. `lchShowing()` (app.js ~L2611) gates the 2D pill — checks `document.getElementById('landingOv')`, NOT the `_lch` module var (which is set once at first launcher init and never nulled back, so `!_lch` alone would permanently suppress the pill after the app's first boot — caught during R220 CDP verification).
+- **Invariants / gotchas:** Don't change `drawClip`'s `ntex` branching without mirroring it in `clipTexReady`. The 3D call sites paint the pill FIRST (right after `clearRect`, before grid/labels); the 2D call sites paint it LAST (after all overlay drawing) so it sits on top — same visual outcome, different code shape, intentional per R220 ticket (only the 2D path needed the explicit ordering fix).
 - **Status:** ✅
 - **Roadmap:** —
 
@@ -1440,7 +1450,7 @@ Reference map of `app.js` (single-file WebGL2 renderer). Line numbers verified a
 - **Location:** app.js · `drawRoomLabels3D(mvp)` (~L887)
 - **State/data:** `state.view.showGrid`, `_roomGeo.norm`, `roomPlan(room.walls)`
 - **Key symbols:** `proj3`, affine-decal `setTransform` for perspective-correct labels, `ROOM_GRID_COLS/ROWS`, **[R201] `labelWallFrac(room,seq,role)`**
-- **Invariants / gotchas:** No-op if grid off or `_roomGeo` missing.
+- **Invariants / gotchas:** No-op if grid off or `_roomGeo` missing. **[R220]** paints the "Preparing media…" pill (`if(mediaWarming())drawPreparingPill()`) first thing, right after `clearRect` — before the grid lines below it; see the dedicated [R220] entry under §2 for how `mediaWarming()` is memoized and self-clears.
 - **[R201] El rótulo ocupa del muro lo mismo que en el lienzo 2D.** Era `wv=0.03` fijo (3% del alto del muro) y en el panel del launcher salía **tres veces más pequeño** que el rótulo del lienzo cosido de al lado. No vale una constante: en el 2D el rótulo es un tamaño FIJO de pantalla (11px, es una guía superpuesta) sobre un muro que sí escala, así que su proporción depende del panel — medida, va de 0,039 a 0,164 según tamaño y zoom. `labelWallFrac` replica el encaje del visor 2D (la tira cabe a lo alto o a lo ancho según el aspecto, por `view.zoom`) y devuelve `11/altoDelMuroEnPantalla`, con topes [0,012 · 0,25] para zooms extremos. Verificado a cuatro tamaños de panel contra la proporción REAL medida por otro camino (`flatMap`): coinciden en los cuatro dentro del 2%.
 - **Nota de comportamiento:** el rótulo va PINTADO en la cara interior del muro, así que el muro que tienes delante (que se ve por fuera y translúcido) lo muestra **espejado**, como el rótulo de un escaparate visto desde la calle. Es correcto geométricamente, pero desde R201 se lee mucho más porque el rótulo es 3× mayor.
 - **Status:** ✅

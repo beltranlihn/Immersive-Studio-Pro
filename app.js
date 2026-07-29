@@ -812,7 +812,7 @@ function drawClipFlat(c,m,t,xf,ntex,op){ const P=flatPlace(c,m,t);
   if(mw&&mw.length){ gl.enable(gl.SCISSOR_TEST); for(const r of mw){ gl.scissor(r.x,r.y,r.w,r.h); drawCopies(); } gl.disable(gl.SCISSOR_TEST); } else drawCopies();
   if(bm!=='normal')NORMAL_BLEND(); gl.bindVertexArray(null); }
 function drawClip(c,m,t,xf){
-  if(!m) return; let ntex; if(isSeqMedia(m)) ntex=(c._ntex||m.tex); else if(m.kind==='video'){ const vi=_vinst.get(c.id); ntex=(vi&&vi.ready&&vi.vtex)?vi.vtex:m.tex; } else ntex=m.tex; if(!ntex) return; // nests sample their per-clip pool tex; videos sample their PER-CLIP decode tex so duplicated clips show different frames (fallback m.tex until the private decoder has its first frame)
+  if(!m) return; let ntex; if(isSeqMedia(m)) ntex=(c._ntex||m.tex); else if(m.kind==='video'){ const vi=_vinst.get(c.id); ntex=(vi&&vi.ready&&vi.vtex)?vi.vtex:m.tex; } else ntex=m.tex; if(!ntex) return; // nests sample their per-clip pool tex; videos sample their PER-CLIP decode tex so duplicated clips show different frames (fallback m.tex until the private decoder has its first frame) — [R220] this readiness branching is mirrored by clipTexReady(), keep both in sync
   if(m.kind==='sequence'&&m.frames&&m.frames.length){ const idx=Math.max(0,Math.min(m.frames.length-1,Math.floor(srcT(c,t)*(m.fps||24)))); if(idx!==m._curFrame&&m.frames[idx]){ upTex(m.tex,m.frames[idx]); m._curFrame=idx; } }
   if(c.props.fisheye) ntex=applyFisheye(ntex, fxChainSize(), c); // R83: flat→fisheye pre-warp (before FX + dome placement) so flat clips gain the curvature a dome master needs
   if(hasFx(c)) ntex=applyChain(ntex, fxChainSize(), c, t); // Reactive FX: run the audio-reactive chain on the clip texture before dome/2D placement (dome+flat agnostic; deterministic in export)
@@ -1113,19 +1113,40 @@ function buildRoomGeo(seq){ const room=seq.room; const plan=roomPlan(room.walls)
   gl.enableVertexAttribArray(LR.shade); gl.vertexAttribPointer(LR.shade,1,gl.FLOAT,false,32,20);
   gl.enableVertexAttribArray(LR.nrm); gl.vertexAttribPointer(LR.nrm,2,gl.FLOAT,false,32,24); gl.bindVertexArray(null);
   _roomGeo={ wallVerts, floorVerts, norm:{ cx,cy,sc, midZ:(maxH*0.5)*sc, standZ:Math.min(maxH*0.95,1.7)*sc, radius:rad*sc } }; _roomGeoSeq=seq.id; }
-/* [R219] cheap check for the 3D viewers' "Preparing media…" pill: is any video (or nest-cache) clip active at the CURRENT
+/* [R220] shared "is this clip's texture actually ready" predicate — mirrors the ntex branching drawClip does at its
+   top (~L815) so mediaWarming() and the hot draw path can't silently drift apart. A static fallback (m.tex) counts
+   as ready; only a totally blank clip (no decoder frame yet, no fallback) is "not ready". */
+function clipTexReady(c,m){ if(!m)return false; if(isSeqMedia(m))return !!(c._ntex||m.tex); if(m.kind==='video'){ const vi=_vinst.get(c.id); return !!((vi&&vi.ready&&vi.vtex)||m.tex); } return !!m.tex; }
+/* [R219] cheap check for the viewers' "Preparing media…" pill: is any video (or nest-cache) clip active at the CURRENT
    playhead still without a texture? Reuses collectDrawnVideoClips (same "active clips" resolution play()/motionTick already
-   use) so this stays O(active clips), no extra allocation beyond what that helper already does. A static fallback frame
-   (m.tex) counts as "ready enough" — only a totally blank clip (no decoder frame yet, no fallback) counts as warming. */
+   use). [R220] memoized: collectDrawnVideoClips is O(lanes×clips log clips) via compositeClips, so recomputing it on
+   every overlay repaint (and TWICE per frame in rooms with a floor) was the real cost. Cache keyed on the playhead +
+   the render-ahead generation counter, recomputed only when either changes OR >250ms have elapsed since the last
+   compute (so a decoder finishing mid-pause without the playhead moving still gets picked up). At rest with media
+   ready this is ~free. */
+let _warmCache={t:null,gen:null,ts:0,val:false}, _warmTimer=0;
 function mediaWarming(){
-  const warm=(clips,lanes)=>{ if(!clips||!lanes)return false; for(const {c,m} of collectDrawnVideoClips(clips,lanes,state.playhead,0,[])){ const vi=_vinst.get(c.id); if(!(vi&&vi.ready&&vi.vtex)&&!m.tex)return true; } return false; };
-  if(warm(state.clips,state.lanes))return true;
-  if(isRoom()){ const seq=activeSeq(); const room=seq&&seq.room;
-    if(room&&room.floorSeqId){ const fm=mediaById(room.floorSeqId); if(fm&&isSeqMedia(fm)&&warm(fm.nestClips||[],(fm.nestLanes&&fm.nestLanes.length?fm.nestLanes:defLanes())))return true; } }
-  return false; }
+  const now=(typeof performance!=='undefined'?performance.now():Date.now()); const wc=_warmCache; let val;
+  if(wc.t===state.playhead && wc.gen===_raGen && (now-wc.ts)<250){ val=wc.val; }
+  else{
+    const warm=(clips,lanes)=>{ if(!clips||!lanes)return false; for(const {c,m} of collectDrawnVideoClips(clips,lanes,state.playhead,0,[])){ if(!clipTexReady(c,m))return true; } return false; };
+    val=warm(state.clips,state.lanes);
+    if(!val&&isRoom()){ const seq=activeSeq(); const room=seq&&seq.room;
+      if(room&&room.floorSeqId){ const fm=mediaById(room.floorSeqId); if(fm&&isSeqMedia(fm)&&warm(fm.nestClips,(fm.nestLanes&&fm.nestLanes.length?fm.nestLanes:defLanes())))val=true; } }
+    _warmCache={t:state.playhead,gen:_raGen,ts:now,val};
+  }
+  if(val)armWarmTimer();
+  return val; }
+/* [R220] nothing else repaints while idle once warming ends (e.g. addVideo doesn't call render()), so without this
+   the pill could stay stuck on screen until the next user interaction. Arms a single module-level timer (no stacking)
+   that re-renders once; render() re-evaluates mediaWarming(), which either re-arms this same cycle (still warming)
+   or lets it die (no longer warming, pill gone). Skipped during export/lost-context — nothing should repaint there. */
+function armWarmTimer(){ if(_warmTimer||exporting||glLost)return; _warmTimer=setTimeout(()=>{ _warmTimer=0; try{render();}catch(e){} },300); }
 /* discreet centered-top pill, same visual language as the wall-role labels — shown while mediaWarming() is true */
+let _pillW=0,_pillWLang=null;
 function drawPreparingPill(){ const lbl=T('Preparing media…','Preparando medios…'); gx.font='11px Geist'; gx.textAlign='center'; gx.textBaseline='middle';
-  const tw=Math.max(1,gx.measureText(lbl).width); const cx=view.cw/2, cy=22;
+  if(_pillWLang!==state.lang){ _pillW=Math.max(1,gx.measureText(lbl).width); _pillWLang=state.lang; } // [R220] cache the measured width — invalidated only when the language changes (no setLang/applyLang hook to piggyback on)
+  const tw=_pillW, cx=view.cw/2, cy=22;
   gx.fillStyle='rgba(6,7,9,0.55)'; gx.fillRect(cx-tw/2-8,cy-10,tw+16,20);
   gx.fillStyle='rgba(196,201,208,0.82)'; gx.fillText(lbl,cx,cy); }
 /* project the room's wall grid (3×4 subdivision, proportional) + per-wall role labels onto the 2D overlay, using the same 3D camera matrix. Gated by the Grid toggle. */
@@ -1539,7 +1560,7 @@ function drawRoomGrid2D(){ const as=activeSeq(); const room=as&&as.room; if(!roo
 }
 function drawGrid2D(){
   gx.clearRect(0,0,view.cw,view.ch);
-  if(isFlat()){ drawFlatFrame(); if(isRoom())drawRoomGrid2D(); if(state.view.showOutline)drawOutline2D(); drawFlatHandles(); return; }
+  if(isFlat()){ drawFlatFrame(); if(isRoom())drawRoomGrid2D(); if(state.view.showOutline)drawOutline2D(); drawFlatHandles(); if(!lchShowing()&&mediaWarming())drawPreparingPill(); return; } // [R220] 2D viewers get the same indicator as the 3D ones; skip while the landing/launcher overlay sits on top (harmless either way — the launcher's own offscreen shots clear state.clips so mediaWarming() is false there regardless)
   const c0=f2pix(0,0), e=f2pix(1,0); const R=Math.hypot(e[0]-c0[0],e[1]-c0[1]);
   gx.lineWidth=1; gx.strokeStyle='rgba(255,255,255,0.14)'; gx.beginPath(); gx.arc(c0[0],c0[1],R,0,7); gx.stroke();
   if(state.view.showGrid){
@@ -1553,6 +1574,7 @@ function drawGrid2D(){
     for(const [t,a,el,col] of card){const f=azel2f(a, el); const p=f2pix(f[0]*1.07,f[1]*1.07); gx.fillStyle=col; gx.fillText(t,p[0],p[1]);}
   }
   if(state.view.showOutline) drawOutline2D();
+  if(!lchShowing()&&mediaWarming())drawPreparingPill(); // [R220] painted last so it sits on top of the disc/grid/labels, same as the 3D viewers
 }
 function drawOutline2D(){
   const c=selClip(); if(!c)return; const m=mediaById(c.mediaId); if(!m||m.kind==='audio')return; // audio clips have no dome/flat presence — never outline them
@@ -2586,6 +2608,7 @@ function projThumb(){ try{ if(!glc.width)return null; const w=200, h=Math.max(1,
 function addRecent(path,thumb){ if(!path||!IS_ELEC)return; const base=(DSP.basename?DSP.basename(path):(path.split(/[\\/]/).pop()||path)); const name=base.replace(/\.(isp|ise|rdome)$/i,''); const folder=path.replace(/[\\/][^\\/]*$/,''); const prev=getRecents().find(r=>r.path===path); const a=getRecents().filter(r=>r.path!==path); a.unshift({path,name,folder,t:Date.now(),thumb:thumb||(prev&&prev.thumb)||null}); saveRecents(a); }
 function relTime(ts){ if(!ts)return ''; const d=(Date.now()-ts)/1000; if(d<60)return T('just now','ahora mismo'); if(d<3600)return Math.floor(d/60)+' min'; if(d<86400)return Math.floor(d/3600)+' h'; if(d<604800)return Math.floor(d/86400)+' d'; try{return new Date(ts).toLocaleDateString();}catch(e){return '';} }
 function hideLanding(){ const o=document.getElementById('landingOv'); if(o){ if(o._stopLogo)o._stopLogo(); o.remove(); } }
+function lchShowing(){ return !!document.getElementById('landingOv'); } // [R220] `_lch` itself is set once at first init and never nulled back — the DOM node is the real "is the launcher on screen right now" signal (same check renderLauncher/lchPaintNow/lchPaint3D already use)
 /* [U9] loading screen with the logo loop — shown while a project opens and its media/proxies buffer */
 let _loadingOv=null,_loadingStop=null,_loadingPoll=0,_loadingLoops=0;
 const LOADING_MIN_LOOPS=2; // [R134] the logo loop plays at least twice before the project is revealed
