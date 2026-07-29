@@ -307,11 +307,19 @@ function parseCubeLUT(text){ let size=0; const vals=[];
   const d=new Uint8Array(size*size*size*4); // .cube order = R fastest → matches texImage3D (x=r fastest)
   for(let i=0,j=0;i<size*size*size;i++){ for(let k=0;k<3;k++)d[j++]=Math.max(0,Math.min(255,Math.round(vals[i*3+k]*255))); d[j++]=255; }
   return {size,data:d}; }
-async function loadLUT(path){ if(!path)return null; if(_lutReg.has(path))return _lutReg.get(path); if(!(IS_ELEC&&DSP.readText))return null;
+const LUT_CAP=16; // [R213] tope LRU del registro de texturas 3D de LUT — evita crecer sin límite proyecto tras proyecto
+async function loadLUT(path){ if(!path)return null;
+  if(_lutReg.has(path)){ const rec=_lutReg.get(path); _lutReg.delete(path); _lutReg.set(path,rec); return rec; } // [R213] Map preserva orden de inserción → reinsertar al usar la mueve al final ("más reciente")
+  if(!(IS_ELEC&&DSP.readText))return null;
   let txt=null; try{ txt=await DSP.readText(path); }catch(e){} if(txt==null)return null;
   const parsed=parseCubeLUT(txt); if(!parsed)return null;
-  const name=path.split(/[\\/]/).pop().replace(/\.cube$/i,''); const rec={tex:makeLutTex(parsed.data,parsed.size),size:parsed.size,name,path}; _lutReg.set(path,rec); return rec; }
-function bindClipLUT(c,L){ L=L||LW; const rec=(c&&c.props&&c.props.lut)?_lutReg.get(c.props.lut):null; // set the LUT uniforms + bind on unit 2 (identity when none, so the sampler stays valid). L = target program's uniform struct (LW warp / LFD fulldome / LEQ equirect) → same grade chain on every dome path
+  const name=path.split(/[\\/]/).pop().replace(/\.cube$/i,''); const rec={tex:makeLutTex(parsed.data,parsed.size),size:parsed.size,name,path}; _lutReg.set(path,rec);
+  if(_lutReg.size>LUT_CAP){ const oldestKey=_lutReg.keys().next().value; const old=_lutReg.get(oldestKey); try{ gl.deleteTexture(old.tex); }catch(e){} _lutReg.delete(oldestKey); } // [R213] expulsa la menos usada recientemente (primera del Map)
+  return rec; }
+function resetLutReg(){ for(const rec of _lutReg.values()){ try{ gl.deleteTexture(rec.tex); }catch(e){} } _lutReg.clear(); } // [R213] libera las texturas 3D de LUT del proyecto anterior — llamar donde se resetea el resto del estado GL
+const _lutLoading=new Set(); // [R213] evita relanzar DSP.readText en cada frame mientras una LUT expulsada se recarga
+function bindClipLUT(c,L){ L=L||LW; const lutPath=c&&c.props&&c.props.lut; const rec=lutPath?_lutReg.get(lutPath):null; // set the LUT uniforms + bind on unit 2 (identity when none, so the sampler stays valid). L = target program's uniform struct (LW warp / LFD fulldome / LEQ equirect) → same grade chain on every dome path
+  if(lutPath&&!rec&&!_lutLoading.has(lutPath)){ _lutLoading.add(lutPath); loadLUT(lutPath).then(()=>{ _lutLoading.delete(lutPath); if(_raOn)raInvalidate(); try{render();}catch(e){} }).catch(()=>{ _lutLoading.delete(lutPath); }); } // [R213] LUT expulsada del caché pero aún asignada a un clip visible → recarga perezosa en segundo plano (mientras tanto degrada a identidad)
   gl.uniform1f(L.hasLut, rec?1:0); gl.uniform1f(L.lutMix, rec?Math.max(0,Math.min(1,(c.props.lutMix==null?100:c.props.lutMix)/100)):0);
   gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_3D, rec?rec.tex:_lutIdentity); gl.uniform1i(L.lut,2); gl.activeTexture(gl.TEXTURE0);
   bindClipGrade(c,L); } // R130: lift/gamma/gain wheels share the color-set call
@@ -526,6 +534,7 @@ const sphVAO=gl.createVertexArray(); let sphCount=0;
   gl.enableVertexAttribArray(LSPH.pos); gl.vertexAttribPointer(LSPH.pos,3,gl.FLOAT,false,12,0);
   const ib=gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ib); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint32Array(ix),gl.STATIC_DRAW);
   sphCount=ix.length; gl.bindVertexArray(null); })();
+const _mvpScratch=new Float32Array(16); // [R213] buffer de módulo reusado por todos los uniformMatrix4fv(mvp) por frame — evita un `new Float32Array` por llamada (domo/sala/visor emergente/esfera equirect; se suben secuencialmente, nunca a la vez)
 /* el clip equirect que manda en el instante t: el de la pista más alta, que es el que domina el composite */
 function equirectClipAt(t){ let mejor=null;
   for(const c of state.clips){ if(!c.props||!c.props.equirect)continue; if(t<c.start||t>=c.start+c.dur)continue;
@@ -535,7 +544,7 @@ function equirectClipAt(t){ let mejor=null;
 function drawEquirectSphere(mvp,t){ const c=equirectClipAt(t); if(!c)return false;
   const m=mediaById(c.mediaId); const tex=(m.kind==='video'&&_vinst.get(c.id)&&_vinst.get(c.id).vtex)||m.tex; if(!tex)return false;
   gl.useProgram(PSPH); gl.bindVertexArray(sphVAO);
-  gl.uniformMatrix4fv(LSPH.mvp,false,new Float32Array(mvp));
+  gl.uniformMatrix4fv(LSPH.mvp,false,(_mvpScratch.set(mvp),_mvpScratch));
   gl.uniform1f(LSPH.flipx,-1);
   gl.uniform1f(LSPH.yaw,(evalR(c,'az',t)+evalR(c,'spin',t))*D2R);
   gl.uniform1f(LSPH.pitch,(c.props.eqPitch||0)*D2R);
@@ -888,12 +897,19 @@ function f2azel(nx,ny){const r=Math.hypot(nx,ny); if(r<1e-6)return{az:0,el:90};
 function azel2f(az,el){const zen=(90-el)*D2R; const rho=zen/curCovHalf(); const h=az*D2R; return[rho*Math.sin(h), -rho*Math.cos(h)];}
 
 let exporting=false;
-let _scopesCv=null,_scopesT=0;
+let _scopesCv=null,_scopesT=0,_scopesBuf=null,_scopesBufW=0,_scopesBufH=0,_scopesKey=null; // [R213] _scopesBuf persiste entre llamadas; _scopesKey evita el readPixels si el frame no cambió
 function drawScopes(){ if(!state.view.showScopes){ if(_scopesCv)_scopesCv.style.display='none'; return; }
   const now=performance.now(); if(_scopesCv&&_scopesCv.style.display!=='none'&&now-_scopesT<120)return; _scopesT=now;
   if(!_scopesCv){ _scopesCv=document.createElement('canvas'); _scopesCv.width=256; _scopesCv.height=120; _scopesCv.style.cssText='position:fixed;z-index:50;border-radius:2px;box-shadow:0 4px 16px rgba(0,0,0,.5);pointer-events:none;background:rgba(8,9,11,.82);'; document.body.appendChild(_scopesCv); }
   const r=gridc.getBoundingClientRect(); _scopesCv.style.display='block'; _scopesCv.style.left=(r.left+10)+'px'; _scopesCv.style.top=(r.bottom-130)+'px';
-  const W=glc.width,H=glc.height, buf=new Uint8Array(W*H*4); try{ gl.readPixels(0,0,W,H,gl.RGBA,gl.UNSIGNED_BYTE,buf); }catch(e){ return; }
+  const W=glc.width,H=glc.height;
+  const key=state.playhead+':'+_raGen+':'+W+':'+H;
+  if(key!==_scopesKey){ // [R213] mismo frame que la última lectura → reusa _scopesBuf, se salta el readPixels síncrono
+    if(_scopesBufW!==W||_scopesBufH!==H){ _scopesBuf=new Uint8Array(W*H*4); _scopesBufW=W; _scopesBufH=H; } // realoca sólo si cambió el tamaño
+    try{ gl.readPixels(0,0,W,H,gl.RGBA,gl.UNSIGNED_BYTE,_scopesBuf); }catch(e){ return; }
+    _scopesKey=key;
+  }
+  const buf=_scopesBuf; if(!buf)return;
   const bins=64, hr=new Float32Array(bins),hg=new Float32Array(bins),hb=new Float32Array(bins);
   for(let i=0;i<buf.length;i+=28){ if(buf[i+3]<8)continue; hr[buf[i]>>2]++; hg[buf[i+1]>>2]++; hb[buf[i+2]>>2]++; }
   let mx=1; for(let k=0;k<bins;k++)mx=Math.max(mx,hr[k],hg[k],hb[k]);
@@ -1125,7 +1141,7 @@ function renderRoom3D(wallsTex){ const seq=activeSeq(); const room=seq&&seq.room
   let floorTex=null; if(room.floorSeqId){ const fm=mediaById(room.floorSeqId); if(fm&&isSeqMedia(fm))floorTex=compositeFloorTex(fm,1024); }
   gl.bindFramebuffer(gl.FRAMEBUFFER,null); gl.viewport(0,0,W,H); // compositeFloorTex rebinds → restore
   const cam=roomCameraMVP(state.view.three==='spec',W/H);
-  gl.useProgram(PR); gl.uniformMatrix4fv(LR.mvp,false,new Float32Array(cam.mvp)); gl.uniform3f(LR.base,0,0,0); gl.uniform1i(LR.tex,0); // wall bg = black (matches the 2D strip); content shows over it, grid overlay gives structure
+  gl.useProgram(PR); gl.uniformMatrix4fv(LR.mvp,false,(_mvpScratch.set(cam.mvp),_mvpScratch)); gl.uniform3f(LR.base,0,0,0); gl.uniform1i(LR.tex,0); // wall bg = black (matches the 2D strip); content shows over it, grid overlay gives structure
   gl.uniform3f(LR.cam,cam.eye[0],cam.eye[1],cam.eye[2]); gl.uniform1f(LR.outTex,state.view.roomOutTex?1:0); gl.uniform1f(LR.backA,0.17);
   gl.bindVertexArray(roomVAO); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,wallsTex);
   if(_roomGeo.wallVerts>0){ // pass 1: inside surfaces opaque (depth write) · pass 2: outside surfaces translucent (no depth write) → single composite, see-through from outside
@@ -1175,7 +1191,7 @@ function render(){ if(glLost)return;
        Se dibuja antes y sin escribir profundidad, para que el casquete siempre gane donde se solapan. */
     if(!spec){ gl.depthMask(false); try{ drawEquirectSphere(mvp,state.playhead); }catch(e){} gl.depthMask(true); }
     gl.useProgram(P3); gl.bindVertexArray(domeVAO);
-    gl.uniformMatrix4fv(L3.mvp,false,new Float32Array(mvp)); gl.uniform1f(L3.grid,state.view.showGrid?1:0);
+    gl.uniformMatrix4fv(L3.mvp,false,(_mvpScratch.set(mvp),_mvpScratch)); gl.uniform1f(L3.grid,state.view.showGrid?1:0);
     gl.uniform1f(L3.flipx, -1); // orbit + spec both use the in-dome (audience) handedness so Right/Left aren't mirrored between modes
     gl.uniform1f(L3.hfade, state.view.hfade?HFADE:0); gl.uniform1f(L3.rimDeg, curCovDeg()); // [R198] la línea de borde va donde acaba la malla, que es el ángulo del domo
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,_srcTex); gl.uniform1i(L3.master,0);
@@ -1240,7 +1256,7 @@ function renderViewer(srcTex){ const w=_viewerWin; if(!w||w.closed||!_viewerCtx|
     const _vFlat=_drawFlat, _vDome3D=(state.view.mode==='3d' && !_vFlat && !_roomWrap); // [V1] the pop-out mirrors the editor: 3D dome (its OWN orbit cam) ↔ 2D (flat rect / fisheye disc). Room-3D falls to the flat strip (its 2D representation).
     if(_vDome3D){ gl.enable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE); gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
       const mvp=cameraMVP(false,_viewerCam,rw/rh);
-      buildDomeMesh(curCovHalf()); gl.useProgram(P3); gl.bindVertexArray(domeVAO); gl.uniformMatrix4fv(L3.mvp,false,new Float32Array(mvp)); gl.uniform1f(L3.grid,_viewerGrid?1:0); gl.uniform1f(L3.flipx,-1); gl.uniform1f(L3.hfade,state.view.hfade?HFADE:0); gl.uniform1f(L3.rimDeg,curCovDeg()); // pop-out viewer: grid off by default, toggled by its own button
+      buildDomeMesh(curCovHalf()); gl.useProgram(P3); gl.bindVertexArray(domeVAO); gl.uniformMatrix4fv(L3.mvp,false,(_mvpScratch.set(mvp),_mvpScratch)); gl.uniform1f(L3.grid,_viewerGrid?1:0); gl.uniform1f(L3.flipx,-1); gl.uniform1f(L3.hfade,state.view.hfade?HFADE:0); gl.uniform1f(L3.rimDeg,curCovDeg()); // pop-out viewer: grid off by default, toggled by its own button
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,srcTex); gl.uniform1i(L3.master,0);
       gl.drawElements(gl.TRIANGLES,domeCount,gl.UNSIGNED_INT,0); gl.bindVertexArray(null); gl.disable(gl.DEPTH_TEST);
     } else { // [V1] 2D blit — clean (no editor pan/zoom): flat = aspect-fit rect · dome-2D = centred fisheye disc
@@ -1270,15 +1286,20 @@ function ensureNdiFBO(res){ if(_ndiFBO&&_ndiRes===res&&_ndiBuf)return;
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
   gl.bindFramebuffer(gl.FRAMEBUFFER,_ndiFBO); gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,_ndiTex,0); gl.bindFramebuffer(gl.FRAMEBUFFER,null);
   _ndiBuf=new Uint8Array(res*res*4); _ndiRes=res; }
-function _closeNdiGL(){ try{ if(_ndiFBO)gl.deleteFramebuffer(_ndiFBO); if(_ndiTex)gl.deleteTexture(_ndiTex); }catch(e){} _ndiFBO=_ndiTex=null; _ndiBuf=null; }
+function _closeNdiGL(){ try{ if(_ndiFBO)gl.deleteFramebuffer(_ndiFBO); if(_ndiTex)gl.deleteTexture(_ndiTex); }catch(e){} _ndiFBO=_ndiTex=null; _ndiBuf=null; _ndiCacheKey=null; }
+let _ndiCacheKey=null; // [R213] evita recomponer + readPixels cuando nada cambió desde el último tick (misma clave = mismo frame)
 function ndiTick(){ if(!_ndiOn||!DSP.ndi)return;
   try{ ensureNdiFBO(_ndiRes);
-    const flatBak=_drawFlat, aspBak=_compAspect; _drawFlat=false; // NDI is ALWAYS the fulldome master (square 1:1, no grid/overlays)
-    gl.bindFramebuffer(gl.FRAMEBUFFER,_ndiFBO); gl.disable(gl.DEPTH_TEST);
-    composite(state.playhead,_ndiRes,true); // opaque black surround; the dome disc = the master
-    // [archivado 20260725] NDI emite el composite tal cual (ya no hay grade máster que aplicarle)
-    gl.readPixels(0,0,_ndiRes,_ndiRes,gl.RGBA,gl.UNSIGNED_BYTE,_ndiBuf);
-    gl.bindFramebuffer(gl.FRAMEBUFFER,null); gl.viewport(0,0,glc.width,glc.height); _drawFlat=flatBak; _compAspect=aspBak;
+    const key=state.playhead+':'+_raGen+':'+_ndiRes;
+    if(key!==_ndiCacheKey){
+      const flatBak=_drawFlat, aspBak=_compAspect; _drawFlat=false; // NDI is ALWAYS the fulldome master (square 1:1, no grid/overlays)
+      gl.bindFramebuffer(gl.FRAMEBUFFER,_ndiFBO); gl.disable(gl.DEPTH_TEST);
+      composite(state.playhead,_ndiRes,true); // opaque black surround; the dome disc = the master
+      // [archivado 20260725] NDI emite el composite tal cual (ya no hay grade máster que aplicarle)
+      gl.readPixels(0,0,_ndiRes,_ndiRes,gl.RGBA,gl.UNSIGNED_BYTE,_ndiBuf);
+      gl.bindFramebuffer(gl.FRAMEBUFFER,null); gl.viewport(0,0,glc.width,glc.height); _drawFlat=flatBak; _compAspect=aspBak;
+      _ndiCacheKey=key; // [R213] frame repetido → reusa _ndiBuf y se salta composite+readPixels; el send sigue cada tick (receptores toleran frames repetidos)
+    }
     DSP.ndi.send(_ndiBuf,_ndiRes,_ndiRes,true); _ndiFrames++; // flipY: bottom-up WebGL → top-down NDI (negative stride, zero copy)
   }catch(e){} }
 function startNDI(res){ if(!ndiAvailable()){ appAlert(T('The NDI runtime is not installed. Download the free NDI Tools / runtime from ndi.video and try again.','El runtime de NDI no está instalado. Descarga las NDI Tools / runtime gratuitas desde ndi.video e inténtalo de nuevo.')); return; }
@@ -1308,15 +1329,20 @@ function ensureSpoutFBO(res){ if(_spoutFBO&&_spoutRes===res&&_spoutBuf)return;
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
   gl.bindFramebuffer(gl.FRAMEBUFFER,_spoutFBO); gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,_spoutTex,0); gl.bindFramebuffer(gl.FRAMEBUFFER,null); gl.bindTexture(gl.TEXTURE_2D,null);
   _spoutBuf=new Uint8Array(res*res*4); _spoutRes=res; }
-function _closeSpoutGL(){ try{ if(_spoutFBO)gl.deleteFramebuffer(_spoutFBO); if(_spoutTex)gl.deleteTexture(_spoutTex); }catch(e){} _spoutFBO=_spoutTex=null; _spoutBuf=null; }
+function _closeSpoutGL(){ try{ if(_spoutFBO)gl.deleteFramebuffer(_spoutFBO); if(_spoutTex)gl.deleteTexture(_spoutTex); }catch(e){} _spoutFBO=_spoutTex=null; _spoutBuf=null; _spoutCacheKey=null; }
+let _spoutCacheKey=null; // [R213] evita recomponer + readPixels cuando nada cambió desde el último tick (misma clave = mismo frame)
 function spoutTick(){ if(!_spoutOn||!DSP.spout)return;
   try{ ensureSpoutFBO(_spoutRes);
-    const flatBak=_drawFlat, aspBak=_compAspect; _drawFlat=false; // ALWAYS the fulldome master (square 1:1, no grid/overlays)
-    gl.bindFramebuffer(gl.FRAMEBUFFER,_spoutFBO); gl.disable(gl.DEPTH_TEST);
-    composite(state.playhead,_spoutRes,true);
-    // [archivado 20260725] Spout emite el composite tal cual (ya no hay grade máster que aplicarle)
-    gl.readPixels(0,0,_spoutRes,_spoutRes,gl.RGBA,gl.UNSIGNED_BYTE,_spoutBuf);
-    gl.bindFramebuffer(gl.FRAMEBUFFER,null); gl.viewport(0,0,glc.width,glc.height); _drawFlat=flatBak; _compAspect=aspBak;
+    const key=state.playhead+':'+_raGen+':'+_spoutRes;
+    if(key!==_spoutCacheKey){
+      const flatBak=_drawFlat, aspBak=_compAspect; _drawFlat=false; // ALWAYS the fulldome master (square 1:1, no grid/overlays)
+      gl.bindFramebuffer(gl.FRAMEBUFFER,_spoutFBO); gl.disable(gl.DEPTH_TEST);
+      composite(state.playhead,_spoutRes,true);
+      // [archivado 20260725] Spout emite el composite tal cual (ya no hay grade máster que aplicarle)
+      gl.readPixels(0,0,_spoutRes,_spoutRes,gl.RGBA,gl.UNSIGNED_BYTE,_spoutBuf);
+      gl.bindFramebuffer(gl.FRAMEBUFFER,null); gl.viewport(0,0,glc.width,glc.height); _drawFlat=flatBak; _compAspect=aspBak;
+      _spoutCacheKey=key; // [R213] frame repetido → reusa _spoutBuf y se salta composite+readPixels; el send sigue cada tick
+    }
     DSP.spout.send(_spoutBuf,_spoutRes,_spoutRes,true); // flipY: bottom-up WebGL → top-down Spout (flip done in the addon)
   }catch(e){} }
 function startSpout(res){ if(!spoutAvailable()){ appAlert(T('Spout output is not available on this system.','La salida Spout no está disponible en este sistema.')); return; }
@@ -1748,7 +1774,7 @@ function startAudio(){ const ctx=ACTX(); if(ctx.state==='suspended'){ try{ ctx.r
 function stopAudio(){ for(const s of audioSources){try{s.stop();}catch(e){}} audioSources=[]; _audioGains={}; }
 function reschedAudio(){ if(state.playing)startAudio(); } // [R92-T2 F5] edits during playback re-schedule the whole mix (cheap) — a deleted/moved/muted clip used to keep SOUNDING its old schedule until pause/seek
 function liveAudioGain(c){ if(!c||!actx)return; const g=_audioGains[c.id]; if(!g)return; const vol=(c.props&&c.props.volume!=null?Math.max(0,c.props.volume/100):1); try{ g.gain.cancelScheduledValues(actx.currentTime); g.gain.setValueAtTime(Math.max(0.0001,vol),actx.currentTime); }catch(e){} } // live tweak while playing
-function meters(){ if(!analyser||!state.playing){setMeters(0);return;} const a=new Uint8Array(analyser.fftSize); analyser.getByteTimeDomainData(a); let sum=0; for(let i=0;i<a.length;i++){const v=(a[i]-128)/128;sum+=v*v;} setMeters(Math.min(1,Math.sqrt(sum/a.length)*2.6)); }
+// [archivado 20260730] meters() → _backup/deprecated/20260730-vu-meters.js (escribía en #mL/#mR, retirados del DOM en R148; llamada quitada de ploop())
 function setMeters(v){ const p=(v*100)+'%'; if($('#mL'))$('#mL').style.width=p; if($('#mR'))$('#mR').style.width=p; }
 function addImage(file,path){ const url=URL.createObjectURL(file); const img=new Image(); const folder=_importFolder;
   img.onload=()=>{const fit=fitImage(img); const m={id:uid(),name:file.name,kind:'image',el:fit.src,originalEl:img,tex:newTex(),w:fit.w,h:fit.h,dur:5,fps:0,thumb:url,color:clipColorFor('image'),proxyReady:false,proxyPct:0,path:path||null,fsize:file.size||0,folder:folder||null}; // [M5] photos default to 5 s
@@ -3339,6 +3365,7 @@ $('#tracks').addEventListener('pointerdown',e=>{
   // pushUndo is deferred until the drag actually changes something (avoids dead undo entries from a plain click)
   drag={id,mode:isL?'trimL':isR?'trimR':'move',x0:e.clientX,y0:e.clientY,start0:c.start,dur0:c.dur,inP0:c.inP,lane0:c.lane,_undone:false,
     items:state.selIds.map(sid=>{const sc=clipById(sid);return sc?{id:sid,start0:sc.start,dur0:sc.dur,inP0:sc.inP,kf0:JSON.parse(JSON.stringify(sc.kf||{})),anim0:sc.anim?JSON.parse(JSON.stringify(sc.anim)):null}:null;}).filter(Boolean)};
+  _dragLaneRects=null; _dragLaneScrollTop=null; // [R213] refresca el cache de rects de pistas al empezar un nuevo drag
   window.addEventListener('pointermove',onTLMove); window.addEventListener('pointerup',onTLUp);
 });
 /* [R94-UT5·U-10b] keyboard: a clip focused via Tab is selected with Enter/Space — the same minimal path a title
@@ -3471,6 +3498,10 @@ function showMoveGhosts(d,applied,targetLane,copy){ clearMoveGhosts(); const pps
 function duplicateClipAt(c,start,lane){ const n=Object.assign({},c,{link:undefined,avRole:undefined,/* [R170] la copia nace SUELTA: dos pares con el mismo link romperían linkPartner */id:uid(),start:Math.max(0,start),lane:(lane!=null?lane:c.lane),maskTex:null,_penCv:null,penMasks:c.penMasks?JSON.parse(JSON.stringify(c.penMasks)):undefined,props:Object.assign({},c.props),kf:JSON.parse(JSON.stringify(c.kf||{})),fx:JSON.parse(JSON.stringify(c.fx||[]))});
   sepAuto(n,c);
   if(n.maskData||(n.penMasks&&n.penMasks.length))rebuildMaskTex(n); return n; }
+let _dragLaneRects=null,_dragLaneScrollTop=null; // [R213] rects de #tracks .lane cacheados durante un drag de clip — getBoundingClientRect en cada pointermove es layout thrash
+function getDragLaneRects(){ const sc=$('#tlscroll'); const st=sc?sc.scrollTop:0;
+  if(_dragLaneRects&&_dragLaneScrollTop===st)return _dragLaneRects; // sólo recalcula si el scroll vertical cambió (autoscroll durante el drag)
+  _dragLaneRects=$$('#tracks .lane').map(r=>{const rc=r.getBoundingClientRect();return {li:+r.dataset.lane,top:rc.top,bottom:rc.bottom};}); _dragLaneScrollTop=st; return _dragLaneRects; }
 function onTLMove(e){ if(!drag)return; const c=clipById(drag.id);if(!c)return; const dt=(e.clientX-drag.x0)/state.tl.pxPerSec; let snap=null;
   const m=mediaById(c.mediaId); const srcLim=!!(m&&(m.kind==='video'||m.kind==='audio'||isSeqMedia(m))); const srcDur=(m&&isSeqMedia(m))?seqDur(m):(m?m.dur:Infinity); // a nest clip can't exceed its inner content (live seqDur, not the possibly-stale m.dur)
   if(drag.mode==='move'){ let ns=Math.max(0,drag.start0+dt); const sn=applySnap(ns,c.id); const durMv=(drag.dur0!=null?drag.dur0:c.dur);
@@ -3481,10 +3512,10 @@ function onTLMove(e){ if(!drag)return; const c=clipById(drag.id);if(!c)return; c
     let targetLane=null;
     if(!(drag.items&&drag.items.length>1)){ // single: pick the lane under the cursor (same kind)
       const wantKind=(m&&m.kind==='audio')?'audio':'video';
-      const rows=$$('#tracks .lane'); for(const r of rows){const rc=r.getBoundingClientRect(); if(e.clientY>=rc.top&&e.clientY<=rc.bottom){ const li=+r.dataset.lane; if(state.lanes[li]&&state.lanes[li].kind===wantKind)targetLane=li; break; }}
+      const rows=getDragLaneRects(); for(const rc of rows){ if(e.clientY>=rc.top&&e.clientY<=rc.bottom){ const li=rc.li; if(state.lanes[li]&&state.lanes[li].kind===wantKind)targetLane=li; break; } }
       drag._laneDelta=0;
     } else { // multi: RELATIVE lane shift (Premiere-style) — the anchor follows the cursor and every clip keeps its lane offset; only applied if every destination lane exists and kind-matches
-      let hoverLane=null; const rows=$$('#tracks .lane'); for(const r of rows){const rc=r.getBoundingClientRect(); if(e.clientY>=rc.top&&e.clientY<=rc.bottom){ hoverLane=+r.dataset.lane; break; }}
+      let hoverLane=null; const rows=getDragLaneRects(); for(const rc of rows){ if(e.clientY>=rc.top&&e.clientY<=rc.bottom){ hoverLane=rc.li; break; } }
       let delta=(hoverLane!=null)?(hoverLane-c.lane):0;
       if(delta!==0){ for(const it of drag.items){ const oc=clipById(it.id); if(!oc){delta=0;break;} const mm=mediaById(oc.mediaId); const kind=(mm&&mm.kind==='audio')?'audio':'video'; const nl=state.lanes[oc.lane+delta]; if(!nl||nl.kind!==kind){ delta=0; break; } } }
       drag._laneDelta=delta; }
@@ -3517,7 +3548,7 @@ function positionClips(){ const tr=$('#tracks'); if(!tr)return false; const pps=
 let _tlRaf=0; function scheduleTimeline(){ if(_tlRaf)return; _tlRaf=requestAnimationFrame(()=>{_tlRaf=0;
   if(drag&&(drag.mode==='trimL'||drag.mode==='trimR')&&positionClips()){ scheduleWaves(); scheduleAutoCvs(); return; } // full rebuild happens once, on pointerup
   renderTimeline(); }); }
-function onTLUp(){ showSnap(null);
+function onTLUp(){ showSnap(null); _dragLaneRects=null; _dragLaneScrollTop=null; // [R213] invalida el cache de rects al soltar
   if(drag&&drag.mode==='move'){ const applied=drag._applied||0; const tgt=drag._lane; const single=!(drag.items&&drag.items.length>1);
     const laneDelta=drag._laneDelta||0;
     const changed=drag._copy||Math.abs(applied)>1e-6||(single&&tgt!=null&&tgt!==drag.lane0)||laneDelta!==0; if(changed&&!drag._undone){pushUndo();drag._undone=true;} // only record undo if the move/copy actually changes something
@@ -5364,8 +5395,13 @@ function aelProbeSilent(vi,m,a){ if(m._noAudio)return true; if(a.paused)return f
   let played=0; try{ for(let i=0;i<a.played.length;i++)played+=a.played.end(i)-a.played.start(i); }catch(e){ return false; } // [R92-T7] measure REAL played media time (a.played), not a.currentTime — a clip starting mid-film has a huge currentTime on frame 1 and was falsely flagged silent, muting a clip that HAS audio
   if(played<0.5)return false;
   if(a.webkitAudioDecodedByteCount===0){ m._noAudio=true; try{a.pause();a.removeAttribute('src');a.load();}catch(e){} vi.ael=null; vi._aelUrl=null; return true; } return false; }
-function disposeAllVinst(){ for(const id of [..._vinst.keys()]) vinstDispose(id); }
-function reconcileVinst(){ if(!_vinst.size)return; const live=new Set(); for(const c of state.clips)live.add(c.id); for(const s of state.media)if(s.kind==='nest'&&s.nestClips)for(const c of s.nestClips)live.add(c.id); for(const id of [..._vinst.keys()])if(!live.has(id))vinstDispose(id); }
+function disposeAllVinst(){ for(const id of [..._vinst.keys()]) vinstDispose(id); _vinstSig=null; } // [R213] fuerza a reconcileVinst a recalcular tras un reset de proyecto
+let _vinstSig=null; // [R213] firma barata (join de ids) del último set de clips vivos reconciliado
+function reconcileVinst(){ if(!_vinst.size)return;
+  let sig=''; for(const c of state.clips){sig+=c.id;sig+=',';} for(const s of state.media)if(s.kind==='nest'&&s.nestClips)for(const c of s.nestClips){sig+=c.id;sig+=',';}
+  if(sig===_vinstSig)return; _vinstSig=sig; // [R213] la lista de ids no cambió desde la última llamada → se salta el Set + el barrido de disposeGL
+  const live=new Set(); for(const c of state.clips)live.add(c.id); for(const s of state.media)if(s.kind==='nest'&&s.nestClips)for(const c of s.nestClips)live.add(c.id);
+  for(const id of [..._vinst.keys()])if(!live.has(id))vinstDispose(id); }
 function vinstSeek(c,m,local){ const vi=vinstEnsure(c,m); if(!vi)return Promise.resolve();
   if(vi.cd||vi.cdPending){ // [R108·E5] WebCodecs scrub: point the decoder at the target and wait (briefly) for the frame
     const seekCD=()=>{ if(vi.cd&&vi.cd.isDead()){ try{vi.cd.close();}catch(e){} vi.cd=null; m._cdFail=true; } // [R108-rev M2] a decoder that died while paused/scrubbing must be torn down + flagged for <video> fallback (driveCD only runs while playing)
@@ -5487,7 +5523,7 @@ function ploop(){ if(!state.playing)return; const now=performance.now(),dt=(now-
       if(a&&!revMute&&!aelProbeSilent(vi,m,a)){ const g=Math.max(0,Math.min(1,gain==null?1:gain)); a.volume=g; a.muted=(g<=0.001); if(a.muted){ if(!a.paused){try{a.pause();}catch(e){}} } else { if(a.paused)a.play().catch(()=>{}); const ad=a.currentTime-local; if(Math.abs(ad)>0.2){try{a.currentTime=local;}catch(e){}} else {try{a.playbackRate=eff*(1-Math.max(-0.08,Math.min(0.08,ad*0.4)));}catch(e){}} } }
       else if(a&&revMute&&!a.paused){ try{a.pause();}catch(e){} } } // [R92-T2 C1 + T6] audio servo: closes the 150-240ms start drift in ~1s without audible seeking
     for(const [id,vi] of _vinst){ if(!act.has(id)){ if(!ra&&vi.vel&&!vi.vel.paused){ try{vi.vel.pause();}catch(e){} stopVFClip(vi); } if(vi.ael&&!vi.ael.paused){ try{vi.ael.pause();}catch(e){} } } } }
-  positionPlayhead(); followPlayhead(); refreshInspector(); render(); meters(); _phLast=state.playhead; playRaf=requestAnimationFrame(ploop); }
+  positionPlayhead(); followPlayhead(); refreshInspector(); render(); _phLast=state.playhead; playRaf=requestAnimationFrame(ploop); } // [R213] meters() retirado: escribía en #mL/#mR, quitados del DOM en R148 — ver _backup/deprecated/20260730-vu-meters.js
 
 /* ===================== EXPORT ===================== */
 /* Decodificación por CLIP desde el original (vía `_exportQuality`) para que los clips duplicados exporten en SU
@@ -7307,7 +7343,7 @@ async function openProjectPath(p){ if(!p||!IS_ELEC){ bootProyectoListo(); return
 function disposeMedia(m){ try{ disposeDecoder(m); if(m.srcUrl)URL.revokeObjectURL(m.srcUrl); if(m.proxyUrl)URL.revokeObjectURL(m.proxyUrl); if(m._frameUrls)m._frameUrls.forEach(u=>{try{URL.revokeObjectURL(u);}catch(e){}}); if(m.thumb&&typeof m.thumb==='string'&&m.thumb.indexOf('blob:')===0)URL.revokeObjectURL(m.thumb); if(m.tex)gl.deleteTexture(m.tex); if(m.fbo){try{gl.deleteFramebuffer(m.fbo);}catch(e){}} if(m.nestClips)for(const c of m.nestClips)if(c.maskTex){try{gl.deleteTexture(c.maskTex);}catch(e){}} }catch(e){} }
 async function newProject(mode,w,h,fps,cov){ if(!(await confirmDiscard()))return; if(state.playing)pause(); disposeAllVinst();
   for(const c of state.clips){ try{ if(c.maskTex)gl.deleteTexture(c.maskTex); }catch(e){} }
-  try{ closeAllNdi(); }catch(e){} for(const m of state.media) disposeMedia(m); for(const id in (state.mediaTrash||{})) disposeMedia(state.mediaTrash[id]); state.mediaTrash={}; clearFrameCache();
+  try{ closeAllNdi(); }catch(e){} for(const m of state.media) disposeMedia(m); for(const id in (state.mediaTrash||{})) disposeMedia(state.mediaTrash[id]); state.mediaTrash={}; clearFrameCache(); resetLutReg();
   state.media=[]; state.clips=[]; state.groups=[]; state.markers=[]; state.selId=null; state.selGroupId=null; state.selMarkerId=null; state.playhead=0; state.workIn=null; state.workOut=null; state.folders=[]; state.folderColors={}; state.selFolder=null; state.mediaFolder=null; state.selIds=[];
   state.reactive=null; _arCache=null; _fxEnvCache.clear(); try{freeFxResources();}catch(e){}
   state.lanes=defLanes();
@@ -7357,7 +7393,7 @@ function applyRoomGeometry(cfg){
 }
 async function newRoomProject(cfg){ if(!(await confirmDiscard()))return; if(state.playing)pause(); disposeAllVinst();
   for(const c of state.clips){ try{ if(c.maskTex)gl.deleteTexture(c.maskTex); }catch(e){} }
-  try{ closeAllNdi(); }catch(e){} for(const m of state.media) disposeMedia(m); for(const id in (state.mediaTrash||{})) disposeMedia(state.mediaTrash[id]); state.mediaTrash={}; clearFrameCache();
+  try{ closeAllNdi(); }catch(e){} for(const m of state.media) disposeMedia(m); for(const id in (state.mediaTrash||{})) disposeMedia(state.mediaTrash[id]); state.mediaTrash={}; clearFrameCache(); resetLutReg();
   state.media=[]; state.clips=[]; state.groups=[]; state.markers=[]; state.selId=null; state.selGroupId=null; state.selMarkerId=null; state.playhead=0; state.workIn=null; state.workOut=null; state.folders=[]; state.folderColors={}; state.selFolder=null; state.mediaFolder=null; state.selIds=[];
   state.reactive=null; _arCache=null; _fxEnvCache.clear(); try{freeFxResources();}catch(e){}
   state.lanes=defLanes(); if(cfg.fps)state.fps=cfg.fps;
@@ -7403,7 +7439,7 @@ function rasterizePenMasks(c){ if(!c)return;
   if(!c.maskTex)c.maskTex=newTex(); upTex(c.maskTex,cv); c.props.mask='pen'; }
 function loadProject(obj){ relinkReset(); // [R204] el índice de reenlace es de ESTE proyecto: se tira al cargar otro
   try{ if(!_bootEsperandoProyecto)showLoadingScreen(T('Loading project…','Cargando proyecto…')); else bootMark(72); }catch(e){} /* [R175] durante el arranque la cuenta la lleva el splash, no una segunda pantalla encima del editor */ // [U9] logo-loop loading screen while the project + its proxies buffer
-  if(state.playing)pause(); disposeAllVinst(); try{freeFxResources();}catch(e){} for(const _tid in (state.mediaTrash||{})) disposeMedia(state.mediaTrash[_tid]); state.mediaTrash={}; // free deleted-media textures + FX history from the previous project
+  if(state.playing)pause(); disposeAllVinst(); try{freeFxResources();}catch(e){} for(const _tid in (state.mediaTrash||{})) disposeMedia(state.mediaTrash[_tid]); state.mediaTrash={}; resetLutReg(); // free deleted-media textures + FX history from the previous project
   clearAllUndo(); // [R92-T1 C2] undo history belongs to the PREVIOUS project — Ctrl+Z after opening must never inject its clips here (newProject already did this; loadProject didn't)
   state.fps=obj.fps||60; state.lanes=obj.lanes||state.lanes; state.clips=(obj.clips||[]).map(c=>({...c,kf:c.kf||{},maskTex:null})); state.playhead=obj.playhead||0; state.markers=obj.markers||[]; state.selMarkerId=null; state.groups=obj.groups||[]; state.selGroupId=null;
   // restore custom PNG masks from their persisted dataURL (or drop a stale 'custom' that has no data)

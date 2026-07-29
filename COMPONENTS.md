@@ -130,7 +130,7 @@
 | Componente | Qué hace | Ubicación | Estado | Roadmap |
 |---|---|---|---|---|
 | Pipeline de color (FSW) | Pipeline completo en el fragment shader | app.js · `FSW`/`PW` (~L169) | ✅ | R116/R130/R132 |
-| Import de LUT 3D | LUT `.cube` por clip como look final | app.js · `parseCubeLUT`/`loadLUT`/`bindClipLUT` | ✅ | R116 |
+| Import de LUT 3D | LUT `.cube` por clip como look final; [R213] `_lutReg` = LRU de 16 con deleteTexture + `resetLutReg()` en new/open + recarga perezosa desde `bindClipLUT` | app.js · `parseCubeLUT`/`loadLUT`/`bindClipLUT` | ✅ | R116 |
 | Ruedas Lift/Gamma/Gain | Grado primario estilo DaVinci | app.js · `wheelRGB`/`bindClipGrade` | ✅ | R130 |
 | Curvas de tono | Curvas luma+RGB → LUT 256×1 | app.js · `buildCurveData`/`clipCurveTex`/`bindClipCurve` | ✅ | R132 |
 | Grado en PFD/PEQ | Fulldome/equirect ya reciben ruedas/curvas/LUT (paridad con FSW) | app.js · `bindClipLUT(c,LFD/LEQ)` en draw PFD/PEQ | ✅ | R138 (gap cerrado) |

@@ -1,5 +1,22 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 213 — Etapa 2 de la auditoría: rendimiento que se siente
+
+- **`_lutReg` acotado y liberable**: LRU de 16 con `gl.deleteTexture` al expulsar, `resetLutReg()` en
+  new/open project, y recarga perezosa desde `bindClipLUT` si una LUT expulsada sigue asignada (degrada a
+  identidad mientras carga). Cierra la fuga de VRAM sólo-crece.
+- **NDI/Spout en reposo ya no recomponen ni leen la GPU**: clave `(playhead, _raGen, res)` — si el frame no
+  cambió, se reenvía el buffer anterior y se salta composite+readPixels (en reproducción, igual que antes).
+- **Drag de clips sin layout thrash**: rects de pistas cacheados al iniciar el drag (invalidación por scrollTop).
+- **`drawScopes`**: buffer persistente + salto de `readPixels` cuando el frame no cambió.
+- **VU-meter fantasma archivado** (`meters()` corría por frame contra `#mL`/`#mR` inexistentes desde R148) →
+  `_backup/deprecated/20260730-vu-meters.js`.
+- **`reconcileVinst` condicionado** por firma de ids (antes reconstruía un Set por cada `renderTimeline`).
+- **Scratch `Float32Array(16)`** compartido en los 4 uploads de MVP por frame (domo, sala, equirect, visor).
+
+Verificado por CDP (proyecto real, play, drag programático, `__errs` vacío, `glGetError()` 0). NDI/Spout
+verificados por lectura (runtime no disponible en dev).
+
 ## ROUND 212 — Etapa 1 de la auditoría: integridad de datos y export
 
 Primera etapa del plan de `AUDITORIA-2026-07.md`, ejecutada por 3 agentes Sonnet con verificación en vivo:
