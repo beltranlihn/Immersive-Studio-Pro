@@ -3998,8 +3998,30 @@ function _renderInspectorMain(){
       b.onclick=()=>{ const cc=selClip(); if(!cc)return; pushUndo(); apply(cc,!b.classList.contains('on'));
         if(_raOn)raInvalidate(); render(); markDirty(); renderInspector(); }; };
 
-    const fdrow=swRow('fdToggle',T('Fulldome src','Fuente fulldome'),T('Map 1:1 to dome (no warp)','Mapear 1:1 al domo (sin warp)'),!!c.props.fulldome);
-    swBind(fdrow,'fdToggle',(cc,on)=>{ cc.props.fulldome=on; if(on)cc.props.equirect=false; });
+    /* [R216] Dome master / Patch — a nest clip gets its OWN, clearer toggle instead of the generic "Fulldome
+       src" switch below (same underlying prop, `c.props.fulldome`): a nest created inside a dome sequence
+       starts as a fulldome master (drawn 1:1 via PFD, Size zooms the whole thing around the zenith); Patch
+       draws the SAME clip through the normal gnomonic path (az/el/size place it like any other clip — verified
+       against the drawClip branch at ~L835, `if(c.props.fulldome){…PFD…} … else {…PW gnomonic patch…}`). */
+    if(isSeqMedia(m)){
+      const master=!!c.props.fulldome;
+      const dmRow=document.createElement('div'); dmRow.className='prow'; dmRow.style.cssText='flex-direction:column;align-items:stretch;gap:4px;padding-top:5px;padding-bottom:6px;';
+      dmRow.innerHTML=`<div style="display:flex;align-items:center;gap:8px;">
+          <span class="kf" style="cursor:default;visibility:hidden;"></span>
+          <span class="lab" style="flex:1;min-width:0;">${T('Dome placement','Ubicación en domo')}</span>
+          <div class="seg2" id="domeModeSeg"><button data-v="master" class="${master?'on':''}">${T('Dome master','Máster domo')}</button><button data-v="patch" class="${!master?'on':''}">${T('Patch','Parche')}</button></div>
+        </div>
+        <div style="font-size:10px;color:var(--ink-3);line-height:1.4;">${master
+          ? T('Size zooms the whole dome around the zenith — off-center content exits at the rim','Size hace zoom del domo completo sobre el cenit — lo descentrado sale por el borde')
+          : T('Places and scales like a regular clip','Se ubica y escala como un clip normal')}</div>`;
+      $('#sourceRows').appendChild(dmRow);
+      dmRow.querySelectorAll('#domeModeSeg button').forEach(b=>b.onclick=()=>{ if(b.classList.contains('on'))return; const cc=selClip(); if(!cc)return; pushUndo();
+        cc.props.fulldome=(b.dataset.v==='master'); if(cc.props.fulldome)cc.props.equirect=false;
+        if(_raOn)raInvalidate(); render(); markDirty(); renderInspector(); });
+    } else {
+      const fdrow=swRow('fdToggle',T('Fulldome src','Fuente fulldome'),T('Map 1:1 to dome (no warp)','Mapear 1:1 al domo (sin warp)'),!!c.props.fulldome);
+      swBind(fdrow,'fdToggle',(cc,on)=>{ cc.props.fulldome=on; if(on)cc.props.equirect=false; });
+    }
     // [F7] Equirect 360° source: the clip is a 2:1 panorama → mapped onto the dome. Azimuth (Transform) = camera yaw; Tilt = pitch. Mutually exclusive with Fulldome src.
     const eqrow=swRow('eqToggle',T('Equirect 360°','Equirect 360°'),T('Panorama → dome (Azimuth = yaw)','Panorama → domo (Azimut = giro)'),!!c.props.equirect);
     swBind(eqrow,'eqToggle',(cc,on)=>{ cc.props.equirect=on; if(on)cc.props.fulldome=false; });
@@ -6459,7 +6481,20 @@ function updExportUI(){ // [R94-UT3·U-02c/U-33] status-bar ✕ + Export button 
   const x=document.getElementById('statXBtn'); if(x)x.style.display=running?'':'none'; // '' → the stylesheet's .ibtn display:grid (keeps the ✕ centered)
   const eb=document.getElementById('exportBtn');
   if(eb){ let bg=eb.querySelector('.exbadge'); if(n>0){ if(!bg){ bg=document.createElement('span'); bg.className='exbadge'; eb.insertBefore(bg,eb.firstChild); eb.style.paddingRight='22px'; } bg.textContent=n; } else if(bg){ bg.remove(); eb.style.paddingRight=''; } } } // badge goes FIRST (position:absolute anyway): applyLang's tn() relies on the button's lastChild being the text node
-function pumpExportQ(){ if(_exbusy||!_exq.length)return; _exbusy=true; const opt=_exq.shift(); if(opt._rec){ opt._rec.status='running'; exPaintJob(opt._rec); } updExportUI(); Promise.resolve(runExport(opt)).then(()=>{ _exbusy=false; pumpExportQ(); }).catch(()=>{ _exbusy=false; pumpExportQ(); }); }
+function pumpExportQ(){ if(_exbusy||!_exq.length)return; _exbusy=true; const opt=_exq.shift(); renderExQueue(); if(opt._rec){ opt._rec.status='running'; exPaintJob(opt._rec); } updExportUI(); Promise.resolve(runExport(opt)).then(()=>{ _exbusy=false; pumpExportQ(); }).catch(()=>{ _exbusy=false; pumpExportQ(); }); }
+/* [R216] Minimal queue list — JUST the not-yet-started jobs in `_exq` (the running one already has its own
+   Cancel in `#exActs`). Looks the export panel up fresh each call (like exJobRow/exPaintJob do) instead of
+   closing over one `openExport()` call, so it stays correct across enqueue/consume/remove regardless of which
+   call site triggered it, and quietly no-ops when the panel isn't open. */
+function renderExQueue(){ const host=document.getElementById('exQList'); if(!host)return;
+  host.innerHTML='';
+  const wrap=document.getElementById('exQueueWrap'); if(wrap)wrap.style.display=_exq.length?'block':'none';
+  _exq.forEach(opt=>{ const rec=opt._rec; const row=document.createElement('div'); row.className='qjob';
+    row.innerHTML=`<span class="tnum" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink-2);">${(rec&&rec.name)||'—'}</span><button class="ibtn" title="${T('Remove from queue','Quitar de la cola')}">✕</button>`;
+    row.querySelector('button').onclick=()=>{ const i=_exq.indexOf(opt); if(i>=0)_exq.splice(i,1); if(rec)rec.status='cancelled'; renderExQueue(); updExportUI(); };
+    host.appendChild(row); }); }
+function exCancelQueued(){ // Cancel queued — empties `_exq` WITHOUT touching the job that's currently running (that one keeps its own Cancel)
+  if(!_exq.length)return; for(const o of _exq)if(o._rec)o._rec.status='cancelled'; _exq.length=0; renderExQueue(); updExportUI(); flashStatus(T('Queued exports cleared','Cola de exportación vaciada')); }
 /* [R94d] which range the export dialog is set to (I/O marks vs the clip extent) + its length in seconds */
 function exRangeMode(){ const io=document.querySelector('#exRange [data-rg=inout]'); return (io&&io.classList.contains('on'))?'inout':'clips'; }
 function exRangeSecs(){ if(exRangeMode()==='inout'&&state.workIn!=null&&state.workOut!=null)return Math.max(0.05,state.workOut-state.workIn); const r=clipExtent(); return Math.max(0.05,r[1]-r[0]); }
@@ -6521,6 +6556,13 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
           <div class="exs-cell"><span class="k">${T('Written','Escrito')}</span><span class="v" id="exWrote">—</span></div></div>
         <div class="exs-note" id="exNote">${T('Monitor shows the current playhead frame','El monitor muestra el fotograma del cabezal')}</div>
         <div class="exs-warn" id="exWarn" style="display:none;"></div>
+        <div class="queue" id="exQueueWrap" style="display:none;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px;">
+            <span class="exs-lab" style="margin-bottom:0;flex:1;">${T('Queued exports','Exportaciones en cola')}</span>
+            <button class="exs-btn" id="exQCancelAll">${T('Cancel queued','Cancelar cola')}</button>
+          </div>
+          <div id="exQList"></div>
+        </div>
         <div class="exs-acts" id="exActs" style="display:none;">
           <button class="exs-btn" id="exPause">${T('Pause','Pausar')}</button>
           <button class="exs-btn danger" id="exCancel">${T('Cancel','Cancelar')}</button></div>
@@ -6549,6 +6591,7 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
   </div>`;
   document.body.appendChild(ov);
   const $$=s=>ov.querySelector(s);
+  renderExQueue(); $$('#exQCancelAll').onclick=exCancelQueued; // [R216] the queue can already hold jobs from BEFORE this panel opened (a room export queues 4 walls + floor) — paint it once up front, not just on the next change
 
   /* --- arrastrar por la cabecera. El centrado lo hace el grid del velo; el arrastre suma un translate encima. --- */
   { const hd=$$('#exHd'), sh=$$('#exSheet'); let dx=0,dy=0,ox=0,oy=0,on=false;
@@ -6764,7 +6807,7 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
     else if(S.phase==='pause'){ S.t0+=performance.now()-S.tPause; _exPaused=false; exSetPhase('run'); $$('#exPause').textContent=T('Pause','Pausar'); } }; // al reanudar se corrige t0: si no, el tiempo transcurrido pega un salto y la ETA se dispara
   const cancelarRender=()=>{ _exPaused=false; cancelExport=true;
     if(_exq.length){ for(const o of _exq)if(o._rec)o._rec.status='cancelled'; _exq.length=0; } // vacía la cola: si no, cancelar un muro dejaba corriendo los tres siguientes
-    updExportUI(); };
+    updExportUI(); renderExQueue(); };
   $$('#exCancel').onclick=cancelarRender;
 
   /* --- exportar --- */
@@ -6821,7 +6864,7 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
           flashStatus(cx?T('Export cancelled','Exportación cancelada'):T('Export finished','Exportación terminada'),cx?'err':undefined);
           try{ if(IS_ELEC&&DSP.setProgress)DSP.setProgress(-1); }catch(e){} updExportUI(); } };
       const opt=Object.assign({codec,res:p.w,outW:p.w,outH:p.h,fps,bitrate:br,chunks:S.chunks,range,job,_rec:rec},extra||{});
-      rec.opt=opt; _exq.push(opt); updExportUI(); };
+      rec.opt=opt; _exq.push(opt); updExportUI(); renderExQueue(); };
     const queueJob=()=>{ const rm=room?S.roomMode:null;
       if(room&&rm==='walls'){ const sw=as.w||1, sh=as.h||1;
         for(const w of as.room.walls) addJob({wall:{role:w.role,x0:w.x0,x1:w.x1,pxW:w.pxW,pxH:w.pxH,stripW:sw,stripH:sh}}, roomRoleLabel(w.role)+' · '+w.pxW+'×'+w.pxH+' '+cLbl); }
@@ -7777,7 +7820,11 @@ function purgeMediaTrash(){ const tids=Object.keys(state.mediaTrash||{}); if(!ti
   for(const id of tids)if(!need.has(+id)){ try{disposeMedia(state.mediaTrash[id]);}catch(e){} delete state.mediaTrash[id]; }
 }
 let flashT=0;
-function flashStatus(msg,kind){ diag('info','status',msg); const a=$('#statAuto'); a.textContent=msg; a.style.color=(kind==='err')?'#E5B567':''; clearTimeout(flashT); flashT=setTimeout(()=>{ a.textContent=state.lastSaved?(T('Autosaved ','Autoguardado ')+state.lastSaved):T('Ready','Listo'); a.style.color=''; },(kind==='err')?6000:2600); } // [R94-UT3·U-21] kind 'err' → amber + 6s so errors outlive the 2.6s info flash; no kind = identical to before
+function flashStatus(msg,kind){ diag('info','status',msg); const a=$('#statAuto'); const isErr=(kind==='err');
+  a.textContent=isErr?('⚠ '+msg):msg; a.style.color=isErr?'#E5B567':'';
+  // [R216] errors get extra weight so they don't blend into ordinary status chatter: bold + a subtle amber pill, 10s (was 6s) so a longer message has time to be read
+  a.style.fontWeight=isErr?'600':''; a.style.background=isErr?'rgba(229,181,103,0.12)':''; a.style.padding=isErr?'2px 8px':''; a.style.borderRadius=isErr?'3px':'';
+  clearTimeout(flashT); flashT=setTimeout(()=>{ a.textContent=state.lastSaved?(T('Autosaved ','Autoguardado ')+state.lastSaved):T('Ready','Listo'); a.style.color=''; a.style.fontWeight=''; a.style.background=''; a.style.padding=''; a.style.borderRadius=''; },isErr?10000:2600); } // [R94-UT3·U-21] kind 'err' → amber + 10s so errors outlive the 2.6s info flash; no kind = identical to before
 function updStatus(){ const c=selClip(); const md=T('media','medios'); $('#statSel').textContent=c?(c.name+' · '+state.media.length+' '+md+' · '+state.clips.length+' clips'):(state.clips.length+' clips · '+state.media.length+' '+md); updEnable(); }
 /* [R94-UT5·U-30] single disabled-state helper: .dis (visual) + aria-disabled (assistive tech) always in sync */
 /* [R102·D-T4] El tercer argumento, cuando el control está deshabilitado, es POR QUÉ lo está — y por convención
