@@ -102,6 +102,9 @@ contextBridge.exposeInMainWorld('dsp', {
   exists: (p) => ipcRenderer.invoke('dsp:exists', p),
   setTitle: (t) => ipcRenderer.invoke('dsp:setTitle', t),
   setProgress: (v) => ipcRenderer.invoke('dsp:setProgress', v), // [R92-T5] Windows taskbar progress during exports (-1 clears)
+  // [AUDITORIA-2026-07 §Etapa1-3] evitar que el SO suspenda la app durante un export largo o una emisión NDI/Spout.
+  // Contado por referencias del lado de main (export y NDI pueden solaparse) — acá sólo se pasa el on/off.
+  powerSave: (on) => ipcRenderer.invoke('dsp:powerSave', !!on),
   // UI state report (dirty flag + language) for the unsaved-changes close guard
   setUiState: (s) => ipcRenderer.invoke('dsp:setUiState', s),
   // Arranque: hitos reales hacia el splash (ventana aparte) y aviso de "listo" que revela la ventana 16:9

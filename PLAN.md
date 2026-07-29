@@ -1,5 +1,30 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 212 — Etapa 1 de la auditoría: integridad de datos y export
+
+Primera etapa del plan de `AUDITORIA-2026-07.md`, ejecutada por 3 agentes Sonnet con verificación en vivo:
+
+**Export cancelable de verdad (CRÍTICO del QA).** `exDeadline` ahora es un `Promise.race` de 3 vías (resultado ·
+timeout `EX_AUDIO_MS` · poller de `cancelExport` a 200ms) que cubre fetch, decode y mezcla de audio; audio
+indecodificable ⇒ el archivo se marca `m._exAudioBad`, avisa por `flashStatus` y el export SIGUE mudo (antes un
+`EncodingError` se tragaba en silencio y el cuelgue real solo salía por consola). Verificado en vivo: cancelación
+efectiva en 242ms (antes >7 min), export con audio roto completa avisando, regresión con audio sano limpia.
+
+**Integridad (app.js):** atajos bloqueados mientras el panel de export existe (el guard ahora mira `#exOv`, no
+solo `.overlay` — Ctrl+Z durante un export corrompía el resultado); autoguardado en pausa durante `exporting`
+(render-in-place dejaba `state.clips` truncado y el autosave lo persistía); `saveIncremental` chequea el
+resultado de `DSP.writeText` (antes confirmaba "Saved" aunque fallara); el `alert()` nativo de `webglcontextlost`
+→ `appAlert` (el único nativo del archivo, y era el aviso más crítico); Ctrl+Z recupera media borrado aunque
+ningún clip lo use (`pushUndo([m.id])` + trashIds en el snapshot); **nest a pista de VIDEO** (caía en `used[0]` —
+con audio enlazado era una pista de audio y `activeClips()` lo excluía: nest invisible, LA sospecha histórica);
+`switchSeq()` llama `projTitle()`.
+
+**Electron (main.js/preload.js):** `_fds` se cierran si el renderer muere (un crash a mitad de export dejaba el
+.mp4 bloqueado en Windows); `uncaughtException`/`unhandledRejection` con log a DIAG (antes tumbaban el main en
+silencio); `dsp:powerSave` con conteo de referencias + `DSP.powerSave` en export/NDI/Spout (Windows ya no puede
+suspender a mitad de render o de show); guard de reentrada en `unresponsive` + listener `responsive`; DIAG_LOG
+rota a los 5MB.
+
 ## ROUND 211 — Sala 360: geometría en su sitio + suelo dockeado (cubo desenvuelto)
 
 Cuatro arreglos pedidos por Beltrán tras revisar el landing y el editor de la sala, verificados uno a uno

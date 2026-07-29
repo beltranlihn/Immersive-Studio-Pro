@@ -1,5 +1,5 @@
 // Dome Studio Pro — Electron main process
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, powerSaveBlocker } = require('electron');
 const fs = require('fs');
 const fsp = require('fs/promises');
 const path = require('path');
@@ -63,6 +63,28 @@ app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
 
 let win;
 let forceClose = false; // set true by the renderer's styled "close without saving" confirm
+let unresponsiveDialogOpen = false; // [AUDITORIA-2026-07 §Etapa1-4] guardia anti-apilado del diálogo de win.on('unresponsive')
+
+// --- diagnostics log path + tiny SYNC helper, definidos temprano: los handlers de crash del proceso de más
+// abajo pueden dispararse antes de que exista ninguna ventana, así que necesitan dónde escribir ya mismo.
+// El canal IPC 'dsp:diagWrite' (más abajo) sigue usando su propio fsp.appendFile async para el renderer;
+// éste es sólo la red de seguridad del proceso main. ---
+const DIAG_LOG = path.join(app.getPath('userData'), 'dome-diagnostics.log');
+function diagAppend(text) { try { fs.appendFileSync(DIAG_LOG, text); } catch (_) {} }
+
+/* [AUDITORIA-2026-07 §Etapa1-2] Sin esto, un uncaughtException/unhandledRejection en el proceso MAIN (no el
+   renderer) tira abajo TODO Electron sin aviso — a mitad de un export o de una sesión NDI. Sólo logueamos:
+   nunca relanzamos, cerramos la app ni mostramos diálogo propio (ese terreno ya lo cubre 'render-process-gone'
+   para el renderer); un crash real de main es tan raro que preferimos dejarlo seguir vivo antes que arriesgar
+   una re-entrada rara de diálogos o un cierre que pierda más trabajo del que evita. */
+process.on('uncaughtException', (err) => {
+  console.error('[main] uncaughtException:', err);
+  diagAppend('\n[main uncaughtException] ' + new Date().toISOString() + ' ' + ((err && err.stack) || err) + '\n');
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[main] unhandledRejection:', reason);
+  diagAppend('\n[main unhandledRejection] ' + new Date().toISOString() + ' ' + ((reason && reason.stack) || reason) + '\n');
+});
 
 /* ============================================================================================================
    ARRANQUE EN DOS VENTANAS (rediseño de Claude Design, handoff launcher+splash)
@@ -217,15 +239,27 @@ function createWindow() {
   // LIFELINE: a crashed or hung renderer never takes the session down. Reload → fresh editor; the disk
   // autosave (every 15s) + the reopen-recovery offer restore the work (≤15s lost).
   win.webContents.on('render-process-gone', (e, details) => {
+    // [AUDITORIA-2026-07 §Etapa1-1] cualquier FileHandle abierto en _fds (export a MP4 en curso, lectura de un
+    // origen pesado) queda HUÉRFANO si el renderer muere: en Windows un handle sin cerrar deja el archivo
+    // BLOQUEADO (no se puede reabrir/borrar/mover) hasta matar el proceso main entero. Se cierra ANTES del
+    // `return` de abajo — hasta un 'clean-exit'/'killed' puede caer a mitad de un export, y cerrar handles
+    // que ya no tienen dueño no tiene downside.
+    for (const [, fh] of _fds) { try { fh.close(); } catch (_) {} }
+    _fds.clear();
     if (!details || details.reason === 'clean-exit' || details.reason === 'killed') return;
     dialog.showMessageBox({ type: 'warning', message: tt('The editor crashed ('+details.reason+') and will reload now. Your work is protected by the disk autosave (max ~15s lost): reopen your project and accept "Restore autosave".', 'El editor se cayó ('+details.reason+') y se recargará ahora. Tu trabajo está protegido por el autoguardado en disco (máx. ~15s perdidos): reabre tu proyecto y acepta "Restaurar autoguardado".') })
       .then(() => { try { win.webContents.reload(); } catch (err) {} });
   });
   win.on('unresponsive', () => {
+    // [AUDITORIA-2026-07 §Etapa1-4] anti-apilado: Electron puede disparar 'unresponsive' varias veces seguidas
+    // mientras la ventana sigue congelada; sin esta guardia cada disparo abría OTRO showMessageBox encima del anterior.
+    if (unresponsiveDialogOpen) return;
+    unresponsiveDialogOpen = true;
     dialog.showMessageBox(win, { type: 'warning', buttons: [tt('Keep waiting', 'Seguir esperando'), tt('Reload editor', 'Recargar editor')], defaultId: 0,
       message: tt('The editor is not responding. If it stays frozen, reload — the disk autosave protects your work.', 'El editor no responde. Si sigue congelado, recarga — el autoguardado en disco protege tu trabajo.') })
-      .then(r => { if (r && r.response === 1) { try { win.webContents.reload(); } catch (err) {} } });
+      .then(r => { unresponsiveDialogOpen = false; if (r && r.response === 1) { try { win.webContents.reload(); } catch (err) {} } });
   });
+  win.on('responsive', () => { unresponsiveDialogOpen = false; }); // se recuperó sola: liberar la guardia sin esperar a que se cierre un diálogo que nunca se abrió
   win.on('close', (e) => {
     if (forceClose || !uiDirty) return;
     e.preventDefault();
@@ -328,8 +362,19 @@ ipcMain.handle('dsp:openRead', async (e, p) => { try { const fh = await fsp.open
 ipcMain.handle('dsp:readAt', async (e, id, position, length) => { try { const fh = _fds.get(id); if (!fh || length <= 0 || length > 268435456) return null; const buf = Buffer.alloc(length); const { bytesRead } = await fh.read(buf, 0, length, position); return bytesRead === length ? buf : buf.subarray(0, bytesRead); } catch (err) { return null; } }); // Buffer.alloc (NOT allocUnsafe) → dedicated ArrayBuffer of exact size: allocUnsafe is pool-backed and IPC would ship the whole shared pool (leaking adjacent memory). Short read at EOF returns the partial slice.
 ipcMain.handle('dsp:closeRead', async (e, id) => { try { const fh = _fds.get(id); if (fh) { await fh.close(); _fds.delete(id); } return true; } catch (err) { return false; } });
 // diagnostics session log — appended to userData so it survives even a crash; read it back after a test session
-const DIAG_LOG = path.join(app.getPath('userData'), 'dome-diagnostics.log');
-ipcMain.handle('dsp:diagWrite', async (e, text, reset) => { try { if (reset) await fsp.writeFile(DIAG_LOG, text, 'utf8'); else await fsp.appendFile(DIAG_LOG, text, 'utf8'); return DIAG_LOG; } catch (err) { return null; } });
+// (DIAG_LOG y diagAppend están declarados arriba del todo, junto a los handlers de crash del proceso)
+ipcMain.handle('dsp:diagWrite', async (e, text, reset) => {
+  try {
+    if (reset) { await fsp.writeFile(DIAG_LOG, text, 'utf8'); return DIAG_LOG; }
+    // [AUDITORIA-2026-07 §Etapa1-5] rotación simple: sin esto el log crece sin límite a lo largo de semanas de
+    // uso. Al pasar los 5MB se vacía con una línea de aviso en vez de seguir apendando — nada de recortar por
+    // la mitad (leer+reescribir varios MB en cada rotación saldría más caro que el propio log) ni traer una lib
+    // de rotación: es un log de diagnóstico de SESIÓN, no un historial que haga falta conservar entero.
+    try { const st = await fsp.stat(DIAG_LOG); if (st.size > 5 * 1024 * 1024) await fsp.writeFile(DIAG_LOG, '[log rotated ' + new Date().toISOString() + ']\n', 'utf8'); } catch (_) {}
+    await fsp.appendFile(DIAG_LOG, text, 'utf8');
+    return DIAG_LOG;
+  } catch (err) { return null; }
+});
 ipcMain.handle('dsp:diagPath', async () => DIAG_LOG);
 ipcMain.handle('dsp:readText', async (e, p) => { try { return await fsp.readFile(p, 'utf8'); } catch (err) { return null; } });
 /* [R96] ATOMIC write: temp file in the SAME folder → fsync → rename over the target. rename() is atomic on the volume, so a
@@ -363,6 +408,25 @@ ipcMain.handle('dsp:exists', async (e, p) => { try { return fs.existsSync(p); } 
 ipcMain.handle('dsp:setTitle', (e, t) => { if (win) win.setTitle(t); });
 ipcMain.handle('dsp:setProgress', (e, v) => { try { if (win) win.setProgressBar(typeof v === 'number' && v >= 0 ? Math.min(1, v) : -1); } catch (err) {} }); // [R92-T5] taskbar progress for exports
 ipcMain.handle('dsp:forceClose', () => { forceClose = true; if (win) win.close(); return true; }); // renderer confirmed "close without saving"
+
+// [AUDITORIA-2026-07 §Etapa1-3] impedir que Windows/macOS suspendan la app durante un export largo o una
+// emisión NDI/Spout — ambos pueden solaparse (export mientras se transmite a la sala en vivo), así que un
+// contador de referencias evita que el segundo `off` corte el bloqueo que el primero todavía necesita. Los
+// call-sites en app.js los agrega el otro agente en paralelo; acá sólo queda el canal, tolerante a llamadas
+// desbalanceadas (el contador nunca baja de 0).
+let _psbId = null, _psbRefs = 0;
+ipcMain.handle('dsp:powerSave', (e, on) => {
+  try {
+    if (on) {
+      _psbRefs++;
+      if (_psbRefs === 1) _psbId = powerSaveBlocker.start('prevent-app-suspension');
+    } else if (_psbRefs > 0) {
+      _psbRefs--;
+      if (_psbRefs === 0 && _psbId != null) { powerSaveBlocker.stop(_psbId); _psbId = null; }
+    }
+  } catch (_) {}
+  return { active: _psbRefs > 0, refs: _psbRefs };
+});
 
 // --- live performance meters (CPU / RAM / GPU). GPU via nvidia-smi (cached); silently null on non-NVIDIA or if not on PATH. ---
 const _gpu = { util: null, memUsed: null, memTotal: null, t: 0 }; let _nvBusy = false, _nvOff = false;

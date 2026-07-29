@@ -194,7 +194,7 @@ window.addEventListener('unhandledrejection',ev=>{ try{ const r=ev.reason; diag(
 async function saveDiagLog(){ const text='Dome Studio Pro — diagnostics log\n'+diagText()+'\n'; const fn='dome-diagnostics.txt';
   try{ const d=window.dsp; if(d&&d.isElectron&&d.saveFile){ const p=await d.saveFile(fn,'txt','Text log'); if(p){ await d.writeText(p,text); flashStatus(T('Diagnostics log saved','Registro de diagnóstico guardado')); } } else { dlBlob(new Blob([text],{type:'text/plain'}),fn); } }catch(e){ try{flashStatus(T('Could not save the log','No se pudo guardar el registro'),'err');}catch(_){} } } // [R94-UT3·U-21]
 let glLost=false, _glLostReload=0;
-glc.addEventListener('webglcontextlost',e=>{ e.preventDefault(); glLost=true; try{cancelExport=true;}catch(_){ } try{if(state&&state.playing)pause();}catch(_){ } try{localStorage.setItem('domeProPro',JSON.stringify(serProject()));}catch(_){ } try{clearTimeout(_glLostReload);}catch(_){ } _glLostReload=setTimeout(()=>{ try{window.onbeforeunload=null;}catch(_){ } location.reload(); },1800); /* fallback: a real GPU reset often never fires 'restored' */ alert(T('Graphics context was lost (GPU reset). The app will reload to recover — your work was just autosaved; restore it from ⌘K (Restore autosave).','Se perdió el contexto gráfico (reinicio de GPU). La app se recargará para recuperarse — tu trabajo se acaba de autoguardar; restáuralo desde ⌘K (Restaurar autoguardado).')); });
+glc.addEventListener('webglcontextlost',e=>{ e.preventDefault(); glLost=true; try{cancelExport=true;}catch(_){ } try{if(state&&state.playing)pause();}catch(_){ } try{localStorage.setItem('domeProPro',JSON.stringify(serProject()));}catch(_){ } try{clearTimeout(_glLostReload);}catch(_){ } _glLostReload=setTimeout(()=>{ try{window.onbeforeunload=null;}catch(_){ } location.reload(); },1800); /* fallback: a real GPU reset often never fires 'restored' */ { const m=T('Graphics context was lost (GPU reset). The app will reload to recover — your work was just autosaved; restore it from ⌘K (Restore autosave).','Se perdió el contexto gráfico (reinicio de GPU). La app se recargará para recuperarse — tu trabajo se acaba de autoguardar; restáuralo desde ⌘K (Restaurar autoguardado).'); if(typeof window.appAlert==='function')window.appAlert(m); else if(typeof appAlert==='function')appAlert(m); else console.error(m); } /* [R212] native alert() never shows in Electron — appAlert is async/non-blocking so it paints fine before the 1800ms reload; appAlert is hoisted (function declaration) so it exists by the time this listener can ever fire */ });
 glc.addEventListener('webglcontextrestored',()=>{ glLost=false; try{clearTimeout(_glLostReload);}catch(_){ } location.reload(); });
 function sh(t,s){const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw gl.getShaderInfoLog(o);return o;}
 function prog(v,f){const p=gl.createProgram();gl.attachShader(p,sh(gl.VERTEX_SHADER,v));gl.attachShader(p,sh(gl.FRAGMENT_SHADER,f));gl.linkProgram(p);if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw gl.getProgramInfoLog(p);return p;}
@@ -1005,7 +1005,8 @@ function nestSelection(){ const ids=(state.selIds&&state.selIds.length)?state.se
   state.media.push(nest);
   { const rx=state.reactive; if(rx&&rx.srcClipId!=null){ const ri=clips.findIndex(c=>c.id===rx.srcClipId); if(ri>=0){ rx.srcClipId=nestClips[ri].id; _arCache=null; try{arRecompute();}catch(e){} } } } // [R92-T1 C5] the reactive source clip gets a NEW id inside the nest — remap so audio-reactive FX keep reacting
   state.clips=state.clips.filter(c=>!ids.includes(c.id));
-  const nc=makeClip(nest,(used[0]||0),minStart); nc.dur=dur; nc.props.fulldome=!isFlat(); state.clips.push(nc);
+  const vidLane=used.find(li=>state.lanes[li]&&state.lanes[li].kind==='video'); // [R212] a nest is video content — land it on a VIDEO lane, not just the lowest-index used lane (which could be an audio lane if only its linked audio was selected, and activeClips() skips non-video lanes → an invisible nest)
+  const nc=makeClip(nest,(vidLane!=null?vidLane:(used[0]||0)),minStart); nc.dur=dur; nc.props.fulldome=!isFlat(); state.clips.push(nc);
   state.selId=nc.id; state.selIds=[nc.id]; renderMedia(); renderSeqBar(); renderTimeline(); renderInspector(); render(); markDirty(); flashStatus(clips.length+T(' clips → nest','  clips → nido')); }
 /* [T4] render-ahead: cache the flattened master composite per frame (downscaled via blitFramebuffer),
    so heavy playback can replay one flat texture instead of recompositing N layers + decoding N videos.
@@ -1284,9 +1285,10 @@ function startNDI(res){ if(!ndiAvailable()){ appAlert(T('The NDI runtime is not 
   _ndiRes=res; _ndiFps=(res>=4096)?30:Math.max(1,Math.min(60,Math.round(state.fps||30)));
   if(!DSP.ndi.start('Immersive Studio Pro — Master', _ndiFps*1000, 1000)){ flashStatus(T('NDI output failed to start','No se pudo iniciar la salida NDI'),'err'); return; } // [R94-UT3·U-21]
   _ndiOn=true; ensureNdiFBO(res); clearInterval(_ndiTimer); _ndiTimer=setInterval(ndiTick,Math.max(8,Math.round(1000/_ndiFps)));
+  try{ if(IS_ELEC&&DSP.powerSave)DSP.powerSave(true); }catch(e){} // [R212] keep the display/sleep from kicking in while an output is live — main.js ref-counts, so balanced on/off calls per subsystem are enough
   const b=$('#ndiBtn'); if(b)b.classList.add('on'); try{refreshOutputInd();}catch(e){}
   flashStatus(T('NDI output ON · ','Salida NDI activa · ')+res+'×'+res+' · '+_ndiFps+'fps'); }
-function stopNDI(){ _ndiOn=false; clearInterval(_ndiTimer); _ndiTimer=0; try{DSP.ndi.stop();}catch(e){} _closeNdiGL(); const b=$('#ndiBtn'); if(b)b.classList.remove('on'); try{refreshOutputInd();}catch(e){} flashStatus(T('NDI output off','Salida NDI desactivada')); }
+function stopNDI(){ const was=_ndiOn; _ndiOn=false; clearInterval(_ndiTimer); _ndiTimer=0; try{DSP.ndi.stop();}catch(e){} _closeNdiGL(); if(was){ try{ if(IS_ELEC&&DSP.powerSave)DSP.powerSave(false); }catch(e){} } const b=$('#ndiBtn'); if(b)b.classList.remove('on'); try{refreshOutputInd();}catch(e){} flashStatus(T('NDI output off','Salida NDI desactivada')); }
 function ndiMenu(x,y){ if(!IS_ELEC||!DSP.ndi){ appAlert(T('NDI output is only available in the desktop app.','La salida NDI solo está disponible en la app de escritorio.')); return; }
   if(!ndiAvailable()){ appConfirm(T('The free NDI runtime is not installed. It is required to broadcast NDI. Open the download page?','El runtime gratuito de NDI no está instalado. Es necesario para transmitir por NDI. ¿Abrir la página de descarga?'),ok=>{ if(ok){ try{ const u=DSP.ndi.runtimeUrl(); window.open(u,'_blank'); }catch(e){} } }); return; }
   const ck=r=>(_ndiOn&&_ndiRes===r)?'  ✓':''; const items=[
@@ -1321,9 +1323,10 @@ function startSpout(res){ if(!spoutAvailable()){ appAlert(T('Spout output is not
   _spoutRes=res; _spoutFps=(res>=4096)?30:Math.max(1,Math.min(60,Math.round(state.fps||30)));
   if(!DSP.spout.start('Immersive Studio Pro — Master')){ flashStatus(T('Spout output failed to start','No se pudo iniciar la salida Spout'),'err'); return; }
   _spoutOn=true; ensureSpoutFBO(res); clearInterval(_spoutTimer); _spoutTimer=setInterval(spoutTick,Math.max(8,Math.round(1000/_spoutFps)));
+  try{ if(IS_ELEC&&DSP.powerSave)DSP.powerSave(true); }catch(e){} // [R212] keep the display/sleep from kicking in while an output is live — main.js ref-counts, so balanced on/off calls per subsystem are enough
   const b=$('#spoutBtn'); if(b)b.classList.add('on'); try{refreshOutputInd();}catch(e){}
   flashStatus(T('Spout output ON · ','Salida Spout activa · ')+res+'×'+res+' · '+_spoutFps+'fps'); }
-function stopSpout(){ _spoutOn=false; clearInterval(_spoutTimer); _spoutTimer=0; try{DSP.spout.stop();}catch(e){} _closeSpoutGL(); const b=$('#spoutBtn'); if(b)b.classList.remove('on'); try{refreshOutputInd();}catch(e){} flashStatus(T('Spout output off','Salida Spout desactivada')); }
+function stopSpout(){ const was=_spoutOn; _spoutOn=false; clearInterval(_spoutTimer); _spoutTimer=0; try{DSP.spout.stop();}catch(e){} _closeSpoutGL(); if(was){ try{ if(IS_ELEC&&DSP.powerSave)DSP.powerSave(false); }catch(e){} } const b=$('#spoutBtn'); if(b)b.classList.remove('on'); try{refreshOutputInd();}catch(e){} flashStatus(T('Spout output off','Salida Spout desactivada')); }
 function spoutMenu(x,y){ if(!IS_ELEC||!DSP.spout){ appAlert(T('Spout output is only available in the desktop app.','La salida Spout solo está disponible en la app de escritorio.')); return; }
   const ck=r=>(_spoutOn&&_spoutRes===r)?'  ✓':''; const items=[
     {label:T('Dome master 1:1 · 2048 × 2048','Máster Domo 1:1 · 2048 × 2048')+ck(2048),ico:'ndi',fn:()=>{ (_spoutOn&&_spoutRes===2048)?stopSpout():startSpout(2048); }},
@@ -2139,7 +2142,7 @@ function renameMediaInline(m,el){ if(!m)return; el=el||mediaNameEl(m.id); if(!in
 /* delete a media item + its clips (shared by the context menu and the Delete key) */
 function deleteMedia(m){ if(!m)return; if(isSeqMedia(m)){ deleteSequenceMedia(m.id); return; }
   const doIt=()=>{
-    pushUndo(); for(const c of state.clips)if(c.mediaId===m.id&&c.maskTex){try{gl.deleteTexture(c.maskTex);}catch(e){}} try{disposeDecoder(m);}catch(e){} if(m.kind==='ndi')closeNdiMedia(m); if(m.kind==='spout')closeSpoutMedia(m); state.mediaTrash=state.mediaTrash||{}; state.mediaTrash[m.id]=m; state.media=state.media.filter(x=>x.id!==m.id);
+    pushUndo([m.id]); /* [R212] record the deleted id so restore() revives it even if no clip references it (deleted straight from the media panel) */ for(const c of state.clips)if(c.mediaId===m.id&&c.maskTex){try{gl.deleteTexture(c.maskTex);}catch(e){}} try{disposeDecoder(m);}catch(e){} if(m.kind==='ndi')closeNdiMedia(m); if(m.kind==='spout')closeSpoutMedia(m); state.mediaTrash=state.mediaTrash||{}; state.mediaTrash[m.id]=m; state.media=state.media.filter(x=>x.id!==m.id);
     if(m.path&&(m.kind==='video'||m.kind==='audio'||m.kind==='image')){ // [R92-T3 F2] the trash used to retain the decoded AudioBuffer (1.4GB/h), the <video> demuxer and the GPU texture for the whole session — undo re-loads from disk instead
       try{ if(m.el&&m.el.pause){m.el.pause();m.el.removeAttribute('src');m.el.load();} }catch(e){} m.el=null; m.originalEl=null;
       if(m.tex){try{gl.deleteTexture(m.tex);}catch(e){} m.tex=null;} m.buffer=null; m.frames=null; m._trashed=true; }
@@ -5555,9 +5558,17 @@ let _exStage='idle'; // [R183] miga de pan: en qué etapa está runExport. Un ex
    únicas etapas de un export que dependen de material ARBITRARIO del usuario, y ninguna de las dos puede tener
    derecho a congelar el render: un `decodeAudioData` que no llama a ninguno de sus dos callbacks deja el export
    colgado para siempre, sin barra, sin error y sin archivo. Vencido el plazo se sigue sin audio, que es un
-   resultado degradado pero honesto y visible. */
-function exDeadline(p,ms,tag){ let t; return Promise.race([ Promise.resolve(p).finally(()=>clearTimeout(t)),
-  new Promise((_,rj)=>{ t=setTimeout(()=>{ const e=new Error('timeout: '+tag); e.exTimeout=tag; rj(e); },ms); }) ]); }
+   resultado degradado pero honesto y visible.
+   [R212] El plazo NO bastaba para Cancelar: antes sólo el bucle POR ARCHIVO comprobaba `cancelExport`, entre
+   una espera y la siguiente — un clic en Cancelar a mitad de UN archivo se quedaba sin efecto hasta que ese
+   archivo agotara sus 3 minutos (con dos archivos rotos, hasta 6 sin que el botón hiciera nada). El visor se
+   queda en "RENDERING" todo ese tiempo porque `resize()` no hace nada mientras `exporting=true`. Ahora
+   CUALQUIER espera que pase por aquí compite también contra `cancelExport` (sondeado cada 200ms) — gana lo
+   que llegue primero: el resultado real, el plazo, o Cancelar. */
+function exDeadline(p,ms,tag){ let t,iv; const stop=()=>{clearTimeout(t);clearInterval(iv);};
+  return Promise.race([ Promise.resolve(p).finally(stop),
+    new Promise((_,rj)=>{ t=setTimeout(()=>{ stop(); const e=new Error('timeout: '+tag); e.exTimeout=tag; rj(e); },ms); }),
+    new Promise((_,rj)=>{ iv=setInterval(()=>{ if(cancelExport){ stop(); const e=new Error('cancelled: '+tag); e.exCancelled=true; rj(e); } },200); }) ]); }
 /* suggested H.264 bitrate (Mbps) for a generous ~0.18 bits/pixel — keeps fulldome masters crisp instead of starved */
 function suggestBitrate(res,fps,w,h){ const px=(w&&h)?w*h:res*res; return Math.max(8,Math.min(800,Math.round(px*fps*0.18/1e6))); } // flat passes w,h (rect); dome passes res (square)
 async function pickAvcCodec(w,h,bitrate,fps){
@@ -5675,6 +5686,7 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
   const filePre=wall?('wall_'+String(wall.role||'').toLowerCase()):(flat?'2d':'dome');
   const job=opt.job; const oW=glc.width,oH=glc.height; if(state.playing)pause(); // never export over a live transport — the playback rAF loop and the export seeker would fight over the media elements
   exporting=true; _exportQuality=true; _ncSquare=!!opt.squareNest;
+  try{ if(IS_ELEC&&DSP.powerSave)DSP.powerSave(true); }catch(e){} // [R212] a render can run for minutes unattended — don't let the display/system sleep interrupt it; main.js ref-counts, paired with the powerSave(false) at every exit below
   /* [R189] el export decodifica por WebCodecs secuencial, no por <video>. Se tiran las instancias de
      previsualización PRIMERO: si no, cada clip arrastraría su <video> ya cargado (memoria muerta) junto al
      decodificador nuevo. */
@@ -5696,23 +5708,33 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
     _exStage='audio-decode';
     if(opt.codec!=='still' && !opt.noAudio){ // [R92-T2 C1] decode the audio track of exported VIDEO clips into m._exAudio so it lands in the mix (Chromium's decodeAudioData demuxes MP4/MOV audio). ≤1.5GB source cap: decodeAudioData needs the whole file as one ArrayBuffer. · [R179] noAudio (render-in-place) skips the whole stage — it is the slowest part of a short bake (a 1h source decodes to ~1.4GB of PCM for nothing)
       const vmap=new Map(); (function walk(cs,d){ if(d>6||!cs)return; for(const c of cs){ if(c.disabled)continue; const m=mediaById(c.mediaId); if(!m)continue; if(m.kind==='video'&&m.path&&!vmap.has(m.id))vmap.set(m.id,m); else if(isSeqMedia(m))walk(m.nestClips,d+1); } })(state.clips,0);
-      const skipped=[], timedOut=[];
-      for(const m of vmap.values()){ if(cancelExport)break; if(m._exAudio)continue; try{ const st=await DSP.stat(m.path); if(!st||!st.size)continue;
+      const skipped=[], timedOut=[], failed=[];
+      for(const m of vmap.values()){ if(cancelExport)break; if(m._exAudio)continue;
+        /* [R212] ya falló o expiró en un export ANTERIOR de esta misma sesión: no tiene sentido pagar otra vez
+           el plazo entero (hasta 3 min) por el mismo archivo roto — se avisa de nuevo y se sigue de una. Se
+           limpia al relink/reemplazar el archivo (junto a `_noAudio`), por si el reemplazo ya viene sano. */
+        if(m._exAudioBad){ (m._exAudioBad==='timeout'?timedOut:failed).push(m.name); continue; }
+        try{ const st=await DSP.stat(m.path); if(!st||!st.size)continue;
           if(st.size>15e8){ skipped.push(m.name); continue; }
           if(job&&job.label)job.label(T('Decoding video audio…','Decodificando audio de vídeos…'));
           const ab=await exDeadline(fetch(DSP.toFileURL(m.path)).then(r=>r.arrayBuffer()),EX_AUDIO_MS,'fetch '+m.name);
           m._exAudio=await exDeadline(new Promise((res,rej)=>{ const pr=ACTX().decodeAudioData(ab,res,rej); if(pr&&pr.catch)pr.catch(()=>{}); }),EX_AUDIO_MS,'decode '+m.name); } // decodeAudioData atiende los callbacks Y ADEMÁS devuelve una promesa: sin este catch su rechazo salía como excepción no capturada y ensuciaba la consola aunque el error ya estuviera atendido
-        catch(e){ if(e&&e.exTimeout)timedOut.push(m.name); } } // sin pista de audio / códec no soportado → el clip se queda mudo, como siempre. POR PLAZO es distinto: eso es una pérdida que hay que decir.
+        catch(e){ if(e&&e.exCancelled){ /* Cancelar: el `for` rompe en la próxima vuelta — no es una pérdida de material, no hay nada que avisar */ }
+          else if(e&&e.exTimeout){ timedOut.push(m.name); m._exAudioBad='timeout'; }
+          else{ failed.push(m.name); m._exAudioBad='error'; } } } // [R212] un EncodingError (pista corrupta / códec no soportado) antes se tragaba en silencio — el clip mudo sin avisar es la misma pérdida que un plazo agotado
       if(skipped.length) flashStatus(T('Video audio skipped (file >1.5GB): ','Audio de vídeo omitido (archivo >1,5GB): ')+skipped.join(', '),'err');
       if(timedOut.length){ const msg=T('No audio from: ','Sin audio de: ')+timedOut.join(', ')+T(' — the decode timed out. The picture is unaffected.',' — se agotó el plazo de decodificación. La imagen no se ve afectada.');
+        flashStatus(msg,'err'); if(job&&job.warn)job.warn(msg); }
+      if(failed.length){ const msg=T('No audio from: ','Sin audio de: ')+failed.join(', ')+T(' — the audio could not be decoded (corrupt or unsupported track). The picture is unaffected.',' — no se pudo decodificar el audio (pista corrupta o no soportada). La imagen no se ve afectada.');
         flashStatus(msg,'err'); if(job&&job.warn)job.warn(msg); } } // [R94-UT3·U-21]
     _exStage='audio-mix';
     let audioBuf=null;
     if(!(opt.codec==='still'||opt.noAudio)){ try{ audioBuf=await exDeadline(exportAudioMix(t0,endT),EX_AUDIO_MS,'audio mix'); }
-      catch(e){ console.warn('export audio',e);
-        const msg=(e&&e.exTimeout)?T('No audio in this export — the mix timed out. The picture is unaffected.','Este export sale sin audio — se agotó el plazo de la mezcla. La imagen no se ve afectada.')
-                                  :T('No audio in this export — the mix failed. The picture is unaffected.','Este export sale sin audio — falló la mezcla. La imagen no se ve afectada.');
-        flashStatus(msg,'err'); if(job&&job.warn)job.warn(msg); } } // a still has no audio; neither has a render-in-place bake (opt.noAudio)
+      catch(e){ if(e&&e.exCancelled){ /* [R212] Cancelar a mitad de la mezcla no es una pérdida de material — nada que avisar */ }
+        else{ console.warn('export audio',e);
+          const msg=(e&&e.exTimeout)?T('No audio in this export — the mix timed out. The picture is unaffected.','Este export sale sin audio — se agotó el plazo de la mezcla. La imagen no se ve afectada.')
+                                    :T('No audio in this export — the mix failed. The picture is unaffected.','Este export sale sin audio — falló la mezcla. La imagen no se ve afectada.');
+          flashStatus(msg,'err'); if(job&&job.warn)job.warn(msg); } } } // a still has no audio; neither has a render-in-place bake (opt.noAudio)
     if(opt.codec==='still'){ // single high-quality PNG of the current frame, rendered from ORIGINAL media (seekExport→seekMedia useOrig=true), with SSAA
       const t=state.playhead; await seekExport(t); prepNests(state.clips,t,0); renderExportFrame(t,qRes,ssExport,wall);
       const blob=await new Promise(r=>glc.toBlob(r,'image/png'));
@@ -5801,7 +5823,7 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
       _exStage='save-dialog';
       const canStream=IS_ELEC && !!DSP.fileOpen && !!DSP.saveFile;
       let streamPath=null,fileId=null,wq=Promise.resolve(),wErr=null,pending=0;
-      if(canStream){ streamPath=opt.outPath||await DSP.saveFile(fn,'mp4','MP4 video'); if(!streamPath){ if(_ripSaved)state.clips=_ripSaved; try{ if($('#renderMask'))$('#renderMask').classList.remove('on'); }catch(_){} glc.width=oW;glc.height=oH; freeExportFBO(); nestSize=COMP; freeNestPool(); exporting=false; _exportQuality=false; _exCD=false; _vinstCap=VINST_MAX; _ncSquare=false; disposeAllVinst(); for(const m of state.media)if(m._exAudio)delete m._exAudio; if(_rsSeq)switchSeq(_rsSeq); resize(); try{scrubRender();}catch(_){} job.done(true); return; } fileId=await DSP.fileOpen(streamPath); } // FULL cleanup on this early return — it used to leak _exportQuality=true (viewer stuck binding heavy originals: "the editor went crazy after export")
+      if(canStream){ streamPath=opt.outPath||await DSP.saveFile(fn,'mp4','MP4 video'); if(!streamPath){ if(_ripSaved)state.clips=_ripSaved; try{ if($('#renderMask'))$('#renderMask').classList.remove('on'); }catch(_){} glc.width=oW;glc.height=oH; freeExportFBO(); nestSize=COMP; freeNestPool(); exporting=false; _exportQuality=false; _exCD=false; _vinstCap=VINST_MAX; _ncSquare=false; disposeAllVinst(); try{ if(IS_ELEC&&DSP.powerSave)DSP.powerSave(false); }catch(e){} for(const m of state.media)if(m._exAudio)delete m._exAudio; if(_rsSeq)switchSeq(_rsSeq); resize(); try{scrubRender();}catch(_){} job.done(true); return; } fileId=await DSP.fileOpen(streamPath); } // FULL cleanup on this early return — it used to leak _exportQuality=true (viewer stuck binding heavy originals: "the editor went crazy after export") · [R212] balanced powerSave(false) here too
       const streaming=canStream && fileId!=null;
       const muxCfg={video:{codec:muxCodec,width:eW,height:eH}};
       if(streaming){ muxCfg.fastStart=false; muxCfg.target=new Mp4Muxer.StreamTarget({chunked:true,onData:(data,position)=>{ const buf=data.slice(); if(job.wrote)job.wrote(buf.byteLength); pending++; wq=wq.then(()=>DSP.fileWriteAt(fileId,position,buf)).then(ok=>{pending--; if(ok===false)wErr=wErr||new Error('disk write failed');},e=>{pending--;wErr=wErr||e;}); }}); }
@@ -5837,7 +5859,7 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
   _exStage='done';
   diag('info','export',cancelExport?'cancelled':'done',{codec:opt.codec,res}); diagFlush();
   if(_ripSaved)state.clips=_ripSaved; // [R115] restore the full clip list after an isolated render-in-place
-  glc.width=oW;glc.height=oH; try{ if($('#renderMask'))$('#renderMask').classList.remove('on'); }catch(_){} freeExportFBO(); dxtFree(); nestSize=COMP; freeNestPool(); exporting=false; _exportQuality=false; _exCD=false; _vinstCap=VINST_MAX; _ncSquare=false; disposeAllVinst(); for(const m of state.media)if(m._exAudio)delete m._exAudio; if(_rsSeq)switchSeq(_rsSeq); resize(); try{scrubRender();}catch(_){} job.done(cancelExport); // _exAudio freed: decoded video audio is export-only (1h ≈ 1.4GB PCM)
+  glc.width=oW;glc.height=oH; try{ if($('#renderMask'))$('#renderMask').classList.remove('on'); }catch(_){} freeExportFBO(); dxtFree(); nestSize=COMP; freeNestPool(); exporting=false; _exportQuality=false; _exCD=false; _vinstCap=VINST_MAX; _ncSquare=false; disposeAllVinst(); try{ if(IS_ELEC&&DSP.powerSave)DSP.powerSave(false); }catch(e){} for(const m of state.media)if(m._exAudio)delete m._exAudio; if(_rsSeq)switchSeq(_rsSeq); resize(); try{scrubRender();}catch(_){} job.done(cancelExport); // _exAudio freed: decoded video audio is export-only (1h ≈ 1.4GB PCM) · [R212] balanced powerSave(false) — the normal exit path (the streaming-save-cancelled early return above is the other, mutually exclusive exit)
   /* [R190] Al terminar se abre la carpeta DIRECTAMENTE. Antes preguntaba con un `appConfirm`, y la respuesta era
      siempre la misma: un clic de más entre tú y el archivo que acabas de esperar. Sólo en el ÚLTIMO trabajo: una
      sala por muro encola 4 + piso, y abrir cinco ventanas del explorador sería peor que preguntar. */
@@ -6820,7 +6842,7 @@ function updModeUI(){ const fl=isFlat(), room=isRoom(); // a 360 room has a real
 function openSeq(id){ const m=mediaById(id); if(!isSeqMedia(m))return; if(!state.openSeqs)state.openSeqs=[]; if(!state.openSeqs.includes(id))state.openSeqs.push(id); switchSeq(id); }
 function switchSeq(id){ const m=mediaById(id); if(!isSeqMedia(m))return; if(id===state.activeSeqId){ if(!state.openSeqs.includes(id))state.openSeqs.push(id); renderSeqBar(); return; }
   saveActiveSeq(); state.activeSeqId=id; if(!state.openSeqs.includes(id))state.openSeqs.push(id); loadSeqIntoState(m); // [R92-T1] per-sequence undo stacks survive the switch
-  renderSeqBar(); renderMedia(); renderTimeline(); renderInspector(); renderWork(); render(); updStatus(); updFmtChip(); flashStatus(T('Sequence: ','Secuencia: ')+m.name); }
+  renderSeqBar(); renderMedia(); renderTimeline(); renderInspector(); renderWork(); render(); updStatus(); updFmtChip(); projTitle(); flashStatus(T('Sequence: ','Secuencia: ')+m.name); } // [R212] the window/tab title shows the active sequence name — switching tabs left it stale until the next unrelated projTitle() call
 function closeSeqTab(id){ if(!state.openSeqs)return; const wasActive=(id===state.activeSeqId); if(wasActive)saveActiveSeq();
   const next=state.openSeqs.filter(x=>x!==id); if(!next.length){ flashStatus(T('At least one sequence stays open','Al menos una secuencia queda abierta')); return; } state.openSeqs=next;
   if(wasActive){ state.activeSeqId=state.openSeqs[state.openSeqs.length-1]; loadSeqIntoState(activeSeq()); renderMedia(); renderTimeline(); renderInspector(); renderWork(); render(); updStatus(); updFmtChip(); }
@@ -7502,7 +7524,7 @@ async function reloadMedia(m){
     v.addEventListener('loadedmetadata',()=>{ m.el=v;m.originalEl=v;m.srcUrl=url;m.tex=newTex();m.w=v.videoWidth;m.h=v.videoHeight;m.missing=false;m._loading=false;
       if(isFinite(v.duration)&&v.duration>0)m.dur=v.duration; // [R205] la duración sale del ARCHIVO, como ya hacía el audio: sin esto un reemplazo conservaba la del anterior y el límite de recorte mentía
       detectFps(v,m,()=>{ seekMedia(m,0,true).then(()=>{makeThumb(m);render();}); }); renderMedia();
-      delete m._noAudio; // fresh silent-probe after relink/replace
+      delete m._noAudio; delete m._exAudioBad; // fresh silent-probe after relink/replace · [R212] a replaced file deserves a fresh export-decode attempt too
       if(!m.proxyReady){ attachExistingProxy(m,true); } // [R92-T6 / R107] re-bind an existing on-disk proxy on reopen (exact hash OR sibling by basename); a corrupt/stale one is deleted with a status note. Generation stays MANUAL.
       acabar();
       },{once:true}); // proxies MANUAL (right-click → Generate proxy); existing ones re-attach automatically
@@ -7598,7 +7620,7 @@ function adopt(m){ // relink a re-imported file to a missing slot — prefer an 
   if(i>=0){m.id=state.media[i].id;state.media.splice(i,1);renderTimeline();renderInspector();} updRelink(); }
 let saveVer=1;
 function saveIncremental(){ saveVer++; const json=JSON.stringify(serProject()); const name=(currentTitle()==='Untitled project'?'proyecto':currentTitle())+'_v'+String(saveVer).padStart(2,'0')+'.isp';
-  if(IS_ELEC&&currentPath){ DSP.saveDialog(name).then(p=>{ if(p){DSP.writeText(p,json);flashStatus(T('Saved v','Guardado v')+saveVer);} }); }
+  if(IS_ELEC&&currentPath){ DSP.saveDialog(name).then(p=>{ if(!p)return; DSP.writeText(p,json).then(ok=>{ if(ok===false)appAlert(T('Could not save the project (disk full, locked file, or no permission).','No se pudo guardar el proyecto (disco lleno, archivo bloqueado o sin permiso).')); else flashStatus(T('Saved v','Guardado v')+saveVer); }); }); } // [R212] same pattern as saveProject: check the write actually succeeded before claiming it did
   else { dlBlob(new Blob([json],{type:'application/json'}),name); flashStatus(T('Saved v','Guardado v')+saveVer); } }
 async function restoreAutosave(){ if(!(await confirmDiscard()))return;
   if(IS_ELEC){ // disk candidates, newest first: project-local autosave folder + LEGACY sidecar next to the project + the unsaved-project pair
@@ -7647,13 +7669,13 @@ function updRelink(){ const miss=state.media.filter(m=>m.missing&&!m._loading); 
 const _undoBySeq={}; const UNDO_BYTE_CAP=250e6; // large-project guard: 80 snapshots of a feature-film timeline could be hundreds of MB
 function _ustk(){ const id=state.activeSeqId!=null?state.activeSeqId:'_'; return _undoBySeq[id]||(_undoBySeq[id]={u:[],r:[],bytes:0}); }
 function clearAllUndo(){ for(const k in _undoBySeq)delete _undoBySeq[k]; }
-function snapshot(){ return JSON.stringify({clips:state.clips.map(serClip),lanes:state.lanes,selId:state.selId,selIds:state.selIds,selLane:state.selLane,markers:state.markers,selMarkerId:state.selMarkerId,groups:state.groups,selGroupId:state.selGroupId,reactive:state.reactive||null,autoItems:state.autoItems||{}}); } // [R95·D2] items are undoable state too: editing a pooled curve rewrites the item
-function pushUndo(){ const st=_ustk(); const s=snapshot(); st.u.push(s); st.bytes+=s.length; st.r.length=0;
+function snapshot(trashIds){ return JSON.stringify({clips:state.clips.map(serClip),lanes:state.lanes,selId:state.selId,selIds:state.selIds,selLane:state.selLane,markers:state.markers,selMarkerId:state.selMarkerId,groups:state.groups,selGroupId:state.selGroupId,reactive:state.reactive||null,autoItems:state.autoItems||{},trashIds:trashIds||undefined}); } // [R95·D2] items are undoable state too: editing a pooled curve rewrites the item · [R212] trashIds: media ids this action just sent to state.mediaTrash — restore() must revive them even if no clip references them (unused media deleted from the panel)
+function pushUndo(trashIds){ const st=_ustk(); const s=snapshot(trashIds); st.u.push(s); st.bytes+=s.length; st.r.length=0;
   let total=0,count=0; for(const k in _undoBySeq){ total+=_undoBySeq[k].bytes; count+=_undoBySeq[k].u.length; }
   while(count>80||(total>UNDO_BYTE_CAP&&count>8)){ let bk=null; for(const k in _undoBySeq)if(_undoBySeq[k].u.length&&(bk==null||_undoBySeq[k].bytes>_undoBySeq[bk].bytes))bk=k; if(bk==null)break; const d=_undoBySeq[bk].u.shift(); _undoBySeq[bk].bytes-=d.length; total-=d.length; count--; } // evict oldest from the heaviest sequence — caps are global across all stacks
   markDirty(); }
 function restore(s){ const o=JSON.parse(s); state.clips=o.clips.map(c=>({...c,maskTex:null})); state.lanes=o.lanes; state.autoSel=null; state.hoverAuto=null; state.shapeBox=null; /* [R95·B1] the box holds live keyframe refs — undo/sequence switch replaces those objects, so it must go with them */ state.selId=o.selId; state.selIds=Array.isArray(o.selIds)?o.selIds:(o.selId!=null?[o.selId]:[]); state.selLane=o.selLane??null; if(o.markers)state.markers=o.markers; state.selMarkerId=o.selMarkerId??null; state.groups=o.groups||[]; state.selGroupId=o.selGroupId??null; if(o.reactive!==undefined){state.reactive=o.reactive;} if(o.autoItems!==undefined)state.autoItems=o.autoItems; /* [R95·D2] */ _arCache=null; _fxEnvCache.clear(); for(const c of state.clips)if(c.maskData||(c.penMasks&&c.penMasks.length))rebuildMaskTex(c);
-  if(state.mediaTrash){ const need=new Set(); for(const s of state.media)if(isSeqMedia(s)){ const arr=(s.id===state.activeSeqId?state.clips:s.nestClips)||[]; for(const c of arr)need.add(c.mediaId); } for(const c of state.clips)need.add(c.mediaId); for(const id in state.mediaTrash){ if(need.has(+id)){ if(!mediaById(+id)){ const tm=state.mediaTrash[id]; state.media.push(tm); if(tm._trashed){ delete tm._trashed; tm.missing=false; tm._loading=true; try{ reloadMedia(tm); }catch(e){} } } delete state.mediaTrash[id]; } } renderMedia(); }
+  if(state.mediaTrash){ const need=new Set(); for(const s of state.media)if(isSeqMedia(s)){ const arr=(s.id===state.activeSeqId?state.clips:s.nestClips)||[]; for(const c of arr)need.add(c.mediaId); } for(const c of state.clips)need.add(c.mediaId); if(Array.isArray(o.trashIds))for(const id of o.trashIds)need.add(id); /* [R212] media deleted from the panel with no clip using it — revive it anyway, undo means undo */ for(const id in state.mediaTrash){ if(need.has(+id)){ if(!mediaById(+id)){ const tm=state.mediaTrash[id]; state.media.push(tm); if(tm._trashed){ delete tm._trashed; tm.missing=false; tm._loading=true; try{ reloadMedia(tm); }catch(e){} } } delete state.mediaTrash[id]; } } renderMedia(); }
   saveActiveSeq(); markDirty(); // re-heal the state.clips ⇄ activeSeq().nestClips alias (stale nestClips broke seqDur/seqReaches after undo) + an undone edit IS an unsaved change
   renderTimeline();renderInspector();render();updStatus(); reschedAudio(); }
 function undo(){ const st=_ustk(); if(!st.u.length)return; st.r.push(snapshot()); const s=st.u.pop(); st.bytes-=s.length; restore(s); }
@@ -7708,6 +7730,7 @@ async function writeHistory(jsonFull){ if(!IS_ELEC||!DSP.writeText)return; const
 async function pruneHistory(dir){ if(!DSP.listDir||!DSP.deleteFile)return; try{ const files=await DSP.listDir(dir); const cut=Date.now()-3600*1000; const bn=autosaveBaseName();
   for(const f of files){ if(!/\.snap$/.test(f.name)||f.name.indexOf(bn+'.')!==0)continue; if((f.mtimeMs||0)<cut)DSP.deleteFile(pjoin(dir,f.name)); } }catch(e){} } // keep only the last hour, for THIS project's snapshots
 setInterval(async ()=>{ if(_asBusy)return; if(!state.dirty)return; // nothing UNSAVED to protect — never autosave a clean/just-loaded project (a redundant autosave would out-date the .rdome → false "newer autosave" prompt on next open)
+  if(exporting)return; // [R212] export (incl. render-in-place) can swap state.clips down to opt.isolateClips for minutes — an autosave tick here would persist that truncated list, not the real project
   const a=$('#statAuto'); let saved=false; let jsonFull=null;
   const base=IS_ELEC?autosaveBase():null;
   if(base){ _asBusy=true; try{ const dir=projAutosaveDir(); if(dir&&DSP.ensureDir)await DSP.ensureDir(dir); jsonFull=JSON.stringify(serProject()); const p=base+(_asFlip?'.autosave2':'.autosave1');
@@ -8097,7 +8120,7 @@ window.addEventListener('keydown',e=>{ const tag=(e.target.tagName||'').toLowerC
   if(e.key==='Escape'&&document.body.classList.contains('perfmode')&&!document.querySelector('.overlay')){ e.preventDefault(); setPerfMode(false); return; } // [V2] Esc leaves Full Performance (unless a modal is open — that Esc closes the modal)
   if(tag==='input'||tag==='textarea'||e.target.isContentEditable)return; // typing in a text field — leave the keys to the field
   if(tag==='select'&&!mod&&e.code!=='Space')return; // a focused <select> keeps its own nav keys, but Ctrl/Cmd shortcuts + Space (play) still fire
-  if(document.querySelector('.overlay'))return; // a modal (Export/Compose/Prefs/New-sequence/palette) is open — don't fire timeline shortcuts behind it (Escape still handled separately)
+  if(document.querySelector('.overlay')||document.getElementById('exOv'))return; // [R212] a modal (Export/Compose/Prefs/New-sequence/palette) is open — don't fire timeline shortcuts behind it (Escape still handled separately). The Export sheet uses class "exs-scrim" (not "overlay") and is fully removed from the DOM on close, so an id check alone is safe here — Ctrl+Z/Supr while exporting used to corrupt the render.
   if(e.key==='F1'||e.key==='?'){ e.preventDefault(); openPalette(); return; }
   if(mod&&e.key.toLowerCase()==='k'){e.preventDefault();openPalette();return;}
   if(mod&&e.key===','){e.preventDefault();openPrefs();return;}
