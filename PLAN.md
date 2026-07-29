@@ -1,5 +1,23 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 214 — Etapas 3+4 de la auditoría: deuda preventiva + pulido UX
+
+**Deuda (Etapa 3):** `_exportCleanup()` factoriza los dos bloques de limpieza duplicados de `runExport` (la
+duplicación ya había causado un bug real; única diferencia real `dxtFree()`, parametrizada); `layoutWallStrip(walls)`
+unifica el layout de tira triplicado (launcher / editar geometría / crear sala); `lchAspect` delega en `fmtAspect`
+(borde unificado); `purgeMediaTrash()` en `saveProject` (barre el trash de medias no referenciadas por clips ni
+por snapshots del stack de undo); `serProject` ya no escribe `tl.audioH` (vestigio R148); contratos nuevos
+anotados en COMPONENTS.md.
+
+**UX (Etapa 4):** el aviso de códec del Export hace wrap y lleva `title` completo (se truncaba justo en la parte
+accionable); chips de automatización con `title` del device/parámetro completo; sección "Effects" del inspector al
+patrón `.sechead` colapsable (estado en `insColState().mfx`); `title` en los botones de zoom del canvas; el diálogo
+"New sequence" ahora dice dónde se crea una sala 360.
+
+Todo verificado en vivo por CDP, incluido un export MP4 corto real ejercitando `_exportCleanup`. Con esto quedan
+ejecutadas las 4 etapas del plan de `AUDITORIA-2026-07.md`; pendientes solo las "Decisiones para Beltrán" y la
+verificación de cierre (segunda pasada de QA + prueba de estrés) anotadas en el informe.
+
 ## ROUND 213 — Etapa 2 de la auditoría: rendimiento que se siente
 
 - **`_lutReg` acotado y liberable**: LRU de 16 con `gl.deleteTexture` al expulsar, `resetLutReg()` en

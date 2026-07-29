@@ -2638,7 +2638,7 @@ function lchInit(){ return { ptype:'dome', pname:'',
          {role:'Back', wcm:800,hcm:450,pxW:3840,pxH:2160},{role:'Left', wcm:800,hcm:450,pxW:3840,pxH:2160}],
   fps:60, draft:{} }; }
 const lchMP=(w,h)=>(w*h/1e6).toFixed(1)+' MP';
-function lchAspect(w,h){ const g=(a,b)=>b?g(b,a%b):a; const d=g(w,h)||1; return (w/d)+':'+(h/d); }
+function lchAspect(w,h){ return fmtAspect(w,h); } // [R214] was its own GCD calc with no cap (could print unwieldy ratios like "1937:1080" for odd custom sizes); now shares fmtAspect's core — same output for normal w×h (both reduce 1920×1080 → "16:9"), the rare huge-ratio edge case now falls back to fmtAspect's decimal form instead
 function lchEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 /* --- campo numérico con BORRADOR: escribir no compromete nada hasta Enter/blur; Esc descarta; ↑/↓ ±10,
@@ -2962,12 +2962,21 @@ function renderLauncher(){ const ov=document.getElementById('landingOv'); if(!ov
    líneas. Aquí se le arma una secuencia TEMPORAL con la misma forma que produce `newRoomProject` (tira cosida por
    píxeles nativos, `x0/x1` por muro) y se la pone como activa mientras dura la captura. Así el panel 3D es el
    visor de verdad y el lienzo cosido sale con los colores y las líneas del 2D, que es de donde salen. */
-function lchRoomSeqTemp(cfg){
-  const walls=(cfg.walls||[]).map(w=>({...w}));
-  if(!walls.length)return null;
+/* [R214] Wall-strip layout — "cosido por píxeles nativos": lays walls left-to-right by pxW, mutating x0/x1 on
+   each wall in place, and returns the strip's outer size. Was implemented 3× (here, applyRoomGeometry,
+   newRoomProject) with identical math; unified into one function. Keeps this site's defensive `+w.pxW||16` /
+   `+w.pxH||16` coercion (walls here can come from a legacy/loose room config with stringy fields) — harmless
+   for the other two callers, whose walls are always already-numeric. */
+function layoutWallStrip(walls){
   const stripH=Math.max(16,Math.max(...walls.map(w=>+w.pxH||16)));
   let x=0; for(const w of walls){ w.x0=Math.round(x); w.x1=Math.round(x)+(+w.pxW||16); x=w.x1; }
   const stripW=Math.max(16,Math.round(x));
+  return {stripW,stripH};
+}
+function lchRoomSeqTemp(cfg){
+  const walls=(cfg.walls||[]).map(w=>({...w}));
+  if(!walls.length)return null;
+  const {stripW,stripH}=layoutWallStrip(walls);
   return { id:'__lchRoom', kind:'nest', name:'', fps:60, w:stripW, h:stripH, mode:'room', cov:null,
            nestClips:[], nestLanes:[], room:{ walls, floorSeqId:null, floor:cfg.floor||null } };
 }
@@ -4511,7 +4520,7 @@ function autoDuoText(li,cur,onPick){ const wrap=document.createElement('div'); w
   const isT=isFxtKey(cur); const q=isT?cur.split(':'):null;
   const dev=isT?T(FXBY[q[1]].label[0],FXBY[q[1]].label[1]):(XFORM_P.some(d=>d[0]===cur)?T('Transform','Transformar'):T('Effects','Efectos'));
   const par=isT?fxParamLabel(q[1],q[2]):propLabel(cur);
-  wrap.innerHTML=`<span class="achip acat"><span class="alab">${dev}</span>${ICO('chevDown',8)}</span><span class="achip apac"><span class="asw2" style="background:${autoColor(cur)}"></span><span class="alab">${par}</span>${ICO('chevDown',8)}</span>`; // [REDISEÑO Rev1] 2 chips (Effect-type + Parameter con swatch)
+  wrap.innerHTML=`<span class="achip acat" title="${dev}"><span class="alab">${dev}</span>${ICO('chevDown',8)}</span><span class="achip apac" title="${par}"><span class="asw2" style="background:${autoColor(cur)}"></span><span class="alab">${par}</span>${ICO('chevDown',8)}</span>`; // [REDISEÑO Rev1] 2 chips (Effect-type + Parameter con swatch) · [R214] per-chip title = full text (the .alab ellipsis was truncating "Opa…" with no way to read the rest)
   /* [R156] Cada chip abre un MENÚ, no se transforma en dos <select> inline.
      Antes, la pista con el clip seleccionado cambiaba a la versión con selects (`autoDuo`), que es más alta: a 57px
      de pista —la altura del diseño— empujaba la fila de identidad fuera de la cabecera y esa pista se veía rota.
@@ -5721,6 +5730,21 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
   if(opt.outW&&opt.outH&&!wall){ eW=Math.max(16,Math.round(opt.outW/2)*2); eH=Math.max(16,Math.round(opt.outH/2)*2); qRes=Math.max(eW,eH); dimStr=eW+'x'+eH; } // [R180] salida a escala: el caché de un nest se hornea a media resolución (o menos) — es material de trabajo, no de entrega
   const filePre=wall?('wall_'+String(wall.role||'').toLowerCase()):(flat?'2d':'dome');
   const job=opt.job; const oW=glc.width,oH=glc.height; if(state.playing)pause(); // never export over a live transport — the playback rAF loop and the export seeker would fight over the media elements
+  /* [R214] Shared teardown for runExport's two mutually-exclusive exits: the streaming-save-cancelled early return
+     (below) and the normal end-of-function exit. They used to be two literal copies of this block — R212's fix
+     (balanced powerSave(false); it used to leak _exportQuality=true, leaving the viewer "stuck binding heavy
+     originals" after export) landed in only one of them the first time around. `dxt` is the one real difference:
+     dxtFree() only runs on the normal exit (the streaming early return bails before any DXT work happens). */
+  function _exportCleanup(doneArg,flags){ flags=flags||{};
+    if(_ripSaved)state.clips=_ripSaved; // [R115] restore the full clip list after an isolated render-in-place
+    try{ if($('#renderMask'))$('#renderMask').classList.remove('on'); }catch(_){}
+    glc.width=oW;glc.height=oH; freeExportFBO(); if(flags.dxt)dxtFree(); nestSize=COMP; freeNestPool();
+    exporting=false; _exportQuality=false; _exCD=false; _vinstCap=VINST_MAX; _ncSquare=false; disposeAllVinst();
+    try{ if(IS_ELEC&&DSP.powerSave)DSP.powerSave(false); }catch(e){}
+    for(const m of state.media)if(m._exAudio)delete m._exAudio; // _exAudio freed: decoded video audio is export-only (1h ≈ 1.4GB PCM)
+    if(_rsSeq)switchSeq(_rsSeq); resize(); try{scrubRender();}catch(_){}
+    job.done(doneArg);
+  }
   exporting=true; _exportQuality=true; _ncSquare=!!opt.squareNest;
   try{ if(IS_ELEC&&DSP.powerSave)DSP.powerSave(true); }catch(e){} // [R212] a render can run for minutes unattended — don't let the display/system sleep interrupt it; main.js ref-counts, paired with the powerSave(false) at every exit below
   /* [R189] el export decodifica por WebCodecs secuencial, no por <video>. Se tiran las instancias de
@@ -5859,7 +5883,7 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
       _exStage='save-dialog';
       const canStream=IS_ELEC && !!DSP.fileOpen && !!DSP.saveFile;
       let streamPath=null,fileId=null,wq=Promise.resolve(),wErr=null,pending=0;
-      if(canStream){ streamPath=opt.outPath||await DSP.saveFile(fn,'mp4','MP4 video'); if(!streamPath){ if(_ripSaved)state.clips=_ripSaved; try{ if($('#renderMask'))$('#renderMask').classList.remove('on'); }catch(_){} glc.width=oW;glc.height=oH; freeExportFBO(); nestSize=COMP; freeNestPool(); exporting=false; _exportQuality=false; _exCD=false; _vinstCap=VINST_MAX; _ncSquare=false; disposeAllVinst(); try{ if(IS_ELEC&&DSP.powerSave)DSP.powerSave(false); }catch(e){} for(const m of state.media)if(m._exAudio)delete m._exAudio; if(_rsSeq)switchSeq(_rsSeq); resize(); try{scrubRender();}catch(_){} job.done(true); return; } fileId=await DSP.fileOpen(streamPath); } // FULL cleanup on this early return — it used to leak _exportQuality=true (viewer stuck binding heavy originals: "the editor went crazy after export") · [R212] balanced powerSave(false) here too
+      if(canStream){ streamPath=opt.outPath||await DSP.saveFile(fn,'mp4','MP4 video'); if(!streamPath){ _exportCleanup(true); return; } fileId=await DSP.fileOpen(streamPath); } // [R214] full cleanup on this early return via _exportCleanup — see its definition above for why that matters
       const streaming=canStream && fileId!=null;
       const muxCfg={video:{codec:muxCodec,width:eW,height:eH}};
       if(streaming){ muxCfg.fastStart=false; muxCfg.target=new Mp4Muxer.StreamTarget({chunked:true,onData:(data,position)=>{ const buf=data.slice(); if(job.wrote)job.wrote(buf.byteLength); pending++; wq=wq.then(()=>DSP.fileWriteAt(fileId,position,buf)).then(ok=>{pending--; if(ok===false)wErr=wErr||new Error('disk write failed');},e=>{pending--;wErr=wErr||e;}); }}); }
@@ -5894,8 +5918,7 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
   }catch(err){console.error(err); if(job&&job.fail){ job.fail(err); } else appAlert(T('Error export: ','Error de exportación: ')+err.message); } // [R179] a job that declares job.fail owns the error (render-in-place must NOT go on to import a half-written file); everyone else keeps the alert
   _exStage='done';
   diag('info','export',cancelExport?'cancelled':'done',{codec:opt.codec,res}); diagFlush();
-  if(_ripSaved)state.clips=_ripSaved; // [R115] restore the full clip list after an isolated render-in-place
-  glc.width=oW;glc.height=oH; try{ if($('#renderMask'))$('#renderMask').classList.remove('on'); }catch(_){} freeExportFBO(); dxtFree(); nestSize=COMP; freeNestPool(); exporting=false; _exportQuality=false; _exCD=false; _vinstCap=VINST_MAX; _ncSquare=false; disposeAllVinst(); try{ if(IS_ELEC&&DSP.powerSave)DSP.powerSave(false); }catch(e){} for(const m of state.media)if(m._exAudio)delete m._exAudio; if(_rsSeq)switchSeq(_rsSeq); resize(); try{scrubRender();}catch(_){} job.done(cancelExport); // _exAudio freed: decoded video audio is export-only (1h ≈ 1.4GB PCM) · [R212] balanced powerSave(false) — the normal exit path (the streaming-save-cancelled early return above is the other, mutually exclusive exit)
+  _exportCleanup(cancelExport,{dxt:true}); // [R214] normal exit path — the streaming-save-cancelled early return above is the other, mutually exclusive exit
   /* [R190] Al terminar se abre la carpeta DIRECTAMENTE. Antes preguntaba con un `appConfirm`, y la respuesta era
      siempre la misma: un clic de más entre tú y el archivo que acabas de esperar. Sólo en el ÚLTIMO trabajo: una
      sala por muro encola 4 + piso, y abrir cinco ventanas del explorador sería peor que preguntar. */
@@ -6501,7 +6524,7 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
       <div class="exs-row"><label>${T('Preset','Preajuste')}</label><select id="exPreset" style="flex:1;"></select><button class="exs-btn" id="exSavePreset">${T('Save','Guardar')}</button></div>
       <div class="exs-row"><label>${T('Range','Rango')}</label><div class="exs-seg" id="exRange"><button data-rg="clips">${T('Clip extent','Extensión')}</button><button data-rg="inout">${T('In / Out','Entrada / Salida')}</button></div><span class="exs-hint" id="exRangeTc"></span></div>
       <div class="exs-row"><label>${T('Codec','Códec')}</label><select id="exCodec" style="flex:1;"></select></div>
-      <div class="exs-row" id="exCodecHintRow" style="display:none;"><label></label><span class="exs-hint" id="exCodecHint" style="color:#D89B3C;line-height:1.45;"></span></div>
+      <div class="exs-row" id="exCodecHintRow" style="display:none;height:auto;align-items:flex-start;"><label></label><span class="exs-hint" id="exCodecHint" style="color:#D89B3C;line-height:1.45;white-space:normal;overflow:visible;text-overflow:clip;"></span></div><!-- [R214] was single-line ellipsis (.exs-hint default) — this message runs long ("H.265/HEVC does not reach…"), let it wrap to 2 lines; title added alongside textContent below -->
       <div class="exs-row"><label>${T('Frame rate','Cuadros/s')}</label><select id="exFps">${[24,25,30,48,50,60].map(f=>`<option value="${f}">${f}</option>`).join('')}</select><span class="exs-unit">fps</span></div>
       <div class="exs-row span"><label>${T('Pixel size','Tamaño en píxeles')}</label>
         <div style="display:flex;align-items:center;gap:8px;width:100%;">
@@ -6639,12 +6662,13 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
     sel.value=S.codec;
     const mio=filas.find(f=>f.c.v===S.codec); S.codecOk=!mio||mio.cabe;
     const row=$$('#exCodecHintRow'), hint=$$('#exCodecHint');
-    if(row&&hint){ if(S.codecOk){ row.style.display='none'; hint.textContent=''; }
+    if(row&&hint){ if(S.codecOk){ row.style.display='none'; hint.textContent=''; hint.title=''; }
       else { row.style.display='flex';
         const nom=(mio.c.v==='hevc')?'H.265':'H.264';
-        hint.textContent=mio.tope
+        const msg=mio.tope
           ? nom+T(' does not reach ',' no llega a ')+p.w+' × '+p.h+T(' on this machine (max ',' en este equipo (máx. ')+mio.tope.w+' × '+mio.tope.h+T('). Lower the size or pick another format.','). Baja el tamaño o elige otro formato.')
-          : nom+T(' is not available on this machine.',' no está disponible en este equipo.'); } }
+          : nom+T(' is not available on this machine.',' no está disponible en este equipo.');
+        hint.textContent=msg; hint.title=msg; } } // [R214] title mirrors the (now 2-line-capable) text — still useful if a future string runs longer still
     exGoGate(); }
   function exUpd(){ const p=exPx(S), c=S.codec, isVid=(c==='mp4'||c==='hevc'), isHap=(c==='hap'||c==='hapq'); // [R191] H.265 también es vídeo con bitrate: sin él, la fila del bitrate desaparecía y se exportaba con el último valor a ciegas
     $$('#exFps').value=String(S.fps);
@@ -6929,6 +6953,7 @@ function newSequenceDialog(){ const n=state.media.filter(isSeqMedia).length+1; c
     <div class="frow" id="nsCovRow"><label>${T('Coverage','Cobertura')}</label><select id="nsCov">${DOME_COV.map(c=>`<option value="${c}" ${c===180?'selected':''}>${c}°${c===180?' · '+T('fulldome','domo completo'):''}</option>`).join('')}</select><span class="tnum" style="color:var(--ink-dim);">FOV</span></div>
     <div class="frow" id="nsFlatRow" style="display:none;"><label>${T('Resolution','Resolución')}</label><input type="number" class="tnum" id="nsW" value="1920" min="16" max="8192" style="width:74px;"><span style="color:var(--ink-dim);">×</span><input type="number" class="tnum" id="nsH" value="1080" min="16" max="8192" style="width:74px;"><span class="tnum" style="color:var(--ink-dim);">px</span></div>
     <div class="frow"><label>${T('Frame rate','Cuadros/s')}</label><select id="nsFps"><option>24</option><option>25</option><option>30</option><option>48</option><option>50</option><option selected>60</option></select><span class="tnum" style="color:var(--ink-dim);">fps</span></div>
+    <div style="font-size:11px;color:var(--ink-dim);margin-top:2px;">${T('Need a 360 room? File → New 360 room project…','¿Necesitas una sala 360? File → New 360 room project…')}</div><!-- [R214] Dome/2D are the only two types here — the room needs its own wall-layout wizard, this just points the way -->
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;"><button class="mbtn" id="nsCancel">${T('Cancel','Cancelar')}</button><button class="mbtn pri" id="nsGo">${T('Create','Crear')}</button></div></div></div>`;
   document.body.appendChild(ov); const close=()=>ov.remove(); $('#nsCancel').onclick=close; ov.addEventListener('pointerdown',e=>{if(e.target===ov)close();});
   let mode='dome';
@@ -7322,13 +7347,13 @@ function renderSeqBar(){ const bar=$('#seqTabs'); if(!bar)return; bar.innerHTML=
     t.oncontextmenu=e=>{ e.preventDefault(); openMenu(e.clientX,e.clientY,[{label:T('Rename','Renombrar'),fn:()=>renameSequence(id)},{label:T('Settings…','Ajustes…'),ico:'gear',fn:()=>{ if(id!==state.activeSeqId)switchSeq(id); openSeqSettings(); }},{label:T('Close tab','Cerrar pestaña'),fn:()=>closeSeqTab(id)},'sep',{label:T('Delete sequence','Eliminar secuencia'),danger:true,fn:()=>deleteSequenceMedia(id)}]); };
     bar.appendChild(t); }
   const add=document.createElement('button'); add.className='seqtab seqadd'; add.textContent='＋'; add.title=T('New sequence','Nueva secuencia'); add.onclick=newSequenceDialog; bar.appendChild(add); }
-function serProject(){ saveActiveSeq(); return { app:'DomeStudioPro', v:4, fps:state.fps, lanes:state.lanes, playhead:state.playhead, markers:[], groups:[], clips:[], media:state.media.map(serMedia), workIn:state.workIn, workOut:state.workOut, folders:state.folders, folderColors:state.folderColors||{}, tl:{bpm:state.tl.bpm,sig:state.tl.sig,tcMode:state.tl.tcMode,pxPerSec:state.tl.pxPerSec,inlineCurves:!!state.inlineCurves,audioH:state.tl.audioH||null}, exportPresets:state.exportPresets||[], openSeqs:(state.openSeqs||[]).slice(), activeSeqId:state.activeSeqId, seqW:state.seqW, seqH:state.seqH, reactive:state.reactive||null, autoItems:state.autoItems||{} }; } // [R95·D2] the Automation Item library travels with the project (clips reference items by id via kfLink) // v4: the active sequence's clips/markers/groups live in its nest media (serMedia); top-level kept empty to avoid doubling the heaviest data (kf + maskData)
+function serProject(){ saveActiveSeq(); return { app:'DomeStudioPro', v:4, fps:state.fps, lanes:state.lanes, playhead:state.playhead, markers:[], groups:[], clips:[], media:state.media.map(serMedia), workIn:state.workIn, workOut:state.workOut, folders:state.folders, folderColors:state.folderColors||{}, tl:{bpm:state.tl.bpm,sig:state.tl.sig,tcMode:state.tl.tcMode,pxPerSec:state.tl.pxPerSec,inlineCurves:!!state.inlineCurves}, /* [R214] audioH removed — loadProject never read it back (vestige of R148) */ exportPresets:state.exportPresets||[], openSeqs:(state.openSeqs||[]).slice(), activeSeqId:state.activeSeqId, seqW:state.seqW, seqH:state.seqH, reactive:state.reactive||null, autoItems:state.autoItems||{} }; } // [R95·D2] the Automation Item library travels with the project (clips reference items by id via kfLink) // v4: the active sequence's clips/markers/groups live in its nest media (serMedia); top-level kept empty to avoid doubling the heaviest data (kf + maskData)
 async function saveProject(saveAs){ const json=JSON.stringify(serProject());
   if(IS_ELEC){ let p=currentPath; if(saveAs||!p){ p=await DSP.saveDialog(p||((currentTitle()==='Untitled project'?T('untitled','proyecto'):currentTitle())+'.isp')); if(!p)return; }
     try{ const old=await DSP.readText(p); if(old&&old.length>2)await DSP.writeText(p+'.bak',old); }catch(e){} // rotate a .bak of the previous save — protects against a corrupted/interrupted overwrite
-    try{ const ok=await DSP.writeText(p,json); if(ok===false)throw new Error('write returned false'); currentPath=p; state.dirty=false; projTitle(); flashStatus(T('Project saved','Proyecto guardado')); addRecent(p, projThumb()); clearLiveAutosaves(); } // the file is now the newest copy → drop the crash autosaves so a later open never falsely offers "restore a newer autosave"
+    try{ const ok=await DSP.writeText(p,json); if(ok===false)throw new Error('write returned false'); currentPath=p; state.dirty=false; projTitle(); flashStatus(T('Project saved','Proyecto guardado')); addRecent(p, projThumb()); clearLiveAutosaves(); purgeMediaTrash(); } // the file is now the newest copy → drop the crash autosaves so a later open never falsely offers "restore a newer autosave" · [R214] a successful save is also a good time to let go of long-dead trashed media
     catch(e){ appAlert(T('Could not save the project (disk full, locked file, or no permission). Try Save As to another location.','No se pudo guardar el proyecto (disco lleno, archivo bloqueado o sin permiso). Prueba Guardar como en otra ubicación.')); } }
-  else { dlBlob(new Blob([json],{type:'application/json'}),(currentTitle()==='Untitled project'?'proyecto':currentTitle())+'.isp'); state.dirty=false; projTitle(); flashStatus(T('Project saved','Proyecto guardado')); } }
+  else { dlBlob(new Blob([json],{type:'application/json'}),(currentTitle()==='Untitled project'?'proyecto':currentTitle())+'.isp'); state.dirty=false; projTitle(); flashStatus(T('Project saved','Proyecto guardado')); purgeMediaTrash(); } } // [R214]
 function confirmDiscard(){ return new Promise(res=>{ if(!state.dirty){ res(true); return; } appConfirm(T('There are unsaved changes. Continue and discard them?','Hay cambios sin guardar. ¿Continuar y descartarlos?'), res, {ok:T('Discard','Descartar'),danger:true}); }); }
 async function openProject(){ if(!(await confirmDiscard()))return;
   if(IS_ELEC){ const p=await DSP.openDialog(); if(!p)return; const txt=await DSP.readText(p); if(txt==null){appAlert(T('Could not read the file.','No se pudo leer el archivo.'));return;} let obj; try{obj=JSON.parse(txt);}catch(e){appAlert(T('Invalid project','Proyecto no válido'));return;} currentPath=p; hideLanding(); loadProject(await maybeOfferAutosave(p,obj)); } // hide the landing FIRST so the recovery prompt (if any) shows on a clean screen, not buried behind the start screen
@@ -7367,9 +7392,7 @@ function applyRoomGeometry(cfg){
   pushUndo();
   const idPorRol=new Map((room.walls||[]).map(w=>[w.role,w.id]));
   const walls=cfg.walls.map(w=>({ id:idPorRol.get(w.role)||uid(), ...w })).sort((a,b)=>a.order-b.order);
-  const stripH=Math.max(16,Math.max(...walls.map(w=>w.pxH)));
-  let x=0; for(const w of walls){ w.x0=Math.round(x); w.x1=Math.round(x)+w.pxW; x=w.x1; }
-  const stripW=Math.max(16,Math.round(x));
+  const {stripW,stripH}=layoutWallStrip(walls); // [R214] was duplicated inline here — see layoutWallStrip
   room.walls=walls;
   wseq.w=stripW; wseq.h=stripH;
   if(state.activeSeqId===wseq.id){ state.seqW=stripW; state.seqH=stripH; }
@@ -7399,8 +7422,7 @@ async function newRoomProject(cfg){ if(!(await confirmDiscard()))return; if(stat
   state.lanes=defLanes(); if(cfg.fps)state.fps=cfg.fps;
   const walls=cfg.walls.map(w=>({id:uid(),...w})).sort((a,b)=>a.order-b.order); // strip order = the 2D "order" number
   // R91b: the flat strip is laid out by NATIVE PIXELS per wall — the 2D editor is exact pixelage, not physical size. Each wall keeps its own pxW×pxH buffer; the cm (wcm/hcm) are geometry-only, consumed by the 3D viewer to place walls (angles fall out of the dimensions, not forced 90°) and to stretch each wall's pixels onto its real quad.
-  const stripH=Math.max(16,Math.max(...walls.map(w=>w.pxH)));
-  let x=0; for(const w of walls){ w.x0=Math.round(x); w.x1=Math.round(x)+w.pxW; x=w.x1; } const stripW=Math.max(16,Math.round(x));
+  const {stripW,stripH}=layoutWallStrip(walls); // [R214] was duplicated inline here — see layoutWallStrip
   const room={ walls, floorSeqId:null, floor:cfg.floor||null };
   const wseq=newSeqMedia(T('Walls','Muros'),state.fps,stripW,stripH,null,null,'room'); wseq.room=room; state.media.push(wseq);
   if(cfg.floor){ const fseq=newSeqMedia(T('Floor','Piso'),state.fps,cfg.floor.pxW,cfg.floor.pxH,null,null,'flat'); fseq.roomFloorOf=wseq.id; room.floorSeqId=fseq.id; state.media.push(fseq); }
@@ -7716,6 +7738,24 @@ function restore(s){ const o=JSON.parse(s); state.clips=o.clips.map(c=>({...c,ma
   renderTimeline();renderInspector();render();updStatus(); reschedAudio(); }
 function undo(){ const st=_ustk(); if(!st.u.length)return; st.r.push(snapshot()); const s=st.u.pop(); st.bytes-=s.length; restore(s); }
 function redo(){ const st=_ustk(); if(!st.r.length)return; const s=snapshot(); st.u.push(s); st.bytes+=s.length; restore(st.r.pop()); }
+/* [R214] state.mediaTrash never shrank on its own — a media deleted from the panel stayed in the trash (full
+   decoded buffers/textures held via disposeMedia's own bookkeeping, not the tiny stub) for the rest of the
+   session, undo-revivable forever. new/open/newRoomProject already wipe the trash wholesale (fresh project = no
+   history to protect). This purges it on a successful SAVE instead, which is the one moment old undo history is
+   least likely to still matter, while staying safe: a media is kept if any LIVE clip (in any sequence, open or
+   not) still points at it, OR if it's still reachable by walking every per-sequence undo/redo stack (bounded to
+   ≤80 snapshots total by pushUndo's cap, so this is cheap) — either its clips reference the id, or it's listed
+   in that snapshot's own trashIds (the id was sent to the trash by the very push being inspected). */
+function purgeMediaTrash(){ if(!state.mediaTrash)return;
+  const need=new Set();
+  for(const s of state.media)if(isSeqMedia(s)){ const arr=(s.id===state.activeSeqId?state.clips:s.nestClips)||[]; for(const c of arr)need.add(c.mediaId); }
+  for(const c of state.clips)need.add(c.mediaId);
+  for(const k in _undoBySeq){ const st=_undoBySeq[k]; for(const arr of [st.u,st.r])for(const snap of arr){ try{ const o=JSON.parse(snap);
+    if(Array.isArray(o.clips))for(const c of o.clips)if(c.mediaId!=null)need.add(c.mediaId);
+    if(Array.isArray(o.trashIds))for(const id of o.trashIds)need.add(id);
+  }catch(e){} } }
+  for(const id in state.mediaTrash){ if(!need.has(+id)){ try{disposeMedia(state.mediaTrash[id]);}catch(e){} delete state.mediaTrash[id]; } }
+}
 let flashT=0;
 function flashStatus(msg,kind){ diag('info','status',msg); const a=$('#statAuto'); a.textContent=msg; a.style.color=(kind==='err')?'#E5B567':''; clearTimeout(flashT); flashT=setTimeout(()=>{ a.textContent=state.lastSaved?(T('Autosaved ','Autoguardado ')+state.lastSaved):T('Ready','Listo'); a.style.color=''; },(kind==='err')?6000:2600); } // [R94-UT3·U-21] kind 'err' → amber + 6s so errors outlive the 2.6s info flash; no kind = identical to before
 function updStatus(){ const c=selClip(); const md=T('media','medios'); $('#statSel').textContent=c?(c.name+' · '+state.media.length+' '+md+' · '+state.clips.length+' clips'):(state.clips.length+' clips · '+state.media.length+' '+md); updEnable(); }
@@ -9527,8 +9567,15 @@ function wireReactiveChain(c){ wireFxCards(c,'#arChain',renderReactivePanel); } 
 /* [I2·Motion] scoped rebuild of the Motion effects block — its OWN reRender (not renderInspector), so editing an effect
    here re-renders only #motionFx, matching how renderReactivePanel isolates the reactive chain. */
 function renderMotionFx(c){ const host=$('#motionFx'); if(!host||!c)return;
+  /* [R214] "Effects" here used to be a bare .fxsec label (no collapse) — the only sub-header in the inspector that
+     didn't follow the Transform/Clip/Color/… .sechead pattern (chevron + click to collapse). Rebuilt as one, sharing
+     the same collapse registry (insColState()/state.insCol, key 'mfx'). It's rebuilt on every renderMotionFx call
+     (fresh DOM node each time, unlike the top-level headers wired once by wireSecHeads at load), so its click
+     handler is wired inline below instead of relying on the once-at-load global wiring. */
+  const col=!!insColState().mfx;
   const fxHtml=(c.fx&&c.fx.length)?c.fx.map(f=>fxCardHtml(c,f,false)).join(''):`<div style="padding:1px 2px 3px;color:var(--ink-dim);font-size:11px;line-height:1.4;">${T('No effects yet. Distortion, stylize, color… added here run as static, keyframable effects.','Sin efectos aún. Distorsión, estilizado, color… añadidos aquí corren como efectos estáticos y automatizables.')}</div>`;
-  host.innerHTML=`<div class="fxsec" style="margin:0 10px;">${T('Effects','Efectos')}</div>${fxHtml}<div style="padding:2px 10px 0;"><button class="mbtn" id="motionAddFx" style="width:100%;justify-content:center;gap:6px;height:24px;font-size:11px;border-radius:2px;">${ICO('plus',12)} ${T('Add Effect','Añadir efecto')}</button></div>`;
+  host.innerHTML=`<button class="sechead" id="secMotionFx"><span style="color:var(--ink-dim);display:flex;transform:rotate(${col?-90:0}deg);">${ICO('chevDown',13)}</span><span class="t">${T('Effects','Efectos')}</span><span class="ln"></span></button><div id="motionFxBody" style="display:${col?'none':''};">${fxHtml}<div style="padding:2px 10px 0;"><button class="mbtn" id="motionAddFx" style="width:100%;justify-content:center;gap:6px;height:24px;font-size:11px;border-radius:2px;">${ICO('plus',12)} ${T('Add Effect','Añadir efecto')}</button></div></div>`;
+  { const sh=$('#secMotionFx'); if(sh)sh.onclick=()=>{ const st=insColState(); st.mfx=!st.mfx; renderMotionFx(c); }; }
   { const mAdd=$('#motionAddFx'); if(mAdd)mAdd.onclick=(ev)=>openFxMenu(ev,true); } // motion → static effect (int seeded visible, no audio routing)
   wireFxCards(c,'#motionFx',()=>renderMotionFx(c)); }
 /* wire every .fxcard under `sel` (reactive chain OR the Motion section); reRender() refreshes the host panel after edits.
