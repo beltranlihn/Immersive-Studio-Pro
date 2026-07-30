@@ -1,5 +1,107 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 226 — Feedback, Etapa 4: la máscara al lienzo y la ventana solo-visor complementaria
+
+Los dos ítems de la Etapa 4 de `docs/NEXT.md`, cerrados y verificados por CDP contra la app real (guiones
+`scratchpad/r226/t-mask.mjs`, `t-viewer.mjs`, `t-save.mjs`, `t-combo.mjs`, `t-reopen.mjs`; capturas en
+`scratchpad/r226/shots/`; `__errs` vacío en todas las corridas).
+
+### 1 · La pen mask se edita SOBRE EL CLIP, no en una miniatura
+
+Beltrán no pedía una función nueva: pedía **ver dónde recorta**. El mini-editor del inspector eran 220 px cuadrados
+con la miniatura del medio al 18 % de opacidad; en el domo eso es directamente inútil, porque el contenido va
+deformado por el warp y el mini-lienzo lo mostraba plano. La edición pasa al **lienzo del visor**, con los puntos
+encima del clip.
+
+**Lo que hace que funcione es que la proyección es exacta, no aproximada.** El sampler de máscara lee `u_maskTex` en
+`v_flat*0.5+0.5`, y `v_flat` **ES** `a_flat`: la coordenada local del cuadrilátero del clip, la misma con la que el
+vértice se coloca. Así que un punto guardado `p` (0..1, y hacia abajo, escalado por `penExpand`) vale
+`a_flat=[2·px−1, 1−2·py]` —el `1−` viene de `UNPACK_FLIP_Y_WEBGL`, que sube la fila 0 del lienzo a v=1— y desde ahí se
+proyecta por **el mismo camino que el contenido**: `flatPlace` en 2D y sala, y en el domo el parche tangente gnomónico
++ azimutal-equidistante de `VSW`, con el `rot`, el `mirror` y el wrap de diámetro incluidos (los tres los ignora
+`drawOutline2D`, que por eso nunca cuadró del todo con el contenido). `penFromPix` es el inverso analítico: un 2×2 en
+flat, y en el domo una proyección sobre la base ortonormal `d/U/V` (`s=atan(mir·U·ray/d·ray)/ax`). Medido por CDP:
+**error de ida y vuelta 0,000 px en los cuatro puntos, en domo y en flat**, y un arrastre aterriza en el píxel exacto
+que se le pide (452,277 → 452,277).
+
+Gestos: clic añade punto al final del polígono activo · arrastre mueve · doble clic quita (mínimo 3 puntos) · Esc o
+**Done** cierra. Mientras el modo está activo se **suspenden** los gestos normales del lienzo (mover/escalar clip,
+panear, orbitar) y desaparecen los tiradores de escala, porque un clic suelto crearía un punto y movería el clip a la
+vez. Una pill discreta arriba dice qué modo es y cómo salir (patrón R219/R220; baja a la segunda fila si la de
+«Preparando medios…» ya ocupa la primera). El modo es **auto-sanante** (patrón R218): se apaga solo si el clip
+desapareció, se quedó sin máscaras o **la selección se fue a otro clip**, así que ningún camino de edición tiene que
+acordarse de cerrarlo. Del inspector quedan la lista (invertir · suavizar · borrar), Expand, «Add mask» —que entra
+directo al lienzo, porque es donde se dibuja— y el botón **Edit on canvas / Done**. El mini-editor se archiva
+(ADR-0007) y `rasterizePenMasks` no se toca: sólo cambió la superficie de edición.
+
+**Fallo anterior destapado por la verificación de «guardar y reabrir»:** el camino v4 de `loadProject` (rama
+`m.kind==='nest'`, por la que pasan TODAS las secuencias de un `.isp` actual) sólo rasterizaba `maskData`. Una máscara
+de pluma volvía del disco con `props.mask==='pen'` y `maskTex` en null → el sampler caía al `ntex` de reserva, cuyo
+alfa es 1 en todo el cuadro, y el clip aparecía **sin recortar**: la máscara parecía perdida cuando estaba entera en
+el archivo. Arreglado en la misma línea que ya lo hacía bien en los otros dos sitios.
+
+### 2 · La ventana solo-visor: por qué se quedaba pegada
+
+**Causa raíz, medida en la app real, no deducida:** el espejo re-dibujaba la escena en una FBO propia y la traía a la
+CPU con **`gl.readPixels` SÍNCRONO, dentro de `render()`**. Con la ventana cerrada `render()` costaba **0,05 ms**; con
+ella abierta, **9,66 ms** — unas 200 veces más — en un domo 2D con **un solo clip de forma**. Desglose: readPixels
+3,57 ms a 944² (6,5 MB al tope de 1280²), `putImageData` 0,71 ms, el resto el pase extra y los binds. readPixels vacía
+la tubería de la GPU en cada fotograma. Efecto en reproducción: **60,4 → 36,6 fps con una escena trivial**; con vídeo
+real y un composite de 4K eso se va por debajo de 30 y el editor deja de responder entre fotogramas. Y como cada gesto
+de la emergente (orbitar, rueda, botón de grilla) llamaba a `render()`, arrastrar dentro de la ventana bloqueaba
+también al editor. No era un cuelgue: era el editor pagando un vaciado de GPU por cada cosa que dibujaba.
+
+**El arreglo no optimiza el readback: lo elimina.** `viewerPaint()` intercambia los globales de vista —el patrón ya
+probado de `lchEditorShot`—, llama al `render()` de siempre con el modo y el tamaño de la ventana, y copia `glc` +
+`gridc` a la emergente con `drawImage` (GPU→GPU, el WebGL primero y las guías encima). Coste medido: **1,5–2,7 ms**, y
+`render()` del editor vuelve a costar 0,03 ms — es decir, **el editor ya no paga nada por tener la ventana abierta**,
+que es lo que hacía que se sintiera trabado al arrastrar. `_reuseComp` evita recomponer el máster una segunda vez por
+fotograma (el composite depende del cabezal, no de la vista). Y hay un `render()` de cierre tras restaurar los
+globales, porque cambiar `glc.width` **borra** el lienzo y el visor del editor se quedaría negro.
+
+Regalo del enfoque: como es el mismo camino de dibujo del editor, **la sala 360 en 3D funciona sin escribir nada**
+(antes caía a la tira plana), y los rótulos de muro, la grilla, las guías y el pill de «Preparando medios…» aparecen
+gratis.
+
+**El bombeo pasa a ser de la ventana.** Su propio `requestAnimationFrame`, y sólo pinta si `_vDirty` (lo marca
+`render()` al final). Si la emergente se congela, se minimiza o se cierra, el editor no se entierra con ella; y en
+reposo el coste es cero. `_vBusy` cubre también el render de cierre: sin eso, marcarse sucio a sí mismo sería un bucle
+de repintado eterno.
+
+**Vista complementaria:** editor en 2D ⇒ ventana en 3D y al revés, en domo y en sala. Los botones 2D/3D de su barra
+fijan un override manual que se suelta solo en cuanto el editor cambia de modo. Una secuencia 2D plana no tiene 3D
+(el editor tampoco ofrece el botón), así que ahí la ventana se queda en 2D y el segmento desaparece.
+
+**Barra propia** dentro de la emergente, con **CSS auto-contenido**: el botón viejo se pintaba con `color:var(--ink)`,
+variable que vive en el documento del editor y no en el `about:blank` de la emergente, así que su texto salía casi
+invisible. Lleva el segmento `2D|3D`, `Grid`, el overlay contextual del formato (`Horizon` domo · `Seam` sala ·
+`Center` 2D — oculto en sala+3D, donde la costura es una guía de la tira 2D) y, en 3D, `Orbit|Viewer`. Va al 35 % de
+opacidad y sube al 100 % al pasar el ratón: es una ventana de salida, la barra no debe competir con la imagen.
+
+**Segunda carrera encontrada al verificar el reabrir:** `window.open('about:blank')` entrega un documento inicial
+sincrónico que Chromium **a veces sustituye** al confirmar la navegación. El síntoma es exactamente una ventana negra
+sin barra, y es intermitente. En vez de intentar ganar la carrera, el bombeo detecta que falta `#vwcv` y **remonta**
+el documento (`viewerBuildDoc`). Cuatro ciclos de abrir/cerrar seguidos: barra y lienzo presentes y con píxeles vivos
+en los cuatro.
+
+### Verificación (CDP, app real)
+- **Máscara, flat y domo:** crear desde el inspector entra al lienzo (`mask:'pen'`, modo activo) · 4 → 7 puntos por
+  clic · arrastre exacto al píxel · doble clic 7 → 6 · **Done** devuelve los gestos normales (`vdragMode:'elemFlat'`)
+  y los 8 tiradores de escala · reabrir muestra los puntos donde tocaba · Esc sale · undo/redo correctos · el
+  composite recorta de verdad (capturas `m-flat-*`, `m-dome-*`).
+- **Guardar y reabrir:** `serProject`→`loadProject` conserva puntos, `mask:'pen'` y `maskTex` reconstruida, y la
+  edición se puede reabrir con los puntos en su sitio (`s-01`…`s-04`).
+- **Ventana, domo y sala:** abre en 13–65 ms sin colgarse · principal 2D ⇒ ventana 3D y viceversa en vivo · sus
+  toggles cambian píxeles (grilla, overlay) · orbitar por arrastre y rueda mueven su cámara propia · override manual
+  y su liberación · cerrar no deja al editor roto (`glc` con su tamaño) · reabrir funciona · **10 s de reproducción
+  con la ventana abierta: ~42 fps de editor** (el resto es Chromium componiendo dos ventanas en la GPU del dev; el
+  `.exe` fuerza la RTX).
+- **Las dos mitades juntas:** con la ventana abierta, arrastrar un punto de la máscara sigue siendo exacto, la
+  emergente NO lleva el chrome de edición (`_vPaint`), y tras repintarla el editor conserva sus tiradores y el tamaño
+  de su lienzo (`c-01`…`c-02b`).
+
+---
+
 ## ROUND 225 — Feedback, Etapa 3: inspector, capa de ajuste y composiciones
 
 Los 11 ítems de la Etapa 3 de `docs/NEXT.md` cerrados y verificados por CDP (detalle por ítem ahí; guiones

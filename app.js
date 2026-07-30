@@ -1299,11 +1299,18 @@ function renderRoom3D(wallsTex){ const seq=activeSeq(); const room=seq&&seq.room
 function render(){ if(glLost)return;
   if(exporting)return;
   const _flat=isFlat(); _drawFlat=_flat; _roomWrap=isRoom(); _compAspect=(state.seqW||1)/(state.seqH||1); _arTime=state.playhead;
-  let _srcTex=compTex; const _raHit=raGet(state.playhead);
-  if(_raHit){ _srcTex=_raHit; }
-  else { prepNests(state.clips,state.playhead,0);
-    gl.bindFramebuffer(gl.FRAMEBUFFER,compFBO); composite(state.playhead,compSize,false); gl.bindFramebuffer(gl.FRAMEBUFFER,null);
-    raStore(state.playhead); }
+  let _srcTex=compTex;
+  /* [R226·V1] `_reuseComp`: la ventana solo-visor repinta por este MISMO render(), sólo con otro modo de vista y
+     otro tamaño de lienzo. El composite del máster no depende de la vista — sólo del cabezal —, así que
+     recomponerlo una segunda vez por fotograma (prepNests + los N clips) sería trabajo tirado: se reutiliza el
+     que acaba de dejar el render del editor. */
+  if(_reuseComp && _lastSrcTex){ _srcTex=_lastSrcTex; }
+  else { const _raHit=raGet(state.playhead);
+    if(_raHit){ _srcTex=_raHit; }
+    else { prepNests(state.clips,state.playhead,0);
+      gl.bindFramebuffer(gl.FRAMEBUFFER,compFBO); composite(state.playhead,compSize,false); gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+      raStore(state.playhead); } }
+  _lastSrcTex=_srcTex;
   // [archivado 20260725] acá iba el grade máster del composite final → _backup/deprecated/20260725-master-grade-engine.js
   const W=glc.width,H=glc.height;
   if(state.view.mode==='3d' && isRoom()){ renderRoom3D(_srcTex); }
@@ -1335,64 +1342,163 @@ function render(){ if(glLost)return;
     drawGrid2D();
   }
   drawScopes();
-  if(_viewerWin)renderViewer(_srcTex); // [V1] render the pop-out mirroring the editor mode (2D/3D) from the same composite texture
+  if(!_vBusy && viewerOpen()) vDirty(); // [R226·V1] el editor pintó algo nuevo → la ventana solo-visor repinta en SU próximo fotograma (ya no se pinta aquí dentro, ver viewerPaint). `_vBusy` cubre TAMBIÉN el render de cierre de viewerPaint: si no, marcarse sucio a sí mismo sería un bucle de repintado eterno
 }
-/* ===================== POP-OUT 3D VIEWER (independent dome on a second screen) ===================== */
-let _viewerWin=null, _viewerCtx=null, _viewerCam={yaw:0.9,pitch:0.55,dist:3.2,fov:48}, _viewerGrid=false;
-let _vFBO=null,_vTex=null,_vDepth=null,_vW=0,_vH=0,_vBuf=null,_vImg=null,_vImgCv=null;
-/* A movable/resizable output window that MIRRORS the editor's current mode ([V1]): 3D dome (with its OWN orbit camera — drag to rotate, wheel to zoom, independent of the main viewport), 2D flat, or the 2D fisheye disc. Renders into an offscreen FBO at the window's aspect, reads it back, and draws it. Driven by the editor's render loop (backgroundThrottling:false → smooth on the unfocused second screen). */
-function openViewerWindow(){ if(_viewerWin && !_viewerWin.closed){ try{_viewerWin.focus();}catch(e){} return; }
+/* ===================== [R226 · V1] VENTANA SOLO-VISOR (segunda pantalla, vista COMPLEMENTARIA) =====================
+   Qué se arregló y por qué se rehízo el bombeo:
+   El espejo anterior re-dibujaba la escena en una FBO propia y la traía a la CPU con `gl.readPixels` SÍNCRONO
+   dentro de `render()`. Medido por CDP en la app real (domo 2D, UN clip de forma): `render()` pasaba de 0,05 ms a
+   9,66 ms con la ventana abierta — 200× —, y la reproducción caía de 60,4 a 36,6 fps con una escena TRIVIAL.
+   readPixels vacía la tubería de la GPU en cada fotograma (3,3 MB a 944², 6,5 MB al tope de 1280²) y encima
+   copiaba todo con `putImageData`. Con vídeo real el editor se va por debajo de 30 fps y deja de responder entre
+   fotogramas: eso es el «se queda pegado» que reportó Beltrán. Y como cada gesto de la ventana llamaba a
+   `render()`, arrastrar dentro de ella bloqueaba al editor. (Bloque viejo completo, con el desglose de la
+   medición: `_backup/deprecated/20260730-viewer-window-readback.js`.)
+
+   Diseño nuevo — NADA de readPixels:
+   1. `viewerPaint()` intercambia los globales de vista (mismo patrón probado de `lchEditorShot`), llama al
+      `render()` de siempre con el modo de la ventana y el tamaño de la ventana, y copia `glc` + `gridc` a la
+      emergente con `drawImage` (GPU→GPU). Coste medido: 1,73 ms — 5,6× mejor. De regalo salen la SALA 360 en 3D,
+      los rótulos, la grilla, las guías y el pill de «Preparando medios…»: es el mismo camino de dibujo.
+      `_reuseComp` evita recomponer el máster una segunda vez (el composite no depende de la vista).
+      Tras restaurar los globales hay un `render()` de cierre: cambiar `glc.width` BORRA el lienzo, así que sin él
+      el visor del editor se quedaría en negro hasta la siguiente interacción.
+   2. El bombeo es de la VENTANA, no del editor: su propio `requestAnimationFrame`, y sólo repinta si `_vDirty`
+      (que marca `render()` al final). Si la emergente se congela o se cierra, el editor no se enterra con ella;
+      y en reposo el coste es cero.
+   3. Vista COMPLEMENTARIA: editor en 2D ⇒ ventana en 3D, y al revés. Vale para domo Y sala. Los botones 2D/3D de
+      su barra fijan un override manual que se suelta solo en cuanto el editor cambia de modo.
+   4. Barra propia dentro de la emergente, con CSS auto-contenido: el botón viejo se pintaba con `color:var(--ink)`,
+      variable que vive en el documento del EDITOR y no en el `about:blank` de la emergente, así que su texto salía
+      casi invisible. Va al 35 % de opacidad y sube al 100 % al pasar el ratón (es una ventana de salida: la barra
+      no debe competir con la imagen). */
+let _viewerWin=null, _viewerCtx=null;
+let _vMode='auto';        // 'auto' = complementaria del editor · '2d'/'3d' = override manual del operador
+let _vEditorMode=null;    // modo del editor cuando se fijó el override (si cambia, el override se suelta)
+let _vCam=null;           // cámara PROPIA (sirve para el domo y para la sala: mismos campos yaw/pitch/dist/fov/back)
+let _vThree='orbit', _vGrid=false, _vOverlay=false; // toggles propios de la ventana
+let _vDirty=false, _vRaf=0, _vPaint=false, _vBusy=false, _vBarSig='', _viewerBar=null;
+let _reuseComp=false, _lastSrcTex=null;
+function viewerOpen(){ return !!(_viewerWin && !_viewerWin.closed && _viewerCtx); }
+function vDirty(){ _vDirty=true; }
+/* una secuencia 2D plana no TIENE vista 3D (el editor tampoco muestra el botón): ahí no hay complementaria posible */
+function viewerHas3D(){ return !isFlat()||isRoom(); }
+/* modo efectivo de la ventana: el complementario del editor, salvo override manual vigente */
+function viewerMode(){ const em=state.view.mode;
+  if(!viewerHas3D())return '2d';
+  if(_vMode!=='auto'){ if(em===_vEditorMode)return _vMode; _vMode='auto'; _vEditorMode=null; } // el editor cambió de modo → vuelve a ser complementaria
+  return em==='3d'?'2d':'3d'; }
+/* etiqueta del tercer hueco de superposición, igual que el `hfade` del editor (ver updModeUI): domo = horizonte,
+   sala = costuras, 2D = centro */
+function viewerOverlayLabel(){ return isRoom()?T('Seam','Costura'):(isFlat()?T('Center','Centro'):T('Horizon','Horizonte')); }
+function openViewerWindow(){ if(viewerOpen()){ try{_viewerWin.focus();}catch(e){} return; }
   const w=window.open('about:blank','domeViewer','width=960,height=960'); if(!w){ try{appAlert(T('Could not open the viewer window — allow pop-ups and try again.','No se pudo abrir el visor — permite las ventanas emergentes e inténtalo de nuevo.'));}catch(e){} return; }
   _viewerWin=w;
-  try{ const d=w.document; d.title='Immersive Studio Pro — Viewer';
-    d.documentElement.style.cssText='height:100%'; d.body.style.cssText='margin:0;height:100vh;background:#000;overflow:hidden;cursor:grab;';
-    const cv=d.createElement('canvas'); cv.id='vwcv'; cv.style.cssText='position:fixed;inset:0;width:100%;height:100%;display:block;background:#000;'; d.body.appendChild(cv);
+  _vCam={...state.view.cam}; _vThree=state.view.three||'orbit'; _vGrid=!!state.view.showGrid; _vOverlay=false; _vMode='auto'; _vEditorMode=null;
+  if(!viewerBuildDoc(w)){ _viewerWin=null; _viewerCtx=null; return; }
+  const b=$('#popoutBtn'); if(b)b.classList.add('on');
+  _vDirty=true; viewerPump();
+  flashStatus(T('Viewer window opened — shows the complementary view (2D ⇄ 3D); its own toolbar sets grid, overlay and camera','Visor abierto — muestra la vista complementaria (2D ⇄ 3D); su barra ajusta cuadrícula, superposición y cámara')); }
+/* Monta (o REMONTA) el documento de la emergente. Se llama al abrir y también desde el bombeo si el lienzo
+   desapareció: `window.open('about:blank')` entrega un documento inicial sincrónico que Chromium a veces
+   SUSTITUYE por otro en blanco al confirmar la navegación — carrera reproducida al reabrir la ventana, y el
+   síntoma es exactamente una ventana negra sin barra. Auto-sanarse es más barato que intentar ganar la carrera. */
+function viewerBuildDoc(w){
+  try{ const d=w.document; if(!d||!d.body)return false; d.title='Immersive Studio Pro — Viewer';
+    d.body.innerHTML=''; _vBarSig='';
+    const st=d.createElement('style'); st.textContent=
+      'html,body{height:100%;margin:0;background:#000;overflow:hidden;}'+
+      '#vwcv{position:fixed;inset:0;width:100%;height:100%;display:block;background:#000;}'+
+      '#vwbar{position:fixed;top:10px;left:10px;z-index:10;display:flex;align-items:center;gap:6px;padding:4px;border-radius:3px;'+
+        'background:rgba(14,15,17,0.74);border:.5px solid rgba(255,255,255,0.10);backdrop-filter:blur(8px);'+
+        'font:500 10px/1 Geist,system-ui,-apple-system,sans-serif;letter-spacing:.02em;opacity:.35;transition:opacity .14s;}'+
+      '#vwbar:hover{opacity:1;}'+
+      '#vwbar .seg{display:flex;border:.5px solid rgba(255,255,255,0.14);border-radius:2px;overflow:hidden;}'+
+      '#vwbar .seg button+button{border-left:.5px solid rgba(255,255,255,0.14);}'+
+      '#vwbar button{height:20px;padding:0 9px;border:0;background:transparent;color:#9EA5AD;cursor:pointer;font:inherit;letter-spacing:inherit;}'+
+      '#vwbar button.tog{border:.5px solid rgba(255,255,255,0.14);border-radius:2px;}'+
+      '#vwbar button:hover{color:#E6EDF2;}'+
+      '#vwbar button.on{background:rgba(79,195,232,0.16);color:#E6EDF2;}';
+    d.head.appendChild(st);
+    const cv=d.createElement('canvas'); cv.id='vwcv'; d.body.appendChild(cv);
     _viewerCtx=cv.getContext('2d');
-    // grid on/off toggle (overlay button, top-left) — the dome reference grid is off by default
-    const gbtn=d.createElement('button'); gbtn.id='vwgrid';
-    const paintGrid=()=>{ gbtn.textContent=(state.lang==='es'?'Grilla':'Grid')+' '+(_viewerGrid?'ON':'OFF'); gbtn.style.opacity=_viewerGrid?'1':'0.62'; };
-    gbtn.style.cssText='position:fixed;top:10px;left:10px;z-index:10;height:24px;padding:0 11px;font:500 11px Geist,system-ui,sans-serif;letter-spacing:0.02em;color:var(--ink);background:rgba(20,22,26,0.78);border:.5px solid rgba(255,255,255,0.18);border-radius:2px;cursor:pointer;backdrop-filter:blur(6px);';
-    paintGrid(); gbtn.onclick=()=>{ _viewerGrid=!_viewerGrid; paintGrid(); render(); }; d.body.appendChild(gbtn);
-    // orbit + zoom the pop-out's OWN camera (independent of the main viewport)
-    cv.addEventListener('pointerdown',ev=>{ ev.preventDefault(); const x0=ev.clientX,y0=ev.clientY,y=_viewerCam.yaw,p=_viewerCam.pitch; d.body.style.cursor='grabbing';
-      const mv=e2=>{ _viewerCam.yaw=y-(e2.clientX-x0)*0.008; _viewerCam.pitch=Math.max(-1.35,Math.min(1.45,p+(e2.clientY-y0)*0.008)); render(); };
-      const up=()=>{ try{d.body.style.cursor='grab';}catch(e){} w.removeEventListener('pointermove',mv); w.removeEventListener('pointerup',up); }; w.addEventListener('pointermove',mv); w.addEventListener('pointerup',up); });
-    cv.addEventListener('wheel',ev=>{ ev.preventDefault(); _viewerCam.dist=Math.max(1.2,Math.min(12,_viewerCam.dist*Math.exp(ev.deltaY*0.0012))); render(); },{passive:false});
-    w.addEventListener('resize',()=>{ try{render();}catch(e){} });
-    w.addEventListener('beforeunload',()=>{ closeViewerGL(); _viewerWin=null; _viewerCtx=null; const b=$('#popoutBtn'); if(b)b.classList.remove('on'); });
-    const b=$('#popoutBtn'); if(b)b.classList.add('on');
-    render(); flashStatus(T('Viewer window opened — follows the editor (2D/3D); in 3D drag to orbit, wheel to zoom','Visor abierto — sigue al editor (2D/3D); en 3D arrastra para girar, rueda para zoom'));
-  }catch(e){ _viewerWin=null; _viewerCtx=null; } }
-function closeViewerGL(){ try{ if(_vFBO)gl.deleteFramebuffer(_vFBO); if(_vTex)gl.deleteTexture(_vTex); if(_vDepth)gl.deleteRenderbuffer(_vDepth); }catch(e){} _vFBO=_vTex=_vDepth=null; _vW=_vH=0; _vBuf=_vImg=null; }
-function renderViewer(srcTex){ const w=_viewerWin; if(!w||w.closed||!_viewerCtx||!srcTex){ if(w&&w.closed){ closeViewerGL(); _viewerWin=null; _viewerCtx=null; const b=$('#popoutBtn'); if(b)b.classList.remove('on'); } return; }
-  try{ const cv=w.document.getElementById('vwcv'); if(!cv)return; const dpr=w.devicePixelRatio||1;
-    const W=Math.max(1,Math.round((w.innerWidth||960)*dpr)), H=Math.max(1,Math.round((w.innerHeight||960)*dpr));
-    const cap=1280, sc=Math.min(1,cap/Math.max(W,H)); const rw=Math.max(2,Math.round(W*sc)), rh=Math.max(2,Math.round(H*sc));
-    if(!_vFBO||_vW!==rw||_vH!==rh){ if(!_vFBO){_vFBO=gl.createFramebuffer();_vTex=gl.createTexture();_vDepth=gl.createRenderbuffer();}
-      gl.bindTexture(gl.TEXTURE_2D,_vTex); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,rw,rh,0,gl.RGBA,gl.UNSIGNED_BYTE,null); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
-      gl.bindFramebuffer(gl.FRAMEBUFFER,_vFBO); gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,_vTex,0);
-      gl.bindRenderbuffer(gl.RENDERBUFFER,_vDepth); gl.renderbufferStorage(gl.RENDERBUFFER,gl.DEPTH_COMPONENT16,rw,rh); gl.framebufferRenderbuffer(gl.FRAMEBUFFER,gl.DEPTH_ATTACHMENT,gl.RENDERBUFFER,_vDepth);
-      _vW=rw;_vH=rh; _vBuf=new Uint8Array(rw*rh*4); _vImg=new ImageData(rw,rh); if(!_vImgCv)_vImgCv=document.createElement('canvas'); _vImgCv.width=rw; _vImgCv.height=rh; }
-    gl.bindFramebuffer(gl.FRAMEBUFFER,_vFBO); gl.viewport(0,0,rw,rh);
-    const _vFlat=_drawFlat, _vDome3D=(state.view.mode==='3d' && !_vFlat && !_roomWrap); // [V1] the pop-out mirrors the editor: 3D dome (its OWN orbit cam) ↔ 2D (flat rect / fisheye disc). Room-3D falls to the flat strip (its 2D representation).
-    if(_vDome3D){ gl.enable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE); gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
-      const mvp=cameraMVP(false,_viewerCam,rw/rh);
-      buildDomeMesh(curCovHalf()); gl.useProgram(P3); gl.bindVertexArray(domeVAO); gl.uniformMatrix4fv(L3.mvp,false,(_mvpScratch.set(mvp),_mvpScratch)); gl.uniform1f(L3.grid,_viewerGrid?1:0); gl.uniform1f(L3.flipx,-1); gl.uniform1f(L3.hfade,state.view.hfade?HFADE:0); gl.uniform1f(L3.rimDeg,curCovDeg()); // pop-out viewer: grid off by default, toggled by its own button
-      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,srcTex); gl.uniform1i(L3.master,0);
-      gl.drawElements(gl.TRIANGLES,domeCount,gl.UNSIGNED_INT,0); gl.bindVertexArray(null); gl.disable(gl.DEPTH_TEST);
-    } else { // [V1] 2D blit — clean (no editor pan/zoom): flat = aspect-fit rect · dome-2D = centred fisheye disc
-      gl.disable(gl.DEPTH_TEST); gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT);
-      gl.useProgram(PB); gl.bindVertexArray(quadVAO); gl.uniform2f(LB.pan,0,0); gl.uniform1f(LB.zoom,1);
-      if(_vFlat){ const A=_compAspect, s=Math.min(2/A,2), Fx=s*A/2, Fy=s/2, wa=rw/rh; let sx,sy; if(A>=wa){ sx=1; sy=wa/A; } else { sy=1; sx=A/wa; }
-        gl.uniform2f(LB.aspect,sx,sy); gl.uniform1f(LB.flat,1); gl.uniform2f(LB.uvsc,Fx,Fy); gl.uniform2f(LB.uvof,(1-Fx)/2,(1-Fy)/2); gl.uniform1f(LB.hfade,0); }
-      else { const mn=Math.min(rw,rh); gl.uniform2f(LB.aspect, mn/rw, mn/rh); gl.uniform1f(LB.flat,0); gl.uniform2f(LB.uvsc,1,1); gl.uniform2f(LB.uvof,0,0); gl.uniform1f(LB.hfade, state.view.hfade?HFADE:0); }
-      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,srcTex); gl.uniform1i(LB.tex,0);
-      gl.drawArrays(gl.TRIANGLES,0,6); gl.bindVertexArray(null); }
-    gl.readPixels(0,0,rw,rh,gl.RGBA,gl.UNSIGNED_BYTE,_vBuf); gl.bindFramebuffer(gl.FRAMEBUFFER,null); gl.viewport(0,0,glc.width,glc.height);
-    _vImg.data.set(_vBuf); const ic=_vImgCv.getContext('2d'); ic.putImageData(_vImg,0,0);
+    const bar=d.createElement('div'); bar.id='vwbar'; d.body.appendChild(bar);
+    /* la barra se reconstruye cuando cambia su firma (modo efectivo, formato de la secuencia, toggles, idioma):
+       así no hay que acordarse de refrescarla en cada sitio que puede cambiar el estado */
+    const paintBar=()=>{ const eff=viewerMode(), threeRow=(eff==='3d');
+      const ovlAplica=!(isRoom()&&threeRow); // la costura de la sala es una guía de la TIRA 2D: en el 3D de la sala el botón no haría nada, así que no se muestra (el horizonte del domo sí vale en los dos)
+      bar.innerHTML=(viewerHas3D()?'<span class="seg"><button data-a="2d">2D</button><button data-a="3d">3D</button></span>':'')+
+        '<button class="tog" data-a="grid">'+T('Grid','Cuadrícula')+'</button>'+
+        (ovlAplica?'<button class="tog" data-a="ovl">'+viewerOverlayLabel()+'</button>':'')+
+        (threeRow?'<span class="seg"><button data-a="orbit">'+T('Orbit','Órbita')+'</button><button data-a="spec">'+T('Viewer','Espectador')+'</button></span>':'');
+      const on=(sel,v)=>{ const b=bar.querySelector('[data-a="'+sel+'"]'); if(b)b.classList.toggle('on',!!v); };
+      on('2d',eff==='2d'); on('3d',eff==='3d'); on('grid',_vGrid); on('ovl',_vOverlay); on('orbit',_vThree==='orbit'); on('spec',_vThree==='spec');
+      bar.querySelectorAll('button').forEach(b=>{ b.onclick=ev=>{ ev.stopPropagation(); const a=b.dataset.a;
+        if(a==='2d'||a==='3d'){ _vMode=a; _vEditorMode=state.view.mode; } // override manual: vive hasta que el editor cambie de modo
+        else if(a==='grid')_vGrid=!_vGrid;
+        else if(a==='ovl')_vOverlay=!_vOverlay;
+        else if(a==='orbit'||a==='spec')_vThree=a;
+        _vBarSig=''; vDirty(); }; });
+    };
+    _viewerBar=paintBar;
+    // órbita + zoom de la cámara PROPIA (sólo en 3D; en 2D la ventana es una salida limpia, sin pan/zoom)
+    cv.addEventListener('pointerdown',ev=>{ if(viewerMode()!=='3d')return; ev.preventDefault();
+      const x0=ev.clientX,y0=ev.clientY,yw=_vCam.yaw,pt=_vCam.pitch; cv.style.cursor='grabbing';
+      const inv=(isRoom()&&_vThree==='spec')?-1:1; // sala en modo Espectador = mirada en primera persona → arrastre invertido, igual que el editor
+      const mv=e2=>{ _vCam.yaw=yw-(e2.clientX-x0)*0.0065*inv; _vCam.pitch=Math.max(-HALF_PI+0.02,Math.min(HALF_PI-0.02,pt+(e2.clientY-y0)*0.0065*inv)); vDirty(); };
+      const up=()=>{ try{cv.style.cursor='grab';}catch(e){} w.removeEventListener('pointermove',mv); w.removeEventListener('pointerup',up); };
+      w.addEventListener('pointermove',mv); w.addEventListener('pointerup',up); });
+    cv.addEventListener('wheel',ev=>{ if(viewerMode()!=='3d')return; ev.preventDefault();
+      if(_vThree==='spec')_vCam.back=Math.max(-0.9,Math.min(2.4,_vCam.back+ev.deltaY*0.0016));
+      else _vCam.dist=Math.max(1.2,Math.min(12,_vCam.dist*Math.exp(ev.deltaY*0.0012)));
+      vDirty(); },{passive:false});
+    w.addEventListener('resize',()=>vDirty());
+    w.addEventListener('beforeunload',()=>viewerClosed());
+    _vDirty=true; return true;
+  }catch(e){ return false; } }
+function viewerClosed(){ if(_vRaf&&_viewerWin){ try{_viewerWin.cancelAnimationFrame(_vRaf);}catch(e){} }
+  _vRaf=0; _viewerWin=null; _viewerCtx=null; _viewerBar=null; _vDirty=false;
+  const b=$('#popoutBtn'); if(b)b.classList.remove('on');
+  try{ render(); }catch(e){} } // el editor se queda con lo último que pintó: un render de cierre garantiza que su lienzo es el suyo
+/* bombeo PROPIO de la emergente: si ella se para (minimizada, congelada, cerrada) el editor sigue intacto */
+function viewerPump(){ const w=_viewerWin; if(!w||w.closed){ viewerClosed(); return; }
+  try{ _vRaf=w.requestAnimationFrame(viewerPump); }catch(e){ viewerClosed(); return; }
+  let cv=null; try{ cv=w.document.getElementById('vwcv'); }catch(e){ viewerClosed(); return; }
+  if(!cv){ if(!viewerBuildDoc(w))return; } // el documento se sustituyó por debajo → remontarlo (ver viewerBuildDoc)
+  if(!_vDirty)return; viewerPaint(); }
+function viewerPaint(){ if(_vBusy||!viewerOpen()||exporting||glLost)return; const w=_viewerWin;
+  const cv=w.document.getElementById('vwcv'); if(!cv)return;
+  _vBusy=true; _vDirty=false;
+  const S=state, V=state.view;
+  const bak={ vmode:V.mode, three:V.three, cam:V.cam, zoom:V.zoom, pan:V.pan, grid:V.showGrid, outline:V.showOutline,
+              hfade:V.hfade, seam:V.showSeam, center:V.showCenter, checker:V.checkerBg, scopes:V.showScopes,
+              cw:view.cw, ch:view.ch, vs:VSIZE, gw:glc.width, gh:glc.height, rw:gridc.width, rh:gridc.height };
+  try{
+    const dpr=Math.min(2,w.devicePixelRatio||1);
+    const cssW=Math.max(80,w.innerWidth||960), cssH=Math.max(80,w.innerHeight||960);
+    const W=Math.max(16,Math.round(cssW*dpr)), H=Math.max(16,Math.round(cssH*dpr));
+    const eff=viewerMode();
+    const sig=eff+'|'+S.seqMode+'|'+(_vGrid?1:0)+'|'+(_vOverlay?1:0)+'|'+_vThree+'|'+S.lang;
+    if(sig!==_vBarSig){ _vBarSig=sig; if(_viewerBar)try{_viewerBar();}catch(e){} }
+    V.mode=eff; V.three=_vThree; V.cam=_vCam; V.zoom=0.94; V.pan=[0,0]; // salida limpia: sin el pan/zoom del editor
+    V.showGrid=_vGrid; V.showOutline=false; V.checkerBg=false; V.showScopes=false; // contornos/scopes/alfa son ayudas de EDICIÓN, no de salida
+    V.hfade=(!isFlat()&&_vOverlay); V.showSeam=(isRoom()&&_vOverlay); V.showCenter=(isFlat()&&!isRoom()&&_vOverlay);
+    view.cw=cssW; view.ch=cssH; VSIZE=Math.min(cssW,cssH);
+    glc.width=W; glc.height=H; gridc.width=W; gridc.height=H; gx.setTransform(dpr,0,0,dpr,0,0);
+    _reuseComp=true; _vPaint=true;
+    try{ render(); } finally { _vPaint=false; _reuseComp=false; }
     if(cv.width!==W||cv.height!==H){ cv.width=W; cv.height=H; }
-    _viewerCtx.save(); _viewerCtx.setTransform(1,0,0,-1,0,H); _viewerCtx.drawImage(_vImgCv,0,0,rw,rh,0,0,W,H); _viewerCtx.restore(); // WebGL FBO is bottom-up → flip Y
-  }catch(e){} }
+    _viewerCtx.clearRect(0,0,W,H); _viewerCtx.drawImage(glc,0,0); _viewerCtx.drawImage(gridc,0,0); // WebGL primero, las guías encima (mismo orden que lchEditorShot)
+  }catch(e){}
+  finally{
+    V.mode=bak.vmode; V.three=bak.three; V.cam=bak.cam; V.zoom=bak.zoom; V.pan=bak.pan; V.showGrid=bak.grid; V.showOutline=bak.outline;
+    V.hfade=bak.hfade; V.showSeam=bak.seam; V.showCenter=bak.center; V.checkerBg=bak.checker; V.showScopes=bak.scopes;
+    view.cw=bak.cw; view.ch=bak.ch; VSIZE=bak.vs;
+    glc.width=bak.gw; glc.height=bak.gh; gridc.width=bak.rw; gridc.height=bak.rh;
+    const edpr=Math.min(window.devicePixelRatio||1,2); try{ gx.setTransform(edpr,0,0,edpr,0,0); }catch(_){}
+    _reuseComp=true; try{ render(); }catch(e){} _reuseComp=false; // redimensionar glc BORRA el lienzo → hay que devolverle su imagen al editor
+    _vBusy=false;
+  } }
 
 /* ===================== NDI® OUTPUT — clean Dome master (1:1), 2048 or 4096 ===================== */
 /* Broadcasts the fulldome master (no grid / no overlays) over the network. The master is composited into
@@ -1647,7 +1753,7 @@ function drawRoomGrid2D(){ const as=activeSeq(); const room=as&&as.room; if(!roo
 }
 function drawGrid2D(){
   gx.clearRect(0,0,view.cw,view.ch);
-  if(isFlat()){ drawFlatFrame(); if(isRoom())drawRoomGrid2D(); if(state.view.showOutline)drawOutline2D(); drawFlatHandles(); if(!lchShowing()&&mediaWarming())drawPreparingPill(); return; } // [R220] 2D viewers get the same indicator as the 3D ones; skip while the landing/launcher overlay sits on top (harmless either way — the launcher's own offscreen shots clear state.clips so mediaWarming() is false there regardless)
+  if(isFlat()){ drawFlatFrame(); if(isRoom())drawRoomGrid2D(); if(state.view.showOutline)drawOutline2D(); drawFlatHandles(); if(!lchShowing()&&mediaWarming())drawPreparingPill(); drawMaskEditOverlay(); return; } // [R220] 2D viewers get the same indicator as the 3D ones; skip while the landing/launcher overlay sits on top (harmless either way — the launcher's own offscreen shots clear state.clips so mediaWarming() is false there regardless) // [R226·I3] la máscara va encima de todo: es la capa con la que se está interactuando
   const c0=f2pix(0,0), e=f2pix(1,0); const R=Math.hypot(e[0]-c0[0],e[1]-c0[1]);
   gx.lineWidth=1; gx.strokeStyle='rgba(255,255,255,0.14)'; gx.beginPath(); gx.arc(c0[0],c0[1],R,0,7); gx.stroke();
   if(state.view.showGrid){
@@ -1662,6 +1768,7 @@ function drawGrid2D(){
   }
   if(state.view.showOutline) drawOutline2D();
   if(!lchShowing()&&mediaWarming())drawPreparingPill(); // [R220] painted last so it sits on top of the disc/grid/labels, same as the 3D viewers
+  drawMaskEditOverlay(); // [R226·I3] los puntos de la máscara, encima del disco y de las guías
 }
 function drawOutline2D(){
   const c=selClip(); if(!c)return; const m=mediaById(c.mediaId); if(!m||m.kind==='audio')return; // audio clips have no dome/flat presence — never outline them
@@ -1680,12 +1787,105 @@ function drawOutline2D(){
   gx.stroke(); gx.setLineDash([]);
 }
 /* Photoshop-style resize handles for the SELECTED flat/room clip — 4 corners + 4 edge midpoints. Always drawn (independent of the outline toggle) so they're a reliable grab target; caches _flatHandles for hit-testing. */
-function drawFlatHandles(){ _flatHandles=null; const c=selClip(); if(!c||c.adjust)return; const m=mediaById(c.mediaId); if(!m||m.kind==='audio')return; const t=state.playhead; if(t<c.start||t>=c.start+c.dur)return;
+function drawFlatHandles(){ if(_vPaint)return; /* [R226·V1] la ventana solo-visor repinta por este mismo camino: sus tiradores no se dibujan ni pisan _flatHandles (que se prueba en coordenadas del editor) */
+  _flatHandles=null; const c=selClip(); if(!c||c.adjust)return; const m=mediaById(c.mediaId); if(!m||m.kind==='audio')return; const t=state.playhead; if(t<c.start||t>=c.start+c.dur)return;
+  if(maskEditClip())return; // [R226·I3] en modo de máscara los tiradores estorban: el gesto del lienzo es de puntos, no de escala
   const M=flatMap(),Fx=M.Fx,Fy=M.Fy; const P=flatPlace(c,m,t);
   const corn=(sx,sy)=>M.px((P.fc[0]+sx*P.fx[0]+sy*P.fy[0])/Fx,(P.fc[1]+sx*P.fx[1]+sy*P.fy[1])/Fy);
   _flatHandles=[]; const hs=3.2;
   for(const [a,b] of [[-1,-1],[1,-1],[1,1],[-1,1],[0,-1],[1,0],[0,1],[-1,0]]){ const p=corn(a,b); _flatHandles.push({sx:a,sy:b,px:p[0],py:p[1]});
     gx.fillStyle=UI.s0; gx.strokeStyle=UI.ink2; gx.lineWidth=1; gx.beginPath(); gx.rect(p[0]-hs,p[1]-hs,hs*2,hs*2); gx.fill(); gx.stroke(); } }
+
+/* ===================== [R226 · I3] PEN MASK SOBRE EL LIENZO DEL VISOR =====================
+   Beltrán: la máscara se dibuja SOBRE el clip, no en una miniatura de 220 px del inspector (ese mini-editor
+   queda archivado en `_backup/deprecated/20260730-pen-mask-inspector-canvas.js`). Del inspector sólo quedan la
+   lista de máscaras (invert / feather / borrar), Expand y el botón que enciende este modo.
+
+   La proyección es EXACTA, no aproximada. El sampler de máscara lee `u_maskTex` en `v_flat*0.5+0.5`, y `v_flat`
+   ES la coordenada local del cuadrilátero del clip (`a_flat`, −1..1) — la misma con la que el vértice se coloca.
+   Así que un punto guardado `p` (0..1, y hacia abajo, escalado por `penExpand`) vale
+       a_flat = [2·px − 1 , 1 − 2·py]
+   (el `1−` viene de `UNPACK_FLIP_Y_WEBGL`, que sube la fila 0 del lienzo a v=1) y desde ahí se proyecta por EL
+   MISMO camino que el contenido: `flatPlace` en 2D/sala, y en el domo el parche tangente gnomónico + azimutal
+   equidistante del vertex shader `VSW`, incluidos el `rot`, el `mirror` y el wrap de diámetro que `drawOutline2D`
+   nunca replicó. Por eso los puntos caen sobre el contenido DEFORMADO y no al lado.
+   La rasterización (`rasterizePenMasks`) no se toca: sólo cambia la superficie de edición. */
+let _maskEdit=null, _maskDrag=null; // {clipId} · {pi}
+/* Auto-sanante (patrón R218): el modo se apaga solo si el clip desapareció, si se quedó sin máscaras o si la
+   selección se fue a otro clip — así ningún camino de edición tiene que acordarse de cerrarlo. */
+function maskEditClip(){ if(!_maskEdit)return null; const c=clipById(_maskEdit.clipId);
+  if(!c||!Array.isArray(c.penMasks)||!c.penMasks.length||state.selId!==c.id){ _maskEdit=null; _maskDrag=null; return null; }
+  if(c._penSel==null||c._penSel<0||c._penSel>=c.penMasks.length)c._penSel=c.penMasks.length-1;
+  return c; }
+function maskEditMask(){ const c=maskEditClip(); return c?c.penMasks[c._penSel]:null; }
+/* punto guardado ⇄ coordenada local del clip (a_flat) — el expand va y viene aquí, como hacía el toXY del mini-editor */
+function penLocal(c,p){ const ex=Math.max(0.05,c.penExpand||1); return [2*(0.5+(p[0]-0.5)*ex)-1, 1-2*(0.5+(p[1]-0.5)*ex)]; }
+function penUnlocal(c,s,tt){ const ex=Math.max(0.05,c.penExpand||1);
+  return [Math.max(-0.5,Math.min(1.5,0.5+((s+1)/2-0.5)/ex)), Math.max(-0.5,Math.min(1.5,0.5+((1-tt)/2-0.5)/ex))]; }
+/* base del parche del domo: exactamente lo que drawClip arma antes de llamar a PW (wrap de diámetro incluido) */
+function penDomeBasis(c,m,t){ let az=evalP(c,'az',t), el=evalP(c,'el',t); const size=evalP(c,'size',t);
+  { const p=((el%180)+180)%180; el=(p<=90)?p:(180-p); if(p>90)az+=180; } // wrap de diámetro — misma línea que drawClip
+  const fr=frame(az,el); const ax=(size*0.5)*D2R, ay=ax*((m.h||1)/(m.w||1));
+  const rot=(evalR(c,'rot',t)||0)*D2R, cr=Math.cos(rot), sr=Math.sin(rot);
+  const U=[fr.u[0]*cr+fr.v[0]*sr, fr.u[1]*cr+fr.v[1]*sr, fr.u[2]*cr+fr.v[2]*sr];
+  const V=[-fr.u[0]*sr+fr.v[0]*cr, -fr.u[1]*sr+fr.v[1]*cr, -fr.u[2]*sr+fr.v[2]*cr];
+  return {d:fr.d,U,V,ax:Math.max(1e-4,ax),ay:Math.max(1e-4,ay),mir:c.props.mirror?-1:1}; }
+function penPix(c,m,t,s,tt,B){ // a_flat → píxel del visor (null si el punto no es visible por este camino)
+  if(isFlat()){ const M=flatMap(), P=flatPlace(c,m,t), mir=c.props.mirror?-1:1;
+    return M.px((P.fc[0]+s*mir*P.fx[0]+tt*P.fy[0])/M.Fx, (P.fc[1]+s*mir*P.fx[1]+tt*P.fy[1])/M.Fy); }
+  B=B||penDomeBasis(c,m,t);
+  const rx=Math.tan(B.ax*s)*B.mir, ry=Math.tan(B.ay*tt);
+  const ray=norm([B.d[0]+rx*B.U[0]+ry*B.V[0], B.d[1]+rx*B.U[1]+ry*B.V[1], B.d[2]+rx*B.U[2]+ry*B.V[2]]);
+  if(state.view.cull && ray[2]<-0.0015)return null; // el shader descarta ahí mismo con u_cull
+  const f=azel2f(Math.atan2(ray[1],ray[0])*R2D, (HALF_PI-Math.acos(Math.max(-1,Math.min(1,ray[2]))))*R2D);
+  return f2pix(f[0],f[1]); }
+function penFromPix(c,m,t,px,py,B){ // píxel del visor → a_flat (null si no hay solución del lado visible)
+  if(isFlat()){ const M=flatMap(), P=flatPlace(c,m,t), mir=c.props.mirror?-1:1;
+    const fp=pix2frame(px,py); const qx=fp[0]*M.Fx-P.fc[0], qy=fp[1]*M.Fy-P.fc[1];
+    const A=mir*P.fx[0], Bc=P.fy[0], C=mir*P.fx[1], D=P.fy[1]; const det=A*D-Bc*C;
+    if(Math.abs(det)<1e-12)return null;
+    return [(qx*D-Bc*qy)/det, (A*qy-qx*C)/det]; }
+  B=B||penDomeBasis(c,m,t);
+  const f=pix2f(px,py), ae=f2azel(f[0],f[1]); const zen=(90-ae.el)*D2R, h=ae.az*D2R;
+  const ray=[Math.sin(zen)*Math.cos(h), Math.sin(zen)*Math.sin(h), Math.cos(zen)];
+  const cz=dot(ray,B.d); if(cz<=1e-4)return null; // detrás del plano tangente: no hay punto del parche ahí
+  return [Math.atan(B.mir*dot(ray,B.U)/cz)/B.ax, Math.atan(dot(ray,B.V)/cz)/B.ay]; }
+function penPtPix(c,m,t,p,B){ const l=penLocal(c,p); return penPix(c,m,t,l[0],l[1],B); }
+/* qué punto del polígono activo está bajo el cursor (tolerancia en píxeles de pantalla) */
+function maskPointHit(px,py){ const c=maskEditClip(); if(!c)return -1; const mk=c.penMasks[c._penSel]; if(!mk||!mk.pts)return -1;
+  const m=mediaById(c.mediaId); if(!m)return -1; const t=state.playhead; const B=isFlat()?null:penDomeBasis(c,m,t);
+  let best=-1,bd=9*9;
+  for(let i=0;i<mk.pts.length;i++){ const q=penPtPix(c,m,t,mk.pts[i],B); if(!q)continue; const d=(q[0]-px)*(q[0]-px)+(q[1]-py)*(q[1]-py); if(d<bd){bd=d;best=i;} }
+  return best; }
+function drawMaskEditOverlay(){ if(_vPaint)return; const c=maskEditClip(); if(!c)return; const m=mediaById(c.mediaId); if(!m)return;
+  const t=state.playhead; const inClip=(t>=c.start&&t<c.start+c.dur);
+  const B=isFlat()?null:penDomeBasis(c,m,t);
+  if(inClip)(c.penMasks||[]).forEach((mk,mi)=>{ if(!mk.pts||!mk.pts.length)return; const active=(mi===c._penSel);
+    const pts=[]; for(const p of mk.pts){ const q=penPtPix(c,m,t,p,B); if(q)pts.push(q); }
+    if(!pts.length)return;
+    gx.lineWidth=active?1.6:1; gx.strokeStyle=active?'#4FC3E8':'rgba(255,255,255,0.34)'; gx.fillStyle=active?'rgba(79,195,232,0.10)':'rgba(255,255,255,0.04)';
+    gx.beginPath(); pts.forEach((q,i)=>i?gx.lineTo(q[0],q[1]):gx.moveTo(q[0],q[1])); if(pts.length>=3)gx.closePath();
+    gx.fill(); gx.stroke();
+    if(active)pts.forEach((q,i)=>{ gx.fillStyle=(_maskDrag&&_maskDrag.pi===i)?'#EAF7FC':'#4FC3E8'; gx.beginPath(); gx.arc(q[0],q[1],4.2,0,6.283); gx.fill();
+      gx.fillStyle='#0c0d10'; gx.beginPath(); gx.arc(q[0],q[1],1.7,0,6.283); gx.fill(); }); });
+  const lbl=inClip?T('Mask edit · click to add · drag to move · double-click to remove · Esc to finish','Editar máscara · clic para añadir · arrastra para mover · doble clic para quitar · Esc para salir')
+                  :T('Mask edit · move the playhead over the clip to see it','Editar máscara · lleva el cabezal sobre el clip para verla');
+  gx.font='11px Geist'; gx.textAlign='center'; gx.textBaseline='middle';
+  const tw=Math.max(1,gx.measureText(lbl).width), cx=view.cw/2, cy=(mediaWarming()?46:22); // [R220] si el pill de «Preparando medios…» ya ocupa la fila de arriba, este baja
+  gx.fillStyle='rgba(6,7,9,0.72)'; gx.fillRect(cx-tw/2-9,cy-10,tw+18,20);
+  gx.strokeStyle='rgba(79,195,232,0.45)'; gx.lineWidth=1; gx.strokeRect(cx-tw/2-9,cy-10,tw+18,20);
+  gx.fillStyle='rgba(224,232,238,0.92)'; gx.fillText(lbl,cx,cy); }
+function startMaskEdit(c,mi){ if(!c||!Array.isArray(c.penMasks)||!c.penMasks.length)return;
+  c._penSel=Math.max(0,Math.min(c.penMasks.length-1, mi==null?(c._penSel||0):mi));
+  state.selId=c.id; state.selIds=[c.id]; laneDesel();
+  if(state.playhead<c.start||state.playhead>=c.start+c.dur){ state.playhead=frameSnap(c.start+Math.min(0.1,c.dur/2)); positionPlayhead(); scrubRender(); }
+  if(state.view.mode==='3d'){ const b=$('#modeSeg button[data-m="2d"]'); if(b)b.click(); else { state.view.mode='2d'; resize(); } } // los puntos se editan en el lienzo 2D; el 3D no tiene inverso de píxel→clip
+  _maskEdit={clipId:c.id}; _maskDrag=null;
+  renderInspector(); renderTimeline(); render();
+  flashStatus(T('Editing mask on canvas — Esc or Done to finish','Editando la máscara en el lienzo — Esc o Done para terminar')); }
+function endMaskEdit(silent){ if(!_maskEdit)return; _maskEdit=null; _maskDrag=null; setVpCursor();
+  renderInspector(); render(); if(!silent)flashStatus(T('Mask edit finished','Edición de máscara terminada')); }
+/* ===================== fin [R226 · I3] ===================== */
 /* 3D camera */
 function persp(fovy,a,n,fr){const t=1/Math.tan(fovy/2),nf=1/(n-fr);return[t/a,0,0,0,0,t,0,0,0,0,(fr+n)*nf,-1,0,0,2*fr*n*nf,0];}
 function lookAt(eye,ctr,up){const z=norm(sub(eye,ctr));let x=cross(up,z);if(x[0]*x[0]+x[1]*x[1]+x[2]*x[2]<1e-8)x=cross([0,1,0],z);x=norm(x);const y=cross(z,x);return[x[0],y[0],z[0],0,x[1],y[1],z[1],0,x[2],y[2],z[2],0,-dot(x,eye),-dot(y,eye),-dot(z,eye),1];}
@@ -4130,7 +4330,8 @@ function startMediaDrag(e,m){ const ghost=e.currentTarget.cloneNode(true); ghost
 
 /* ===================== VIEWPORT INTERACTION ===================== */
 let vdrag=null, _flatHandles=null;
-function setVpCursor(){ gridc.style.cursor = vdrag&&(vdrag.mode==='pan'||vdrag.mode==='orbit')?'grabbing':(vdrag&&vdrag.mode==='resizeFlat'?vdrag.cur:(state.view.mode==='3d'?'grab':'default')); }
+function setVpCursor(){ if(maskEditClip()){ gridc.style.cursor=_maskDrag?'grabbing':'crosshair'; return; } // [R226·I3]
+  gridc.style.cursor = vdrag&&(vdrag.mode==='pan'||vdrag.mode==='orbit')?'grabbing':(vdrag&&vdrag.mode==='resizeFlat'?vdrag.cur:(state.view.mode==='3d'?'grab':'default')); }
 /* which resize handle (if any) is under the cursor — returns {sx,sy} in {-1,0,1}² or null */
 function flatHandleHit(px,py){ if(!_flatHandles)return null; for(const h of _flatHandles){ if(Math.abs(px-h.px)<=6 && Math.abs(py-h.py)<=6)return h; } return null; }
 function _resizeCursor(sx,sy){ if(sx&&sy)return (sx*sy>0)?'nesw-resize':'nwse-resize'; return sx?'ew-resize':'ns-resize'; } // frame Y is up, screen Y is down → the diagonal cursor is flipped vs frame-space sign
@@ -4152,7 +4353,28 @@ function beginFlatResize(c,h){ pushUndo(); const m=mediaById(c.mediaId),t=state.
   const anchor=[P.fc[0]-h.sx*P.fx[0]-h.sy*P.fy[0], P.fc[1]-h.sx*P.fx[1]-h.sy*P.fy[1]]; // opposite handle
   const scale0=Math.max(0.001,(evalR(c,'scale',t)||100)/100), sxm0=(c.props.scaleX==null?1:c.props.scaleX), sym0=(c.props.scaleY==null?1:c.props.scaleY);
   return {mode:'resizeFlat',id:c.id,sx:h.sx,sy:h.sy,Fx:M.Fx,Fy:M.Fy,fx0,fy0,u,v,anchor,scale0,sxm0,sym0,cur:_resizeCursor(h.sx,h.sy)}; }
+/* [R226·I3] modo de máscara: mientras está activo el lienzo edita PUNTOS, así que los gestos normales
+   (seleccionar/mover/escalar clip, panear, orbitar) quedan suspendidos — un clic suelto crearía un punto y
+   movería el clip a la vez. Sale con Esc, con el botón Done del inspector o al deseleccionar el clip. */
+function maskEditPointerDown(e,px,py){ const c=maskEditClip(); if(!c)return false;
+  const mk=c.penMasks[c._penSel]; if(!mk)return false;
+  const m=mediaById(c.mediaId); const t=state.playhead;
+  if(!m||t<c.start||t>=c.start+c.dur)return true; // el clip no está bajo el cabezal: se traga el gesto, no hay dónde poner el punto
+  if(e.button!==0)return true;
+  const hi=maskPointHit(px,py);
+  if(hi>=0){ pushUndo(); _maskDrag={pi:hi}; gridc.style.cursor='grabbing'; render(); return true; }
+  const l=penFromPix(c,m,t,px,py); if(!l){ flashStatus(T('Point outside the clip','Punto fuera del clip')); return true; }
+  pushUndo(); mk.pts.push(penUnlocal(c,l[0],l[1])); rasterizePenMasks(c); render(); renderInspector(); markDirty(); return true; }
+function maskEditPointerMove(e,px,py){ if(!_maskDrag)return false; const c=maskEditClip(); if(!c){ _maskDrag=null; return false; }
+  const mk=c.penMasks[c._penSel]; const m=mediaById(c.mediaId); if(!mk||!mk.pts[_maskDrag.pi]||!m){ _maskDrag=null; return false; }
+  const l=penFromPix(c,m,state.playhead,px,py); if(!l)return true;
+  mk.pts[_maskDrag.pi]=penUnlocal(c,l[0],l[1]); rasterizePenMasks(c); render(); return true; }
+gridc.addEventListener('dblclick',e=>{ const c=maskEditClip(); if(!c)return; e.preventDefault();
+  const mk=c.penMasks[c._penSel]; if(!mk||!mk.pts||mk.pts.length<=3){ if(mk)flashStatus(T('A mask needs at least 3 points','Una máscara necesita al menos 3 puntos')); return; }
+  const r=gridc.getBoundingClientRect(); const hi=maskPointHit(e.clientX-r.left,e.clientY-r.top);
+  if(hi<0)return; pushUndo(); mk.pts.splice(hi,1); _maskDrag=null; rasterizePenMasks(c); render(); renderInspector(); markDirty(); });
 gridc.addEventListener('pointerdown',e=>{ const r=gridc.getBoundingClientRect(); const px=e.clientX-r.left,py=e.clientY-r.top; const mid=(e.button===1); if(mid)e.preventDefault(); clearMediaSel(); // touching the viewport hands Delete-priority back to the timeline (R86)
+  if(maskEditPointerDown(e,px,py)){ e.preventDefault(); try{gridc.setPointerCapture(e.pointerId);}catch(_){} return; } // [R226·I3]
   if(state.view.mode==='3d'){ vdrag={mode:'orbit',x:e.clientX,y:e.clientY,yaw:state.view.cam.yaw,pitch:state.view.cam.pitch}; }
   else { // 2D: middle/shift drag pans (Hand-like); left click selects+moves element, else pans
     if(mid||e.shiftKey){ vdrag={mode:'pan',x:e.clientX,y:e.clientY,pan:[...state.view.pan]}; }
@@ -4168,7 +4390,11 @@ gridc.addEventListener('pointerdown',e=>{ const r=gridc.getBoundingClientRect();
   }
   setVpCursor(); try{gridc.setPointerCapture(e.pointerId);}catch(_){}
 });
-gridc.addEventListener('pointermove',e=>{ if(!vdrag){ if(isFlat()&&state.view.mode!=='3d'&&_flatHandles){ const r0=gridc.getBoundingClientRect(); const h=flatHandleHit(e.clientX-r0.left,e.clientY-r0.top); gridc.style.cursor=h?_resizeCursor(h.sx,h.sy):'default'; } return; } const r=gridc.getBoundingClientRect(); const px=e.clientX-r.left,py=e.clientY-r.top;
+gridc.addEventListener('pointermove',e=>{
+  if(maskEditClip()){ const r0=gridc.getBoundingClientRect(); const mx=e.clientX-r0.left,my=e.clientY-r0.top; // [R226·I3]
+    if(maskEditPointerMove(e,mx,my))return;
+    gridc.style.cursor=(maskPointHit(mx,my)>=0)?'grab':'crosshair'; return; }
+  if(!vdrag){ if(isFlat()&&state.view.mode!=='3d'&&_flatHandles){ const r0=gridc.getBoundingClientRect(); const h=flatHandleHit(e.clientX-r0.left,e.clientY-r0.top); gridc.style.cursor=h?_resizeCursor(h.sx,h.sy):'default'; } return; } const r=gridc.getBoundingClientRect(); const px=e.clientX-r.left,py=e.clientY-r.top;
   if(vdrag.mode==='orbit'){ const inv=(isRoom()&&state.view.three==='spec')?-1:1; state.view.cam.yaw=vdrag.yaw-(e.clientX-vdrag.x)*0.0065*inv; state.view.cam.pitch=Math.max(-HALF_PI+0.02,Math.min(HALF_PI-0.02,vdrag.pitch+(e.clientY-vdrag.y)*0.0065*inv)); render(); } // 3D-room Viewer = first-person look → invert drag
   else if(vdrag.mode==='pan'){ const S=Math.min(view.cw,view.ch); const d=[(e.clientX-vdrag.x)/(S/2),-(e.clientY-vdrag.y)/(S/2)]; state.view.pan=[vdrag.pan[0]-d[0]/state.view.zoom,vdrag.pan[1]-d[1]/state.view.zoom]; render(); }
   else if(vdrag.mode==='elem'){ const c=clipById(vdrag.id); if(!c)return; const f=pix2f(px,py); const ae=f2azel(f[0],f[1]);
@@ -4188,7 +4414,8 @@ gridc.addEventListener('pointermove',e=>{ if(!vdrag){ if(isFlat()&&state.view.mo
     manualEdit(c,'x',Math.max(-300,Math.min(300,Math.round(cx/d.Fx*1000)/10))); manualEdit(c,'y',Math.max(-300,Math.min(300,Math.round(cy/d.Fy*1000)/10)));
     markDirty(); refreshInspector(); renderTimeline(); render(); updStatus(); }
 });
-function endVdrag(){ vdrag=null; setVpCursor(); }
+function endVdrag(){ if(_maskDrag){ _maskDrag=null; markDirty(); renderInspector(); render(); } // [R226·I3] soltar un punto cierra el arrastre (el pushUndo se hizo al agarrarlo)
+  vdrag=null; setVpCursor(); }
 gridc.addEventListener('pointerup',endVdrag); gridc.addEventListener('pointercancel',endVdrag); window.addEventListener('pointerup',()=>{ if(vdrag)endVdrag(); });
 gridc.addEventListener('contextmenu',e=>{ if(state.view.mode==='3d')e.preventDefault(); });
 gridc.addEventListener('wheel',e=>{ e.preventDefault();
@@ -4684,29 +4911,30 @@ function buildAudioInspector(c,m){ const host=$('#insAudio'); if(!host)return; c
      mismo, más lejos y sin ver el resultado. `c.fadeIn`/`c.fadeOut` siguen siendo los mismos datos (el gesto los
      escribe, collectAudioEvents los aplica) — sólo desaparece el duplicado del inspector. */
 }
-/* [I3] pen (point) mask editor: draw silhouettes with points, invert, feather, expand — several per clip. Renders through
-   rasterizePenMasks → c.maskTex (the custom-mask sampler). Points are 0..1 in the clip's mask space. */
-function buildPenMaskUI(host,c){ if(!c)return; const S=220; const masks=c.penMasks||(c.penMasks=[]);
+/* [I3 · R226] Panel de máscaras de pluma del inspector — YA NO tiene lienzo propio: los puntos se dibujan en el
+   VISOR (ver el bloque «PEN MASK SOBRE EL LIENZO DEL VISOR», `startMaskEdit`/`drawMaskEditOverlay`). Aquí quedan
+   la lista de máscaras (seleccionar · invertir · suavizar · borrar), Expand, «Add mask» y el botón que enciende
+   la edición en el lienzo. El mini-editor de 220 px está archivado en
+   `_backup/deprecated/20260730-pen-mask-inspector-canvas.js` (ADR-0007). */
+function buildPenMaskUI(host,c){ if(!c)return; const masks=c.penMasks||(c.penMasks=[]);
   if(c._penSel==null||c._penSel>=masks.length) c._penSel=masks.length?masks.length-1:-1;
+  const editing=(maskEditClip()===c);
   const wrap=document.createElement('div'); wrap.className='prow'; wrap.style.cssText='flex-direction:column;align-items:stretch;gap:6px;';
   wrap.innerHTML=`<div style="display:flex;align-items:center;gap:6px;">
       <span class="lab" style="width:auto;color:var(--ink-2);">${T('Point mask','Máscara de puntos')}</span><span style="flex:1"></span>
       <button class="mbtn" id="penAdd" style="height:18px;padding:0 8px;">${ICO('plus',11)} ${T('Add mask','Añadir máscara')}</button></div>
-    <canvas id="penCv" width="${S}" height="${S}" style="width:100%;aspect-ratio:1;border:.5px solid rgba(255,255,255,0.12);border-radius:2px;background:#0c0d10;cursor:crosshair;touch-action:none;display:${masks.length?'block':'none'};"></canvas>
     <div id="penList" style="display:flex;flex-direction:column;gap:3px;"></div>
+    <button class="mbtn${editing?' on':''}" id="penEdit" style="height:22px;display:${masks.length?'inline-flex':'none'};justify-content:center;">${editing?T('Done','Terminar'):T('Edit on canvas','Editar en el lienzo')}</button>
     <div class="prow" id="penExpRow" style="padding:0;gap:6px;display:${masks.length?'flex':'none'};"><span class="lab" style="width:auto;color:var(--ink-3);">${T('Expand','Expandir')}</span><input type="range" id="penExp" min="20" max="200" value="${Math.round((c.penExpand||1)*100)}" style="flex:1;"><span class="tnum" id="penExpV" style="width:38px;text-align:right;color:var(--ink-dim);">${Math.round((c.penExpand||1)*100)}%</span></div>
-    <span style="font-size:11px;color:var(--ink-dim);line-height:1.35;display:${masks.length?'block':'none'}" id="penHint">${T('Click the canvas to add points · drag to move · double-click a point to remove.','Clic en el lienzo para añadir puntos · arrastra para mover · doble clic en un punto para quitarlo.')}</span>`;
+    <span style="font-size:11px;color:var(--ink-dim);line-height:1.35;display:${masks.length?'block':'none'}" id="penHint">${editing
+      ? T('On the viewer: click to add a point · drag to move · double-click to remove · Esc to finish.','En el visor: clic para añadir un punto · arrastra para mover · doble clic para quitar · Esc para terminar.')
+      : T('Edit the points on the viewer canvas, right over the clip.','Los puntos se editan en el lienzo del visor, sobre el clip.')}</span>`;
   host.appendChild(wrap);
-  const cv=wrap.querySelector('#penCv'), ctx=cv.getContext('2d'), m=mediaById(c.mediaId);
-  const draw=()=>{ ctx.clearRect(0,0,S,S); ctx.fillStyle='#0c0d10'; ctx.fillRect(0,0,S,S);
-    if(m&&m.thumb){ ctx.globalAlpha=0.18; const im=draw._im||(draw._im=new Image()); if(im.src!==m.thumb){ im.onload=draw; im.src=m.thumb; } if(im.complete&&im.naturalWidth)ctx.drawImage(im,0,0,S,S); ctx.globalAlpha=1; }
-    ctx.strokeStyle='rgba(255,255,255,0.06)'; ctx.beginPath(); ctx.moveTo(S/2,0);ctx.lineTo(S/2,S);ctx.moveTo(0,S/2);ctx.lineTo(S,S/2);ctx.stroke();
-    const ex=Math.max(0.2,c.penExpand||1);
-    (c.penMasks||[]).forEach((mk,mi)=>{ if(!mk.pts||!mk.pts.length)return; const active=mi===c._penSel; const P=p=>[(0.5+(p[0]-0.5)*ex)*S,(0.5+(p[1]-0.5)*ex)*S];
-      ctx.lineWidth=active?1.5:1; ctx.strokeStyle=active?'#4FC3E8':'rgba(255,255,255,0.4)'; ctx.fillStyle=active?'rgba(79,195,232,0.10)':'rgba(255,255,255,0.05)';
-      ctx.beginPath(); mk.pts.forEach((p,i)=>{ const q=P(p); i?ctx.lineTo(q[0],q[1]):ctx.moveTo(q[0],q[1]); }); if(mk.pts.length>=3)ctx.closePath(); ctx.fill(); ctx.stroke();
-      if(active)mk.pts.forEach(p=>{ const q=P(p); ctx.fillStyle='#4FC3E8'; ctx.beginPath(); ctx.arc(q[0],q[1],3.6,0,6.283); ctx.fill(); ctx.fillStyle='#0c0d10'; ctx.beginPath(); ctx.arc(q[0],q[1],1.5,0,6.283); ctx.fill(); }); }); };
-  const commit=()=>{ rasterizePenMasks(c); render(); markDirty(); draw(); };
+  const syncVis=()=>{ const on=!!(c.penMasks&&c.penMasks.length);
+    wrap.querySelector('#penEdit').style.display=on?'inline-flex':'none';
+    wrap.querySelector('#penExpRow').style.display=on?'flex':'none';
+    wrap.querySelector('#penHint').style.display=on?'block':'none'; };
+  const commit=()=>{ rasterizePenMasks(c); render(); markDirty(); };
   const rebuildList=()=>{ const L=wrap.querySelector('#penList'); L.innerHTML='';
     (c.penMasks||[]).forEach((mk,mi)=>{ const row=document.createElement('div'); row.style.cssText='display:flex;align-items:center;gap:5px;font-size:11px;padding:2px 3px;border-radius:2px;background:'+(mi===c._penSel?'rgba(79,195,232,0.14)':'transparent')+';';
       row.innerHTML=`<button class="penSel" title="${T('Edit this mask','Editar esta máscara')}" style="width:15px;height:15px;border:none;background:none;color:${mi===c._penSel?'#4FC3E8':'var(--ink-3)'};cursor:pointer;font-size:10px;">◆</button>
@@ -4715,25 +4943,17 @@ function buildPenMaskUI(host,c){ if(!c)return; const S=220; const masks=c.penMas
         <span style="color:var(--ink-3);flex-shrink:0;">${T('Feather','Suavizar')}</span><input type="range" class="penFe" min="0" max="60" value="${Math.round(mk.feather||0)}" style="flex:1;min-width:24px;">
         <button class="penDel" title="${T('Delete mask','Eliminar máscara')}" style="width:15px;height:15px;border:none;background:none;color:var(--ink-3);cursor:pointer;">✕</button>`;
       L.appendChild(row);
-      row.querySelector('.penSel').onclick=()=>{ c._penSel=mi; rebuildList(); draw(); };
+      row.querySelector('.penSel').onclick=()=>{ c._penSel=mi; rebuildList(); render(); }; // render(): el polígono activo se resalta en el visor
       row.querySelector('.penInv').onchange=e=>{ pushUndo(); mk.invert=e.target.checked; commit(); };
       const fe=row.querySelector('.penFe'); fe.oninput=e=>{ mk.feather=+e.target.value; rasterizePenMasks(c); render(); }; fe.onpointerdown=()=>pushUndo(); fe.onchange=()=>markDirty();
       row.querySelector('.penDel').onclick=()=>{ pushUndo(); c.penMasks.splice(mi,1); if(c._penSel>=c.penMasks.length)c._penSel=c.penMasks.length-1;
-        const vis=c.penMasks.length?'block':'none'; cv.style.display=vis; wrap.querySelector('#penExpRow').style.display=c.penMasks.length?'flex':'none'; wrap.querySelector('#penHint').style.display=vis;
-        if(!penMaskActive(c)&&c.props.mask==='pen')c.props.mask='none'; rebuildList(); commit(); }; }); };
-  const toXY=e=>{ const r=cv.getBoundingClientRect(); const ex=Math.max(0.2,c.penExpand||1); // invert the expand so dragging lands where the cursor is
-    return [Math.max(0,Math.min(1,0.5+(((e.clientX-r.left)/r.width)-0.5)/ex)), Math.max(0,Math.min(1,0.5+(((e.clientY-r.top)/r.height)-0.5)/ex))]; };
-  const hit=(mk,xy)=>{ if(!mk||!mk.pts)return -1; const tol=(11/S); for(let i=0;i<mk.pts.length;i++){ const dx=mk.pts[i][0]-xy[0],dy=mk.pts[i][1]-xy[1]; if(dx*dx+dy*dy<tol*tol)return i; } return -1; };
-  let drag=null;
-  cv.addEventListener('pointerdown',e=>{ e.preventDefault(); const mk=c.penMasks[c._penSel]; if(!mk)return; const xy=toXY(e); const hi=hit(mk,xy);
-    if(hi>=0){ drag={pi:hi}; pushUndo(); try{cv.setPointerCapture(e.pointerId);}catch(_){} } else { pushUndo(); mk.pts.push(xy); commit(); } });
-  cv.addEventListener('pointermove',e=>{ if(!drag)return; const mk=c.penMasks[c._penSel]; if(!mk)return; mk.pts[drag.pi]=toXY(e); rasterizePenMasks(c); render(); draw(); });
-  cv.addEventListener('pointerup',()=>{ if(drag){ drag=null; markDirty(); } });
-  cv.addEventListener('dblclick',e=>{ const mk=c.penMasks[c._penSel]; if(!mk)return; const hi=hit(mk,toXY(e)); if(hi>=0&&mk.pts.length>3){ pushUndo(); mk.pts.splice(hi,1); commit(); } });
+        if(!c.penMasks.length){ _maskEdit=null; _maskDrag=null; setVpCursor(); } // sin máscaras no hay nada que editar en el lienzo (sin renderInspector: estamos DENTRO del panel que reconstruiría)
+        if(!penMaskActive(c)&&c.props.mask==='pen')c.props.mask='none'; rebuildList(); syncVis(); commit(); }; }); };
   wrap.querySelector('#penAdd').onclick=()=>{ pushUndo(); c.penMasks=c.penMasks||[]; c.penMasks.push({pts:[[0.35,0.35],[0.65,0.35],[0.65,0.65],[0.35,0.65]],feather:0,invert:false,on:true}); c._penSel=c.penMasks.length-1;
-    cv.style.display='block'; wrap.querySelector('#penExpRow').style.display='flex'; wrap.querySelector('#penHint').style.display='block'; rebuildList(); commit(); };
-  const expR=wrap.querySelector('#penExp'); if(expR){ expR.onpointerdown=()=>pushUndo(); expR.oninput=()=>{ c.penExpand=Math.max(0.2,(+expR.value)/100); wrap.querySelector('#penExpV').textContent=(+expR.value)+'%'; rasterizePenMasks(c); render(); draw(); }; expR.onchange=()=>markDirty(); }
-  rebuildList(); if(masks.length)draw();
+    rasterizePenMasks(c); markDirty(); startMaskEdit(c,c._penSel); }; // crear una máscara entra directo al lienzo: es donde se dibuja
+  wrap.querySelector('#penEdit').onclick=()=>{ if(maskEditClip()===c)endMaskEdit(); else startMaskEdit(c,c._penSel); };
+  const expR=wrap.querySelector('#penExp'); if(expR){ expR.onpointerdown=()=>pushUndo(); expR.oninput=()=>{ c.penExpand=Math.max(0.2,(+expR.value)/100); wrap.querySelector('#penExpV').textContent=(+expR.value)+'%'; rasterizePenMasks(c); render(); }; expR.onchange=()=>markDirty(); }
+  rebuildList();
 }
 /* build the per-clip list of active motion modifiers into #animList */
 /* [R224] Los tres ayudantes del Mix pasan a operar sobre el parámetro `mot:<param>:mix` (c.kf / c.props, 0-100 %) en vez
@@ -8154,7 +8374,13 @@ function loadProject(obj){ relinkReset(); // [R204] el índice de reenlace es de
   state.media=(obj.media||[]).map(md=>({...md,el:null,originalEl:null,tex:null,buffer:null,missing:true,_loading:true,proxyReady:false,proxyPct:0})); // _loading: file exists but is still decoding → show "loading", NOT "missing" (esp. audio, which decodes slowly)
   try{ closeAllNdi(); }catch(e){} // drop any NDI receivers from the previous project
   for(const m of state.media){ if(m.kind==='text'){ renderTextMedia(m); m.missing=false; } else if(m.kind==='shape'){ renderShapeMedia(m); m.missing=false; } else if(m.kind==='spout'){ m.tex=newTex(); try{ upTexRaw(m.tex,16,16,new Uint8Array(16*16*4).fill(24)); }catch(e){} m.w=m.w||16; m.h=m.h||16; m.dur=m.dur||60; m._spLive=false; m._thumbT=0; m.missing=false; try{ if(m.spoutSource&&DSP&&DSP.spout)DSP.spout.inOpen(m.spoutSource); }catch(e){} spoutStartPump(); } /* [V3] al abrir un .isp: textura de relleno + reenganche al emisor si sigue vivo */
-  else if(m.kind==='ndi'){ m.tex=newTex(); try{ upTexRaw(m.tex,16,16,new Uint8Array(16*16*4).fill(24)); }catch(e){} m.w=m.w||16; m.h=m.h||16; m.dur=m.dur||60; m._ndiLive=false; m._thumbT=0; m.missing=false; try{ if(m.ndiSource&&DSP&&DSP.ndi)DSP.ndi.recvOpen(m.ndiSource); }catch(e){} ndiStartPump(); } else if(m.kind==='nest'){ m.nestClips=(m.nestClips||[]).map(c=>({...c,maskTex:null,kf:c.kf||{}})); for(const c of m.nestClips)if(c.maskData)rebuildMaskTex(c); m.nestLanes=(m.nestLanes&&m.nestLanes.length)?m.nestLanes:defLanes(); m.nestMarkers=m.nestMarkers||[]; m.nestGroups=m.nestGroups||[]; m.fbo=null; m.tex=null; m.w=m.w||4096; m.h=m.h||4096; m.fps=m.fps||obj.fps||60; m.missing=false; m.ncReady=false; m.ncUrl=null; m.ncStale=false; } }
+  else if(m.kind==='ndi'){ m.tex=newTex(); try{ upTexRaw(m.tex,16,16,new Uint8Array(16*16*4).fill(24)); }catch(e){} m.w=m.w||16; m.h=m.h||16; m.dur=m.dur||60; m._ndiLive=false; m._thumbT=0; m.missing=false; try{ if(m.ndiSource&&DSP&&DSP.ndi)DSP.ndi.recvOpen(m.ndiSource); }catch(e){} ndiStartPump(); } else if(m.kind==='nest'){ m.nestClips=(m.nestClips||[]).map(c=>({...c,maskTex:null,kf:c.kf||{}}));
+    /* [R226] …||penMasks: este es el camino por el que pasan TODAS las secuencias de un `.isp` v4 (los clips de la
+       secuencia activa viven en su nest), y sólo rasterizaba `maskData`. Una máscara de pluma volvía del disco con
+       `props.mask==='pen'` y `maskTex` en null → el sampler caía al `ntex` de reserva, cuyo alfa es 1 en todo el
+       cuadro: el clip aparecía SIN recortar y la máscara parecía haberse perdido. Es un fallo anterior a R226, pero
+       lo destapó la verificación de «guardar y reabrir» de esta ronda. */
+    for(const c of m.nestClips){ if(c.maskData||(c.penMasks&&c.penMasks.length))rebuildMaskTex(c); else if(c.props&&(c.props.mask==='custom'||c.props.mask==='pen'))c.props.mask='none'; } m.nestLanes=(m.nestLanes&&m.nestLanes.length)?m.nestLanes:defLanes(); m.nestMarkers=m.nestMarkers||[]; m.nestGroups=m.nestGroups||[]; m.fbo=null; m.tex=null; m.w=m.w||4096; m.h=m.h||4096; m.fps=m.fps||obj.fps||60; m.missing=false; m.ncReady=false; m.ncUrl=null; m.ncStale=false; } }
   for(const m of state.media) if(m.kind==='nest'&&m.ncPath) ncReattach(m); // [R180] los cachés de nest se re-enganchan al reabrir; la firma decide si siguen valiendo (va después del bucle: nestSig desciende a otros medios) // text/shape re-render from params; nest = a sequence (keeps its own w/h/fps)
   for(const m of state.media)if(m.missing===false)m._loading=false; // text/shape/ndi/nest are ready synchronously → not loading
   let mx=0; const fxMx=c=>{ if(c&&c.fx)for(const f of c.fx)mx=Math.max(mx,f.id||0); }; for(const c of state.clips){mx=Math.max(mx,c.id);fxMx(c);} for(const l of state.lanes)mx=Math.max(mx,l.id); for(const m of state.media){ mx=Math.max(mx,m.id); if(m.nestClips)for(const c of m.nestClips){mx=Math.max(mx,c.id);fxMx(c);} if(m.nestLanes)for(const l of m.nestLanes)mx=Math.max(mx,l.id); if(m.nestMarkers)for(const k of m.nestMarkers)mx=Math.max(mx,k.id); if(m.nestGroups)for(const g of m.nestGroups)mx=Math.max(mx,g.id); if(m.comp&&m.comp.id)mx=Math.max(mx,m.comp.id); } for(const g of (state.groups||[]))mx=Math.max(mx,g.id); for(const k of state.markers)mx=Math.max(mx,k.id); _id=mx+1;
@@ -8904,6 +9130,7 @@ document.addEventListener('pointerdown',e=>{ const inp=e.target; if(!(inp&&inp.t
   document.addEventListener('pointermove',mv); document.addEventListener('pointerup',up); },true);
 window.addEventListener('keydown',e=>{ const tag=(e.target.tagName||'').toLowerCase(); const mod=e.ctrlKey||e.metaKey;
   if(e.key==='Escape'&&document.body.classList.contains('perfmode')&&!document.querySelector('.overlay')){ e.preventDefault(); setPerfMode(false); return; } // [V2] Esc leaves Full Performance (unless a modal is open — that Esc closes the modal)
+  if(e.key==='Escape'&&maskEditClip()&&!document.querySelector('.overlay')){ e.preventDefault(); endMaskEdit(); return; } // [R226·I3] Esc cierra la edición de máscara en el lienzo, antes de que Esc limpie la selección
   if(tag==='input'||tag==='textarea'||e.target.isContentEditable)return; // typing in a text field — leave the keys to the field
   if(tag==='select'&&!mod&&e.code!=='Space')return; // a focused <select> keeps its own nav keys, but Ctrl/Cmd shortcuts + Space (play) still fire
   if(document.querySelector('.overlay')||document.getElementById('exOv'))return; // [R212] a modal (Export/Compose/Prefs/New-sequence/palette) is open — don't fire timeline shortcuts behind it (Escape still handled separately). The Export sheet uses class "exs-scrim" (not "overlay") and is fully removed from the DOM on close, so an id check alone is safe here — Ctrl+Z/Supr while exporting used to corrupt the render.

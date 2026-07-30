@@ -157,10 +157,22 @@
       R107 pero sólo corría al REABRIR proyectos. Medido: al importar un archivo con su proxy al lado queda
       `proxyReady` en 201 ms, el visor ya usa el proxy y **nadie encoló nada** (la generación sigue manual, ADR-0003).
 
-### Etapa 4 · Mask en canvas + viewer window [R226]
-- [ ] Pen mask editable EN EL CANVAS (no en el inspector).
-- [ ] Viewer-only window: arreglar el cuelgue + vista COMPLEMENTARIA (principal 2D ⇄ ventana 3D), domo y 360,
-      con las herramientas básicas del visor mostrado (2D/3D, grilla, borde, horizonte + las del 3D).
+### Etapa 4 · Mask en canvas + viewer window [R226] — CERRADA ✅
+> Verificada por CDP (guiones `scratchpad/r226/t-*.mjs`, capturas en `scratchpad/r226/shots/`, `__errs` vacío en
+> todas las corridas). Ver la entrada ROUND 226 de `PLAN.md` y las fichas [I3] y [V1] de `COMPONENTS.md`.
+- [x] Pen mask editable EN EL CANVAS (no en el inspector). _(R226)_ `startMaskEdit`/`drawMaskEditOverlay` +
+      `penPix`/`penFromPix`: los puntos se proyectan por el MISMO camino que el contenido (`flatPlace` en 2D/sala;
+      parche gnomónico + azimutal-equidistante con `rot`/`mirror`/wrap de diámetro en el domo) → **error de ida y
+      vuelta 0 px** en los dos modos. Clic añade · arrastre mueve · doble clic quita · Esc/Done cierra; pill de modo
+      y gestos normales suspendidos. Mini-editor del inspector archivado (ADR-0007). De paso: `loadProject` v4 no
+      rasterizaba las pen masks al abrir (el clip salía sin recortar).
+- [x] Viewer-only window: arreglar el cuelgue + vista COMPLEMENTARIA (principal 2D ⇄ ventana 3D), domo y 360,
+      con las herramientas básicas del visor mostrado (2D/3D, grilla, borde, horizonte + las del 3D). _(R226)_
+      **Causa raíz del cuelgue: el `gl.readPixels` síncrono del espejo, dentro de `render()`** — `render()` pasaba de
+      0,05 a 9,66 ms (≈200×) y la reproducción de 60,4 a 36,6 fps con una escena trivial. Ahora `viewerPaint()`
+      intercambia los globales de vista y copia `glc`+`gridc` con `drawImage` (1,5–2,7 ms), el bombeo es el rAF
+      PROPIO de la emergente con marca de sucio, y la ventana lleva su barra (2D/3D · Grid · Horizon/Seam/Center ·
+      Orbit/Viewer) con CSS auto-contenido. Camino viejo archivado (ADR-0007).
 
 ### Etapa 5 · Tour/demos + File [R227]
 - [ ] File en proyecto: solo "New project…" → pregunta guardar si dirty → LANDING. El tour ya no aparece al
