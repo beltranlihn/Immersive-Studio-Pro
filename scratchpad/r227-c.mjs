@@ -1,0 +1,12 @@
+import { connect } from './r227-lib.mjs';
+const { evalExpr, shot, wait, ws } = await connect();
+const tag=process.argv[2]||'dome';
+await evalExpr(`(function(){ if(_tourStop)_tourStop(); state.playhead=8; render(); renderTimeline(); renderInspector(); return 1; })()`);
+await wait(400); console.log(await shot('c-'+tag+'-t8.png'));
+await evalExpr(`(function(){ if(!state.playing)play(); return state.playing; })()`);
+await wait(5000);
+console.log('playhead after 5s:', await evalExpr(`+state.playhead.toFixed(2)`));
+console.log(await shot('c-'+tag+'-play.png'));
+await evalExpr(`(function(){ if(state.playing)pause(); return 1; })()`);
+console.log('errs:', JSON.stringify(await evalExpr(`window.__errs`)));
+ws.close();

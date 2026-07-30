@@ -1,5 +1,97 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 227 — Feedback, Etapa 5: el menú File adelgaza y el recorrido guiado se muda a unos DEMOS
+
+Última etapa de la tanda del 2026-07-29. Los dos ítems cerrados y verificados por CDP contra la app real (guiones
+`scratchpad/r227-*.mjs`, capturas en `scratchpad/r227/`, `__errs` vacío en todas las corridas).
+
+### 1 · File → una sola entrada de proyecto nuevo, que lleva a la pantalla de inicio
+
+El menú File tenía **tres** entradas de proyecto nuevo —domo, 2D y sala—, cada una con su diálogo modal para elegir
+resolución, cobertura o muros. Eran una copia peor del launcher: allí los tres formatos están juntos, con TODOS los
+parámetros a la vista y una vista previa hecha con el `render()` de verdad (R182/R198). Ahora hay **una** entrada,
+`New project…`, y lo que hace es **volver a la pantalla de inicio**. Ctrl+N, la paleta de comandos y el viejo
+`#newBtn` van al mismo sitio: antes Ctrl+N creaba un domo 4096² a ciegas, sin preguntar nada.
+
+**La pregunta pasa a tener tres salidas.** `confirmDiscard()` sólo ofrece *descartar* o *cancelar*, y con esa pareja
+elegir «New project…» con trabajo sin guardar obliga a perderlo o a no hacer nada. `appConfirm3` añade **Guardar**
+(Enter), **Descartar** y **Cancelar** (Esc / clic fuera), y devuelve `'save' | 'discard' | 'cancel'` — un booleano no
+daba para tres. Si se elige guardar y el diálogo de guardado se cancela (o la escritura falla), `state.dirty` sigue
+en true y **no se sigue adelante**.
+
+**El proyecto abierto no se toca al ir al launcher.** Sigue en memoria detrás, y la barra superior estrena
+**«Back to project»** — visible sólo cuando se llegó ahí desde un proyecto (`_lchVolver`), porque en el arranque no
+hay nada a lo que volver. Sin esa salida la entrada del menú sería una puerta de un solo sentido: el launcher no se
+puede cerrar. Por eso «descartar» **no** toca `state.dirty` (así volver devuelve el proyecto con sus cambios y su
+asterisco) y en su lugar deja `_descartarYaDicho`, una bandera de un solo uso que consume la siguiente
+`confirmDiscard()` — sin ella la misma pregunta salía dos veces seguidas, la de `appConfirm3` y la del `newProject`
+que dispara el launcher.
+
+De paso, `newProject`/`newRoomProject` **devuelven ahora `true`/`false`**. Antes no devolvían nada, así que quien
+llamaba no podía distinguir «creado» de «el usuario dijo que no» y seguía adelante tocando el proyecto ANTERIOR:
+`lchCreate` renombraba su secuencia activa con el nombre teclado para el proyecto que nunca se creó.
+
+`domeSetupDialog` y `flatResDialog` quedaron sin llamantes → archivados (ADR-0007). **`roomSetupDialog` no**: es el
+camino de Project → «Room geometry…».
+
+### 2 · El recorrido guiado ya no sale al crear un proyecto: sale con unos DEMOS
+
+Salía sobre un proyecto **vacío**. Hablaba de pistas, clips, curvas y composiciones señalando huecos, y encima
+estorbaba justo en el momento de ponerse a trabajar. Ahora el launcher tiene un botón **«Demos»** (junto a «Open
+project») con Dome / 2D / 360 Room: se construye **en memoria** una pieza pequeña pero viva y el recorrido pasea por
+ella señalando cosas de verdad.
+
+**Cada demo son ~22 s con lo mismo, dicho en el idioma de su formato:** cuatro pistas con nombre propio, un fondo con
+Motion, una **composición de 2 clips** (creada por el MISMO `nestSelection` del gesto del usuario, no por una
+estructura paralela inventada para el demo), un clip con **Motion + Efecto + automatización de POSICIÓN +
+automatización del MIX del Motion**, y un texto con curva de **OPACIDAD**. La sala reparte el contenido entre el muro
+izquierdo, una composición que cruza Frente y Fondo, el muro derecho y el **suelo**.
+
+**Sólo medios generables** (formas + texto): el demo no depende de rutas, abre en cualquier máquina y no puede quedar
+en «media offline». Arranca sin ruta y con el historial vacío (`currentPath=null`, `dirty=false`), así que es un
+proyecto normal: se edita y se guarda con el Save de siempre.
+
+Tres cosas que hubo que aprender construyéndolo:
+
+- **Un Motion LINEAL de `x` no sirve en 2D plano.** El clip se va del lienzo y no vuelve nunca: a los pocos segundos
+  el demo se queda vacío. En el domo el azimut da la vuelta y en la sala el wrap de la costura reaparece al otro
+  lado, pero sólo una vuelta. Los demos 2D y de sala usan `mode:'wave'` (el argumento `over` de `_demoMotion`);
+  medido el recorrido del clip 2D a lo largo de 28 s de reloj: se queda en ±62 %, siempre dentro del encuadre.
+- **`newFx` nace reactivo al audio** (`int:0` / `amt:100`), y en un demo SIN audio eso es un efecto invisible.
+  `_demoFx` intercambia los dos: intensidad estática y cero reactividad.
+- **Los dos clips de la composición nacen en `V[1]` y `V[3]`**, no en la misma pista: así se ven a la vez. El nest
+  aterriza en `V[1]` (la pista de vídeo de menor índice de las usadas) y el texto ocupa después el `V[3]` que quedó
+  libre → no queda ninguna pista vacía.
+
+**El recorrido pasa de 5 pasos a 9** (6 en la versión genérica de Ventana → «Recorrido guiado», que gana el paso de
+2D/3D). Lo que los hace útiles es que cada paso puede traer un **`act`**: no sólo señala, **deja el editor en el
+estado del que habla** — selecciona el clip y abre su inspector, cambia a la pestaña «Reactive FX» para que se vea el
+efecto aplicado, enciende el modo automatización y fija el parámetro de la pista para que la curva esté a la vista,
+resalta el clip de la composición. `act` se ejecuta en cada `draw` (también al volver atrás o al redimensionar), así
+que es idempotente y no llama a `markDirty`: enseñar no es editar — al terminar, el demo sigue con `dirty:false`.
+Además `sel` admite una función (los ids de clip del demo son de tiempo de ejecución) y `reveal` hace `scrollIntoView`
+antes de medir el agujero, para pistas o clips fuera de la parte visible de la línea de tiempo.
+
+`buildDemoProject()` se queda como alias del demo de domo sin recorrido: no lo llama la app, lo llaman los arneses de
+`scratchpad/`. `_tourSkipNext` desapareció — ya no hay disparo automático que silenciar.
+
+### Verificación (CDP, app real en `:9222`)
+
+- **File:** el menú muestra exactamente una entrada de proyecto (`New project… · Ctrl+N`, más Open/Save/Save As/Export).
+  Las tres salidas del diálogo: *cancelar* → se queda en el proyecto y sigue sucio · *descartar* → landing con los
+  cambios intactos y sin segunda pregunta al crear · *guardar* → escribe, `dirty:false` y landing. Sin cambios → landing
+  directo, y «Back to project» devuelve el proyecto con sus 4 clips y su secuencia.
+- **Sin recorrido al crear:** los 3 tipos desde el launcher y los 3 tipos de «New sequence» → `#tourOv` ausente en los
+  seis casos.
+- **Los 3 demos:** capturas del lienzo real (`glc.toDataURL`, no la del protocolo — ojo, `Page.captureScreenshot`
+  devuelve una textura de canvas rancia y pintaba una banda negra en el tercio inferior que **no existe**: comprobado
+  leyendo el composite con `readPixels` y volcando el canvas). Play de 5 s en los tres con el contenido moviéndose;
+  los 9 pasos del recorrido avanzados por teclado con capturas del inspector, de la automatización con la curva y de
+  la composición; Skip a mitad (paso 3/9) deja el demo editable y sin marcar sucio; editar + `Save` produce un `.isp`
+  de 9,7 kB que **reabre** con sus 4 clips, el nest, las curvas (`mot:az:mix`, `el`, `opacity`), los motions y los efectos.
+- **Regresión:** los 3 tipos de proyecto normales, abrir un `.isp` reciente y undo/redo sobre un demo (0 → 4 → 0 → 4).
+- `node --check app.js && node --check main.js` limpio · `window.__errs` vacío en todas las corridas.
+
 ## ROUND 226 — Feedback, Etapa 4: la máscara al lienzo y la ventana solo-visor complementaria
 
 Los dos ítems de la Etapa 4 de `docs/NEXT.md`, cerrados y verificados por CDP contra la app real (guiones

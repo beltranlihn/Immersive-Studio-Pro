@@ -9,6 +9,7 @@
 > SE ELIMINA (evita audios superpuestos); (2) nest SIEMPRE dome master (eliminar toggle R216, archivar ADR-0007);
 > (3) crossfade = arrastrar el handle de fade sobre el corte (estilo Ableton); (4) demos del tour con shapes.
 > Commit por etapa · verificación CDP · deploy al cierre de la tanda.
+> **Las 5 etapas están CERRADAS (R223→R227). Queda el deploy de cierre de la tanda.**
 
 ### Etapa 1 · Timeline core + clips linkeados [R223] — CERRADA ✅
 > Verificada por CDP con dos mp4 reales con audio (`Multimedia2/3.mp4`); capturas en `scratchpad/r223/shots/`.
@@ -174,12 +175,27 @@
       PROPIO de la emergente con marca de sucio, y la ventana lleva su barra (2D/3D · Grid · Horizon/Seam/Center ·
       Orbit/Viewer) con CSS auto-contenido. Camino viejo archivado (ADR-0007).
 
-### Etapa 5 · Tour/demos + File [R227]
-- [ ] File en proyecto: solo "New project…" → pregunta guardar si dirty → LANDING. El tour ya no aparece al
-      crear proyecto.
-- [ ] Botón de configuración en el landing → Demo Domo / Demo Flat / Demo 360 (generados con shapes/texto/solids
+### Etapa 5 · Tour/demos + File [R227] — CERRADA ✅
+> Verificada por CDP (guiones `scratchpad/r227-*.mjs`, capturas en `scratchpad/r227/`, `__errs` vacío en todas las
+> corridas). Ver la entrada ROUND 227 de `PLAN.md` y la ficha [Recorrido guiado + proyectos demo] de `COMPONENTS.md`.
+- [x] File en proyecto: solo "New project…" → pregunta guardar si dirty → LANDING. El tour ya no aparece al
+      crear proyecto. _(R227)_ `newProjectViaLanding()`: una entrada (⌘N, la paleta y `#newBtn` van al mismo sitio) y
+      **pregunta de TRES salidas** (`appConfirm3` → guardar / descartar / cancelar; `confirmDiscard` sólo ofrecía
+      descartar o cancelar, y perder el trabajo no podía ser el único camino). El proyecto abierto **no se toca**:
+      sigue detrás del launcher y **«Back to project»** lo devuelve con sus cambios (el launcher no se puede cerrar;
+      sin esa salida la entrada era una puerta de un solo sentido). `_descartarYaDicho` evita la doble pregunta.
+      Los dos diálogos de creación que quedaron sin llamantes están archivados (ADR-0007); `roomSetupDialog` sigue
+      vivo en Project → «Room geometry…».
+- [x] Botón de configuración en el landing → Demo Domo / Demo Flat / Demo 360 (generados con shapes/texto/solids
       + automatizaciones + compose + efectos). Tour guiado completo (timeline, clip+inspector, automatización
-      con curvas, compose) y al terminar el demo queda libre para editar/guardar.
+      con curvas, compose) y al terminar el demo queda libre para editar/guardar. _(R227)_ Botón **«Demos»** en la
+      barra superior del launcher, junto a «Open project». Cada demo son ~22 s con 4 pistas, un fondo con Motion, una
+      **composición de 2 clips** (por el mismo `nestSelection` del usuario), un clip con Motion + Efecto +
+      automatización de posición + automatización del MIX del Motion, y un texto con curva de opacidad; la sala
+      reparte contenido en Left / Front+Back / Right y el **suelo**. Sólo medios generables → ningún archivo en disco.
+      El recorrido pasa a **9 pasos** con `act` por paso (selecciona el clip, cambia a la pestaña Reactive FX,
+      enciende la automatización, resalta el nest). El demo arranca sin ruta y sin historial: se edita y se guarda
+      con el Save normal (verificado: guardar + reabrir conserva clips, nest, curvas, motions y efectos).
 
 ## 📋 Tanda de Beltrán — 2026-07-27 · EN CURSO
 > Orden: primero lo independiente y barato, luego el landing **de una sola pasada** (son 8 puntos del mismo sitio),
