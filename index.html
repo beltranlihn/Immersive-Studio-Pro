@@ -72,6 +72,7 @@
     --toggle-on:#4A8D6F;   /* switch encendido = verde (distinto de --state-on gris de segmentados/botones) */
     --react-blue:#7FB2E8;  /* audio / reactivo */
     --audio-tint:rgba(150,175,130,0.045); /* [R223] pistas de audio: tinte cálido-verdoso neutro, apenas perceptible, sobre fila Y cabecera */
+    --floor-tint:rgba(120,150,190,0.07); /* [FLOOR-GROUP] pistas de PISO de una sala 360: tinte frío-azulado, distinto del verdoso de audio, sobre fila Y cabecera */
     --bar:#242424;         /* [AUDITORÍA Rev1] superficie del TRANSPORT. Verificado contra el prototipo: sólo el
                               transport lleva #242424; la top bar y el status van en #1B1B1B (--surface). */
     /* color por parámetro: mismo hue en el fader, el diamante de keyframe y la curva de automatización del timeline */
@@ -397,6 +398,10 @@
   /* [R223] diferenciación sutil de pistas de audio — un tinte cálido-verdoso apenas perceptible, no un color fuerte */
   .lanehdr.aud{background-color:var(--audio-tint);}
   .lanehdr.aud:hover{background-color:var(--audio-tint);background-image:linear-gradient(rgba(255,255,255,0.03),rgba(255,255,255,0.03));}
+  /* [FLOOR-GROUP] pistas de PISO de una sala 360 — mismo patrón que .aud, tinte frío-azulado para no confundirlas con audio */
+  .lanehdr.floor{background-color:var(--floor-tint);}
+  .lanehdr.floor:hover{background-color:var(--floor-tint);background-image:linear-gradient(rgba(255,255,255,0.03),rgba(255,255,255,0.03));}
+  .lanehdr .floorbadge{font-family:'Geist',system-ui,sans-serif;font-size:9px;font-weight:600;letter-spacing:.02em;color:rgba(150,180,220,0.9);background:rgba(120,150,190,0.16);border:.5px solid rgba(120,150,190,0.32);border-radius:2px;padding:1px 4px;line-height:1.4;flex-shrink:0;white-space:nowrap;}
   /* [R102·D-T2] Base = standby; con foco en la línea de tiempo, selección plena. El contorno inset completo
      sigue viéndose incluso sobre una pista tintada. */
   .lanehdr.sel{background:rgba(201,205,211,0.05);box-shadow:inset 0 0 0 1.5px rgba(255,255,255,0.22), inset 2px 0 0 var(--ink-3);}
@@ -531,6 +536,9 @@
   /* [R223] mismo tinte sutil que la cabecera (.lanehdr.aud) para que la pista de audio se note al escanear el timeline */
   .lane.aud{background-color:var(--audio-tint);}
   .lane.aud:nth-child(even){background-color:var(--audio-tint);background-image:linear-gradient(rgba(255,255,255,0.02),rgba(255,255,255,0.02));}
+  /* [FLOOR-GROUP] mismo patrón para las filas de pistas de PISO de una sala 360 (tinte frío-azulado, ver .lanehdr.floor) */
+  .lane.floor{background-color:var(--floor-tint);}
+  .lane.floor:nth-child(even){background-color:var(--floor-tint);background-image:linear-gradient(rgba(255,255,255,0.02),rgba(255,255,255,0.02));}
   /* [R92-T8/T9] video↔audio divider (Premiere-style double line) — also the audio-module resize grip */
   .trackdivider{height:18px;flex-shrink:0;background:var(--bg-0);border-top:1px solid rgba(255,255,255,0.14);border-bottom:1px solid rgba(255,255,255,0.14);box-shadow:inset 0 0 0 100px rgba(0,0,0,0.35);} /* [R110] taller so the AUDIO/VIDEO group labels sit comfortably */
   .trackdivider.resizable{cursor:row-resize;} .trackdivider.resizable:hover{background:var(--s0);border-top-color:rgba(201,205,211,0.55);border-bottom-color:rgba(201,205,211,0.55);}

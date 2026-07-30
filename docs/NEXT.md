@@ -4,6 +4,17 @@
 > en `COMPONENTS.md` + una entrada en `PLAN.md` en el mismo commit, como manda el ritual de `/commit`).
 > Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: 2026-07-29.
 
+## 🧭 Tanda de Beltrán — 2026-07-30 (post-testeo) · EN CURSO
+> Spec completa: **`CORRECCIONES-360-VIEWER.md`** (arquitectura, fórmulas, anclas, etapas). Decisiones: grupo fijo de
+> pistas de piso · visores 2D lado a lado (muros | piso) · quitar fold-wrap R222 · mantener seam wrap de muros.
+- [x] **Iconos de los demos** en el menú del landing (2D → `view2d`, 360 → `grid`). _(hecho)_
+- [x] **Locator ~3px más arriba** para que la etiqueta no se corte abajo (regla, `drawRuler`). _(hecho)_
+- [x] **Demo = recorrido completo desde el landing** — ya cableado en fuente (`startDemoProject`→`tourTrasCrear(fmt,true)`,
+      pasos por parte). Sólo faltaba deploy (el `.exe` estaba viejo). _(verificado en fuente)_
+- [ ] **360 · Etapa 1** — `lane.surf` (grupo fijo muros/piso) + colocación por superficie + quitar fold-wrap.
+- [ ] **360 · Etapa 2** — visor 2D partido muros|piso (lado a lado, divisor, toggle de piso, hit-testing por panel).
+- [ ] **360 · Etapa 3** — pulido de overlays + deploy.
+
 ## 🎯 Tanda de Beltrán — 2026-07-29 (post-prueba real) · EN CURSO · R223+
 > 30 ítems en 5 etapas. Decisiones tomadas con Beltrán: (1) al crear un compose, el audio linkeado de los clips
 > SE ELIMINA (evita audios superpuestos); (2) nest SIEMPRE dome master (eliminar toggle R216, archivar ADR-0007);

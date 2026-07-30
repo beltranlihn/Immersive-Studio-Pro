@@ -796,13 +796,27 @@ function isFlat(){ return state.seqMode==='flat'||state.seqMode==='room'; } // r
 function isRoom(){ return state.seqMode==='room'; }
 function flatLikeMode(md){ return md==='flat'||md==='room'; } // "rectangular, not dome" — for export dims / format chip / nested-sequence draw
 /* FLAT clip placement: return {fc,fx,fy,hw,hh} (NDC center + rotated half-axes, inscribed in the square composite with a UNIFORM scale so rotation isn't skewed). */
-function flatPlace(c,m,t){ const A=_compAspect||1; const s=Math.min(2/A,2), Fx=s*A/2, Fy=s/2; // frame half-extents in square NDC (Fx=min(1,A), Fy=min(1,1/A))
+function flatPlace(c,m,t,aOv){ const A=(aOv!=null?aOv:(_compAspect||1)); const s=Math.min(2/A,2), Fx=s*A/2, Fy=s/2; // frame half-extents in square NDC (Fx=min(1,A), Fy=min(1,1/A)) · [360-viewer] aOv = coloca en el marco de una SUPERFICIE (muros/piso) en vez del lienzo entero
   const ca=Math.max(0.01,(m.w||16)/(m.h||9));
   let wW,wH; if(ca>=A){ wW=A; wH=A/ca; } else { wH=1; wW=ca; } // contain the clip's aspect inside the A×1 frame
   const scale=Math.max(0.001,(evalR(c,'scale',t)||100)/100); const sxm=(c.props.scaleX==null?1:Math.max(0.001,c.props.scaleX)), sym=(c.props.scaleY==null?1:Math.max(0.001,c.props.scaleY)); const hw=wW/2*scale*sxm, hh=wH/2*scale*sym; // scaleX/scaleY = per-axis multipliers (Photoshop-style corner/edge resize); default 1 → uniform, flat clips unaffected
   const rot=(evalR(c,'rot',t)||0)*D2R, cs=Math.cos(rot), sn=Math.sin(rot);
   const x=(evalR(c,'x',t)||0)/100, y=(evalR(c,'y',t)||0)/100; // x/y are % of the frame half-extent (−100..100)
-  return { fc:[x*Fx, y*Fy], fx:[s*hw*cs, s*hw*sn], fy:[s*hh*(-sn), s*hh*cs], hw, hh }; }
+  return { fc:[x*Fx, y*Fy], fx:[s*hw*cs, s*hw*sn], fy:[s*hh*(-sn), s*hh*cs], hw, hh, Fx, Fy }; }
+/* [360-viewer] Rect de la SUPERFICIE de un clip en una sala, en píxeles del lienzo (x der, y abajo): la tira de
+   muros [0,W]×[0,stripH] o el rect del piso [Front.x0,Front.x1]×[stripH,H]. Devuelve null salvo que estemos
+   componiendo una sala Y la pista lleve `surf` (proyectos legacy sin surf → colocación clásica de lienzo entero). */
+function clipSurfaceRect(c){ if(!_roomWrap)return null; const lane=state.lanes[c.lane]; if(!lane||!lane.surf)return null;
+  const as=activeSeq(), room=as&&as.room; if(!room)return null; const W=as.w||1, H=as.h||1, wallsH=Math.min(H,room.stripH||H);
+  if(lane.surf==='floor'){ if(!room.floor)return null; const fw=(room.walls||[]).find(w=>w.role==='Front')||(room.walls||[])[0]; const fx0=fw?fw.x0:0, fx1=fw?fw.x1:W; return {x0:fx0,x1:fx1,y0:wallsH,y1:H,surf:'floor'}; }
+  return {x0:0,x1:W,y0:0,y1:wallsH,surf:'wall'}; }
+/* SR (px del lienzo) → rect de scissor del FBO composite (viewport CUADRADO, y hacia arriba), generalizando
+   roomWallScissorRects: un clip ligado a superficie se recorta a su muro/piso y no invade la otra superficie. */
+function surfaceScissorRect(SR){ const as=activeSeq(); const vp=gl.getParameter(gl.VIEWPORT); const size=vp[2]||1; const W=as.w||1,H=as.h||1;
+  const A=W/H, sC=Math.min(2/A,2), FxC=sC*A/2, FyC=sC/2, K=2*FxC/W; const nx=px=>K*px-FxC, ny=py=>FyC-K*py;
+  const vX=X=>Math.round((X*0.5+0.5)*size), vY=Y=>Math.round((Y*0.5+0.5)*size);
+  const x0=vX(nx(SR.x0)), x1=vX(nx(SR.x1)), yA=vY(ny(SR.y0)), yB=vY(ny(SR.y1));
+  return {x:Math.min(x0,x1), y:Math.min(yA,yB), w:Math.max(1,Math.abs(x1-x0)), h:Math.max(1,Math.abs(yA-yB))}; }
 /* [R222] Floor↔wall fold-wrap — same "infinite" feel as the horizontal seam wrap below, but the floor meets its
    Left/Right/Back walls at a 90° hinge instead of sitting side by side in the strip, so crossing those edges needs
    a ROTATION (not just an x-shift). The Front edge (room.walls.Front's row) is already contiguous for free: floor
@@ -835,7 +849,13 @@ function computeRoomFold(seq){ const room=seq&&seq.room; if(!room||!room.floor)r
    lchEditorShot() reset _roomFoldSeq=null wherever they already reset _roomGeoSeq for the same reason (geometry
    can change without the sequence id changing). */
 function roomFold(){ if(_roomFoldSeq!==state.activeSeqId){ const seq=activeSeq(); _roomFold=(seq&&seq.room)?computeRoomFold(seq):null; _roomFoldSeq=state.activeSeqId; } return _roomFold; }
-function drawClipFlat(c,m,t,xf,ntex,op){ const P=flatPlace(c,m,t);
+function drawClipFlat(c,m,t,xf,ntex,op){ const SR=clipSurfaceRect(c); let P;
+  if(SR){ /* [360-viewer] clip ligado a superficie: colocar en el marco de la superficie y remapear a su sub-rect del lienzo (ver CORRECCIONES-360-VIEWER.md · fórmula mX/mY/bX/bY). Sin términos cruzados: X depende sólo de sx, Y sólo de sy. */
+    const Asurf=(SR.x1-SR.x0)/Math.max(1,(SR.y1-SR.y0)); const p=flatPlace(c,m,t,Asurf);
+    const as=activeSeq(), W=as.w||1, A=_compAspect||1, sC=Math.min(2/A,2), FxC=sC*A/2, FyC=sC/2, K=2*FxC/W;
+    const mX=K*(SR.x1-SR.x0)/(2*p.Fx), bX=K*(SR.x0+SR.x1)/2-FxC, mY=K*(SR.y1-SR.y0)/(2*p.Fy), bY=FyC-K*(SR.y0+SR.y1)/2;
+    P={ fc:[mX*p.fc[0]+bX, mY*p.fc[1]+bY], fx:[mX*p.fx[0], mY*p.fx[1]], fy:[mX*p.fy[0], mY*p.fy[1]], hw:p.hw, hh:p.hh }; }
+  else P=flatPlace(c,m,t);
   gl.useProgram(PW); gl.bindVertexArray(meshVAO);
   gl.uniform1f(LW.fmode,1); gl.uniform2f(LW.fx,P.fx[0],P.fx[1]); gl.uniform2f(LW.fy,P.fy[0],P.fy[1]);
   gl.uniform2f(LW.half,P.hw,P.hh); gl.uniform1f(LW.mir,c.props.mirror?-1:1); gl.uniform1f(LW.op,op);
@@ -848,44 +868,21 @@ function drawClipFlat(c,m,t,xf,ntex,op){ const P=flatPlace(c,m,t);
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,ntex); gl.uniform1i(LW.tex,0);
   gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D,c.maskTex||ntex); gl.uniform1i(LW.maskTex,1);
   const bm=c.props.blend||'normal'; setBlend(bm); gl.uniform1f(LW.premul,(bm==='screen'||bm==='multiply')?1:0); gl.uniform1f(LW.blend,BLEND_ID[bm]||0);
-  // seamless horizontal wrap (360-room strip only): a clip crossing the left/right seam reappears on the opposite side. One full strip = 2·Fx in fc-space.
-  const offs=[0]; let foldPasses=null;
-  if(_roomWrap){ const A=_compAspect||1, s=Math.min(2/A,2), Fx=s*A/2, Fy=s/2, span=2*Fx;
-    const hx=Math.abs(P.fx[0])+Math.abs(P.fy[0]), hy=Math.abs(P.fx[1])+Math.abs(P.fy[1]);
-    if(P.fc[0]+hx> Fx)offs.push(-span); if(P.fc[0]-hx<-Fx)offs.push(span);
-    // [R222] floor↔wall fold-wrap — see computeRoomFold() above for the derivation. Cheap AABB reject first
-    // (floor-rect overlap test) so clips nowhere near the floor never pay for the per-edge math below.
-    const fold=roomFold();
-    if(fold){ const K=2*Fx/(fold.stripW||1); // NDC-per-pixel, uniform in x & y (flatPlace's square-inscribed frame — see its own comment)
-      const nx=px=>K*px-Fx, ny=py=>Fy-K*py;
-      const flL=nx(fold.fx0), flR=nx(fold.fx1), flT=ny(fold.wallsH), flB=ny(fold.wallsH+fold.floorH);
-      if(P.fc[0]+hx>flL && P.fc[0]-hx<flR && P.fc[1]-hy<flT && P.fc[1]+hy>flB){ // bbox overlaps the floor rect at all
-        foldPasses=[];
-        const tryEdge=(e,crosses)=>{ if(!e||!crosses)return;
-          const A_=e.a, Bm=-e.b, D_=-e.d, E_=e.e; // pixel affine → NDC linear part (derivation: nx'=a·nx-b·ny+C1, ny'=-d·nx+e·ny+C2)
-          const C1=e.a*Fx+e.b*Fy+K*e.c-Fx, C2=Fy-e.d*Fx-e.e*Fy-K*e.f;
-          foldPasses.push({ role:e.role,
-            fc:[A_*P.fc[0]+Bm*P.fc[1]+C1, D_*P.fc[0]+E_*P.fc[1]+C2],
-            fx:[A_*P.fx[0]+Bm*P.fx[1],    D_*P.fx[0]+E_*P.fx[1]],
-            fy:[A_*P.fy[0]+Bm*P.fy[1],    D_*P.fy[0]+E_*P.fy[1]] }); };
-        tryEdge(fold.edges.left,   P.fc[0]-hx<flL);
-        tryEdge(fold.edges.right,  P.fc[0]+hx>flR);
-        tryEdge(fold.edges.bottom, P.fc[1]-hy<flB); // NDC y is flipped vs pixel y → "past the floor's bottom edge" = below flB
-      }
-    }
-  }
+  // seamless horizontal wrap (360-room walls strip only): a clip crossing the left/right seam reappears on the opposite side. One full strip = 2·Fx in fc-space.
+  // [360-viewer] SÓLO muros (SR ausente = legacy, o SR.surf==='wall'). El piso NO envuelve, y el fold-wrap piso↔muro (R222) se ELIMINÓ a pedido de Beltrán.
+  const offs=[0];
+  if(_roomWrap && (!SR || SR.surf==='wall')){ const A=_compAspect||1, s=Math.min(2/A,2), Fx=s*A/2, span=2*Fx;
+    const hx=Math.abs(P.fx[0])+Math.abs(P.fy[0]);
+    if(P.fc[0]+hx> Fx)offs.push(-span); if(P.fc[0]-hx<-Fx)offs.push(span); }
   // vertical infinite tiling (Vertical-movement motion): repeat the clip by its own height to fill the frame → endless scroll
   let voffs=[0];
   if(clipVTile(c)){ const per=2*(Math.abs(P.fy[1])+Math.abs(P.fx[1]));
     if(per>0.02){ let kLo=Math.floor((-1.2-P.fc[1])/per), kHi=Math.ceil((1.2-P.fc[1])/per); if(kHi-kLo>60){kLo=-30;kHi=30;} voffs=[]; for(let k=kLo;k<=kHi;k++)voffs.push(k*per); } }
   const drawCopies=()=>{ for(const dy of voffs)for(const dx of offs){ gl.uniform2f(LW.fc,P.fc[0]+dx,P.fc[1]+dy); gl.drawElements(gl.TRIANGLES,meshCount,gl.UNSIGNED_INT,0); } };
-  const mw=(_roomWrap&&c.props.maskWalls&&c.props.maskWalls.length)?roomWallScissorRects(c.props.maskWalls):null; // Mask to wall: clip to the chosen walls' regions
-  if(mw&&mw.length){ gl.enable(gl.SCISSOR_TEST); for(const r of mw){ gl.scissor(r.x,r.y,r.w,r.h); drawCopies(); } gl.disable(gl.SCISSOR_TEST); } else drawCopies();
-  if(foldPasses&&foldPasses.length){ gl.enable(gl.SCISSOR_TEST); // each fold-copy gets its own ROTATED fx/fy + scissor to its target wall, so it can't spill onto neighbouring walls
-    for(const p of foldPasses){ const r=roomWallScissorRects([p.role])[0]; if(!r)continue;
-      gl.scissor(r.x,r.y,r.w,r.h); gl.uniform2f(LW.fx,p.fx[0],p.fx[1]); gl.uniform2f(LW.fy,p.fy[0],p.fy[1]); gl.uniform2f(LW.fc,p.fc[0],p.fc[1]);
-      gl.drawElements(gl.TRIANGLES,meshCount,gl.UNSIGNED_INT,0); }
-    gl.disable(gl.SCISSOR_TEST); }
+  // Mask to wall (sólo muros): recorta a los muros elegidos. [360-viewer] Si no, un clip ligado a superficie se recorta a su muro/piso para no invadir la otra superficie.
+  let scRects=(_roomWrap&&(!SR||SR.surf==='wall')&&c.props.maskWalls&&c.props.maskWalls.length)?roomWallScissorRects(c.props.maskWalls):null;
+  if(!scRects&&SR)scRects=[surfaceScissorRect(SR)];
+  if(scRects&&scRects.length){ gl.enable(gl.SCISSOR_TEST); for(const r of scRects){ gl.scissor(r.x,r.y,r.w,r.h); drawCopies(); } gl.disable(gl.SCISSOR_TEST); } else drawCopies();
   if(bm!=='normal')NORMAL_BLEND(); gl.bindVertexArray(null); }
 function drawClip(c,m,t,xf){
   if(!m) return; let ntex; if(isSeqMedia(m)) ntex=(c._ntex||m.tex); else if(m.kind==='video'){ const vi=_vinst.get(c.id); ntex=(vi&&vi.ready&&vi.vtex)?vi.vtex:m.tex; } else ntex=m.tex; if(!ntex) return; // nests sample their per-clip pool tex; videos sample their PER-CLIP decode tex so duplicated clips show different frames (fallback m.tex until the private decoder has its first frame) — [R220] this readiness branching is mirrored by clipTexReady(), keep both in sync
@@ -2716,11 +2713,11 @@ function drawRuler(){ const rc=$('#rulerCv'), sc=$('#tlscroll'); if(!rc||!sc)ret
       /* [R162] `ceil`, no `round`: con los ticks a 48px, 66/48=1.375 redondeaba a 1 y etiquetaba TODOS —
          y una etiqueta de timecode («00:00:30») mide ~52px, así que se pisaban unas con otras. */
       if((Math.round(tt/iv))%(Math.max(1,Math.ceil(66/(iv*pps))))===0) rx.fillText(fmtTime(tt),x+3,7); } }
-  // [R223] locators en la MITAD INFERIOR de la regla (antes competían arriba con los ticks/etiquetas de tiempo)
+  // [R223] locators en la MITAD INFERIOR de la regla (antes competían arriba con los ticks/etiquetas de tiempo) · subidos ~3px para que la etiqueta no se corte abajo
   for(const mk of state.markers){ const x=mk.time*pps; if(x<x0-40||x>x1+40)continue; const selM=mk.id===state.selMarkerId; const col=selM?'#F2F4F6':(mk.color||'#B4BAC1');
-    rx.fillStyle=col; rx.beginPath(); rx.moveTo(x,14); rx.lineTo(x+9,17); rx.lineTo(x,20); rx.closePath(); rx.fill(); rx.fillRect(x-0.5,12,1,RULER_H-12);
-    if(selM){ rx.strokeStyle='rgba(255,255,255,0.85)'; rx.lineWidth=1; rx.beginPath(); rx.moveTo(x,14); rx.lineTo(x+9,17); rx.lineTo(x,20); rx.closePath(); rx.stroke(); }
-    if(mk.name){ rx.font=(selM?'600 ':'')+'9px Inter'; rx.fillStyle=col; rx.textBaseline='middle'; rx.fillText(mk.name, x+12, 17); } }
+    rx.fillStyle=col; rx.beginPath(); rx.moveTo(x,11); rx.lineTo(x+9,14); rx.lineTo(x,17); rx.closePath(); rx.fill(); rx.fillRect(x-0.5,9,1,RULER_H-9);
+    if(selM){ rx.strokeStyle='rgba(255,255,255,0.85)'; rx.lineWidth=1; rx.beginPath(); rx.moveTo(x,11); rx.lineTo(x+9,14); rx.lineTo(x,17); rx.closePath(); rx.stroke(); }
+    if(mk.name){ rx.font=(selM?'600 ':'')+'9px Inter'; rx.fillStyle=col; rx.textBaseline='middle'; rx.fillText(mk.name, x+12, 14); } }
   drawCacheMap(); }
 /* draw the waveform for MEDIA-time range [t0,t1] into cvs (backing store already sized to display px).
    Sample-accurate min/max/RMS straight from the AudioBuffer when zoomed in (crisp transients), else the
@@ -2787,7 +2784,7 @@ function renderTimeline(){ reconcileVinst(); // free private decoders of clips t
     const _isAud=lane.kind==='audio'; const rowT=tracks; const hdrT=heads;
     if(!_isAud&&!_hasVideo){ _hasVideo=true; } // [R110b] VIDEO label goes in the existing ruler-pad corner (set after the loop) — NOT a separate band
     if(_isAud&&!_hasAudio){ _hasAudio=true; } // [REDISEÑO Rev1] sin barra "Audio" colapsable — audio es una pista normal en la columna unificada
-    const row=document.createElement('div'); row.className='lane'+(collapsed?' collapsed':'')+(_isAud?' aud':''); row.style.height=LH+'px'; row.style.width=W+'px'; row.dataset.lane=li; // [R223] tinte sutil de fila de audio (clase ya existía en .lanehdr, faltaba en la fila)
+    const row=document.createElement('div'); row.className='lane'+(collapsed?' collapsed':'')+(_isAud?' aud':'')+(lane.surf==='floor'?' floor':''); row.style.height=LH+'px'; row.style.width=W+'px'; row.dataset.lane=li; // [R223] tinte sutil de fila de audio (clase ya existía en .lanehdr, faltaba en la fila) · [FLOOR-GROUP] mismo patrón para pistas de piso de una sala
     for(const c of state.clips.filter(c=>c.lane===li)){
       const m=mediaById(c.mediaId); const cd=document.createElement('div'); cd.className='clip'+(state.selIds.includes(c.id)?' sel':'')+((c.groupId!=null&&c.groupId===state.selGroupId)?' gsel':'')+((!m||(m.missing&&!m._loading))?' offline':''); cd.dataset.clip=c.id; // [M4] media deleted/missing → red offline clip
       if(c.disabled)cd.classList.add('off'); // [R102·D-T2] Ableton "0": ni se renderiza ni suena. Antes se decía SOLO con opacidad+desaturación — es decir, sólo con color. Ahora lleva además una trama diagonal: "Avoid using color as the only way of communicating status" (HIG de Blender), y Resolve hace lo mismo ("A slash indicates when a track is disabled"). Importa para daltonismo y para poder leerlo de un vistazo entre 30 clips.
@@ -2836,7 +2833,7 @@ function renderTimeline(){ reconcileVinst(); // free private decoders of clips t
     for(let i=0;i<laneClips.length-1;i++){ const a=laneClips[i],b=laneClips[i+1]; const ovS=b.start, ovE=Math.min(a.start+a.dur,b.start+b.dur);
       if(ovE>ovS+1e-4){ const xf=document.createElement('div'); xf.className='xfade'; xf.style.left=(ovS*pps)+'px'; xf.style.width=((ovE-ovS)*pps)+'px'; row.appendChild(xf); } }
     rowT.appendChild(row);
-    const hd=document.createElement('div'); hd.className='lanehdr'+(state.selLane===li?' sel':'')+(collapsed?' collapsed':'')+(_isAud?' aud':''); hd.style.height=LH+'px'; hd.dataset.lane=li; if(lane.color)hd.style.background=hexA(lane.color,state.selLane===li?0.34:0.16); // tint the whole header rectangle; brighter when selected (+ the .sel inset outline gives contrast over any colour)
+    const hd=document.createElement('div'); hd.className='lanehdr'+(state.selLane===li?' sel':'')+(collapsed?' collapsed':'')+(_isAud?' aud':'')+(lane.surf==='floor'?' floor':''); hd.style.height=LH+'px'; hd.dataset.lane=li; if(lane.color)hd.style.background=hexA(lane.color,state.selLane===li?0.34:0.16); // tint the whole header rectangle; brighter when selected (+ the .sel inset outline gives contrast over any colour) · [FLOOR-GROUP] mismo patrón que .aud para distinguir las pistas de piso
     /* [R157] La cabecera es una COLUMNA en flujo (identidad arriba, chips de automatización abajo), como el
        prototipo (RevDomo:542). Antes los chips iban en `position:absolute; bottom:3px`, o sea pegados al borde
        por construcción y pisando el nombre cuando la pista era baja. */
@@ -2844,6 +2841,7 @@ function renderTimeline(){ reconcileVinst(); // free private decoders of clips t
       <div class="lnrow">
         <button class="lcol" data-m="collapse" title="${collapsed?T('Expand track','Expandir pista'):T('Collapse track','Contraer pista')}"><span style="display:inline-flex;transform:rotate(${collapsed?-90:0}deg);">${ICO('chevDown',11)}</span></button>
         <span class="tag"${lane.color?' style="color:'+lane.color+'"':''}>${lane.tag}</span><span class="nm"${lane.color?' style="color:'+lane.color+'"':''}>${lane.name}</span>
+        ${lane.surf==='floor'?`<span class="floorbadge" title="${T('Floor track — composites onto the room floor, not the walls','Pista de piso — compone sobre el piso de la sala, no sobre los muros')}">${T('FLOOR','SUELO')}</span>`:''}
         <button class="ms ${lane.mute?'on':''}" data-m="mute">M</button><button class="ms solo ${lane.solo?'on':''}" data-m="solo">S</button>
       </div>`;
     /* [R224 · ítem 7] Los chips de automatización CONSUMEN el clic: elegir qué curva se ve es navegación dentro de la
@@ -2921,16 +2919,31 @@ function ensureClipVisible(c){ if(!c)return; const sc=$('#tlscroll'); if(!sc)ret
   if(rr.top<topLim) dy=rr.top-topLim;
   else if(rr.bottom>botLim) dy=Math.min(rr.bottom-botLim, rr.top-topLim); // never push the row's top above the ruler
   if(Math.abs(dy)>0.5) sc.scrollTop+=dy; }
-function addLane(kind){ pushUndo(); const n=state.lanes.filter(l=>l.kind===kind).length+1; const nl={id:uid(),name:(kind==='audio'?'Audio ':'Video ')+n,tag:(kind==='audio'?'A':'V')+n,kind};
+/* [FLOOR-GROUP] `surf` opcional ('wall'|'floor') — sólo lo usan las salas. Con `surf`, el conteo para numerar
+   (Wall N / Floor N) y el nombre/tag se llevan por ESE grupo, no por todas las pistas 'video' (que en una sala
+   incluyen ambos grupos). Sin `surf` (vídeo normal o audio) el comportamiento es EXACTAMENTE el de antes. */
+function addLane(kind,surf){ pushUndo();
+  const cnt=surf?state.lanes.filter(l=>l.surf===surf).length:state.lanes.filter(l=>l.kind===kind&&!l.surf).length; const n=cnt+1;
+  const nm=surf==='wall'?'Wall':surf==='floor'?'Floor':(kind==='audio'?'Audio':'Video');
+  const tg=surf==='wall'?'W':surf==='floor'?'F':(kind==='audio'?'A':'V');
+  const nl={id:uid(),name:nm+' '+n,tag:tg+n,kind}; if(surf)nl.surf=surf;
   if(kind==='audio'){ let at=state.lanes.findIndex(l=>l.kind==='audio'); if(at<0)at=0; // [R93b] audio grows DOWNWARD: the module displays audio lanes index-descending → the bottom slot is the smallest audio index · [R165] sin ninguna pista de audio el respaldo era `lanes.length`, que desde R155 es ARRIBA del todo; el fondo es el 0
     state.lanes.splice(at,0,nl); for(const c of state.clips)if(c.lane>=at)c.lane++; if(state.selLane!=null&&state.selLane>=at)state.selLane++; }
-  else state.lanes.push(nl); // video grows upward (new track on top), as before
+  else if(surf==='floor'){ // [FLOOR-GROUP] entra JUSTO ENCIMA del último piso existente (o, sin piso todavía, encima del último audio) y DEBAJO del grupo de muros — mismo patrón de reindexado que la rama de audio
+    const floorIdxs=state.lanes.map((l,i)=>i).filter(i=>state.lanes[i].surf==='floor');
+    let insertIdx; if(floorIdxs.length) insertIdx=Math.max(...floorIdxs)+1;
+    else { const audIdxs=state.lanes.map((l,i)=>i).filter(i=>state.lanes[i].kind==='audio'); insertIdx=audIdxs.length?Math.max(...audIdxs)+1:0; }
+    state.lanes.splice(insertIdx,0,nl); for(const c of state.clips)if(c.lane>=insertIdx)c.lane++; if(state.selLane!=null&&state.selLane>=insertIdx)state.selLane++; }
+  else state.lanes.push(nl); // wall / plain video grows upward (new track on top), as before
   renderTimeline();
   if(kind==='audio'){ const az=document.querySelector('#tracks .audiozone'); if(az){ az.scrollTop=az.scrollHeight; state.tl._audioScroll=az.scrollTop; const ah=$('#audioHeadZone'); if(ah)ah.scrollTop=az.scrollTop; } } // reveal the new bottom track (the module keeps its height and scrolls)
   flashStatus(T('Track added','Pista añadida')); }
 /* menu items for creating a track (Ctrl+T or right-click) — no toolbar button per request */
 function trackCreateItems(kind){ const it=[]; // [R223] revierte el filtro por kind de [R110b]: Beltrán pidió que CUALQUIER cabecera (video o audio) ofrezca ambas opciones
-  it.push({label:T('New video track','Nueva pista de vídeo'),key:'⌘T',ico:'plus',fn:()=>addLane('video')});
+  if(isRoom()){ // [FLOOR-GROUP] en una sala "New video track" se abre en dos: la pista siempre va a un muro o al piso, nunca a un vídeo "suelto"
+    it.push({label:T('New wall track','Nueva pista de muro'),key:'⌘T',ico:'plus',fn:()=>addLane('video','wall')});
+    it.push({label:T('New floor track','Nueva pista de piso'),ico:'plus',fn:()=>addLane('video','floor')});
+  } else it.push({label:T('New video track','Nueva pista de vídeo'),key:'⌘T',ico:'plus',fn:()=>addLane('video')});
   it.push({label:T('New audio track','Nueva pista de audio'),ico:'plus',fn:()=>addLane('audio')});
   return it; }
 function removeLane(li){ const lane=state.lanes[li]; if(!lane)return; const has=state.clips.some(c=>c.lane===li);
@@ -3275,8 +3288,8 @@ function showLanding(){ if(document.getElementById('landingOv'))return;
   { const b=ov.querySelector('#lchDemo'); if(b)b.onclick=()=>{ const r=b.getBoundingClientRect();
       openMenu(Math.max(6,Math.min(window.innerWidth-190,r.left-40)), r.bottom+5, [ // el menú global es z-500: se pinta por encima del launcher (z-300) sin trucos
         {label:T('Demo · Dome','Demo · Domo'),ico:'view3d',fn:()=>startDemoProject('dome')},
-        {label:T('Demo · 2D','Demo · 2D'),fn:()=>startDemoProject('flat')},
-        {label:T('Demo · 360 Room','Demo · Sala 360'),fn:()=>startDemoProject('room')} ]); }; }
+        {label:T('Demo · 2D','Demo · 2D'),ico:'view2d',fn:()=>startDemoProject('flat')},
+        {label:T('Demo · 360 Room','Demo · Sala 360'),ico:'grid',fn:()=>startDemoProject('room')} ]); }; }
   renderLauncher(); lchRenderRecents();
 }
 
@@ -3658,15 +3671,17 @@ function _demoCompose(clips,name){ clips=(clips||[]).filter(Boolean); if(clips.l
   const nc=clipById(state.selId); if(nc&&name){ const m=mediaById(nc.mediaId); if(m)m.name=name; nc.name=name; }
   return nc; }
 function _demoLaneName(li,en,es){ const l=state.lanes[li]; if(l)l.name=T(en,es); }
-/* Centro del muro `role` (o del suelo) en las props x/y de la sala. El suelo comparte las columnas del muro Front
-   (R221: es la franja inferior del MISMO lienzo), así que su x es la de Front y su y cae bajo la tira. */
+/* [FLOOR-GROUP] Con la colocación por superficie, un clip de pista `wall` se ubica en % relativos a TODA la tira
+   de muros (`clipSurfaceRect`/`drawClipFlat` ya remapean esa superficie al lienzo — no se tocan acá), y uno de
+   pista `floor` en % relativos al RECT del piso (que está centrado en 0,0 por construcción). Así que "el centro
+   del muro `role`" ya no cae en `y=100*(1-sh/H)` del lienzo completo (eso era del modelo anterior, un solo
+   lienzo sin sub-superficies): en la superficie de muros la fila vertical siempre es y=0, y el piso —al ser su
+   propio rect— también nace centrado en 0,0. */
 function _demoRoomPos(role){ const as=activeSeq(), room=as&&as.room; if(!as||!room)return {x:0,y:0};
-  const W=Math.max(1,as.w||1), H=Math.max(1,as.h||1), sh=Math.min(H,room.stripH||H);
-  const cx=w=>100*(((w.x0+w.x1)/W)-1);
-  const front=(room.walls||[]).find(x=>x.role==='Front')||(room.walls||[])[0];
-  if(role==='Floor') return { x:front?cx(front):0, y:100*(-1+(H-sh)/H) };
-  const w=(room.walls||[]).find(x=>x.role===role)||front; if(!w)return {x:0,y:0};
-  return { x:cx(w), y:100*(1-(sh/H)) }; }
+  if(role==='Floor') return {x:0,y:0};
+  const stripW=Math.max(1,as.w||1);
+  const w=(room.walls||[]).find(x=>x.role===role)||(room.walls||[])[0]; if(!w)return {x:0,y:0};
+  return { x:100*(((w.x0+w.x1)/stripW)-1), y:0 }; }
 /* ---- los tres formatos ---- */
 /* V = índices de las pistas de VÍDEO (state.lanes[0] es la de audio desde R155). El orden de creación importa:
    los dos clips de la composición nacen en V[1] y V[3] para poder verse a la vez, se anidan (el nest aterriza en
@@ -3696,19 +3711,29 @@ function _demoBuildFlat(V,dur){
   _demoFx(sl,'rgbsplit',{spread:60},80);
   const ti=_demoAddText('IMMERSIVE',V[3],1,dur-2,{x:0,y:52,scale:34}); _demoKf(ti,'opacity',[[0,0],[1.6,100],[dur-3.6,100],[dur-2,0]]);
   return {fxClipId:sl.id,autoClipId:sl.id,autoParam:'y',autoLane:V[2],compClipId:comp&&comp.id}; }
+/* [FLOOR-GROUP] Ya NO se apoya en los índices `V` de `ensureVideoLanes` (esa lista, en una sala, mezcla pistas de
+   muro Y de piso — ambas son kind:'video' — así que V[0..3] podía caer en cualquier combinación de las dos según
+   cuántas pistas de piso trajera la sala). Se resuelve por `lane.surf`, que es lo que de verdad decide dónde
+   compone cada clip: 4 pistas 'wall' (backdrop, los dos de la composición, el acento móvil) + la primera pista
+   'floor' para el texto. `V` se conserva sólo como red de seguridad si por algún motivo el modelo de sala no trajera
+   pistas con `surf` (no debería pasar: `roomDefLanes` siempre las siembra). */
 function _demoBuildRoom(V,dur){
-  _demoLaneName(V[0],'Left wall','Muro izquierdo'); _demoLaneName(V[1],'Compose · Front + Back','Composición · Frente + Fondo'); _demoLaneName(V[2],'Right wall','Muro derecho'); _demoLaneName(V[3],'Floor','Piso');
+  let wallLanes=state.lanes.map((l,i)=>i).filter(i=>state.lanes[i].surf==='wall');
+  if(wallLanes.length<4) wallLanes=(V||[]).slice(0,4); // red de seguridad — no debería activarse en una sala nueva
+  const [w0,w1,w2,w3]=wallLanes;
+  let floorLane=state.lanes.findIndex(l=>l.surf==='floor');
+  if(floorLane<0) floorLane=(V&&V[3]!=null)?V[3]:w3;
   const L=_demoRoomPos('Left'), R=_demoRoomPos('Right'), F=_demoRoomPos('Front'), B=_demoRoomPos('Back'), FL=_demoRoomPos('Floor');
-  const lw=_demoAddShape('rect','#16233A',V[0],0,dur,{x:L.x,y:L.y,scale:46,opacity:92}); _demoMotion(lw,'rotate',5);
-  const a=_demoAddShape('ellipse','#C9CDD3',V[1],0,dur*0.8,{x:F.x,y:F.y,scale:34});
-  const b=_demoAddShape('line','#E8EAED',V[3],0,dur*0.8,{x:B.x,y:B.y,scale:44});
+  const lw=_demoAddShape('rect','#16233A',w0,0,dur,{x:L.x,y:L.y,scale:46,opacity:92}); _demoMotion(lw,'rotate',5);
+  const a=_demoAddShape('ellipse','#C9CDD3',w1,0,dur*0.8,{x:F.x,y:F.y,scale:34});
+  const b=_demoAddShape('line','#E8EAED',w2,0,dur*0.8,{x:B.x,y:B.y,scale:44});
   const comp=_demoCompose([a,b],T('Compose · Front + Back','Composición · Frente + Fondo')); _demoFx(comp,'bloom',{boost:70});
-  const rw=_demoAddShape('ellipse','#E2723F',V[2],0,dur,{x:R.x,y:R.y,scale:28});
+  const rw=_demoAddShape('ellipse','#E2723F',w3,0,dur,{x:R.x,y:R.y,scale:28});
   _demoMotion(rw,'hmove',0.05,{mode:'wave',amp:48}); _demoKf(rw,'mot:x:mix',[[0,0],[3,100]]); // vaivén que cruza muros: al pasar la junta el clip se parte y reaparece al otro lado. Oscilante y no lineal para que no se aleje sin volver (el wrap sólo alcanza a una vuelta)
-  _demoKf(rw,'y',[[0,R.y],[dur/2,R.y-26],[dur,R.y]]);
+  _demoKf(rw,'y',[[0,0],[dur/2,-14],[dur,0]]); // [FLOOR-GROUP] baseline 0 (antes R.y): en la superficie de muros el centro vertical siempre es y=0
   _demoFx(rw,'rgbsplit',{spread:60},80);
-  const ti=_demoAddText('IMMERSIVE',V[3],1,dur-2,{x:FL.x,y:FL.y,scale:22}); _demoKf(ti,'opacity',[[0,0],[1.6,100],[dur-3.6,100],[dur-2,0]]);
-  return {fxClipId:rw.id,autoClipId:rw.id,autoParam:'y',autoLane:V[2],compClipId:comp&&comp.id}; }
+  const ti=_demoAddText('IMMERSIVE',floorLane,1,dur-2,{x:FL.x,y:FL.y,scale:22}); _demoKf(ti,'opacity',[[0,0],[1.6,100],[dur-3.6,100],[dur-2,0]]);
+  return {fxClipId:rw.id,autoClipId:rw.id,autoParam:'y',autoLane:w3,compClipId:comp&&comp.id}; }
 const DEMO_LABEL=fmt=>fmt==='flat'?T('2D','2D'):fmt==='room'?T('360 Room','Sala 360'):T('Dome','Domo');
 /* Un demo del formato pedido + el recorrido guiado encima. Se llama desde el botón «Demos» de la pantalla de inicio. */
 async function startDemoProject(fmt){ try{closeMenu();}catch(e){}
@@ -7907,6 +7932,15 @@ function seqDur(m){ let e=0; for(const c of (m&&m.nestClips||[]))e=Math.max(e,c.
    ir PRIMERO en el array. Antes iba último y, sin la partición que lo bajaba a la fuerza, aparecía arriba de todo.
    Que sea el orden inicial no lo fija: el audio se puede arrastrar a donde se quiera. */
 function defLanes(){ return [{id:uid(),name:'Audio 1',tag:'A1',kind:'audio'},{id:uid(),name:'Video 1',tag:'V1',kind:'video'},{id:uid(),name:'Video 2',tag:'V2',kind:'video'},{id:uid(),name:'Video 3',tag:'V3',kind:'video'},{id:uid(),name:'Video 4',tag:'V4',kind:'video'}]; } // 4 vídeo + 1 audio
+/* [FLOOR-GROUP] Pistas por defecto de una SALA: dos grupos FIJOS de pista de vídeo (muros/piso) además del audio,
+   en vez de los 4 "Video N" genéricos de defLanes(). Array en orden de ÍNDICE (0=más abajo en pantalla, por la
+   misma convención que lanesTopDown): audio, luego el piso (si lo hay), luego los 4 muros — así que en pantalla
+   se ve, de arriba a abajo, Muro4..Muro1, [Piso2, Piso1], Audio. `lane.surf` es lo que lee `clipSurfaceRect` para
+   decidir la sub-superficie del clip (walls strip vs. floor rect) — NO se toca esa función acá. */
+function roomDefLanes(walls,hasFloor){ const lanes=[{id:uid(),name:'Audio 1',tag:'A1',kind:'audio'}];
+  if(hasFloor){ for(let n=1;n<=2;n++) lanes.push({id:uid(),name:'Floor '+n,tag:'F'+n,kind:'video',surf:'floor'}); }
+  for(let n=1;n<=4;n++) lanes.push({id:uid(),name:'Wall '+n,tag:'W'+n,kind:'video',surf:'wall'});
+  return lanes; }
 function newSeqMedia(name,fps,w,h,clips,lanes,mode,cov){ return {id:uid(),kind:'nest',name:name||'Sequence',fps:fps||60,w:w||4096,h:h||4096,mode:mode||'dome',cov:((mode||'dome')==='dome'?(cov||180):null),color:clipColorFor('nest'),thumb:null,
   nestClips:clips||[], nestLanes:lanes||defLanes(), nestMarkers:[], nestGroups:[], nestPlayhead:0, nestWorkIn:null, nestWorkOut:null, dur:6 }; }
 function ensureSequences(){ let seqs=state.media.filter(isSeqMedia);
@@ -8520,7 +8554,7 @@ function createRoomSequences(cfg){
      old .isp still carrying it gets folded into this model by loadProject → migrateRoomFloor). */
   const floorH=roomFloorH(walls,cfg.floor,stripW);
   const room={ walls, floorSeqId:null, floor:cfg.floor||null, stripH };
-  const wseq=newSeqMedia(T('Walls','Muros'),fps,stripW,stripH+floorH,null,null,'room'); wseq.room=room; state.media.push(wseq);
+  const wseq=newSeqMedia(T('Walls','Muros'),fps,stripW,stripH+floorH,null,roomDefLanes(walls,!!room.floor),'room'); wseq.room=room; state.media.push(wseq); // [FLOOR-GROUP] siembra el grupo fijo muros+piso en vez de los defLanes() genéricos
   return wseq;
 }
 async function newRoomProject(cfg,skipConfirm){ if(!(await confirmDiscard(skipConfirm)))return false; if(state.playing)pause(); disposeAllVinst(); // [R227] mismo contrato que newProject: true = creada, false = cancelada · [R228] + skipConfirm
