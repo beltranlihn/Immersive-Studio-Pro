@@ -59,9 +59,25 @@ tres veces. El `.nm` se sigue pintando —vacío— porque es donde `renameLane`
 
 **Queda sin tocar, a propósito:** las pistas que crea `migrateRoomFloor` para un `.isp` pre-R221 siguen llamándose
 «Floor N» y sin `surf`. No es un descuido: sus coordenadas son del lienzo entero y etiquetarlas de superficie las
-recolocaría. Que se vean distintas de las nuevas es informativo, no un fallo. Lo que sí sigue abierto es
-`duplicateLane`, que no copia `surf` — duplicar F1 da una pista de vídeo suelta cuyos clips dejan de componer
-sobre el piso en silencio. Es anterior a esta ronda y está fuera de su alcance.
+recolocaría. Que se vean distintas de las nuevas es informativo, no un fallo.
+
+### Identidad de superficie de las pistas — el hallazgo preexistente, cerrado en R230c
+
+`duplicateLane` no copiaba `surf`: duplicar F1 daba una pista de vídeo suelta con tag `V n`, y sus clips —copiados
+con ella— dejaban de componer sobre el piso **en silencio**. Ahora la copia hereda la superficie, se numera dentro
+de su propio grupo (F3, W5…) y, si el original se llama como su tag —la convención de las pistas de piso—, la copia
+también, para no acabar con un «F3 · F1 copy».
+
+Por el mismo camino aparecía un segundo agujero: `trackCreateItems` pregunta muro o piso en una sala, pero **⌘T y
+la paleta de comandos** llaman a `addLane('video')` sin preguntar, y esa pista nacía sin superficie. Una pista así
+se coloca contra el lienzo ENTERO y ningún panel del visor la encuadra bien. La decisión vive ahora dentro de
+`addLane`: en una sala con pistas de superficie, una pista de vídeo sin `surf` cae al grupo de MUROS, que es el que
+siempre existe. Así queda cubierto cualquier camino futuro que tampoco pregunte.
+
+Verificado (`scratchpad/r230c-lanes.mjs`): duplicar F1 → F3 con `surf:'floor'`, su clip copiado devuelve el rect del
+piso y el panel del piso; duplicar W1 → W5 `surf:'wall'`; `addLane('video')` en sala → W6 `surf:'wall'`. Y lo que NO
+cambia: el audio sigue sin superficie, y en un proyecto 2D plano la pista nueva es `V5` y la duplicada
+`V6 · Video 1 copy`, exactamente como antes.
 
 
 ## ROUND 230 — Visor 360: la sala se edita por superficies, y el 2D se parte en muros | piso
