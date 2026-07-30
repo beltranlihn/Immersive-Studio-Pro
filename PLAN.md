@@ -1,5 +1,71 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 230 — Visor 360: la sala se edita por superficies, y el 2D se parte en muros | piso
+
+Cierre de la tanda del 2026-07-30 (spec en `CORRECCIONES-360-VIEWER.md`). Etapa 1 venía escrita en R229 pero sin
+verificar; aquí se verifica, se hace la Etapa 2 entera y se cierra la 3. **Todo verificado por CDP en dev sobre un
+Mac** (`scratchpad/r230-surfaces.mjs` mide PÍXELES leyendo el FBO composite; `scratchpad/r230-split.mjs` maneja el
+visor con eventos de puntero reales), `__errs` vacío en todas las corridas. **No se compiló ni se desplegó**: el
+`npm run dist` y la copia del `app.asar` a las 3 instalaciones quedan pendientes en la máquina Windows.
+
+### 1 · Etapa 1 verificada por píxeles, no por captura
+
+Una captura de pantalla del visor no demuestra nada de esto: en una sala el proyecto abre en 3D, y el wireframe no
+dice si un clip del piso se comió una fila de muro. La sonda compone a un tamaño MÍNIMO (512², la GPU de dev se cae
+en renders grandes), hace `readPixels` sobre `compFBO` y cuenta píxeles encendidos por región del lienzo.
+
+- **Seam wrap de muros, intacto:** el mismo clip centrado da 1834 píxeles encendidos; empujado sobre la costura da
+  1834 otra vez, repartidos **917 + 917** entre los dos extremos de la tira. Se parte por la mitad exacta y no pierde
+  área — que es justo lo que tiene que pasar.
+- **El piso ya no invade los muros:** con el clip del piso a escala 300 (desborda por los cuatro lados),
+  `wallsAll`=0 y `wallsUnderFloorCols`=0. El scissor por superficie hace su trabajo.
+- **El fold-wrap de R222 ya no ocurre**, que es la condición para poder archivarlo (§3).
+
+### 2 · Etapa 2 — el visor 2D se parte en dos paneles: muros | piso
+
+En modo sala 2D, el `#stage` pasa a tener **dos paneles lado a lado**: los muros a la izquierda (la tira
+`[0,stripH]` del lienzo) y el piso a la derecha (el rect `[fx0,fx1]×[stripH,H]`). Los dos bliteán su región del
+**MISMO composite** — no hay segunda FBO ni segundo lienzo —, así que el visor 3D y el export siguen leyendo
+exactamente lo de siempre.
+
+Sólo había cuatro sitios que daban por hecho "un rect = el lienzo entero": `resize()`, los uniformes del blit,
+`flatMap()` y `pix2frame()` — y todos los manejadores de puntero metían píxeles crudos de `gridc` en `pix2frame`
+sin preguntar en qué panel estaban. La pieza nueva es `vpPanels()`, que devuelve la lista de paneles; **fuera de la
+sala con pistas de superficie devuelve UN panel que cubre el lienzo entero**, y ahí toda la matemática vuelve a ser
+byte por byte la de antes (domo, 2D plano y salas legacy sin `surf` no se enteran de que existe la partición).
+
+- **Divisor arrastrable**, con la PROPORCIÓN persistida en `localStorage` (no los píxeles: así aguanta un cambio de
+  tamaño de ventana). Es una preferencia de la herramienta, no del proyecto — no viaja en el `.isp`.
+- **Botón `Floor`** en la barra `.vptool`; ocultar el piso devuelve los muros al ancho completo. Sólo aparece en
+  salas que tienen piso (`updModeUI`).
+- **Pan/zoom POR panel** (`state.view.vp[surf]`): se puede encuadrar el piso sin descolocar los muros.
+- **Hit-testing por panel**: arrastre de clip, tiradores de escala, máscara y pan/zoom mapean a la superficie
+  correcta. Verificado: arrastrar 60 px en el panel del piso mueve el clip del piso 60 px **en el piso**, y los
+  imanes de costura (`roomSeamX`/`roomSeamY`) trabajan en el marco de la superficie, no del lienzo.
+- **Ida y vuelta pantalla↔marco con error 0** en los dos paneles (`pix2frame(P)` es el inverso exacto de
+  `flatMap(P).px`). De paso se arregló una deriva vieja del zoom con rueda en modo flat, que anclaba con `pix2f`
+  (el mapeo del DOMO) en vez del mapeo plano.
+
+### 3 · Etapa 3 — se archiva el fold-wrap de R222
+
+`computeRoomFold`/`roomFold` y sus cachés `_roomFold`/`_roomFoldSeq` se van a
+`_backup/deprecated/20260730-room-floor-wall-fold-wrap.js` con su derivación completa. **No es un cambio de opinión
+sobre la idea, es que se quedó sin trabajo:** desde la Etapa 1 el clip del piso está recortado a su rect, así que
+nunca llega a cruzar el borde que el plegado dibujaba. Medido, no supuesto (§1). El seam wrap HORIZONTAL de muros
+—que es otra cosa— sigue vivo y verificado.
+
+### 4 · El piso por defecto hereda el pixelaje de los muros
+
+Petición de Beltrán durante la sesión. Un piso de 500×400 cm en una sala cuyos muros van a 3,84 px/cm de ancho y
+4,8 px/cm de fondo tiene que salir **1920×1920**, no 1920×1080: si no, el piso queda aplastado y su proporción no
+casa con la de los muros que lo rodean. La cuenta ya existía dentro de `lchFloorCfg` (launcher), pero el demo y el
+diálogo de sala clavaban `1920×1080` a mano. Ahora hay **una** función, `roomFloorDefault(walls)`, y la usan las
+tres vías. En `roomSetupDialog` el piso **sigue a los muros mientras no se toque**: cambiar un muro lo reencaja
+solo; al primer valor escrito a mano queda fijo (la regla de R198 — las medidas salen de la sala, el pixelaje se
+puede elegir porque depende del proyector). Un preajuste guardado o una sala que ya trae piso propio también lo
+fijan. El demo de sala pasa de un lienzo 7680×2160 a **7680×3000**.
+
+
 ## ROUND 227 — Feedback, Etapa 5: el menú File adelgaza y el recorrido guiado se muda a unos DEMOS
 
 Última etapa de la tanda del 2026-07-29. Los dos ítems cerrados y verificados por CDP contra la app real (guiones

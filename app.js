@@ -569,7 +569,7 @@ const LR={pos:gl.getAttribLocation(PR,'a_pos'),uv:gl.getAttribLocation(PR,'a_uv'
 const roomVAO=gl.createVertexArray(), roomVB=gl.createBuffer();
 let _roomGeo=null, _roomGeoSeq=null;
 // [archivado 20260729 · R221] _roomFloorFBO/_roomFloorTex/_roomFloorSize — con ensureRoomFloorFBO/compositeFloorTex, ver _backup/deprecated/20260729-room-floor-fbo-composite.js
-let _roomFold=null, _roomFoldSeq=null; // [R222] floor↔wall fold-wrap geometry cache, keyed like _roomGeo — see computeRoomFold() near drawClipFlat
+// [archivado 20260730 · R230] _roomFold/_roomFoldSeq — con computeRoomFold/roomFold (fold-wrap piso↔muro de R222), ver _backup/deprecated/20260730-room-floor-wall-fold-wrap.js
 
 gl.enable(gl.BLEND); gl.blendFuncSeparate(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA,gl.ONE,gl.ONE_MINUS_SRC_ALPHA);
 
@@ -806,10 +806,15 @@ function flatPlace(c,m,t,aOv){ const A=(aOv!=null?aOv:(_compAspect||1)); const s
 /* [360-viewer] Rect de la SUPERFICIE de un clip en una sala, en píxeles del lienzo (x der, y abajo): la tira de
    muros [0,W]×[0,stripH] o el rect del piso [Front.x0,Front.x1]×[stripH,H]. Devuelve null salvo que estemos
    componiendo una sala Y la pista lleve `surf` (proyectos legacy sin surf → colocación clásica de lienzo entero). */
-function clipSurfaceRect(c){ if(!_roomWrap)return null; const lane=state.lanes[c.lane]; if(!lane||!lane.surf)return null;
+function clipSurfRect(c){ if(!c)return null; const lane=state.lanes[c.lane]; if(!lane||!lane.surf)return null;
   const as=activeSeq(), room=as&&as.room; if(!room)return null; const W=as.w||1, H=as.h||1, wallsH=Math.min(H,room.stripH||H);
   if(lane.surf==='floor'){ if(!room.floor)return null; const fw=(room.walls||[]).find(w=>w.role==='Front')||(room.walls||[])[0]; const fx0=fw?fw.x0:0, fx1=fw?fw.x1:W; return {x0:fx0,x1:fx1,y0:wallsH,y1:H,surf:'floor'}; }
   return {x0:0,x1:W,y0:0,y1:wallsH,surf:'wall'}; }
+/* Durante el COMPOSITE sólo cuenta si estamos componiendo una sala (`_roomWrap`); los overlays y el
+   hit-testing del visor usan `clipSurfRect` directamente, porque corren fuera del composite. [R230] */
+function clipSurfaceRect(c){ return _roomWrap?clipSurfRect(c):null; }
+/* Aspecto del marco de colocación de un clip: el de su superficie si la lleva, o null = lienzo entero. [R230] */
+function clipSurfA(c){ const SR=clipSurfRect(c); return SR?((SR.x1-SR.x0)/Math.max(1,(SR.y1-SR.y0))):null; }
 /* SR (px del lienzo) → rect de scissor del FBO composite (viewport CUADRADO, y hacia arriba), generalizando
    roomWallScissorRects: un clip ligado a superficie se recorta a su muro/piso y no invade la otra superficie. */
 function surfaceScissorRect(SR){ const as=activeSeq(); const vp=gl.getParameter(gl.VIEWPORT); const size=vp[2]||1; const W=as.w||1,H=as.h||1;
@@ -817,38 +822,6 @@ function surfaceScissorRect(SR){ const as=activeSeq(); const vp=gl.getParameter(
   const vX=X=>Math.round((X*0.5+0.5)*size), vY=Y=>Math.round((Y*0.5+0.5)*size);
   const x0=vX(nx(SR.x0)), x1=vX(nx(SR.x1)), yA=vY(ny(SR.y0)), yB=vY(ny(SR.y1));
   return {x:Math.min(x0,x1), y:Math.min(yA,yB), w:Math.max(1,Math.abs(x1-x0)), h:Math.max(1,Math.abs(yA-yB))}; }
-/* [R222] Floor↔wall fold-wrap — same "infinite" feel as the horizontal seam wrap below, but the floor meets its
-   Left/Right/Back walls at a 90° hinge instead of sitting side by side in the strip, so crossing those edges needs
-   a ROTATION (not just an x-shift). The Front edge (room.walls.Front's row) is already contiguous for free: floor
-   and Front sit in the SAME canvas, at the SAME columns (fx0..fx1) and adjacent rows (wallsH) — no wrap needed.
-   Derivation (pixel space, y-down — same coords as room.walls x0/x1/pxW and room.stripH):
-   buildRoomGeo bottom-anchors every wall's floor-contact row at py=wallsH, and its uv mapping runs a→b as
-   uL=x1@a, uR=x0@b (comment there: "the wall's a→b runs right→left"). Combined with roomPlan's corner loop
-   (Front:[FL,FR] Left:[FR,BR] Back:[BR,BL] Right:[BL,FL]) and the floor's own fuv (X flipped, Y direct, dock
-   rect = Front's column span fx0..fx1), each floor↔wall corner correspondence works out to:
-     LEFT   (floor px<fx0   → Left wall):  px'=Left.x1 -(Left.pxW/floorH)*(py-wallsH)   py'=wallsH-fx0+px
-     RIGHT  (floor px>fx1   → Right wall): px'=Right.x0+(Right.pxW/floorH)*(py-wallsH)  py'=wallsH+fx1-px
-     BOTTOM (floor py>wallsH+floorH → Back wall): px'=Back.x1-(Back.pxW/floorW)*(px-fx0) py'=2·wallsH+floorH-py
-   Each is stored as a RAW pixel affine map px'=a·px+b·py+c, py'=d·px+e·py+f (not pre-rotated into NDC) so the
-   scale mismatch between the floor's own resolution and each wall's own resolution — independently authored
-   media, rarely equal — falls out for free instead of assuming square pixels. All three have positive
-   determinant (pure rotation+anisotropic-scale, no mirroring) — verified by hand and confirmed by the CDP capture
-   at each seam (see R222 verification notes in PLAN.md). */
-function computeRoomFold(seq){ const room=seq&&seq.room; if(!room||!room.floor)return null;
-  const walls=room.walls||[]; const byRole={}; for(const w of walls)byRole[w.role]=w;
-  const fw=byRole.Front; if(!fw)return null;
-  const stripW=seq.w||1, wallsH=room.stripH||seq.h||1, floorH=Math.max(1,(seq.h||1)-wallsH);
-  const fx0=fw.x0||0, fx1=fw.x1||stripW, floorW=Math.max(1,fx1-fx0);
-  const edges={}; const L=byRole.Left, R=byRole.Right, B=byRole.Back;
-  if(L&&L.x1>L.x0){ const w=L.x1-L.x0; edges.left  ={a:0,          b:-w/floorH, c:L.x1+(w/floorH)*wallsH, d:1, e:0,  f:wallsH-fx0, role:'Left'}; }
-  if(R&&R.x1>R.x0){ const w=R.x1-R.x0; edges.right ={a:0,          b: w/floorH, c:R.x0-(w/floorH)*wallsH, d:-1,e:0,  f:wallsH+fx1, role:'Right'}; }
-  if(B&&B.x1>B.x0){ const w=B.x1-B.x0; edges.bottom={a:-w/floorW,  b:0,         c:B.x1+(w/floorW)*fx0,    d:0, e:-1, f:2*wallsH+floorH, role:'Back'}; }
-  if(!Object.keys(edges).length)return null;
-  return {stripW,wallsH,floorH,fx0,fx1,floorW,edges}; }
-/* Cached like _roomGeo (keyed on state.activeSeqId, not re-derived per clip) — applyRoomGeometry() and
-   lchEditorShot() reset _roomFoldSeq=null wherever they already reset _roomGeoSeq for the same reason (geometry
-   can change without the sequence id changing). */
-function roomFold(){ if(_roomFoldSeq!==state.activeSeqId){ const seq=activeSeq(); _roomFold=(seq&&seq.room)?computeRoomFold(seq):null; _roomFoldSeq=state.activeSeqId; } return _roomFold; }
 function drawClipFlat(c,m,t,xf,ntex,op){ const SR=clipSurfaceRect(c); let P;
   if(SR){ /* [360-viewer] clip ligado a superficie: colocar en el marco de la superficie y remapear a su sub-rect del lienzo (ver CORRECCIONES-360-VIEWER.md · fórmula mX/mY/bX/bY). Sin términos cruzados: X depende sólo de sx, Y sólo de sy. */
     const Asurf=(SR.x1-SR.x0)/Math.max(1,(SR.y1-SR.y0)); const p=flatPlace(c,m,t,Asurf);
@@ -1330,12 +1303,26 @@ function render(){ if(glLost)return;
   } else {
     gl.disable(gl.DEPTH_TEST); gl.viewport(0,0,W,H); gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT);
     gl.useProgram(PB); gl.bindVertexArray(quadVAO);
-    gl.uniform2f(LB.pan,state.view.pan[0],state.view.pan[1]); gl.uniform1f(LB.zoom,state.view.zoom);
-    if(_flat){ const A=_compAspect, s=Math.min(2/A,2), Fx=s*A/2, Fy=s/2, wa=glc.width/glc.height; let sx,sy; if(A>=wa){ sx=1; sy=wa/A; } else { sy=1; sx=A/wa; }
-      gl.uniform2f(LB.aspect,sx,sy); gl.uniform1f(LB.flat,1); gl.uniform2f(LB.uvsc,Fx,Fy); gl.uniform2f(LB.uvof,(1-Fx)/2,(1-Fy)/2); gl.uniform1f(LB.hfade,0); }
-    else { const mn=Math.min(glc.width,glc.height); gl.uniform2f(LB.aspect, mn/glc.width, mn/glc.height); gl.uniform1f(LB.flat,0); gl.uniform2f(LB.uvsc,1,1); gl.uniform2f(LB.uvof,0,0); gl.uniform1f(LB.hfade, state.view.hfade?HFADE:0); }
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,_srcTex); gl.uniform1i(LB.tex,0);
-    gl.drawArrays(gl.TRIANGLES,0,6); gl.bindVertexArray(null);
+    if(_flat){ /* [R230] un blit POR PANEL: cada uno muestrea su región del MISMO composite. Con el panel único
+        (domo/2D/salas legacy) el bucle da una sola vuelta con exactamente los uniformes de siempre. */
+      const A=_compAspect, s=Math.min(2/A,2), Fx=s*A/2, Fy=s/2, K=2*Fx/Math.max(1,(state.seqW||1));
+      const uOf=px=>((K*px-Fx)*0.5+0.5), vOf=py=>((Fy-K*py)*0.5+0.5); // px del lienzo → uv del composite (v hacia arriba)
+      const dpr=glc.width/Math.max(1,view.cw);
+      for(const P of vpPanels()){ const st=vpState(P.surf);
+        const vx=Math.round(P.x*dpr), vw=Math.max(1,Math.round(P.w*dpr));
+        const vy=Math.max(0,Math.round(glc.height-(P.y+P.h)*dpr)), vh=Math.max(1,Math.round(P.h*dpr));
+        gl.viewport(vx,vy,vw,vh); gl.enable(gl.SCISSOR_TEST); gl.scissor(vx,vy,vw,vh); // el recorte impide que el encuadre de un panel se derrame en el otro
+        const Ap=(P.rx1-P.rx0)/Math.max(1,(P.ry1-P.ry0)), wa=vw/vh; let sx,sy; if(Ap>=wa){ sx=1; sy=wa/Ap; } else { sy=1; sx=Ap/wa; }
+        gl.uniform2f(LB.pan,st.pan[0],st.pan[1]); gl.uniform1f(LB.zoom,st.zoom);
+        gl.uniform2f(LB.aspect,sx,sy); gl.uniform1f(LB.flat,1); gl.uniform1f(LB.hfade,0);
+        gl.uniform2f(LB.uvsc,uOf(P.rx1)-uOf(P.rx0),vOf(P.ry0)-vOf(P.ry1)); gl.uniform2f(LB.uvof,uOf(P.rx0),vOf(P.ry1));
+        gl.drawArrays(gl.TRIANGLES,0,6); }
+      gl.disable(gl.SCISSOR_TEST); gl.viewport(0,0,W,H); }
+    else { gl.uniform2f(LB.pan,state.view.pan[0],state.view.pan[1]); gl.uniform1f(LB.zoom,state.view.zoom);
+      const mn=Math.min(glc.width,glc.height); gl.uniform2f(LB.aspect, mn/glc.width, mn/glc.height); gl.uniform1f(LB.flat,0); gl.uniform2f(LB.uvsc,1,1); gl.uniform2f(LB.uvof,0,0); gl.uniform1f(LB.hfade, state.view.hfade?HFADE:0);
+      gl.drawArrays(gl.TRIANGLES,0,6); }
+    gl.bindVertexArray(null);
     // [R221] the floor is now part of the SAME composite as the walls — it paints with the quad above, no separate dock texture/draw (archived: drawRoomFloorDock2D, _backup/deprecated)
     drawGrid2D();
   }
@@ -1696,10 +1683,53 @@ function ndiPump(){ if(!DSP||!DSP.ndi)return; const list=ndiMediaList(); if(!lis
 function closeNdiMedia(m){ if(!m||m.kind!=='ndi')return; try{ if(DSP&&DSP.ndi){ const others=state.media.some(x=>x!==m&&x.kind==='ndi'&&x.ndiSource===m.ndiSource); if(!others)DSP.ndi.recvClose(m.ndiSource); } }catch(e){} }
 function closeAllNdi(){ try{ if(DSP&&DSP.ndi)DSP.ndi.recvCloseAll(); }catch(e){} if(_ndiPumpTimer){ clearInterval(_ndiPumpTimer); _ndiPumpTimer=0; } if(_ndiRenderRaf){ cancelAnimationFrame(_ndiRenderRaf); _ndiRenderRaf=0; } }
 /* FLAT viewport: frame-coord (−1..1) → viewport pixel using the same aspect-fit + pan/zoom as the flat blit */
-function flatMap(){ const A=(state.seqW||16)/(state.seqH||9), wa=view.cw/view.ch; let sx,sy; if(A>=wa){sx=1;sy=wa/A;}else{sy=1;sx=A/wa;}
-  const z=state.view.zoom, p=state.view.pan;
-  return { A,Fx:Math.min(1,A),Fy:Math.min(1,1/A), px:(fx,fy)=>{ const ndx=(fx-p[0])*z*sx, ndy=(fy-p[1])*z*sy; return [(ndx*0.5+0.5)*view.cw, (1-(ndy*0.5+0.5))*view.ch]; } }; }
-function drawFlatFrame(){ const M=flatMap(); const a=M.px(-1,1), b=M.px(1,-1); const x0=a[0],y0=a[1],w=b[0]-a[0],h=b[1]-a[1];
+/* ===================== [R230 · 360 Etapa 2] VISOR 2D PARTIDO (muros | piso) =====================
+   En una sala que ya usa el modelo de superficies (`lane.surf`, Etapa 1) el visor 2D se parte en DOS paneles
+   lado a lado: los MUROS a la izquierda (la tira `[0,stripH]` del lienzo) y el PISO a la derecha (el rect
+   `[fx0,fx1]×[stripH,H]`). Los dos bliteán su región del MISMO composite — no hay segundo lienzo ni segunda
+   FBO —, así que el visor 3D y el export siguen leyendo exactamente lo de siempre.
+   Fuera de ese caso —domo, 2D plano y salas legacy sin `surf`— hay UN solo panel que cubre el lienzo entero
+   con la matemática de siempre, byte por byte: `vpPanels()` devuelve ese panel único y todo lo demás (blit,
+   overlays, puntero) pasa por él sin enterarse de que existe la partición.
+   Cada panel lleva su PROPIO par pan/zoom, para poder encuadrar el piso sin descolocar los muros. */
+const VP_DIVW=6;                                                   // ancho del divisor, en px CSS
+const VP_DIV_HIT=5;                                                // margen de agarre a cada lado del divisor
+function roomSurfLanes(){ return state.lanes.some(l=>l&&l.surf); } // salas legacy (sin surf) → visor entero
+function vpSplitOn(){ const as=activeSeq(), room=as&&as.room; return !!(isRoom()&&room&&state.view.mode!=='3d'&&roomSurfLanes()); }
+function vpFloorOn(){ const as=activeSeq(), room=as&&as.room; return !!(room&&room.floor&&state.view.roomFloor!==false); }
+/* La partición del visor es una preferencia de la HERRAMIENTA, no del proyecto: se guarda en localStorage —como
+   la calidad de previsualización— y no viaja en el `.isp`. Se guarda la PROPORCIÓN del divisor, no los píxeles,
+   para que aguante cualquier tamaño de ventana. */
+const ROOM_VP_KEY='ispRoomVp';
+function saveRoomVpPrefs(){ try{ localStorage.setItem(ROOM_VP_KEY,JSON.stringify({div:state.view.roomDiv,floor:state.view.roomFloor!==false})); }catch(_){} }
+function restoreRoomVpPrefs(){ try{ const s=localStorage.getItem(ROOM_VP_KEY); if(!s)return; const p=JSON.parse(s)||{};
+  if(typeof p.div==='number'&&isFinite(p.div))state.view.roomDiv=Math.max(0.15,Math.min(0.88,p.div));
+  if(p.floor===false)state.view.roomFloor=false; }catch(_){} }
+function vpState(surf){ const v=state.view; if(!surf)return v; // el panel único usa el par global de siempre
+  if(!v.vp)v.vp={}; if(!v.vp[surf])v.vp[surf]={pan:[0,0],zoom:0.92}; return v.vp[surf]; }
+/* Un panel = {surf, región del LIENZO en px (rx0..rx1 × ry0..ry1, y hacia abajo), rect en PANTALLA (x,y,w,h en px CSS)}. */
+function vpPanels(){ const W=Math.max(1,view.cw), H=Math.max(1,view.ch), sw=state.seqW||1, sh=state.seqH||1;
+  if(!vpSplitOn())return [{surf:null,rx0:0,rx1:sw,ry0:0,ry1:sh,x:0,y:0,w:W,h:H}];
+  const as=activeSeq(), room=as.room, wallsH=Math.min(sh,room.stripH||sh);
+  if(!vpFloorOn())return [{surf:'wall',rx0:0,rx1:sw,ry0:0,ry1:wallsH,x:0,y:0,w:W,h:H}]; // piso oculto → muros a ancho completo
+  const fw=(room.walls||[]).find(w=>w.role==='Front')||(room.walls||[])[0];
+  const fx0=fw?fw.x0:0, fx1=fw?fw.x1:sw;
+  const d=Math.max(0.15,Math.min(0.88,state.view.roomDiv==null?0.66:state.view.roomDiv));
+  const wallW=Math.max(48,Math.min(W-48-VP_DIVW,Math.round(W*d-VP_DIVW/2)));
+  const flX=wallW+VP_DIVW, flW=Math.max(48,W-flX);
+  return [{surf:'wall', rx0:0,  rx1:sw, ry0:0,      ry1:wallsH, x:0,  y:0, w:wallW, h:H},
+          {surf:'floor',rx0:fx0,rx1:fx1,ry0:wallsH, ry1:sh,     x:flX,y:0, w:flW,   h:H}]; }
+function vpPanelFor(surf){ const ps=vpPanels(); return (surf&&ps.find(p=>p.surf===surf))||ps[0]; }
+function vpPanelAt(px,py){ const ps=vpPanels(); for(const P of ps){ if(px>=P.x&&px<P.x+P.w&&py>=P.y&&py<P.y+P.h)return P; } return null; }
+function clipPanel(c){ const SR=clipSurfRect(c); return SR?vpPanelFor(SR.surf):vpPanels()[0]; }
+function vpDivX(){ const ps=vpPanels(); return ps.length>1?(ps[0].x+ps[0].w+VP_DIVW/2):null; } // centro del divisor, o null si no hay
+/* `P` = panel (por omisión, el único / el de los muros). Con el panel único esto es idéntico al mapeo histórico. */
+function flatMap(P){ P=P||vpPanels()[0];
+  const A=(P.rx1-P.rx0)/Math.max(1,(P.ry1-P.ry0)), wa=P.w/P.h; let sx,sy; if(A>=wa){sx=1;sy=wa/A;}else{sy=1;sx=A/wa;}
+  const st=vpState(P.surf), z=st.zoom, p=st.pan;
+  return { A,Fx:Math.min(1,A),Fy:Math.min(1,1/A), P,
+    px:(fx,fy)=>{ const ndx=(fx-p[0])*z*sx, ndy=(fy-p[1])*z*sy; return [P.x+(ndx*0.5+0.5)*P.w, P.y+(1-(ndy*0.5+0.5))*P.h]; } }; }
+function drawFlatFrame(P){ const M=flatMap(P); const a=M.px(-1,1), b=M.px(1,-1); const x0=a[0],y0=a[1],w=b[0]-a[0],h=b[1]-a[1];
   gx.lineWidth=1; gx.strokeStyle='rgba(255,255,255,0.30)'; gx.strokeRect(x0,y0,w,h);
   if(state.view.showGrid && !isRoom()){ gx.strokeStyle='rgba(255,255,255,0.09)'; for(let i=1;i<3;i++){ const xx=x0+w*i/3; gx.beginPath();gx.moveTo(xx,y0);gx.lineTo(xx,y0+h);gx.stroke(); const yy=y0+h*i/3; gx.beginPath();gx.moveTo(x0,yy);gx.lineTo(x0+w,yy);gx.stroke(); } } // room uses the per-wall grid (drawRoomGrid2D) instead of the generic thirds
   /* [R168·Etapa 7] Guías de CENTRO — el hueco que en el domo ocupa el desvanecido de horizonte. Una cruz por el
@@ -1712,9 +1742,14 @@ function drawFlatFrame(){ const M=flatMap(); const a=M.px(-1,1), b=M.px(1,-1); c
     gx.setLineDash([]); gx.strokeStyle='rgba(232,236,242,0.7)'; gx.beginPath(); gx.arc(cx,cy,3,0,Math.PI*2); gx.stroke();
     gx.restore(); } }
 /* R91b: 360-room wall grid over the flat strip — vertical dividers at wall seams, a subtle role label bottom-left of each wall, and a dimmed dead-zone under walls shorter than the strip. Drawn by EXACT PIXELS (wall.x0/x1/pxH), never by physical cm. Only the walls strip carries a .room; the floor is a plain flat sequence with no grid. */
-function drawRoomGrid2D(){ const as=activeSeq(); const room=as&&as.room; if(!room||!room.walls||!room.walls.length)return;
-  const M=flatMap(); const stripW=as.w||state.seqW||1, canvasH=as.h||state.seqH||1, wallsH=room.stripH||canvasH; // [R221] canvasH = whole lienzo (walls+floor); wallsH = walls-only slice at the top
-  const fx=px=>px/stripW*2-1, fy=py=>1-py/canvasH*2; // fx: 0..stripW → -1..1 ; fy: py-from-top 0..canvasH → 1..-1
+function drawRoomGrid2D(P){ const as=activeSeq(); const room=as&&as.room; if(!room||!room.walls||!room.walls.length)return;
+  P=P||vpPanels()[0];
+  const M=flatMap(P); const stripW=as.w||state.seqW||1, canvasH=as.h||state.seqH||1, wallsH=room.stripH||canvasH; // [R221] canvasH = whole lienzo (walls+floor); wallsH = walls-only slice at the top
+  /* [R230] px del LIENZO → marco del PANEL. Con el panel único (rx0..rx1 = 0..stripW, ry0..ry1 = 0..canvasH)
+     esto se reduce exactamente al mapeo de antes; con el visor partido, cada panel encuadra su superficie. */
+  const fx=px=>((px-P.rx0)/Math.max(1,(P.rx1-P.rx0)))*2-1, fy=py=>1-((py-P.ry0)/Math.max(1,(P.ry1-P.ry0)))*2;
+  const showWalls=(P.surf!=='floor'), showFloor=(P.surf!=='wall'); // el panel de muros no pinta el piso, y al revés
+  if(showWalls){
   // dead zone below any wall shorter than the walls slice (those pixels belong to no wall — still above the floor)
   for(const w of room.walls){ if(w.pxH>=wallsH)continue; const a=M.px(fx(w.x0),fy(w.pxH)), b=M.px(fx(w.x1),fy(wallsH));
     gx.fillStyle='rgba(8,9,11,0.42)'; gx.fillRect(a[0],a[1],b[0]-a[0],b[1]-a[1]);
@@ -1734,6 +1769,8 @@ function drawRoomGrid2D(){ const as=activeSeq(); const room=as&&as.room; if(!roo
   gx.font='600 11px Geist'; gx.textAlign='left'; gx.textBaseline='alphabetic';
   for(const w of room.walls){ const p=M.px(fx(w.x0),fy(w.pxH)); const lbl=roomRoleLabel(w.role).toUpperCase(); const tw=gx.measureText(lbl).width;
     const lx=p[0]+7, ly=p[1]-7; gx.fillStyle='rgba(6,7,9,0.55)'; gx.fillRect(lx-3,ly-10,tw+6,14); gx.fillStyle='rgba(196,201,208,0.82)'; gx.fillText(lbl,lx,ly); }
+  } // showWalls
+  if(showFloor){
   /* [R221] floor rect — now just an OVERLAY (outline + grid + label) over the bottom slice of the SAME canvas;
      the pixel content itself paints as part of the normal composite blit (no separate quad/texture anymore, see
      the archived drawRoomFloorDock2D in _backup/deprecated). Same rect the R211 dock used to draw (Front wall's
@@ -1748,10 +1785,25 @@ function drawRoomGrid2D(){ const as=activeSeq(); const room=as&&as.room; if(!roo
       gx.font='600 11px Geist'; gx.textAlign='left'; gx.textBaseline='alphabetic';
       const p=M.px(fx(fx0),fy(dY1)); const lbl=T('FLOOR','SUELO'); const tw=gx.measureText(lbl).width;
       const lx=p[0]+7, ly=p[1]-7; gx.fillStyle='rgba(6,7,9,0.55)'; gx.fillRect(lx-3,ly-10,tw+6,14); gx.fillStyle='rgba(196,201,208,0.82)'; gx.fillText(lbl,lx,ly); } }
+  } // showFloor
 }
+/* [R230] El divisor arrastrable entre los dos paneles + una etiqueta de superficie por panel. */
+function drawVpDivider(){ const ps=vpPanels(); if(ps.length<2)return; const x=ps[0].x+ps[0].w;
+  gx.fillStyle='rgba(8,9,11,0.92)'; gx.fillRect(x,0,VP_DIVW,view.ch);
+  gx.fillStyle=(vdrag&&vdrag.mode==='vpdiv')?'rgba(232,236,242,0.55)':'rgba(255,255,255,0.20)';
+  const gh=Math.min(46,view.ch*0.16), gy=(view.ch-gh)/2; gx.fillRect(x+VP_DIVW/2-0.5,gy,1,gh); }
 function drawGrid2D(){
   gx.clearRect(0,0,view.cw,view.ch);
-  if(isFlat()){ drawFlatFrame(); if(isRoom())drawRoomGrid2D(); if(state.view.showOutline)drawOutline2D(); drawFlatHandles(); if(!lchShowing()&&mediaWarming())drawPreparingPill(); drawMaskEditOverlay(); return; } // [R220] 2D viewers get the same indicator as the 3D ones; skip while the landing/launcher overlay sits on top (harmless either way — the launcher's own offscreen shots clear state.clips so mediaWarming() is false there regardless) // [R226·I3] la máscara va encima de todo: es la capa con la que se está interactuando
+  if(isFlat()){ const ps=vpPanels();
+    /* [R230] cada panel pinta su marco y su rejilla RECORTADO a su rect, para que el encuadre de uno no se
+       derrame sobre el otro; con el panel único el recorte es el lienzo entero y no cambia nada. */
+    for(const P of ps){ gx.save(); gx.beginPath(); gx.rect(P.x,P.y,P.w,P.h); gx.clip();
+      drawFlatFrame(P); if(isRoom())drawRoomGrid2D(P); gx.restore(); }
+    { const sc=selClip(); const CP=sc?clipPanel(sc):ps[0]; // el contorno y los tiradores viven en el panel del clip
+      gx.save(); gx.beginPath(); gx.rect(CP.x,CP.y,CP.w,CP.h); gx.clip();
+      if(state.view.showOutline)drawOutline2D(); drawFlatHandles(); gx.restore(); }
+    drawVpDivider();
+    if(!lchShowing()&&mediaWarming())drawPreparingPill(); drawMaskEditOverlay(); return; } // [R220] 2D viewers get the same indicator as the 3D ones; skip while the landing/launcher overlay sits on top (harmless either way — the launcher's own offscreen shots clear state.clips so mediaWarming() is false there regardless) // [R226·I3] la máscara va encima de todo: es la capa con la que se está interactuando
   const c0=f2pix(0,0), e=f2pix(1,0); const R=Math.hypot(e[0]-c0[0],e[1]-c0[1]);
   gx.lineWidth=1; gx.strokeStyle='rgba(255,255,255,0.14)'; gx.beginPath(); gx.arc(c0[0],c0[1],R,0,7); gx.stroke();
   if(state.view.showGrid){
@@ -1770,7 +1822,7 @@ function drawGrid2D(){
 }
 function drawOutline2D(){
   const c=selClip(); if(!c)return; const m=mediaById(c.mediaId); if(!m||m.kind==='audio')return; // audio clips have no dome/flat presence — never outline them
-  if(isFlat()){ const M=flatMap(), Fx=M.Fx, Fy=M.Fy; const P=flatPlace(c,m,state.playhead);
+  if(isFlat()){ const M=flatMap(clipPanel(c)), Fx=M.Fx, Fy=M.Fy; const P=flatPlace(c,m,state.playhead,clipSurfA(c)); // [R230] el clip se encuadra en SU superficie
     const corn=(sx,sy)=>{ const nx=P.fc[0]+sx*P.fx[0]+sy*P.fy[0], ny=P.fc[1]+sx*P.fx[1]+sy*P.fy[1]; return M.px(nx/Fx, ny/Fy); };
     const pts=[corn(-1,-1),corn(1,-1),corn(1,1),corn(-1,1)];
     gx.strokeStyle=UI.ink2; gx.lineWidth=1.4; gx.setLineDash([5,3]); gx.beginPath(); gx.moveTo(pts[0][0],pts[0][1]); for(let i=1;i<4;i++)gx.lineTo(pts[i][0],pts[i][1]); gx.closePath(); gx.stroke(); gx.setLineDash([]); return; }
@@ -1788,10 +1840,12 @@ function drawOutline2D(){
 function drawFlatHandles(){ if(_vPaint)return; /* [R226·V1] la ventana solo-visor repinta por este mismo camino: sus tiradores no se dibujan ni pisan _flatHandles (que se prueba en coordenadas del editor) */
   _flatHandles=null; const c=selClip(); if(!c||c.adjust)return; const m=mediaById(c.mediaId); if(!m||m.kind==='audio')return; const t=state.playhead; if(t<c.start||t>=c.start+c.dur)return;
   if(maskEditClip())return; // [R226·I3] en modo de máscara los tiradores estorban: el gesto del lienzo es de puntos, no de escala
-  const M=flatMap(),Fx=M.Fx,Fy=M.Fy; const P=flatPlace(c,m,t);
+  const CP=clipPanel(c); const M=flatMap(CP),Fx=M.Fx,Fy=M.Fy; const P=flatPlace(c,m,t,clipSurfA(c)); // [R230] tiradores en el panel del clip
   const corn=(sx,sy)=>M.px((P.fc[0]+sx*P.fx[0]+sy*P.fy[0])/Fx,(P.fc[1]+sx*P.fx[1]+sy*P.fy[1])/Fy);
   _flatHandles=[]; const hs=3.2;
-  for(const [a,b] of [[-1,-1],[1,-1],[1,1],[-1,1],[0,-1],[1,0],[0,1],[-1,0]]){ const p=corn(a,b); _flatHandles.push({sx:a,sy:b,px:p[0],py:p[1]});
+  for(const [a,b] of [[-1,-1],[1,-1],[1,1],[-1,1],[0,-1],[1,0],[0,1],[-1,0]]){ const p=corn(a,b);
+    if(p[0]<CP.x||p[0]>CP.x+CP.w||p[1]<CP.y||p[1]>CP.y+CP.h)continue; // [R230] un tirador fuera de su panel no se pinta NI se puede agarrar (si no, caería sobre la otra superficie)
+    _flatHandles.push({sx:a,sy:b,px:p[0],py:p[1]});
     gx.fillStyle=UI.s0; gx.strokeStyle=UI.ink2; gx.lineWidth=1; gx.beginPath(); gx.rect(p[0]-hs,p[1]-hs,hs*2,hs*2); gx.fill(); gx.stroke(); } }
 
 /* ===================== [R226 · I3] PEN MASK SOBRE EL LIENZO DEL VISOR =====================
@@ -1829,7 +1883,7 @@ function penDomeBasis(c,m,t){ let az=evalP(c,'az',t), el=evalP(c,'el',t); const 
   const V=[-fr.u[0]*sr+fr.v[0]*cr, -fr.u[1]*sr+fr.v[1]*cr, -fr.u[2]*sr+fr.v[2]*cr];
   return {d:fr.d,U,V,ax:Math.max(1e-4,ax),ay:Math.max(1e-4,ay),mir:c.props.mirror?-1:1}; }
 function penPix(c,m,t,s,tt,B){ // a_flat → píxel del visor (null si el punto no es visible por este camino)
-  if(isFlat()){ const M=flatMap(), P=flatPlace(c,m,t), mir=c.props.mirror?-1:1;
+  if(isFlat()){ const M=flatMap(clipPanel(c)), P=flatPlace(c,m,t,clipSurfA(c)), mir=c.props.mirror?-1:1; // [R230] la máscara vive en el panel de SU superficie
     return M.px((P.fc[0]+s*mir*P.fx[0]+tt*P.fy[0])/M.Fx, (P.fc[1]+s*mir*P.fx[1]+tt*P.fy[1])/M.Fy); }
   B=B||penDomeBasis(c,m,t);
   const rx=Math.tan(B.ax*s)*B.mir, ry=Math.tan(B.ay*tt);
@@ -1838,8 +1892,8 @@ function penPix(c,m,t,s,tt,B){ // a_flat → píxel del visor (null si el punto 
   const f=azel2f(Math.atan2(ray[1],ray[0])*R2D, (HALF_PI-Math.acos(Math.max(-1,Math.min(1,ray[2]))))*R2D);
   return f2pix(f[0],f[1]); }
 function penFromPix(c,m,t,px,py,B){ // píxel del visor → a_flat (null si no hay solución del lado visible)
-  if(isFlat()){ const M=flatMap(), P=flatPlace(c,m,t), mir=c.props.mirror?-1:1;
-    const fp=pix2frame(px,py); const qx=fp[0]*M.Fx-P.fc[0], qy=fp[1]*M.Fy-P.fc[1];
+  if(isFlat()){ const CP=clipPanel(c); const M=flatMap(CP), P=flatPlace(c,m,t,clipSurfA(c)), mir=c.props.mirror?-1:1; // [R230]
+    const fp=pix2frame(px,py,CP); const qx=fp[0]*M.Fx-P.fc[0], qy=fp[1]*M.Fy-P.fc[1];
     const A=mir*P.fx[0], Bc=P.fy[0], C=mir*P.fx[1], D=P.fy[1]; const det=A*D-Bc*C;
     if(Math.abs(det)<1e-12)return null;
     return [(qx*D-Bc*qy)/det, (A*qy-qx*C)/det]; }
@@ -3231,13 +3285,22 @@ function lchCfgWalls(){ return lchActiveWalls().map((w,i)=>({role:w.role,order:i
    Aquí sale de los muros — ancho = el Front/Back más ancho, fondo = el Left/Right más ancho — y los píxeles a
    la misma densidad (px por cm) que el muro del que viene cada eje, para que el piso no quede más fino ni más
    grueso que las paredes que lo rodean. */
-function lchFloorCfg(walls){
+/* [R230] Piso POR DEFECTO a partir de los muros — única fuente de verdad para las tres vías que crean un piso
+   (launcher, "Nueva sala 360…"/"Geometría de la sala…" y el demo). Las MEDIDAS salen de la huella (ancho = el muro
+   Front/Back más ancho, fondo = el Left/Right más ancho) y el PIXELAJE de la DENSIDAD de esos mismos muros
+   (px/cm), no de un 1920×1080 fijo: así el piso tiene el mismo pixelaje que los muros y, por tanto, la misma
+   proporción — un piso de 500×400 cm en una sala a 3,84 y 4,8 px/cm sale 1920×1920, no 1920×1080 aplastado. */
+function roomFloorDefault(walls){
   if(!walls||!walls.length) return {wcm:500,dcm:400,pxW:1920,pxH:1080};
   const mayor=roles=>{ const q=walls.filter(w=>roles.includes(w.role)); return q.length?q.reduce((a,b)=>a.wcm>=b.wcm?a:b):null; };
   const A=mayor(['Front','Back'])||walls[0], F=mayor(['Left','Right'])||walls[1]||walls[0];
   const wcm=Math.max(1,Math.round(A.wcm)), dcm=Math.max(1,Math.round(F.wcm));
   const dA=A.pxW/Math.max(1,A.wcm), dF=F.pxW/Math.max(1,F.wcm);
-  const cfg={ wcm, dcm, pxW:Math.max(16,Math.round(wcm*dA)), pxH:Math.max(16,Math.round(dcm*dF)) };
+  return { wcm, dcm, pxW:Math.max(16,Math.round(wcm*dA)), pxH:Math.max(16,Math.round(dcm*dF)) };
+}
+function lchFloorCfg(walls){
+  const cfg=roomFloorDefault(walls);
+  if(!walls||!walls.length) return cfg;
   /* [R198] Las MEDIDAS del piso salen siempre de la huella de la sala — un piso más ancho que sus muros no existe.
      El PIXELAJE sí se elige: es la resolución del archivo que se proyecta, y depende del proyector, no de la sala. */
   const man=_lch&&_lch.floorPx; if(man){ if(man.pxW)cfg.pxW=man.pxW; if(man.pxH)cfg.pxH=man.pxH; }
@@ -3490,7 +3553,7 @@ function lchEditorShot(cv,o){
   const S=state, V=state.view;
   const bak={ w:S.seqW,h:S.seqH,mode:S.seqMode,cov:S.seqCov, clips:S.clips, vmode:V.mode, zoom:V.zoom, pan:V.pan.slice(),
               cw:view.cw, ch:view.ch, vs:VSIZE, gw:glc.width, gh:glc.height, rw:gridc.width, rh:gridc.height,
-              media:S.media, aseq:S.activeSeqId, three:V.three, cam:{...V.cam}, geo:_roomGeo, geoSeq:_roomGeoSeq, fold:_roomFold, foldSeq:_roomFoldSeq, ra:_raOn };
+              media:S.media, aseq:S.activeSeqId, three:V.three, cam:{...V.cam}, geo:_roomGeo, geoSeq:_roomGeoSeq, ra:_raOn };
   try{
     const r=cv.getBoundingClientRect(); if(!r.width||!r.height)return false;
     const dpr=Math.min(2,window.devicePixelRatio||1);
@@ -3500,7 +3563,7 @@ function lchEditorShot(cv,o){
     _raOn=false; // el caché de render-ahead es del proyecto de detrás: ni se lee ni se ensucia con fotogramas del launcher
     if(o.room){ const seq=lchRoomSeqTemp(o.room); if(!seq)return false;
       S.media=[seq]; S.activeSeqId=seq.id; S.seqW=seq.w; S.seqH=seq.h; S.seqMode='room';
-      _roomGeo=null; _roomGeoSeq=null; _roomFold=null; _roomFoldSeq=null; // la malla (y el fold-wrap, R222) se cachean por id de secuencia y el id ('__lchRoom') no cambia al editar los muros
+      _roomGeo=null; _roomGeoSeq=null; // la malla se cachea por id de secuencia y el id ('__lchRoom') no cambia al editar los muros
       // [R221] el suelo ya es parte del mismo canvas — el letterbox por defecto (V.zoom/pan de arriba) lo centra solo, sin compensación de dock
     }
     // [R200] la cámara vale para los DOS visores 3D (domo y sala); `orbit` porque el modo `spec` ignora yaw/dist
@@ -3516,7 +3579,7 @@ function lchEditorShot(cv,o){
   finally{
     S.seqW=bak.w; S.seqH=bak.h; S.seqMode=bak.mode; S.seqCov=bak.cov; S.clips=bak.clips;
     V.mode=bak.vmode; V.zoom=bak.zoom; V.pan=bak.pan; V.three=bak.three; V.cam=bak.cam;
-    S.media=bak.media; S.activeSeqId=bak.aseq; _roomGeo=bak.geo; _roomGeoSeq=bak.geoSeq; _roomFold=bak.fold; _roomFoldSeq=bak.foldSeq; _raOn=bak.ra;
+    S.media=bak.media; S.activeSeqId=bak.aseq; _roomGeo=bak.geo; _roomGeoSeq=bak.geoSeq; _raOn=bak.ra;
     view.cw=bak.cw; view.ch=bak.ch; VSIZE=bak.vs;
     glc.width=bak.gw; glc.height=bak.gh; gridc.width=bak.rw; gridc.height=bak.rh;
     try{ gx.setTransform(Math.min(2,window.devicePixelRatio||1),0,0,Math.min(2,window.devicePixelRatio||1),0,0); }catch(_){}
@@ -3742,7 +3805,7 @@ async function startDemoProject(fmt){ try{closeMenu();}catch(e){}
   try{
     let ok;
     if(fmt==='room'){ const walls=NS_ROOM_ROLES_BY_N[4].map((r,i)=>({role:r,order:i+1,wcm:(r==='Left'||r==='Right')?400:500,hcm:300,pxW:1920,pxH:1080}));
-      ok=await newRoomProject({walls,floor:{pxW:1920,pxH:1080},fps:60},sk); }
+      ok=await newRoomProject({walls,floor:roomFloorDefault(walls),fps:60},sk); } // [R230] el piso del demo hereda el pixelaje de los muros (antes 1920×1080 fijo → salía aplastado)
     else if(fmt==='flat') ok=await newProject('flat',1920,1080,60,null,sk);
     else ok=await newProject('dome',4096,4096,60,180,sk);
     if(!ok){ showLanding(); return; } // `confirmDiscard` dijo que no: el proyecto de antes sigue intacto y volvemos a la pantalla de inicio — con su «Back to project», que ya no se borra al empezar [R228]
@@ -4617,8 +4680,18 @@ function setVpCursor(){ if(maskEditClip()){ gridc.style.cursor=_maskDrag?'grabbi
 function flatHandleHit(px,py){ if(!_flatHandles)return null; for(const h of _flatHandles){ if(Math.abs(px-h.px)<=6 && Math.abs(py-h.py)<=6)return h; } return null; }
 function _resizeCursor(sx,sy){ if(sx&&sy)return (sx*sy>0)?'nesw-resize':'nwse-resize'; return sx?'ew-resize':'ns-resize'; } // frame Y is up, screen Y is down → the diagonal cursor is flipped vs frame-space sign
 /* 360-room snap targets in flat-frame coords (−1..1): vertical seams = wall x0/x1 + strip edges; horizontal = wall pxH bottoms + strip edges */
-function roomSeamX(){ const as=activeSeq(),room=as&&as.room; const out=[-1,0,1]; if(room){ const sw=as.w||1; for(const w of room.walls)out.push(w.x0/sw*2-1, w.x1/sw*2-1, (w.x0+w.x1)/sw-1); } return out; } // strip edges + h-center + each wall's edges AND its horizontal centre
-function roomSeamY(){ const as=activeSeq(),room=as&&as.room; const out=[-1,0,1]; if(room){ const sh=as.h||1; for(const w of room.walls){ out.push(1-2*w.pxH/sh, 1-w.pxH/sh); } } if(room&&room.floor){ const sh=as.h||1, wallsH=room.stripH||sh; out.push(1-2*wallsH/sh); } return out; } // sh = FULL canvas (matches flatMap's fy convention, same as drawRoomGrid2D) — strip edges + v-center + each wall's bottom AND vertical centre (pxH/2 from top) + [R221] the walls/floor seam itself, now that it can sit inside the frame instead of at the bottom edge
+/* [R230] `SR` = rect de la superficie del clip (clipSurfRect). Sin SR = marco del lienzo entero, o sea el
+   comportamiento histórico exacto (salas legacy). Con SR, las costuras se expresan en el marco de ESA
+   superficie: en el piso no hay muros a los que pegarse, sólo sus bordes y su centro. */
+function roomSeamX(SR){ const as=activeSeq(),room=as&&as.room; const out=[-1,0,1];
+  if(room && (!SR||SR.surf!=='floor')){ const x0=SR?SR.x0:0, x1=SR?SR.x1:(as.w||1), sp=Math.max(1,x1-x0), f=px=>((px-x0)/sp)*2-1;
+    for(const w of room.walls)out.push(f(w.x0), f(w.x1), f((w.x0+w.x1)/2)); }
+  return out; } // strip edges + h-center + each wall's edges AND its horizontal centre
+function roomSeamY(SR){ const as=activeSeq(),room=as&&as.room; const out=[-1,0,1];
+  if(room && (!SR||SR.surf!=='floor')){ const y0=SR?SR.y0:0, y1=SR?SR.y1:(as.h||1), sp=Math.max(1,y1-y0), f=py=>1-((py-y0)/sp)*2;
+    for(const w of room.walls){ out.push(f(w.pxH), f(w.pxH/2)); }
+    if(!SR&&room.floor)out.push(f(room.stripH||(as.h||1))); } // la costura muros/piso sólo existe en el marco entero
+  return out; } // strip edges + v-center + each wall's bottom AND vertical centre (pxH/2 from top) + [R221] the walls/floor seam itself
 /* "Mask to wall": GL scissor rects (in the current square FBO) for the selected wall roles → the clip only paints inside those walls' strip regions. */
 function roomWallScissorRects(roles){ const as=activeSeq(),room=as&&as.room; if(!room)return []; const vp=gl.getParameter(gl.VIEWPORT); const size=vp[2]||1; const sw=as.w||1, Fy=Math.min(1,(as.h||1)/sw); const out=[];
   for(const w of room.walls){ if(!roles.includes(w.role))continue; const x0=Math.round(w.x0/sw*size), x1=Math.round(w.x1/sw*size);
@@ -4628,7 +4701,7 @@ function roomWallScissorRects(roles){ const as=activeSeq(),room=as&&as.room; if(
 function snapFrame(v,seams,bypass){ if(bypass)return v; const thr=0.018/Math.max(0.2,state.view.zoom); let best=v,bd=thr; for(const s of seams){ const d=Math.abs(s-v); if(d<bd){bd=d;best=s;} } return best; }
 function snapMoveAxis(center,half,seams,bypass){ if(bypass)return center; const thr=0.018/Math.max(0.2,state.view.zoom); let best=center,bd=thr; for(const s of seams)for(const edge of [center-half,center,center+half]){ const d=Math.abs(s-edge); if(d<bd){bd=d;best=center+(s-edge);} } return best; } // snap the clip's near edge OR center to a wall seam
 /* capture base geometry for a corner/edge resize; the OPPOSITE handle stays fixed in frame space */
-function beginFlatResize(c,h){ pushUndo(); const m=mediaById(c.mediaId),t=state.playhead; const M=flatMap(); const P=flatPlace(c,m,t);
+function beginFlatResize(c,h){ pushUndo(); const m=mediaById(c.mediaId),t=state.playhead; const M=flatMap(clipPanel(c)); const P=flatPlace(c,m,t,clipSurfA(c)); // [R230] escala en el marco de su superficie
   const fx0=Math.hypot(P.fx[0],P.fx[1]), fy0=Math.hypot(P.fy[0],P.fy[1]);
   const rot=(evalR(c,'rot',t)||0)*D2R, u=[Math.cos(rot),Math.sin(rot)], v=[-Math.sin(rot),Math.cos(rot)];
   const anchor=[P.fc[0]-h.sx*P.fx[0]-h.sy*P.fy[0], P.fc[1]-h.sx*P.fx[1]-h.sy*P.fy[1]]; // opposite handle
@@ -4658,16 +4731,18 @@ gridc.addEventListener('pointerdown',e=>{ const r=gridc.getBoundingClientRect();
   if(maskEditPointerDown(e,px,py)){ e.preventDefault(); try{gridc.setPointerCapture(e.pointerId);}catch(_){} return; } // [R226·I3]
   if(state.view.mode==='3d'){ vdrag={mode:'orbit',x:e.clientX,y:e.clientY,yaw:state.view.cam.yaw,pitch:state.view.cam.pitch}; }
   else { // 2D: middle/shift drag pans (Hand-like); left click selects+moves element, else pans
-    if(mid||e.shiftKey){ vdrag={mode:'pan',x:e.clientX,y:e.clientY,pan:[...state.view.pan]}; }
+    const dvx=vpDivX(); // [R230] el divisor del visor partido gana a cualquier otro gesto
+    if(dvx!=null && Math.abs(px-dvx)<=VP_DIV_HIT+VP_DIVW/2 && !mid){ vdrag={mode:'vpdiv'}; e.preventDefault(); }
+    else if(mid||e.shiftKey){ const st=vpState((vpPanelAt(px,py)||vpPanels()[0]).surf); vdrag={mode:'pan',x:e.clientX,y:e.clientY,pan:[...st.pan],st}; }
     else if(isFlat()){ // R88: 2D — ONLY the timeline-selected clip is draggable (so an overlapping clip on top can't hijack the drag; pick the one below via the timeline, then move it here)
       const sel=selClip();
       const hh=(sel && !sel.adjust)?flatHandleHit(px,py):null;
       if(hh){ vdrag=beginFlatResize(sel,hh); } // Photoshop-style corner/edge resize (opposite handle stays fixed)
       else if(sel && !sel.adjust && flatRectHit(sel,px,py)){ pushUndo(); vdrag={mode:'elemFlat',id:sel.id}; }
-      else vdrag={mode:'pan',x:e.clientX,y:e.clientY,pan:[...state.view.pan]}; } // [R94e] the viewport never re-picks: selection comes from the timeline, so a clip under other layers stays draggable
+      else { const st=vpState((vpPanelAt(px,py)||vpPanels()[0]).surf); vdrag={mode:'pan',x:e.clientX,y:e.clientY,pan:[...st.pan],st}; } } // [R94e] the viewport never re-picks: selection comes from the timeline, so a clip under other layers stays draggable
     else { // dome 2D: same rule — only the timeline-selected clip is draggable (no hit-test stealing by the top layer)
       const sel=selClip(); const selHit=(sel&&!sel.adjust)?domeClipHit(sel,px,py):false;
-      if(selHit){ pushUndo(); vdrag={mode:'elem',id:sel.id}; } else vdrag={mode:'pan',x:e.clientX,y:e.clientY,pan:[...state.view.pan]}; }
+      if(selHit){ pushUndo(); vdrag={mode:'elem',id:sel.id}; } else vdrag={mode:'pan',x:e.clientX,y:e.clientY,pan:[...state.view.pan],st:state.view}; }
   }
   setVpCursor(); try{gridc.setPointerCapture(e.pointerId);}catch(_){}
 });
@@ -4675,16 +4750,22 @@ gridc.addEventListener('pointermove',e=>{
   if(maskEditClip()){ const r0=gridc.getBoundingClientRect(); const mx=e.clientX-r0.left,my=e.clientY-r0.top; // [R226·I3]
     if(maskEditPointerMove(e,mx,my))return;
     gridc.style.cursor=(maskPointHit(mx,my)>=0)?'grab':'crosshair'; return; }
-  if(!vdrag){ if(isFlat()&&state.view.mode!=='3d'&&_flatHandles){ const r0=gridc.getBoundingClientRect(); const h=flatHandleHit(e.clientX-r0.left,e.clientY-r0.top); gridc.style.cursor=h?_resizeCursor(h.sx,h.sy):'default'; } return; } const r=gridc.getBoundingClientRect(); const px=e.clientX-r.left,py=e.clientY-r.top;
+  if(!vdrag){ if(isFlat()&&state.view.mode!=='3d'){ const r0=gridc.getBoundingClientRect(); const mx=e.clientX-r0.left,my=e.clientY-r0.top;
+      const dvx=vpDivX(); if(dvx!=null && Math.abs(mx-dvx)<=VP_DIV_HIT+VP_DIVW/2){ gridc.style.cursor='col-resize'; return; } // [R230]
+      const h=_flatHandles?flatHandleHit(mx,my):null; gridc.style.cursor=h?_resizeCursor(h.sx,h.sy):'default'; } return; } const r=gridc.getBoundingClientRect(); const px=e.clientX-r.left,py=e.clientY-r.top;
   if(vdrag.mode==='orbit'){ const inv=(isRoom()&&state.view.three==='spec')?-1:1; state.view.cam.yaw=vdrag.yaw-(e.clientX-vdrag.x)*0.0065*inv; state.view.cam.pitch=Math.max(-HALF_PI+0.02,Math.min(HALF_PI-0.02,vdrag.pitch+(e.clientY-vdrag.y)*0.0065*inv)); render(); } // 3D-room Viewer = first-person look → invert drag
-  else if(vdrag.mode==='pan'){ const S=Math.min(view.cw,view.ch); const d=[(e.clientX-vdrag.x)/(S/2),-(e.clientY-vdrag.y)/(S/2)]; state.view.pan=[vdrag.pan[0]-d[0]/state.view.zoom,vdrag.pan[1]-d[1]/state.view.zoom]; render(); }
+  else if(vdrag.mode==='vpdiv'){ /* [R230] arrastrar el divisor: se guarda la PROPORCIÓN, no los píxeles, para que aguante un cambio de tamaño de ventana */
+    state.view.roomDiv=Math.max(0.15,Math.min(0.88,px/Math.max(1,view.cw))); saveRoomVpPrefs(); resize(); }
+  else if(vdrag.mode==='pan'){ const st=vdrag.st||state.view; const S=Math.min(view.cw,view.ch); const d=[(e.clientX-vdrag.x)/(S/2),-(e.clientY-vdrag.y)/(S/2)]; st.pan=[vdrag.pan[0]-d[0]/st.zoom,vdrag.pan[1]-d[1]/st.zoom]; render(); }
   else if(vdrag.mode==='elem'){ const c=clipById(vdrag.id); if(!c)return; const f=pix2f(px,py); const ae=f2azel(f[0],f[1]);
     manualEdit(c,'az',ae.az); manualEdit(c,'el',ae.el); refreshInspector(); renderTimeline(); render(); updStatus(); }
-  else if(vdrag.mode==='elemFlat'){ const c=clipById(vdrag.id); if(!c)return; const m=mediaById(c.mediaId); const fp=pix2frame(px,py); let nx=fp[0],ny=fp[1];
-    if(isRoom()&&m){ const P=flatPlace(c,m,state.playhead),M=flatMap(); const hwx=(Math.abs(P.fx[0])+Math.abs(P.fy[0]))/M.Fx, hhy=(Math.abs(P.fx[1])+Math.abs(P.fy[1]))/M.Fy; nx=snapMoveAxis(fp[0],hwx,roomSeamX(),e.altKey); ny=snapMoveAxis(fp[1],hhy,roomSeamY(),e.altKey); }
+  else if(vdrag.mode==='elemFlat'){ const c=clipById(vdrag.id); if(!c)return; const m=mediaById(c.mediaId);
+    const CP=clipPanel(c), SR=clipSurfRect(c); const fp=pix2frame(px,py,CP); let nx=fp[0],ny=fp[1]; // [R230] siempre en el marco de SU superficie
+    if(isRoom()&&m){ const P=flatPlace(c,m,state.playhead,clipSurfA(c)),M=flatMap(CP); const hwx=(Math.abs(P.fx[0])+Math.abs(P.fy[0]))/M.Fx, hhy=(Math.abs(P.fx[1])+Math.abs(P.fy[1]))/M.Fy;
+      nx=snapMoveAxis(fp[0],hwx,roomSeamX(SR),e.altKey); ny=snapMoveAxis(fp[1],hhy,roomSeamY(SR),e.altKey); }
     manualEdit(c,'x',Math.max(-150,Math.min(150,Math.round(nx*1000)/10))); manualEdit(c,'y',Math.max(-150,Math.min(150,Math.round(ny*1000)/10))); refreshInspector(); renderTimeline(); render(); updStatus(); }
   else if(vdrag.mode==='resizeFlat'){ const c=clipById(vdrag.id); if(!c)return; const d=vdrag;
-    let fp=pix2frame(px,py); if(isRoom()){ fp=[snapFrame(fp[0],roomSeamX(),e.altKey), snapFrame(fp[1],roomSeamY(),e.altKey)]; }
+    const SRr=clipSurfRect(c); let fp=pix2frame(px,py,clipPanel(c)); if(isRoom()){ fp=[snapFrame(fp[0],roomSeamX(SRr),e.altKey), snapFrame(fp[1],roomSeamY(SRr),e.altKey)]; } // [R230]
     const q=[fp[0]*d.Fx,fp[1]*d.Fy], rel=[q[0]-d.anchor[0],q[1]-d.anchor[1]];
     const pu=rel[0]*d.u[0]+rel[1]*d.u[1], pv=rel[0]*d.v[0]+rel[1]*d.v[1];
     let nfx=d.fx0,nfy=d.fy0; if(d.sx!==0)nfx=Math.max(0.004,pu/(2*d.sx)); if(d.sy!==0)nfy=Math.max(0.004,pv/(2*d.sy));
@@ -4701,9 +4782,21 @@ gridc.addEventListener('pointerup',endVdrag); gridc.addEventListener('pointercan
 gridc.addEventListener('contextmenu',e=>{ if(state.view.mode==='3d')e.preventDefault(); });
 gridc.addEventListener('wheel',e=>{ e.preventDefault();
   if(state.view.mode==='3d'){ if(state.view.three==='spec'){state.view.cam.back=Math.max(-0.9,Math.min(2.4,state.view.cam.back+e.deltaY*0.0016));$('#dollyRange').value=state.view.cam.back;$('#dollyLbl').textContent=state.view.cam.back.toFixed(1);} else {state.view.cam.dist=Math.max(1.2,Math.min(12,state.view.cam.dist*Math.exp(e.deltaY*0.0012)));const dr=$('#distRange');if(dr){dr.value=state.view.cam.dist;const dl=$('#distLbl');if(dl)dl.textContent=state.view.cam.dist.toFixed(1);}} render(); return; }
-  const r=gridc.getBoundingClientRect();const px=e.clientX-r.left,py=e.clientY-r.top;const fu=pix2f(px,py); // fisheye point under cursor (pre-zoom)
-  state.view.zoom=Math.max(0.2,Math.min(12,state.view.zoom*Math.exp(-e.deltaY*0.0015)));const af=pix2f(px,py);state.view.pan=[state.view.pan[0]+fu[0]-af[0],state.view.pan[1]+fu[1]-af[1]];vzLbl();render(); },{passive:false});
-function pix2frame(px,py){ const A=(state.seqW||16)/(state.seqH||9), wa=view.cw/view.ch; let sx,sy; if(A>=wa){sx=1;sy=wa/A;}else{sy=1;sx=A/wa;} const z=state.view.zoom,p=state.view.pan; const ndx=(px/view.cw*2-1), ndy=(1-py/view.ch)*2-1; return [ndx/(z*sx)+p[0], ndy/(z*sy)+p[1]]; } // viewport px → flat frame coord (−1..1)
+  const r=gridc.getBoundingClientRect();const px=e.clientX-r.left,py=e.clientY-r.top;
+  /* [R230] el zoom actúa sobre el panel BAJO EL CURSOR y con SU mapeo. En plano se usa pix2frame (la inversa
+     real del blit); antes se anclaba con pix2f, que es el mapeo del DOMO, y por eso el zoom del visor 2D se
+     iba de sitio en lienzos no cuadrados. */
+  const Pp=vpPanelAt(px,py)||vpPanels()[0], st=vpState(Pp.surf), fl=isFlat();
+  const anchor=()=>fl?pix2frame(px,py,Pp):pix2f(px,py);
+  const fu=anchor();
+  st.zoom=Math.max(0.2,Math.min(12,st.zoom*Math.exp(-e.deltaY*0.0015)));
+  const af=anchor(); st.pan=[st.pan[0]+fu[0]-af[0],st.pan[1]+fu[1]-af[1]];vzLbl();render(); },{passive:false});
+/* viewport px → coordenada del marco plano (−1..1). [R230] `P` = panel; por omisión, el que esté bajo el cursor
+   (y si el cursor cae en el divisor, el primero). Es la INVERSA exacta de flatMap(P).px. */
+function pix2frame(px,py,P){ P=P||vpPanelAt(px,py)||vpPanels()[0];
+  const A=(P.rx1-P.rx0)/Math.max(1,(P.ry1-P.ry0)), wa=P.w/P.h; let sx,sy; if(A>=wa){sx=1;sy=wa/A;}else{sy=1;sx=A/wa;}
+  const st=vpState(P.surf), z=st.zoom, p=st.pan;
+  const ndx=((px-P.x)/P.w*2-1), ndy=(1-(py-P.y)/P.h)*2-1; return [ndx/(z*sx)+p[0], ndy/(z*sy)+p[1]]; }
 function pickClipFlat(px,py){ const fp=pix2frame(px,py), fx=fp[0],fy=fp[1]; const A=(state.seqW||16)/(state.seqH||9), Fx=Math.min(1,A),Fy=Math.min(1,1/A), t=state.playhead; let hit=null;
   for(const c of activeClips(t)){ const m=mediaById(c.mediaId); if(!m||m.kind==='audio')continue; const P=flatPlace(c,m,t);
     const cx=P.fc[0]/Fx, cy=P.fc[1]/Fy, hax=Math.abs(P.fx[0]/Fx)+Math.abs(P.fy[0]/Fx), hay=Math.abs(P.fx[1]/Fy)+Math.abs(P.fy[1]/Fy);
@@ -4711,7 +4804,9 @@ function pickClipFlat(px,py){ const fp=pix2frame(px,py), fx=fp[0],fy=fp[1]; cons
   return hit; }
 /* is the cursor over THIS clip's flat rect? (R88: 2D viewport drags only the selected clip, so an overlapping top clip can't steal it) */
 function flatRectHit(c,px,py){ if(!c)return false; const m=mediaById(c.mediaId); if(!m||m.kind==='audio')return false; const t=state.playhead; if(t<c.start||t>=c.start+c.dur)return false;
-  const fp=pix2frame(px,py), fx=fp[0],fy=fp[1]; const A=(state.seqW||16)/(state.seqH||9), Fx=Math.min(1,A),Fy=Math.min(1,1/A); const P=flatPlace(c,m,t);
+  /* [R230] se prueba en el panel del clip: si el cursor está sobre la OTRA superficie, no lo toca. */
+  const CP=clipPanel(c); if(px<CP.x||px>=CP.x+CP.w||py<CP.y||py>=CP.y+CP.h)return false;
+  const fp=pix2frame(px,py,CP), fx=fp[0],fy=fp[1]; const Asurf=clipSurfA(c); const A=(Asurf!=null?Asurf:(state.seqW||16)/(state.seqH||9)), Fx=Math.min(1,A),Fy=Math.min(1,1/A); const P=flatPlace(c,m,t,Asurf);
   const cx=P.fc[0]/Fx, cy=P.fc[1]/Fy, hax=Math.abs(P.fx[0]/Fx)+Math.abs(P.fy[0]/Fx), hay=Math.abs(P.fx[1]/Fy)+Math.abs(P.fy[1]/Fy);
   return (Math.abs(fx-cx)<=hax && Math.abs(fy-cy)<=hay); }
 /* [R94e] is the cursor over THIS clip in the dome? (same rule as flatRectHit: the 2D viewport only drags the timeline-selected clip) */
@@ -7998,6 +8093,10 @@ function updModeUI(){ const fl=isFlat(), room=isRoom(); // a 360 room has a real
                  :fl?T('Center guides','Guías de centro')
                     :T('Fade content near the dome horizon (spring line)','Desvanecer cerca del horizonte del domo (línea de arranque)');
     bh.classList.toggle('on', !!(room?state.view.showSeam:fl?state.view.showCenter:state.view.hfade)); }
+  /* [R230] El interruptor del panel de piso sólo existe donde hay un piso que enseñar: sala 360 con piso. */
+  { const bf=document.querySelector('#dispSeg button[data-d="floor"]');
+    if(bf){ const as=activeSeq(), hasFloor=!!(room&&as&&as.room&&as.room.floor);
+      bf.style.display=hasFloor?'':'none'; bf.classList.toggle('on',state.view.roomFloor!==false); } }
   if(fl && !room && state.view.mode==='3d'){ state.view.mode='2d'; document.querySelectorAll('#viewModeSeg button').forEach(x=>x.classList.toggle('on',x.dataset&&x.dataset.v==='2d')); } }
 function openSeq(id){ const m=mediaById(id); if(!isSeqMedia(m))return; if(!state.openSeqs)state.openSeqs=[]; if(!state.openSeqs.includes(id))state.openSeqs.push(id); switchSeq(id); }
 function switchSeq(id){ const m=mediaById(id); if(!isSeqMedia(m))return; if(id===state.activeSeqId){ if(!state.openSeqs.includes(id))state.openSeqs.push(id); renderSeqBar(); return; }
@@ -8324,10 +8423,14 @@ function roomSetupDialog(cb,partirDe){ const ov=document.createElement('div'); o
      500/400×300 a 1920×1080), así que entrar a retocar un muro sobrescribía en silencio todos los demás. Sólo lo
      usa "Geometría de la sala…"; "Nueva sala 360…" sigue partiendo de los valores por defecto, que es lo suyo. */
   let n=4, floor=true, walls=[defWall('Front',1),defWall('Right',2),defWall('Back',3),defWall('Left',4)];
+  let floorTouched=false, _rsFloorSeed=null; // [R230] floorTouched: true en cuanto el piso se fija a mano (o viene dado) y deja de seguir a los muros
   if(partirDe&&partirDe.walls&&partirDe.walls.length){
     walls=partirDe.walls.slice().sort((a,b)=>a.order-b.order)
       .map((w,i)=>({role:w.role,order:i+1,wcm:w.wcm,hcm:w.hcm,pxW:w.pxW,pxH:w.pxH}));
-    n=walls.length; floor=!!partirDe.floor; }
+    n=walls.length; floor=!!partirDe.floor;
+    /* [R230] El piso de la sala que se está editando manda: si ya trae medidas propias no se recalcula desde los
+       muros (podría ser un pixelaje elegido a mano por el proyector). Un piso legacy sin cm sí se reencaja. */
+    const pf=partirDe.floor; if(pf&&pf.wcm&&pf.dcm){ floorTouched=true; _rsFloorSeed={wcm:pf.wcm,dcm:pf.dcm,pxW:pf.pxW,pxH:pf.pxH}; } }
   const well=(v,kk,mn,mx,unit)=>`<label class="rs-well"><input type="number" class="tnum" data-k="${kk}" value="${v}" min="${mn||1}" max="${mx||99999}">${unit?`<span class="u">${unit}</span>`:''}</label>`;
   let activeRole=null;
   ov.innerHTML=`<div class="modal" style="width:560px;margin-top:56px;"><div class="mh"><span style="color:var(--ink-2);display:flex;">${ICO('ring',16)}</span><span class="t">${T('New 360 room','Nueva sala 360')}</span></div><div class="mb">
@@ -8360,11 +8463,17 @@ function roomSetupDialog(cb,partirDe){ const ov=document.createElement('div'); o
       // [F3] Wall roles are unique: picking a role already used elsewhere SWAPS the two walls (dims travel; the fixed Order positions stay), so you always have exactly Front/Right/Back/Left once
       row.querySelector('[data-k=role]').onchange=e=>{ const nr=e.target.value; const j=walls.findIndex((ww,k)=>k!==i&&ww.role===nr);
         if(j>=0){ const t=walls[i]; walls[i]=walls[j]; walls[j]=t; walls[i].order=i+1; walls[j].order=j+1; } else { walls[i].role=nr; }
-        drawWalls(); setActive(walls[i].role); };
+        drawWalls(); drawFloor(); setActive(walls[i].role); };
       row.querySelectorAll('input[data-k]').forEach(inp=>{ inp.addEventListener('focus',()=>setActive(walls[i].role));
-        const h=e=>{ walls[i][e.target.dataset.k]=+e.target.value||walls[i][e.target.dataset.k]; refreshIso(); }; inp.onchange=h; inp.oninput=h; });
+        const h=e=>{ walls[i][e.target.dataset.k]=+e.target.value||walls[i][e.target.dataset.k]; refreshIso(); };
+        inp.onchange=e=>{ h(e); drawFloor(); }; inp.oninput=h; }); // [R230] al confirmar el muro, el piso se reencaja (si no se tocó a mano)
       host.appendChild(row); }); refreshIso(); };
-  const drawFloor=()=>{ const host=$('#rsFloorRow'); if(!floor){ host.innerHTML=''; return; } host.dataset.wcm=host.dataset.wcm||500; host.dataset.dcm=host.dataset.dcm||400; host.dataset.pxW=host.dataset.pxW||1920; host.dataset.pxH=host.dataset.pxH||1080;
+  /* [R230] Mientras no se toque a mano ninguna casilla del piso, sus valores SIGUEN a los muros (medidas por la
+     huella, píxeles por la densidad px/cm de esos muros): cambiar un muro reencaja el piso solo, con el mismo
+     pixelaje y por tanto la misma proporción. Al primer cambio manual el piso queda fijo y ya no se recalcula. */
+  const drawFloor=()=>{ const host=$('#rsFloorRow'); if(!floor){ host.innerHTML=''; return; }
+    const d=(!floorTouched)?roomFloorDefault(walls):_rsFloorSeed;
+    if(d){ host.dataset.wcm=d.wcm; host.dataset.dcm=d.dcm; host.dataset.pxW=d.pxW||host.dataset.pxW; host.dataset.pxH=d.pxH||host.dataset.pxH; _rsFloorSeed=null; }
     host.innerHTML=`<div class="rs-sec">${T('Floor','Piso')}<span class="rs-note">${T('separate flat sequence · depth spans front-to-back','secuencia plana aparte · el fondo va de frente a fondo')}</span></div>
       <div class="rs-hdr"><span></span><span>${T('Surface','Superficie')}</span><span></span><span>${T('Width','Ancho')}</span><span>${T('Depth','Fondo')}</span><span>${T('Pixels','Píxeles')}</span></div>
       <div class="rs-wall" style="cursor:default;">
@@ -8375,17 +8484,17 @@ function roomSetupDialog(cb,partirDe){ const ov=document.createElement('div'); o
         ${well(+host.dataset.dcm,'fdcm',1,100000,'cm')}
         <div class="rs-px">${well(+host.dataset.pxW,'fpxW',16,16384)}<span class="x">×</span>${well(+host.dataset.pxH,'fpxH',16,16384)}</div>
       </div>`;
-    host.querySelectorAll('input[data-k]').forEach(inp=>inp.onchange=e=>{ host.dataset[{fwcm:'wcm',fdcm:'dcm',fpxW:'pxW',fpxH:'pxH'}[e.target.dataset.k]]=+e.target.value||0; }); };
+    host.querySelectorAll('input[data-k]').forEach(inp=>inp.onchange=e=>{ floorTouched=true; host.dataset[{fwcm:'wcm',fdcm:'dcm',fpxW:'pxW',fpxH:'pxH'}[e.target.dataset.k]]=+e.target.value||0; }); };
   const setN=k=>{ n=k; ov.querySelectorAll('#rsN button').forEach(b=>b.classList.toggle('on',+b.dataset.n===k));
     const roles=({2:['Left','Front'],3:['Left','Front','Right'],4:['Front','Right','Back','Left']})[k];
-    walls=roles.map((r,i)=>{ const ex=walls.find(w=>w.role===r); return ex?{...ex,order:i+1}:defWall(r,i+1); }); drawWalls(); };
+    walls=roles.map((r,i)=>{ const ex=walls.find(w=>w.role===r); return ex?{...ex,order:i+1}:defWall(r,i+1); }); drawWalls(); drawFloor(); };
   ov.querySelectorAll('#rsN button').forEach(b=>b.onclick=()=>setN(+b.dataset.n));
   $('#rsFloor').onchange=e=>{ floor=e.target.checked; drawFloor(); refreshIso(); };
   // room presets (localStorage, reusable across projects) — save/load the whole wall+floor+fps config by name
   const fillPresets=()=>{ const ps=getRoomPresets(); $('#rsPreset').innerHTML='<option value="">—</option>'+ps.map((p,i)=>`<option value="${i}">${(p.name||'Preset').replace(/</g,'')}</option>`).join(''); };
   fillPresets();
   $('#rsPreset').onchange=()=>{ const p=getRoomPresets()[+$('#rsPreset').value]; if(!p)return; floor=!!p.floor; walls=(p.walls||[]).map(w=>({...w})); n=walls.length; ov.querySelectorAll('#rsN button').forEach(b=>b.classList.toggle('on',+b.dataset.n===n)); $('#rsFloor').checked=floor;
-    const h=$('#rsFloorRow'); if(p.floorCfg){ h.dataset.wcm=p.floorCfg.wcm; h.dataset.dcm=p.floorCfg.dcm; h.dataset.pxW=p.floorCfg.pxW; h.dataset.pxH=p.floorCfg.pxH; } if(p.fps){ const fo=[...$('#rsFps').options].find(o=>+o.value===p.fps); if(fo)$('#rsFps').value=p.fps; } drawWalls(); drawFloor(); refreshIso(); };
+    const h=$('#rsFloorRow'); if(p.floorCfg){ floorTouched=true; h.dataset.wcm=p.floorCfg.wcm; h.dataset.dcm=p.floorCfg.dcm; h.dataset.pxW=p.floorCfg.pxW; h.dataset.pxH=p.floorCfg.pxH; } if(p.fps){ const fo=[...$('#rsFps').options].find(o=>+o.value===p.fps); if(fo)$('#rsFps').value=p.fps; } drawWalls(); drawFloor(); refreshIso(); };
   $('#rsSavePreset').onclick=()=>{ appPrompt(T('Preset name:','Nombre del preajuste:'),T('My room','Mi sala'),name=>{ if(!name)return; const h=$('#rsFloorRow'); const p={name:name.trim(),floor,walls:walls.map(w=>({...w})),fps:+$('#rsFps').value||60,floorCfg:{wcm:+h.dataset.wcm||500,dcm:+h.dataset.dcm||400,pxW:+h.dataset.pxW||1920,pxH:+h.dataset.pxH||1080}}; const ps=getRoomPresets(); ps.push(p); saveRoomPresets(ps); fillPresets(); $('#rsPreset').value=ps.length-1; flashStatus(T('Room preset saved','Preajuste de sala guardado')); }); };
   $('#rsDelPreset').onclick=()=>{ const i=+$('#rsPreset').value; if($('#rsPreset').value===''||isNaN(i))return; const ps=getRoomPresets(); ps.splice(i,1); saveRoomPresets(ps); fillPresets(); flashStatus(T('Preset deleted','Preajuste eliminado')); };
   drawWalls(); drawFloor(); refreshIso();
@@ -8536,7 +8645,7 @@ function applyRoomGeometry(cfg){
     const q=c.props.maskWalls.filter(r=>rolesVivos.has(r)); if(q.length)c.props.maskWalls=q; else delete c.props.maskWalls; }
   /* la malla 3D de la sala se cachea por ID DE SECUENCIA (`_roomGeoSeq`), y el id no cambia al editar la
      geometría → hay que invalidarla a mano o el visor 3D seguiría dibujando los muros viejos */
-  _roomGeo=null; _roomGeoSeq=null; _roomFold=null; _roomFoldSeq=null; _arCache=null; try{raInvalidate();}catch(e){} // [R222] the fold-wrap cache is keyed the same way _roomGeo is — same staleness risk, same fix
+  _roomGeo=null; _roomGeoSeq=null; _arCache=null; try{raInvalidate();}catch(e){}
   resize(); renderTimeline(); renderInspector(); renderMedia(); render(); markDirty(); updStatus();
   flashStatus(T('Room geometry updated','Geometría de la sala actualizada'));
 }
@@ -9225,7 +9334,9 @@ function openVpMore(){ const F=vpFits(); closeMenu();
     b.onclick=()=>{ srcBtn.click(); close(); }; row.appendChild(b); };
   if(!F.disp){ const r=sec(T('Overlays','Superposiciones'));
     [['grid',T('Grid','Cuadrícula')],['outline',T('Outline','Contornos')],['hfade',T('Horizon','Horizonte')],['checker',T('Alpha','Alfa')]]
-      .forEach(([d,lab])=>mirror(r,document.querySelector('#dispSeg button[data-d="'+d+'"]'),lab)); }
+      .forEach(([d,lab])=>mirror(r,document.querySelector('#dispSeg button[data-d="'+d+'"]'),lab));
+    /* [R230] El piso sólo se refleja si la barra lo tiene a la vista (sala 360 con piso); si no, no existe. */
+    { const bf=document.querySelector('#dispSeg button[data-d="floor"]'); if(bf&&bf.style.display!=='none')mirror(r,bf,T('Floor','Piso')); } }
   if(!F.qp){ const r=sec(T('Quality','Calidad'));
     [['1','Full'],['0.5','½'],['0.25','¼']].forEach(([q,lab])=>mirror(r,document.querySelector('#qualitySeg button[data-q="'+q+'"]'),lab));
     mirror(r,document.querySelector('#proxyToggle button'),T('Clip proxy','Proxy de clip')); // [R225·10] mismo rótulo que la barra (rayo + Clip), desplegado porque en el menú no hay icono que lo explique
@@ -9254,7 +9365,11 @@ $('#dispSeg').querySelectorAll('button').forEach(b=>b.onclick=()=>{ const d=b.da
     else if(isFlat()){ state.view.showCenter=!state.view.showCenter; flashStatus(state.view.showCenter?T('Center guides on','Guías de centro activadas'):T('Center guides off','Guías de centro desactivadas')); }
     else { state.view.hfade=!state.view.hfade; flashStatus(state.view.hfade?T('Horizon fade on','Desvanecido de horizonte activado'):T('Horizon fade off','Desvanecido de horizonte desactivado')); } }
   if(d==='checker'){ state.view.checkerBg=!state.view.checkerBg; const cb=$('#checkerBg'); if(cb)cb.classList.toggle('on',state.view.checkerBg); flashStatus(state.view.checkerBg?T('Alpha checkerboard on','Cuadrícula de alpha activada'):T('Alpha checkerboard off','Cuadrícula de alpha desactivada')); } // [F8]
-  b.classList.toggle('on', d==='grid'?state.view.showGrid:d==='outline'?state.view.showOutline:d==='checker'?state.view.checkerBg:state.view.hfade); render(); });
+  /* [R230] Ocultar el piso devuelve los muros al ancho completo del visor. resize() es obligatorio: los paneles
+     cambian de rect en pantalla y el blit reparte el viewport de GL a partir de ellos. */
+  if(d==='floor'){ state.view.roomFloor=(state.view.roomFloor===false); saveRoomVpPrefs(); resize();
+    flashStatus(state.view.roomFloor!==false?T('Floor panel on','Panel de piso activado'):T('Floor panel off','Panel de piso desactivado')); }
+  b.classList.toggle('on', d==='grid'?state.view.showGrid:d==='outline'?state.view.showOutline:d==='checker'?state.view.checkerBg:d==='floor'?(state.view.roomFloor!==false):state.view.hfade); render(); });
 /* [R105] La calidad de previsualización se persiste entre sesiones. NO era el bug de coherencia que creí
    (verificado: newProject y cambiar de modo la respetan, y el botón siempre dice la verdad) — el hueco real
    es que no sobrevivía al reinicio y volvía a Full. Se guarda en localStorage, como el último export. */
@@ -9265,6 +9380,7 @@ $('#qualitySeg').querySelectorAll('button').forEach(b=>b.onclick=()=>{ applyPrev
   try{ localStorage.setItem('dspPreviewQuality',String(state.previewQuality)); }catch(_){}
   flashStatus(b.dataset.q==='1'?T('Preview: full quality','Previsualización: calidad completa'):(T('Preview at ','Previsualización a ')+(b.textContent.trim())+T(' quality',' de calidad'))); });
 (function restorePreviewQuality(){ try{ const s=localStorage.getItem('dspPreviewQuality'); if(s&&parseFloat(s)!==1)applyPreviewQuality(s); }catch(_){} })();
+restoreRoomVpPrefs(); // [R230] divisor y visibilidad del piso del visor de sala, guardados entre sesiones
 { const pb=$('#proxyToggle button'); if(pb)pb.onclick=()=>{ state.view.useProxy=!state.view.useProxy; pb.classList.toggle('on',state.view.useProxy); disposeAllVinst(); scrubRender(); render(); flashStatus(state.view.useProxy?T('Viewport: proxies (fast)','Visor: proxies (rápido)'):T('Viewport: original clips','Visor: clips originales')); }; }
 /* [R180] Mismo interruptor, para los cachés de composición. disposeAllVinst() es obligatorio: las instancias
    enlazadas al archivo del caché tienen que soltarlo para volver a componer desde las fuentes, y al revés. */
@@ -10174,7 +10290,7 @@ function applyLang(){ const L=state.lang; document.documentElement.lang=L;
   // largo, que sí se traduce, va al tooltip y lo pone updModeUI según el modo.
   try{ updModeUI(); }catch(e){}
   tn('#threeModeSeg button[data-m="spec"]','Viewer','Espectador'); tn('#threeModeSeg button[data-m="orbit"]','Orbit','Órbita');
-  ttl('#dispSeg button[data-d="grid"]','Reference grid','Cuadrícula de referencia'); ttl('#dispSeg button[data-d="outline"]','Clip outlines','Contornos de clip'); ttl('#dispSeg button[data-d="hfade"]','Fade near the dome horizon','Atenuar cerca del horizonte'); ttl('#dispSeg button[data-d="checker"]','Alpha checkerboard','Tablero de fondo alfa'); // [REDISEÑO Rev1] overlays icon-only → tooltips
+  ttl('#dispSeg button[data-d="grid"]','Reference grid','Cuadrícula de referencia'); ttl('#dispSeg button[data-d="outline"]','Clip outlines','Contornos de clip'); ttl('#dispSeg button[data-d="hfade"]','Fade near the dome horizon','Atenuar cerca del horizonte'); ttl('#dispSeg button[data-d="checker"]','Alpha checkerboard','Tablero de fondo alfa'); ttl('#dispSeg button[data-d="floor"]','Show the floor panel','Mostrar el panel de piso'); // [REDISEÑO Rev1] overlays icon-only → tooltips
   ttl('#qualitySeg','Preview quality (does not affect export)','Calidad de previsualización (no afecta la exportación)');
   ttl('#proxyToggle','Viewport uses proxies (faster). Turn off to preview the original clips.','El visor usa proxies (más rápido). Desactiva para ver los clips originales.');
   ttl('#popoutBtn','Open a viewer-only window — drag it to a second screen','Abrir una ventana solo-visor — arrástrala a una segunda pantalla');

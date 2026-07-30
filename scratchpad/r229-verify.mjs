@@ -1,6 +1,7 @@
-import http from 'http'; import fs from 'fs';
+import http from 'http'; import fs from 'fs'; import os from 'os'; import path from 'path';
 const port=9222;
-const SHOTS='C:/Users/beltr/AppData/Local/Temp/claude/C--Users-beltr-Desktop-Alma-Digital-Studio-Projects-Immersive-Studio-Pro/383e5222-2abb-4ce0-93c5-2a6af91e4c47/scratchpad/r229/';
+// Path de capturas portable (Mac/Windows): $ISP_SHOTS o <tmp>/isp-r229/. Antes estaba fijo a una ruta de Windows.
+const SHOTS=(process.env.ISP_SHOTS||path.join(os.tmpdir(),'isp-r229'))+path.sep;
 function targets(){ return new Promise((res,rej)=>{ http.get({host:'127.0.0.1',port,path:'/json/list'},r=>{let b='';r.on('data',c=>b+=c);r.on('end',()=>{try{res(JSON.parse(b));}catch(e){rej(e);}});}).on('error',rej); }); }
 try{ fs.mkdirSync(SHOTS,{recursive:true}); }catch(_){}
 const list=await targets();

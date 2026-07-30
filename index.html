@@ -1120,6 +1120,8 @@
           <button data-d="outline" title="Clip outlines"><i class="ic" data-ico="outline"></i><span class="vlbl">Outline</span></button>
           <button data-d="hfade" title="Fade content near the dome horizon (spring line)"><i class="ic" data-ico="cull"></i><span class="vlbl">Horizon</span></button>
           <button data-d="checker" title="Checkerboard background (alpha)"><i class="ic" data-ico="alpha"></i><span class="vlbl">Alpha</span></button><!-- [R164] icono propio, no la rejilla de Grid -->
+          <!-- [R230] Sólo en salas 360 con piso: muestra u oculta el panel del piso del visor 2D partido (updModeUI lo enseña/esconde). -->
+          <button data-d="floor" class="on" style="display:none;" title="Show the floor panel"><i class="ic" data-ico="floor"></i><span class="vlbl">Floor</span></button>
         </div>
         <div class="vdiv" id="qpSep"></div>
         <div class="vseg" id="qualitySeg" title="Preview quality (does not affect export)">
@@ -1320,6 +1322,7 @@ function ICO(n,s){ s=s||13; const a=`width="${s}" height="${s}" viewBox="0 0 24 
     safe:`<rect x="5" y="5" width="14" height="14" rx="2" stroke-dasharray="3 3"/>`,
     outline:`<rect x="4" y="4" width="16" height="16" rx="2"/>`,
     cull:`<path d="M3.5 13a8.5 8.5 0 0 1 17 0"/><path d="M2 13h20"/>`,
+    floor:`<path d="M9 8h6l5 12H4z"/><path d="M6.6 14h10.8"/>`, /* [R230] plano de piso en perspectiva — el panel del piso del visor de sala */
     zoomOut:`<circle cx="11" cy="11" r="7"/><path d="M8 11h6M20 20l-3.5-3.5"/>`,
     zoomIn:`<circle cx="11" cy="11" r="7"/><path d="M11 8v6M8 11h6M20 20l-3.5-3.5"/>`,
     chevDown:`<path d="M6 9l6 6 6-6"/>`,

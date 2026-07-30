@@ -97,7 +97,8 @@ ligado a superficie:
 
 ## 📍 Estado / Handoff 2026-07-30 (para continuar en otra máquina — p. ej. Mac)
 > La memoria de Claude es LOCAL a la cuenta/máquina; esta nota vive en el repo a propósito, para que cualquier sesión
-> nueva (otra cuenta con acceso a este GitHub) retome sin perder contexto. Nada de esto está verificado por CDP aún.
+> nueva (otra cuenta con acceso a este GitHub) retome sin perder contexto.
+> **Actualizado en R230: todo lo de abajo está ya verificado por CDP. Ver «CERRADO EN R230».**
 
 **HECHO (código, `node --check` limpio) — sin commitear todavía cuando se escribió esto → se commitea junto con esta nota:**
 - Arreglos sueltos: iconos de los demos en el landing (2D=`view2d`, 360=`grid`), locator ~3px más arriba
@@ -116,14 +117,24 @@ ligado a superficie:
   - *Legacy*: salas `.isp` viejas SIN `surf` mantienen colocación clásica de lienzo entero (seguro); `migrateRoomFloor`
     a propósito NO etiqueta `surf:'floor'` (sus coords son del lienzo entero). Sólo salas NUEVAS usan el modelo nuevo.
 
-**NO HECHO / PRÓXIMO:**
-1. **Verificar Etapa 1 por CDP** (quedó a mitad). Harness listo: `scratchpad/r229-verify.mjs` (en Mac, cambiar la
-   constante `SHOTS` a un path local). Pasos: matar instancias → `npx electron . --remote-debugging-port=9222` →
-   `node scratchpad/r229-verify.mjs`. Comprobar: clip de muro cruza la costura y reaparece al otro lado; clip de piso
-   queda en el piso y NO invade muros; el demo de sala se ve bien; 3D y export siguen OK; `__errs` vacío.
-2. **Etapa 2** — visor 2D partido muros|piso lado a lado (divisor arrastrable, toggle de piso, hit-testing por panel).
-3. **Etapa 3** — archivar `computeRoomFold`/`roomFold` (+vars `_roomFold`/`_roomFoldSeq`) en `_backup/deprecated/`,
-   pulir overlays por panel, y **deploy**.
+**CERRADO EN R230 — las tres etapas verificadas por CDP en dev sobre el Mac (`__errs` vacío):**
+1. **Etapa 1 verificada por PÍXELES** (`scratchpad/r230-surfaces.mjs`: lee `compFBO` con `readPixels` a 512² y cuenta
+   encendidos por región; una captura de pantalla no servía porque una sala abre en 3D). Seam wrap de muros: el clip
+   centrado da 1834 px y sobre la costura 1834 otra vez, **917 + 917** — se parte por la mitad exacta sin perder área.
+   Piso a escala 300: `wallsAll`=0 y `wallsUnderFloorCols`=0 → no invade los muros y el fold-wrap ya no ocurre.
+2. **Etapa 2 hecha y verificada** (`scratchpad/r230-split.mjs`, con eventos de puntero reales): `vpPanels()` parte el
+   `#stage` en muros | piso, divisor arrastrable con la proporción en `localStorage['ispRoomVp']`, botón `Floor` en
+   `.vptool` (ocultar → muros a ancho completo), pan/zoom y hit-testing POR panel. Ida y vuelta pantalla↔marco con
+   **error 0** en los dos paneles. Un solo panel —y matemática byte por byte la de siempre— en domo, 2D plano, 3D y
+   salas legacy sin `surf`.
+3. **Etapa 3 hecha:** `computeRoomFold`/`roomFold` + `_roomFold`/`_roomFoldSeq` archivados en
+   `_backup/deprecated/20260730-room-floor-wall-fold-wrap.js`; overlays y grilla por panel (`drawRoomGrid2D(P)`).
+4. **Extra pedido en sesión:** el piso por defecto hereda el **pixelaje de los muros** (`roomFloorDefault(walls)`,
+   fuente única para launcher, diálogo de sala y demo). 500×400 cm a 3,84 / 4,8 px/cm → **1920×1920**, no 1920×1080
+   aplastado. En el diálogo el piso sigue a los muros mientras no se toque a mano. El demo pasa a lienzo 7680×3000.
+
+**ÚNICO PENDIENTE — en la máquina WINDOWS:** `npm run dist` y copiar `dist/win-unpacked/resources/app.asar` a las 3
+instalaciones (rutas en `CLAUDE.md`). En el Mac NO se compila ni se despliega, a propósito.
 
 **Recordatorio de plataforma (Mac):** build = `npm run dist:mac` (ver `docs/MACOS.md`); el deploy a las 3 rutas de
 Windows NO aplica; dev/CDP = `npm start` o `npx electron .`. `node --check app.js && node --check main.js` para lint.

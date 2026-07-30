@@ -4,16 +4,26 @@
 > en `COMPONENTS.md` + una entrada en `PLAN.md` en el mismo commit, como manda el ritual de `/commit`).
 > Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: 2026-07-29.
 
-## 🧭 Tanda de Beltrán — 2026-07-30 (post-testeo) · EN CURSO
+## 🧭 Tanda de Beltrán — 2026-07-30 (post-testeo) · CERRADA EN CÓDIGO ✅
 > Spec completa: **`CORRECCIONES-360-VIEWER.md`** (arquitectura, fórmulas, anclas, etapas). Decisiones: grupo fijo de
 > pistas de piso · visores 2D lado a lado (muros | piso) · quitar fold-wrap R222 · mantener seam wrap de muros.
+> **⚠️ 360 listo y verificado — pendiente build+deploy en Windows.** Las tres etapas están cerradas y verificadas por
+> CDP en dev sobre el Mac (`scratchpad/r230-surfaces.mjs` por píxeles + `scratchpad/r230-split.mjs` por interacción,
+> `__errs` vacío en las dos). En el Mac NO se compila ni se despliega: falta `npm run dist` en la máquina Windows y
+> copiar el `app.asar` a las 3 instalaciones (rutas en `CLAUDE.md`).
 - [x] **Iconos de los demos** en el menú del landing (2D → `view2d`, 360 → `grid`). _(hecho)_
 - [x] **Locator ~3px más arriba** para que la etiqueta no se corte abajo (regla, `drawRuler`). _(hecho)_
 - [x] **Demo = recorrido completo desde el landing** — ya cableado en fuente (`startDemoProject`→`tourTrasCrear(fmt,true)`,
       pasos por parte). Sólo faltaba deploy (el `.exe` estaba viejo). _(verificado en fuente)_
-- [ ] **360 · Etapa 1** — `lane.surf` (grupo fijo muros/piso) + colocación por superficie + quitar fold-wrap.
-- [ ] **360 · Etapa 2** — visor 2D partido muros|piso (lado a lado, divisor, toggle de piso, hit-testing por panel).
-- [ ] **360 · Etapa 3** — pulido de overlays + deploy.
+- [x] ~~**360 · Etapa 1** — `lane.surf` (grupo fijo muros/piso) + colocación por superficie + quitar fold-wrap.~~ _(R229,
+      verificado en R230 por píxeles: seam wrap de muros parte el clip 917+917 sin perder área; el clip de piso a
+      escala 300 deja `wallsUnderFloorCols`=0 y no se sale del rect)_
+- [x] ~~**360 · Etapa 2** — visor 2D partido muros|piso (lado a lado, divisor, toggle de piso, hit-testing por panel).~~
+      _(R230: `vpPanels()`, divisor arrastrable con proporción persistida, botón `Floor` en `#dispSeg`, pan/zoom y
+      arrastre de clip por panel; ida y vuelta pantalla↔marco con error 0)_
+- [x] ~~**360 · Etapa 3** — pulido de overlays + deploy.~~ _(R230 en código: fold-wrap R222 archivado en
+      `_backup/deprecated/`, overlays y grilla por panel. **El deploy queda pendiente en Windows**)_
+- [ ] **Windows: `npm run dist` + copiar `app.asar` a las 3 instalaciones.** Único ítem abierto de esta tanda.
 
 ## 🎯 Tanda de Beltrán — 2026-07-29 (post-prueba real) · EN CURSO · R223+
 > 30 ítems en 5 etapas. Decisiones tomadas con Beltrán: (1) al crear un compose, el audio linkeado de los clips
