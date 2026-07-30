@@ -24,7 +24,11 @@
 - [x] **Snap 360 · bordes horizontales y centros** — el umbral estaba en unidades de MARCO: ~4.6 px de captura en X
       pero **0.65 px en Y**. Pasa a píxeles de pantalla por eje (`SNAP_PX=7`, `snapThr(P,axis)`). Las costuras de
       borde superior/inferior, centro de muro y centro vertical del lienzo **ya existían**; eran inalcanzables.
-- [ ] **Windows: `npm run dist` + copiar `app.asar` a las 3 instalaciones** (cierre de esta tanda).
+- [x] ~~**Revisión del diff (R231b)**~~ — cinco hallazgos, todos reales: el botón DERECHO movía el clip en modo
+      máscara (regresión de esta misma tanda), el fantasma del hover se congelaba al panear, la barra del visor
+      externo no se repintaba al cambiar de secuencia, `roomVpAutoFloor` borraba la preferencia guardada de piso,
+      y el hover repintaba en cada evento. Verificados en `scratchpad/r231b-review.mjs`.
+- [x] ~~**Windows: `npm run dist` + copiar `app.asar` a las 3 instalaciones**~~ _(cierre de esta tanda)_
 
 ## 🧭 Tanda de Beltrán — 2026-07-30 (post-testeo) · CERRADA EN CÓDIGO ✅
 > Spec completa: **`CORRECCIONES-360-VIEWER.md`** (arquitectura, fórmulas, anclas, etapas). Decisiones: grupo fijo de

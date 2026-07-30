@@ -1494,7 +1494,12 @@ function viewerPaint(){ if(_vBusy||!viewerOpen()||exporting||glLost)return; cons
     const cssW=Math.max(80,w.innerWidth||960), cssH=Math.max(80,w.innerHeight||960);
     const W=Math.max(16,Math.round(cssW*dpr)), H=Math.max(16,Math.round(cssH*dpr));
     const eff=viewerMode();
-    const sig=eff+'|'+S.seqMode+'|'+(_vGrid?1:0)+'|'+(_vOverlay?1:0)+'|'+(_vFloor?1:0)+'|'+_vThree+'|'+S.lang; // [R231] + el botón Floor
+    /* [R231b] La firma lleva TAMBIÉN la secuencia activa y si tiene piso: el botón Floor depende de
+       `activeSeq().room.floor`, así que saltando entre dos salas —una con piso y otra sin él— el `seqMode` no
+       cambia y la barra no se repintaba nunca (botón ausente con el visor ya partido, o presente en una sala sin
+       piso). */
+    const _asb=activeSeq(), _pisoSig=(_asb&&_asb.room&&_asb.room.floor)?1:0;
+    const sig=eff+'|'+S.seqMode+'|'+S.activeSeqId+'|'+_pisoSig+'|'+(_vGrid?1:0)+'|'+(_vOverlay?1:0)+'|'+(_vFloor?1:0)+'|'+_vThree+'|'+S.lang; // [R231] + el botón Floor
     if(sig!==_vBarSig){ _vBarSig=sig; if(_viewerBar)try{_viewerBar();}catch(e){} }
     const _vg=vVpState(null); // [R231] encuadre PROPIO de la ventana (antes 0.94/[0,0] fijos: su rueda no tenía dónde escribir)
     V.mode=eff; V.three=_vThree; V.cam=_vCam; V.zoom=_vg.zoom; V.pan=_vg.pan; // sin el pan/zoom del EDITOR, pero con el suyo
@@ -1747,8 +1752,11 @@ function restoreRoomVpPrefs(){ try{ const s=localStorage.getItem(ROOM_VP_KEY); i
   if(p.floor===false)state.view.roomFloor=false; }catch(_){} }
 /* [R231] Abrir o crear una sala CON piso entra con el visor partido abierto: el piso es una superficie del
    proyecto, y estrenarlo escondido detrás de una preferencia de una sesión anterior lo hacía parecer perdido.
-   El botón Floor sigue mandando durante la sesión; esto sólo fija el punto de partida. */
-function roomVpAutoFloor(hayPiso){ if(hayPiso)state.view.roomFloor=true; saveRoomVpPrefs(); }
+   El botón Floor sigue mandando durante la sesión; esto sólo fija el punto de partida.
+   [R231b] NO se persiste: guardar aquí pisaría el «piso oculto» que el usuario hubiera dejado guardado, en cada
+   apertura de proyecto, y esa preferencia no volvería a sobrevivir a un reinicio. Sólo se toca el valor en memoria;
+   quien sí guarda es el botón Floor cuando lo pulsa el usuario. */
+function roomVpAutoFloor(hayPiso){ if(hayPiso)state.view.roomFloor=true; }
 function vpState(surf){ if(_vPaint)return vVpState(surf); // [R231] la ventana solo-visor tiene su propio encuadre, por panel
   const v=state.view; if(!surf)return v; // el panel único usa el par global de siempre
   if(!v.vp)v.vp={}; if(!v.vp[surf])v.vp[surf]={pan:[0,0],zoom:0.92}; return v.vp[surf]; }
@@ -4847,8 +4855,12 @@ function maskEditPointerDown(e,px,py){ const c=maskEditClip(); if(!c)return fals
   const mk=c.penMasks[c._penSel]; if(!mk)return false;
   /* [R231] El modo máscara sólo se queda con el botón IZQUIERDO a secas. Antes `if(e.button!==0)return true` se
      tragaba también el botón central, que es el que panea el lienzo: al añadir una máscara el visor se quedaba
-     sin arrastre. El botón central y Shift+arrastre vuelven a caer en el gesto normal de paneo. */
-  if(e.button!==0||e.shiftKey)return false;
+     sin arrastre. Se ceden al gesto normal SÓLO el central y Shift+arrastre (los dos panean) — y de paso se apaga
+     el hover, que si no se quedaría congelado en pantalla mientras la vista panea por debajo.
+     [R231b] El resto de botones se siguen tragando: cediendo `button!==0` a secas, un arrastre con el botón
+     DERECHO caía en `flatRectHit`/`flatHandleHit` y movía o escalaba el clip (con su `pushUndo` de regalo). */
+  if(e.button===1||e.shiftKey){ maskHoverClear(); return false; }
+  if(e.button!==0)return true;
   const m=mediaById(c.mediaId); const t=state.playhead;
   if(!m||t<c.start||t>=c.start+c.dur)return true; // el clip no está bajo el cabezal: se traga el gesto, no hay dónde poner el punto
   const hi=maskPointHit(px,py);
@@ -4894,7 +4906,11 @@ gridc.addEventListener('pointermove',e=>{
   if(maskEditClip()&&!vdrag){ const r0=gridc.getBoundingClientRect(); const mx=e.clientX-r0.left,my=e.clientY-r0.top; // [R226·I3] · [R231] con un paneo en curso manda el arrastre, no el hover de la máscara
     if(maskEditPointerMove(e,mx,my))return;
     const onVtx=(maskPointHit(mx,my)>=0); const hv=onVtx?null:maskSegHit(mx,my); // [R231]
-    const sig=hv?(hv.si+':'+Math.round(hv.x)+':'+Math.round(hv.y)):'';
+    /* [R231b] La firma se cuantiza a 2 px: repintar es un `render()` de GL entero, y a píxel entero cambiaba
+       prácticamente en cada evento de puntero. A 2 px el fantasma sigue igual de fluido (mide 5 px de radio) y el
+       lienzo se repinta la mitad de veces. Fuera de la banda de 8 px de la arista no se repinta en absoluto. */
+    const q=v=>Math.round(v/2)*2;
+    const sig=hv?(hv.si+':'+q(hv.x)+':'+q(hv.y)):'';
     if(sig!==_maskHoverSig){ _maskHoverSig=sig; _maskHover=hv; render(); }
     gridc.style.cursor=onVtx?'grab':(hv?'copy':'crosshair'); return; }
   if(!vdrag){ if(isFlat()&&state.view.mode!=='3d'){ const r0=gridc.getBoundingClientRect(); const mx=e.clientX-r0.left,my=e.clientY-r0.top;

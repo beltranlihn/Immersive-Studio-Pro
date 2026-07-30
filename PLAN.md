@@ -1,5 +1,30 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 231b — Lo que encontró la revisión del diff de R231
+
+Cinco hallazgos, todos reales, todos corregidos y verificados por CDP (`scratchpad/r231b-review.mjs`, más el
+sondeo de R231 vuelto a pasar entero sin cambios). `__errs` vacío.
+
+- **Regresión mía: el botón DERECHO movía el clip en modo máscara.** Al soltar el paneo escribí `e.button!==0 ||
+  e.shiftKey → return false`, que cede al gesto normal **todos** los botones que no sean el izquierdo. Un arrastre
+  con el derecho caía en `flatRectHit`/`flatHandleHit` y movía o escalaba el clip, con su `pushUndo` de regalo.
+  Ahora se ceden **sólo** el central y Shift (los dos panean) y el resto se sigue tragando.
+- **El fantasma del punto se quedaba congelado al panear.** El `pointermove` de la máscara se salta cuando hay un
+  arrastre en curso, pero nadie apagaba `_maskHover`: la arista realzada y el círculo seguían pintados en unas
+  coordenadas de pantalla viejas mientras la vista se movía por debajo. Se apaga al ceder el gesto.
+- **La barra de la ventana solo-visor no se repintaba al cambiar de secuencia.** Su firma no llevaba la secuencia
+  activa, y el botón `Floor` depende de `activeSeq().room.floor`: saltando entre dos salas —una con piso y otra
+  sin él— el `seqMode` no cambia, así que el botón faltaba con el visor ya partido, o sobraba en una sala sin piso.
+  La firma lleva ahora `activeSeqId` y el propio flag de piso.
+- **`roomVpAutoFloor` borraba la preferencia guardada.** Forzar el piso al abrir está bien —es lo que se pidió—
+  pero además llamaba a `saveRoomVpPrefs()`, así que un «piso oculto» guardado por el usuario se pisaba en CADA
+  apertura y no volvía a sobrevivir a un reinicio. Ya no persiste: sólo toca el valor en memoria. Quien guarda es
+  el botón `Floor` cuando lo pulsa el usuario.
+- **El hover repintaba en cada evento de puntero.** La firma se redondeaba a píxel entero, así que cambiaba
+  prácticamente en cada `pointermove` y disparaba un `render()` de GL completo — justo lo contrario de lo que decía
+  su comentario. Cuantizada a 2 px: medido, 8 movimientos de 1 px pasan de 8 repintados a 4, y el fantasma (5 px de
+  radio) se ve igual de fluido. Fuera de la banda de 8 px de la arista no se repinta en absoluto.
+
 ## ROUND 231 — Siete correcciones de la prueba sobre el .exe
 
 Beltrán probó el `.exe` de R230c (compilado y desplegado en Windows ese mismo día: NDI sobrevivió al
