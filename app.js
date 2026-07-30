@@ -1390,6 +1390,7 @@ function openViewerWindow(){ if(viewerOpen()){ try{_viewerWin.focus();}catch(e){
   const w=window.open('about:blank','domeViewer','width=960,height=960'); if(!w){ try{appAlert(T('Could not open the viewer window — allow pop-ups and try again.','No se pudo abrir el visor — permite las ventanas emergentes e inténtalo de nuevo.'));}catch(e){} return; }
   _viewerWin=w;
   _vCam={...state.view.cam}; _vThree=state.view.three||'orbit'; _vGrid=!!state.view.showGrid; _vOverlay=false; _vMode='auto'; _vEditorMode=null;
+  _vVp={}; _vFloor=true; // [R231c] el encuadre propio de la emergente arranca limpio: en 2D no hay gesto de paneo, así que reabrirla era la única salida y no la daba
   if(!viewerBuildDoc(w)){ _viewerWin=null; _viewerCtx=null; return; }
   const b=$('#popoutBtn'); if(b)b.classList.add('on');
   _vDirty=true; viewerPump();
@@ -1422,7 +1423,7 @@ function viewerBuildDoc(w){
        así no hay que acordarse de refrescarla en cada sitio que puede cambiar el estado */
     const paintBar=()=>{ const eff=viewerMode(), threeRow=(eff==='3d');
       const ovlAplica=!(isRoom()&&threeRow); // la costura de la sala es una guía de la TIRA 2D: en el 3D de la sala el botón no haría nada, así que no se muestra (el horizonte del domo sí vale en los dos)
-      const _as=activeSeq(), hayPiso=!!(isRoom()&&_as&&_as.room&&_as.room.floor&&!threeRow); // [R231] el piso parte el visor 2D; en el 3D de la sala ya se ve entero
+      const _as=activeSeq(), hayPiso=!!(isRoom()&&_as&&_as.room&&_as.room.floor&&!threeRow&&roomSurfLanes()); // [R231] el piso parte el visor 2D; en el 3D de la sala ya se ve entero · [R231c] + roomSurfLanes(): en una sala legacy no hay partición y el botón salía inerte
       bar.innerHTML=(viewerHas3D()?'<span class="seg"><button data-a="2d">2D</button><button data-a="3d">3D</button></span>':'')+
         '<button class="tog" data-a="grid">'+T('Grid','Cuadrícula')+'</button>'+
         (ovlAplica?'<button class="tog" data-a="ovl">'+viewerOverlayLabel()+'</button>':'')+
@@ -1737,8 +1738,12 @@ function roomSurfLanes(){ return state.lanes.some(l=>l&&l.surf); } // salas lega
    encuadre limpio en una segunda pantalla, y la segunda ni siquiera sustituye `state.lanes`, así que leía las
    pistas del proyecto de fondo para decidir si partirse. */
 let _lchShot=false;
+/* [R231c] `_vFloor` NO puede entrar aquí. Con `_vPaint` la condición se reducía a `_vFloor`, así que apagar el
+   botón Floor de la emergente apagaba la PARTICIÓN entera y `vpPanels()` devolvía el panel único del lienzo
+   COMPLETO — muros arriba y piso abajo, en letterbox: el botón enseñaba más piso, no menos, y «muros solos» era
+   inalcanzable. Quien decide si hay panel de piso es `vpFloorOn()`, que ya distingue la emergente. */
 function vpSplitOn(){ const as=activeSeq(), room=as&&as.room;
-  return !!(isRoom()&&room&&state.view.mode!=='3d'&&!_lchShot&&(!_vPaint||_vFloor)&&roomSurfLanes()); } // [R231] la emergente TAMBIÉN se parte, pero según SU interruptor (_vFloor); las miniaturas del launcher nunca
+  return !!(isRoom()&&room&&state.view.mode!=='3d'&&!_lchShot&&roomSurfLanes()); } // las miniaturas del launcher nunca se parten
 function vpFloorOn(){ const as=activeSeq(), room=as&&as.room;
   if(_vPaint)return !!(room&&room.floor&&_vFloor); // [R231] en la emergente manda su propio botón Floor
   return !!(room&&room.floor&&state.view.roomFloor!==false); }
@@ -1746,7 +1751,10 @@ function vpFloorOn(){ const as=activeSeq(), room=as&&as.room;
    la calidad de previsualización— y no viaja en el `.isp`. Se guarda la PROPORCIÓN del divisor, no los píxeles,
    para que aguante cualquier tamaño de ventana. */
 const ROOM_VP_KEY='ispRoomVp';
-function saveRoomVpPrefs(){ try{ localStorage.setItem(ROOM_VP_KEY,JSON.stringify({div:state.view.roomDiv,floor:state.view.roomFloor!==false})); }catch(_){} }
+function saveRoomVpPrefs(){ try{
+  let piso=state.view.roomFloor!==false;
+  if(!_vpFloorUserSet){ const s=localStorage.getItem(ROOM_VP_KEY); if(s){ const p=JSON.parse(s)||{}; if(p.floor===false)piso=false; } } // [R231c] respeta lo guardado mientras el usuario no toque el botón
+  localStorage.setItem(ROOM_VP_KEY,JSON.stringify({div:state.view.roomDiv,floor:piso})); }catch(_){} }
 function restoreRoomVpPrefs(){ try{ const s=localStorage.getItem(ROOM_VP_KEY); if(!s)return; const p=JSON.parse(s)||{};
   if(typeof p.div==='number'&&isFinite(p.div))state.view.roomDiv=Math.max(0.15,Math.min(0.88,p.div));
   if(p.floor===false)state.view.roomFloor=false; }catch(_){} }
@@ -1756,7 +1764,12 @@ function restoreRoomVpPrefs(){ try{ const s=localStorage.getItem(ROOM_VP_KEY); i
    [R231b] NO se persiste: guardar aquí pisaría el «piso oculto» que el usuario hubiera dejado guardado, en cada
    apertura de proyecto, y esa preferencia no volvería a sobrevivir a un reinicio. Sólo se toca el valor en memoria;
    quien sí guarda es el botón Floor cuando lo pulsa el usuario. */
-function roomVpAutoFloor(hayPiso){ if(hayPiso)state.view.roomFloor=true; }
+/* [R231] Al crear o abrir una sala CON piso, el visor partido entra ya abierto — si no, el piso «parece perdido».
+   [R231c] Y el forzado NO puede colarse en la preferencia guardada: `saveRoomVpPrefs` también se llama al soltar
+   el divisor, y el divisor sólo existe con el piso visible, así que ajustarlo una vez borraba un «piso oculto»
+   que el usuario había elegido a propósito. Sólo el botón Floor decide lo que se guarda (`_vpFloorUserSet`). */
+let _vpFloorUserSet=false;
+function roomVpAutoFloor(hayPiso){ if(hayPiso){ state.view.roomFloor=true; _vpFloorUserSet=false; } }
 function vpState(surf){ if(_vPaint)return vVpState(surf); // [R231] la ventana solo-visor tiene su propio encuadre, por panel
   const v=state.view; if(!surf)return v; // el panel único usa el par global de siempre
   if(!v.vp)v.vp={}; if(!v.vp[surf])v.vp[surf]={pan:[0,0],zoom:0.92}; return v.vp[surf]; }
@@ -1859,7 +1872,8 @@ function drawRoomGrid2D(P){ const as=activeSeq(); const room=as&&as.room; if(!ro
   } // showFloor
 }
 /* [R230] El divisor arrastrable entre los dos paneles + una etiqueta de superficie por panel. */
-function drawVpDivider(){ const ps=vpPanels(); if(ps.length<2)return; const x=ps[0].x+ps[0].w;
+function drawVpDivider(){ if(_vPaint)return; /* [R231c] el divisor es cromo del editor: no es arrastrable en la emergente y su tirador se iluminaba con el `vdrag` del EDITOR, parpadeando en el proyector */
+  const ps=vpPanels(); if(ps.length<2)return; const x=ps[0].x+ps[0].w;
   gx.fillStyle='rgba(8,9,11,0.92)'; gx.fillRect(x,0,VP_DIVW,view.ch);
   gx.fillStyle=(vdrag&&vdrag.mode==='vpdiv')?'rgba(232,236,242,0.55)':'rgba(255,255,255,0.20)';
   const gh=Math.min(46,view.ch*0.16), gy=(view.ch-gh)/2; gx.fillRect(x+VP_DIVW/2-0.5,gy,1,gh); }
@@ -4946,6 +4960,7 @@ gridc.addEventListener('pointerleave',()=>{ if(maskHoverClear())render(); }); //
 gridc.addEventListener('pointerup',endVdrag); gridc.addEventListener('pointercancel',endVdrag); window.addEventListener('pointerup',()=>{ if(vdrag)endVdrag(); });
 gridc.addEventListener('contextmenu',e=>{ if(state.view.mode==='3d')e.preventDefault(); });
 gridc.addEventListener('wheel',e=>{ e.preventDefault();
+  maskHoverClear(); /* [R231c] el fantasma guarda PÍXELES: sin esto, girar la rueda sin mover el ratón lo dejaba clavado sobre el encuadre viejo y el clic caía fuera de la arista que señalaba */
   if(state.view.mode==='3d'){ if(state.view.three==='spec'){state.view.cam.back=Math.max(-0.9,Math.min(2.4,state.view.cam.back+e.deltaY*0.0016));$('#dollyRange').value=state.view.cam.back;$('#dollyLbl').textContent=state.view.cam.back.toFixed(1);} else {state.view.cam.dist=Math.max(1.2,Math.min(12,state.view.cam.dist*Math.exp(e.deltaY*0.0012)));const dr=$('#distRange');if(dr){dr.value=state.view.cam.dist;const dl=$('#distLbl');if(dl)dl.textContent=state.view.cam.dist.toFixed(1);}} render(); return; }
   const r=gridc.getBoundingClientRect();const px=e.clientX-r.left,py=e.clientY-r.top;
   /* [R230] el zoom actúa sobre el panel BAJO EL CURSOR y con SU mapeo. En plano se usa pix2frame (la inversa
@@ -8354,6 +8369,7 @@ function newSequenceDialog(){ const n=state.media.filter(isSeqMedia).length+1; c
       saveActiveSeq(); const wseq=createRoomSequences({walls,floor,fps}); if(name)wseq.name=name; // [R217] same media-creation path as newRoomProject, without the wipe — adds to the CURRENT project
       state.openSeqs=state.openSeqs||[]; state.openSeqs.push(wseq.id);
       state.activeSeqId=wseq.id; loadSeqIntoState(wseq); // [R92-T1] fresh sequence starts with its own empty per-seq undo stack
+      roomVpAutoFloor(!!floor); // [R231c] tercera vía: una secuencia de sala CON piso también entra con el visor partido abierto
       renderMedia(); renderSeqBar(); renderTimeline(); renderInspector(); renderWork(); render(); updStatus(); updFmtChip(); markDirty(); close();
       flashStatus(T('New 360 room','Nueva sala 360')+' · '+walls.length+' '+T('walls','muros')+(floor?' + '+T('floor','piso'):'')); return; }
     const cov=+$('#nsCov').value||180;
@@ -8823,6 +8839,7 @@ function applyRoomGeometry(cfg){
   /* la malla 3D de la sala se cachea por ID DE SECUENCIA (`_roomGeoSeq`), y el id no cambia al editar la
      geometría → hay que invalidarla a mano o el visor 3D seguiría dibujando los muros viejos */
   _roomGeo=null; _roomGeoSeq=null; _arCache=null; try{raInvalidate();}catch(e){}
+  { const _as=activeSeq(); roomVpAutoFloor(!!(_as&&_as.room&&_as.room.floor)); } // [R231c] cuarta vía: añadir piso desde el diálogo de geometría también abre el visor partido
   resize(); renderTimeline(); renderInspector(); renderMedia(); render(); markDirty(); updStatus();
   flashStatus(T('Room geometry updated','Geometría de la sala actualizada'));
 }
@@ -9554,7 +9571,7 @@ $('#dispSeg').querySelectorAll('button').forEach(b=>b.onclick=()=>{ const d=b.da
   if(d==='checker'){ state.view.checkerBg=!state.view.checkerBg; const cb=$('#checkerBg'); if(cb)cb.classList.toggle('on',state.view.checkerBg); flashStatus(state.view.checkerBg?T('Alpha checkerboard on','Cuadrícula de alpha activada'):T('Alpha checkerboard off','Cuadrícula de alpha desactivada')); } // [F8]
   /* [R230] Ocultar el piso devuelve los muros al ancho completo del visor. resize() es obligatorio: los paneles
      cambian de rect en pantalla y el blit reparte el viewport de GL a partir de ellos. */
-  if(d==='floor'){ state.view.roomFloor=(state.view.roomFloor===false); saveRoomVpPrefs(); resize();
+  if(d==='floor'){ state.view.roomFloor=(state.view.roomFloor===false); _vpFloorUserSet=true; saveRoomVpPrefs(); resize(); // [R231c] es EL usuario quien decide: a partir de aquí la preferencia se guarda
     flashStatus(state.view.roomFloor!==false?T('Floor panel on','Panel de piso activado'):T('Floor panel off','Panel de piso desactivado')); }
   b.classList.toggle('on', d==='grid'?state.view.showGrid:d==='outline'?state.view.showOutline:d==='checker'?state.view.checkerBg:d==='floor'?(state.view.roomFloor!==false):state.view.hfade); render(); });
 /* [R105] La calidad de previsualización se persiste entre sesiones. NO era el bug de coherencia que creí

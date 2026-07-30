@@ -1,5 +1,52 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 231c — Revisión del diff de R231/R231b desde el Mac
+
+R231 y R231b se escribieron y verificaron en la máquina Windows. Al traerlos al Mac pasé sus dos sondas —que
+pasan enteras aquí también— más las tres de R230, sin una sola regresión, y encima puse un revisor sobre el diff.
+Siete hallazgos, todos corregidos y verificados (`scratchpad/r231c-review.mjs`), `__errs` vacío.
+
+### El botón «Floor» de la ventana solo-visor hacía lo contrario de lo que decía
+
+`vpSplitOn()` había pasado a ser `… && (!_vPaint || _vFloor) && …`. Con `_vPaint` en true la condición se reduce a
+`_vFloor`, así que apagar el botón apagaba **la partición entera**, y `vpPanels()` devolvía el panel único del
+lienzo COMPLETO: muros arriba **y el piso abajo**, en letterbox. Pulsar «quitar el piso» enseñaba más piso, con
+los muros reducidos a una fracción de la altura, y el estado «muros solos» era inalcanzable en la emergente.
+
+La partición y la visibilidad del piso son dos decisiones distintas: `vpFloorOn()` ya distinguía la emergente, así
+que `_vFloor` no pinta nada en `vpSplitOn()`. Medido: con el piso apagado, la emergente da ahora
+`{n:1, surf:'wall', ry1:1080}` —muros solos a ancho completo— en vez del `ry1:3000` del lienzo entero.
+
+### Lo demás
+
+- **El encuadre propio de la emergente (`_vVp`) no se reiniciaba nunca.** No lo tocaban ni `openViewerWindow` ni el
+  cambio de proyecto, y en 2D esa ventana no tiene gesto de paneo: el único modo de escribir en el pan es el zoom
+  anclado de la rueda. Un giro con el cursor en una esquina descentraba la salida **para toda la sesión**, y ni
+  cerrar y reabrir la ventana lo deshacía. Ahora arranca limpia.
+- **El fantasma del punto de máscara se congelaba al hacer zoom** sin mover el ratón: guarda píxeles de pantalla y
+  el `wheel` no lo apagaba. El realce se quedaba clavado sobre el encuadre viejo y el clic ya no caía en la arista
+  que señalaba.
+- **El divisor se pintaba en la salida de la emergente** — es cromo del editor, ahí no es arrastrable, y su tirador
+  se iluminaba con el `vdrag` **del editor**: arrastrarlo aquí hacía parpadear una barra en el proyector.
+- **El botón «Floor» de la barra de la emergente salía inerte en salas legacy** (sin `lane.surf`): faltaba
+  `roomSurfLanes()` en su condición, que es la que exige la partición.
+- **El forzado automático del piso acababa persistiéndose.** `roomVpAutoFloor` no guarda, cierto, pero
+  `saveRoomVpPrefs()` también se llama al soltar el divisor — y el divisor sólo existe con el piso visible. Un
+  «piso oculto» elegido a propósito desaparecía en cuanto se ajustaba el divisor una vez. Ahora sólo el botón
+  decide lo que se guarda (`_vpFloorUserSet`); el resto respeta lo que ya hubiera.
+- **`roomVpAutoFloor` cubría dos de las cuatro vías de creación.** Faltaban «New sequence… → 360 Room» y el diálogo
+  de geometría: añadir un piso por ahí, con una preferencia de «oculto» heredada, reproducía exactamente el
+  síntoma que R231 se propuso arreglar — el piso «parece perdido».
+
+### Lo que el revisor intentó tumbar y no pudo
+
+`openLaneColorPopup` y `TRACK_COLORS` no quedan referenciados en código vivo. El `lane.color` de un `.isp` viejo se
+conserva en el archivo sin usarse: no se pisa ni rompe la carga. `snapThr(P,axis)` es la inversa exacta de
+`flatMap().px`, sus dos llamantes están tras un `if(!CP)return` y dentro de `if(isRoom())`, así que domo y 2D plano
+no cambian. El `splice(seg.si+1,…)` de la máscara es correcto para el anillo cerrado. Y `vWithViewport`/`viewerPaint`
+restauran todo en bloques `finally`.
+
+
 ## ROUND 231b — Lo que encontró la revisión del diff de R231
 
 Cinco hallazgos, todos reales, todos corregidos y verificados por CDP (`scratchpad/r231b-review.mjs`, más el
