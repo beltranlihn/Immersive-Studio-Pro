@@ -3014,7 +3014,13 @@ function ensureClipVisible(c){ if(!c)return; const sc=$('#tlscroll'); if(!sc)ret
 /* [FLOOR-GROUP] `surf` opcional ('wall'|'floor') — sólo lo usan las salas. Con `surf`, el conteo para numerar
    (Wall N / Floor N) y el nombre/tag se llevan por ESE grupo, no por todas las pistas 'video' (que en una sala
    incluyen ambos grupos). Sin `surf` (vídeo normal o audio) el comportamiento es EXACTAMENTE el de antes. */
-function addLane(kind,surf){ pushUndo();
+function addLane(kind,surf){
+  /* [R230b] En una sala con pistas de superficie, una pista de vídeo pertenece SIEMPRE a una: el modelo no
+     admite un vídeo "suelto" —se colocaría contra el lienzo entero y ningún panel del visor lo encuadraría
+     bien—. `trackCreateItems` ya pregunta muro/piso, pero los caminos que no preguntan (⌘T, la paleta de
+     comandos) llegaban aquí sin `surf`; caen al grupo de MUROS, que es el que siempre existe. */
+  if(!surf && kind==='video' && isRoom() && roomSurfLanes()) surf='wall';
+  pushUndo();
   const cnt=surf?state.lanes.filter(l=>l.surf===surf).length:state.lanes.filter(l=>l.kind===kind&&!l.surf).length; const n=cnt+1;
   const nm=surf==='wall'?'Wall':surf==='floor'?'Floor':(kind==='audio'?'Audio':'Video');
   const tg=surf==='wall'?'W':surf==='floor'?'F':(kind==='audio'?'A':'V');
@@ -4040,8 +4046,15 @@ function renameSelection(){
   if(state.selLane!=null){ renameLane(state.selLane); return; }
   if(state.activeSeqId!=null){ renameSequence(state.activeSeqId); return; }
   flashStatus(T('Select a clip, track, locator or sequence to rename','Selecciona un clip, pista, localizador o secuencia para renombrar')); }
-function duplicateLane(li){ const src=state.lanes[li]; if(!src)return; pushUndo(); const kind=src.kind; const n=state.lanes.filter(l=>l.kind===kind).length+1;
-  const nl={id:uid(),name:src.name+' copy',tag:(kind==='audio'?'A':'V')+n,kind};
+function duplicateLane(li){ const src=state.lanes[li]; if(!src)return; pushUndo(); const kind=src.kind;
+  /* [R230b] La copia hereda la SUPERFICIE del original. Sin esto, duplicar una pista de piso daba una pista de
+     vídeo suelta con tag `V n`, y sus clips dejaban de componer sobre el piso EN SILENCIO. El número sale del
+     conteo dentro de su propio grupo, igual que en `addLane`; y si el original se llama como su tag (convención
+     de las pistas de piso: F1, F2…) la copia también, para no acabar con un "F2 · F1 copy". */
+  const surf=src.surf||null;
+  const cnt=surf?state.lanes.filter(l=>l.surf===surf).length:state.lanes.filter(l=>l.kind===kind&&!l.surf).length;
+  const n=cnt+1, tg=(surf==='wall'?'W':surf==='floor'?'F':(kind==='audio'?'A':'V'))+n;
+  const nl={id:uid(),name:(src.name===src.tag?tg:src.name+' copy'),tag:tg,kind}; if(surf)nl.surf=surf;
   const at=(kind==='audio')?li:li+1; // [R93b] audio duplicates BELOW the source (the module grows downward); video above — Premiere convention
   state.lanes.splice(at,0,nl);
   for(const c of state.clips)if(c.lane>=at)c.lane++;
