@@ -1,5 +1,69 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 230b — Lo que encontró la revisión del visor partido
+
+Auditoría del diff de R230 con dos revisores independientes (uno sobre paneles/puntero, otro sobre el piso por
+defecto, las preferencias y las cabeceras). Salieron **catorce** hallazgos reales; todos corregidos y verificados
+por CDP (`scratchpad/r230b-fixes.mjs`, más las dos sondas de R230 vueltas a pasar sin cambios). `__errs` vacío.
+
+### Lo que estaba roto de verdad
+
+- **Los controles +/− y el % de la barra habían quedado inertes.** Escribían `state.view.zoom`, que con el visor
+  partido ya no es el zoom de NINGÚN panel, y el rótulo mentía («100%» aunque la rueda hubiera ampliado 6×).
+  Ahora obedecen al panel con el **foco** —el último que tocó el puntero— y el botón de porcentaje recentra
+  **todos**, que es la salida cuando un panel se ha ido de encuadre. El umbral de los imanes (`snapFrame`,
+  `snapMoveAxis`) también leía el zoom global: a 6× capturaba desde decenas de píxeles y no dejaba colocar un clip
+  cerca de una costura.
+- **Con el piso oculto, sus clips se mapeaban al panel de muros.** `vpPanelFor` caía a `ps[0]`, pero
+  `clipSurfA` seguía devolviendo el aspecto del piso: el contorno salía flotando sobre los muros, los tiradores de
+  un clip invisible se podían agarrar, y arrastrarlo escribía coordenadas de muro en un clip que compone en el
+  piso. Ahora `clipPanel()` devuelve **null** cuando la superficie del clip no está a la vista, y contorno,
+  tiradores, hit-test, escala, arrastre y máscara lo respetan. El clip sigue componiendo igual; sólo deja de ser
+  editable desde un visor que no lo enseña.
+- **La ventana solo-visor salía partida, con divisor y con el pan/zoom del editor** — justo lo contrario de lo que
+  promete (encuadre limpio en una segunda pantalla). Y **las miniaturas del launcher también**: `lchEditorShot`
+  sustituye clips, media y secuencia activa pero NO `state.lanes`, así que leía las pistas del proyecto de fondo
+  para decidir si partirse. `vpSplitOn()` ahora exige `!_vPaint && !_lchShot`: la partición es del editor.
+- **El botón `Floor` mentía en salas legacy y en 3D.** Su condición no era la de la partición, así que en una sala
+  guardada antes de R229 —sin `lane.surf`— se dejaba pulsar y anunciaba «Floor panel off» sin que pasara nada.
+  Se mudó a `_updViewCtl`, que es la función que se re-evalúa al cambiar de modo, y `updModeUI` la llama para que
+  cambiar de secuencia también cuente.
+- **Editar la geometría de una sala existente le cambiaba el piso en silencio.** El piso sólo se consideraba
+  «propio» si traía `wcm`/`dcm`; uno guardado sólo con píxeles (los que hacía el demo y «New sequence… → 360 Room»)
+  se recalculaba, el lienzo pasaba de 2160 a 3000 de alto y **todos** los clips de una sala legacy se movían y
+  reescalaban. Ahora basta con que traiga píxeles para que mande; las medidas que falten se completan con la
+  huella de los muros.
+- **Faltaba una cuarta vía de creación de piso.** `roomFloorDefault` decía ser fuente única de tres, y «New
+  sequence… → 360 Room» seguía copiando el pixelaje del primer muro: reproducía el piso aplastado que R230
+  arreglaba, y encima fabricaba pisos sin cm — la precondición del fallo anterior.
+
+### Lo demás
+
+Un preajuste **sin** `floorCfg` reemplaza los muros enteros, así que su piso vuelve a seguirlos en vez de arrastrar
+el de la sala anterior. El divisor guarda en `localStorage` **al soltar**, no en cada evento de movimiento
+(cientos de escrituras síncronas por arrastre; medido: ahora 1). El encuadre por panel se reinicia al abrir o
+crear un proyecto, en vez de heredarse. La máscara se recorta al panel de su clip, y un clic en el panel
+equivocado se ignora en vez de insertar un vértice extrapolado sin aviso. Un tirador que cae bajo la zona de
+agarre del divisor ya no se pinta: ese clic se lo queda el divisor, así que dibujarlo prometía un agarre
+inexistente. Con el visor muy angosto los dos paneles se reparten a la mitad antes que dejar el del piso fuera del
+lienzo (verificado a 60, 90, 140 y 400 px de ancho). Y renombrar una pista de piso arranca con el campo vacío:
+como el hueco se pinta vacío cuando el nombre es el propio tag, cancelar dejaba «F1 F1» escrito hasta el siguiente
+repintado.
+
+### Cabeceras de las pistas de piso
+
+Petición de Beltrán en la misma sesión: fuera la chapa «FLOOR». La pista se identifica ahora sólo por su tag
+enmarcado en azul (`.tag.floor` → F1, F2…) y nace con `name === tag`, así que la cabecera no repite la palabra
+tres veces. El `.nm` se sigue pintando —vacío— porque es donde `renameLane` engancha la edición en línea y su
+`flex:1` es lo que alinea los botones M/S con los de las pistas de muro (medido: misma x en W1 y F1).
+
+**Queda sin tocar, a propósito:** las pistas que crea `migrateRoomFloor` para un `.isp` pre-R221 siguen llamándose
+«Floor N» y sin `surf`. No es un descuido: sus coordenadas son del lienzo entero y etiquetarlas de superficie las
+recolocaría. Que se vean distintas de las nuevas es informativo, no un fallo. Lo que sí sigue abierto es
+`duplicateLane`, que no copia `surf` — duplicar F1 da una pista de vídeo suelta cuyos clips dejan de componer
+sobre el piso en silencio. Es anterior a esta ronda y está fuera de su alcance.
+
+
 ## ROUND 230 — Visor 360: la sala se edita por superficies, y el 2D se parte en muros | piso
 
 Cierre de la tanda del 2026-07-30 (spec en `CORRECCIONES-360-VIEWER.md`). Etapa 1 venía escrita en R229 pero sin
