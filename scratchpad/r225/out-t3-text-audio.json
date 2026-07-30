@@ -1,0 +1,72 @@
+{
+  "R": {
+    "text": {
+      "base": 300,
+      "w": 2331,
+      "h": 615,
+      "aspecto": 3.7902
+    },
+    "textCampos": {
+      "txtSize": false,
+      "txtLineH": false,
+      "txtColor": true,
+      "txtStrokeCol": true,
+      "txtStroke": true
+    },
+    "outline": {
+      "tstroke": true,
+      "hashCambia": false
+    },
+    "outlineColor": {
+      "valor": "#ff0000",
+      "hashCambia": false
+    },
+    "aspectoInvariante": {
+      "a300": 3.79,
+      "a90": 3.784,
+      "difRel": 0.0017
+    },
+    "parrafoLargo": {
+      "w": 4093,
+      "h": 129,
+      "dentroDelLimite": true
+    },
+    "motionParrafos": [],
+    "motionVacio": "No effects Add Effect",
+    "audio": {
+      "fadeIn": false,
+      "fadeOut": false,
+      "escala": true,
+      "volumen": true,
+      "unLado": true,
+      "filas": [
+        "Volume100%",
+        "Wave scale1×",
+        "Single-sided wave"
+      ],
+      "fadesEnDatos": {
+        "fadeIn": 0.7,
+        "fadeOut": 1.1
+      }
+    },
+    "audioParrafos": [],
+    "waveScale": {
+      "x1": {
+        "alto": 37,
+        "h": 47
+      },
+      "x4": {
+        "alto": 45,
+        "h": 47
+      },
+      "crece": true,
+      "waveScaleFn": [
+        0.25,
+        1,
+        4,
+        8
+      ]
+    }
+  },
+  "errs": []
+}

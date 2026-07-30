@@ -1,0 +1,74 @@
+{
+  "R": {
+    "paso0": {
+      "derivados": 0,
+      "nestTieneAudio": false,
+      "eventos": 0
+    },
+    "dentro": {
+      "lanes": [
+        "audio",
+        "audio",
+        "video"
+      ],
+      "clips": 2,
+      "eventosDentro": 1
+    },
+    "alVolver": {
+      "derivados": 1,
+      "derivado": {
+        "id": 116,
+        "mediaId": 110,
+        "esElNest": true,
+        "lane": 0,
+        "laneKind": "audio",
+        "start": 0,
+        "dur": 6,
+        "link": 115,
+        "avRole": "a",
+        "nestAudioOf": 111,
+        "nombre": "Nest 7 · audio"
+      },
+      "videoLink": 115,
+      "videoRole": "v",
+      "sonPareja": true,
+      "partnerDelVideo": 116
+    },
+    "mezcla": {
+      "eventos": 1,
+      "ids": [
+        114
+      ]
+    },
+    "sueneSoloPorElDerivado": true,
+    "conPistaMuteada": 0,
+    "sinDerivado": 0,
+    "conDerivado": 1,
+    "vinstAudioDeNest": null,
+    "doblarClicEntra": true,
+    "trasDeslinkear": {
+      "derivadoSigue": true,
+      "sigueSonando": 1,
+      "nestSiguePorVideo": false
+    },
+    "trasAcortar": {
+      "nestDur": 3,
+      "video": 3,
+      "derivado": 3
+    },
+    "serializado": [
+      {
+        "seq": 6,
+        "id": 116,
+        "nestAudioOf": 111,
+        "link": 117,
+        "avRole": "a"
+      }
+    ],
+    "proxyConservaAudio": {
+      "eventosAlHornear": 1,
+      "pistasAudioDelNest": 2
+    }
+  },
+  "errs": []
+}

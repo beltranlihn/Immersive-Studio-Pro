@@ -1,0 +1,61 @@
+{
+  "R": {
+    "duraciones": {
+      "V8": 8,
+      "V3": 3,
+      "F1": 5,
+      "F2": 5
+    },
+    "compVideos": 8,
+    "compFotos": 5,
+    "compFotoYVideo": 3,
+    "compTextoYFoto": 5,
+    "creadoVideos": {
+      "nestDur": 8,
+      "instancia": 8,
+      "fulldome": true
+    },
+    "creadoFotos": {
+      "nestDur": 5,
+      "instancia": 5
+    },
+    "antesDeEntrar": {
+      "nestDur": 8,
+      "instancia": 8
+    },
+    "alVolver": {
+      "nestDur": 4,
+      "instancia": 4,
+      "seqDur": 4
+    },
+    "seAcorto": true,
+    "antesDeComponer": {
+      "clips": 4,
+      "enPistaAudio": 2
+    },
+    "trasComponer": {
+      "clips": 1,
+      "enPistaAudio": 0,
+      "nestLanesKinds": [
+        "video",
+        "video"
+      ],
+      "nestClips": [
+        {
+          "name": "V8",
+          "avRole": "v",
+          "link": false
+        },
+        {
+          "name": "V3",
+          "avRole": "v",
+          "link": false
+        }
+      ],
+      "nestTieneAudioDentro": false,
+      "derivados": 0
+    },
+    "eventosAudio": 0
+  },
+  "errs": []
+}

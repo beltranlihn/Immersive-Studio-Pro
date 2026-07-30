@@ -1135,8 +1135,9 @@
         <div class="vslab" id="dollyCtl" hidden data-retirado="R174" style="display:none;"><span class="k">DOLLY</span><input type="range" min="-0.9" max="2.4" step="0.01" value="0.8" id="dollyRange" class="vfader"><span class="v" id="dollyLbl" style="width:26px;text-align:right;">0.8</span></div>
         <div class="vslab" id="distCtl" hidden data-retirado="R174" style="display:none;"><span class="k">DIST</span><input type="range" min="1.2" max="12" step="0.1" value="3" id="distRange" class="vfader"><span class="v" id="distLbl" style="width:26px;text-align:right;">3.0</span></div>
         </div>
-        <div class="vseg" id="proxyToggle" title="Viewport uses proxies (faster). Turn off to preview the original clips."><button data-p="proxy" class="on"><i class="ic" data-ico="bolt"></i> Proxy</button></div>
-        <div class="vseg" id="nestCacheToggle" title="Compositions play from their proxy (much faster). Turn off to preview them rebuilt from every source clip. The export always rebuilds from sources either way."><button data-p="ncache" class="on"><i class="ic" data-ico="layers"></i> Comp</button></div>
+        <!-- [R225·10] los dos interruptores de proxy comparten icono (rayo) y se distinguen por el rótulo: Clip = proxy de cada clip · Comp = proxy de composición. Antes decían "Proxy" y "Comp" con iconos distintos, y no se leían como el mismo par de mandos. -->
+        <div class="vseg" id="proxyToggle" title="Viewport uses proxies (faster). Turn off to preview the original clips."><button data-p="proxy" class="on"><i class="ic" data-ico="bolt"></i> Clip</button></div>
+        <div class="vseg" id="nestCacheToggle" title="Compositions play from their proxy (much faster). Turn off to preview them rebuilt from every source clip. The export always rebuilds from sources either way."><button data-p="ncache" class="on"><i class="ic" data-ico="bolt"></i> Comp</button></div>
         <div class="vdiv" id="zoomSep"></div>
         <div class="vseg">
           <button id="vzOut" title="Zoom out" style="width:24px;padding:0;justify-content:center;"><i class="ic" data-ico="zoomOut"></i></button>

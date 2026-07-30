@@ -1,0 +1,56 @@
+{
+  "R": {
+    "nest": {
+      "esNest": true,
+      "fulldome": true,
+      "equirect": false,
+      "dur": 5,
+      "modo": "dome"
+    },
+    "sinToggle": true,
+    "sourceFilas": [
+      {
+        "txt": "Fisheye",
+        "ids": [
+          "fhToggle"
+        ],
+        "op": ""
+      }
+    ],
+    "equirectPresente": false,
+    "fisheyePresente": true,
+    "fisheyeHabilitadoEnNest": true,
+    "fhSinFulldome": {
+      "existe": true,
+      "deshabilitado": true,
+      "pointer": "none",
+      "opacidad": "0.42",
+      "titulo": "Needs the Fulldome src switch on"
+    },
+    "trasEncenderFulldome": {
+      "fulldome": true,
+      "fh": {
+        "existe": true,
+        "deshabilitado": false,
+        "pointer": "",
+        "opacidad": "",
+        "titulo": "Warp flat → fisheye"
+      }
+    },
+    "fisheyeEncendido": true,
+    "amountVisible": true,
+    "trasApagarFulldome": {
+      "fulldome": false,
+      "fisheye": false,
+      "fh": {
+        "existe": true,
+        "deshabilitado": true,
+        "pointer": "none",
+        "opacidad": "0.42",
+        "titulo": "Needs the Fulldome src switch on"
+      },
+      "amount": false
+    }
+  },
+  "errs": []
+}

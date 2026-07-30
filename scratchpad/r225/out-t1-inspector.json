@@ -1,0 +1,32 @@
+{
+  "R": {
+    "adj": {
+      "id": 19,
+      "esAjuste": true,
+      "lane": 3,
+      "laneKind": "video",
+      "dur": 6
+    },
+    "adjSecs": [
+      "#secTf=none",
+      "#secSource=none",
+      "#secPlayback=none",
+      "#secColor=none",
+      "#secFx=flex",
+      "#secMotion=flex"
+    ],
+    "adjTieneCatalogoFx": true,
+    "adjSecMotionTitulo": "Effects",
+    "adjFilas": [
+      "Opacity 100%"
+    ],
+    "adjParrafos": [],
+    "fxColorCandidatos": [
+      "hue",
+      "posterize"
+    ],
+    "fxUsado": "hue",
+    "adjHasFx": true
+  },
+  "errs": []
+}

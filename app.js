@@ -1066,6 +1066,7 @@ async function ncReattach(m){ if(!m||!m.ncPath||!IS_ELEC||!DSP.stat){ return; }
   try{ renderMedia(); renderTimeline(); }catch(e){} }
 function prepNests(clips,t,depth){ if(!depth)_nestN=0; if((depth||0)>5||!clips)return; // post-order: render inner nests first, then each clip into its own slot
   for(const c of clips){ const m=mediaById(c.mediaId); if(!m||!isSeqMedia(m)){ c._ntex=null; continue; } if(t<c.start||t>=c.start+c.dur){ c._ntex=null; continue; }
+    if(isNestAudioClip(c)){ c._ntex=null; continue; } // [R225·9] el clip derivado es SÓLO audio: componer su nest en una FBO cada fotograma sería trabajo tirado (nadie lo dibuja: vive en una pista de audio)
     if(c.disabled){ c._ntex=null; continue; } // [R180] apagar un nest NO lo hacía gratis: compositeClips lo saltaba al dibujar, pero aquí se seguían componiendo sus 15 hijos cada fotograma para producir una textura que nadie usaba
     const lt=srcT(c,t);
     if(ncUsable(m)){ const vi=vinstEnsure(c,m); c._ntex=(vi&&vi.ready&&vi.vtex)?vi.vtex:null; // [R180] el caché ES el nest: no se desciende a los hijos. Las props del clip (az/el/tamaño/opacidad/LUT/keyframes) se aplican encima igual que antes, porque el caché sustituye SÓLO la composición interna
@@ -1080,26 +1081,49 @@ function prepNests(clips,t,depth){ if(!depth)_nestN=0; if((depth||0)>5||!clips)r
     const e=nestSlot(); const oc=state.clips,ol=state.lanes,odf=_drawFlat,oca=_compAspect,orw=_roomWrap; state.clips=m.nestClips||[]; state.lanes=(m.nestLanes&&m.nestLanes.length?m.nestLanes:ol); _drawFlat=flatLikeMode(m.mode); _roomWrap=false; _compAspect=(m.w||1)/(m.h||1); gl.bindFramebuffer(gl.FRAMEBUFFER,e.fbo); composite(lt,nestSize,false); gl.bindFramebuffer(gl.FRAMEBUFFER,null); state.clips=oc; state.lanes=ol; _drawFlat=odf; _roomWrap=orw; _compAspect=oca; c._ntex=e.tex; } }
 /* active video media at time t, descending into active nests (local-time-adjusted), deduped by media — so playback/scrub drive videos INSIDE nests, not just top-level clips. */
 function collectActiveVideos(clips,lanes,t,depth,out,seen){ out=out||[]; seen=seen||new Set(); if((depth||0)>5||!clips||!lanes)return out;
-  for(let li=0;li<lanes.length;li++){ let best=null; for(const c of clips){ if(c.lane===li && t>=c.start && t<c.start+c.dur) best=c; } if(!best)continue;
+  for(let li=0;li<lanes.length;li++){ let best=null; for(const c of clips){ if(c.lane===li && t>=c.start && t<c.start+c.dur && !isNestAudioClip(c)) best=c; } if(!best)continue; // [R225·9] el derivado no aporta imagen: no hace falta pilotar los vídeos de dentro por él (su mitad de vídeo ya lo hace)
     const m=mediaById(best.mediaId); if(!m)continue; const lt=(best.inP||0)+(t-best.start);
     if(m.kind==='video'){ if(!seen.has(m.id)){ seen.add(m.id); out.push({m,local:lt}); } }
     else if(m.kind==='nest'&&m.nestClips){ collectActiveVideos(m.nestClips,m.nestLanes||lanes,lt,(depth||0)+1,out,seen); } }
   return out; }
-function nestSelection(){ const ids=(state.selIds&&state.selIds.length)?state.selIds.slice():(state.selId!=null?[state.selId]:[]); const clips=ids.map(clipById).filter(Boolean); if(!clips.length){flashStatus(T('Select clips to nest','Selecciona clips para anidar'));return;}
+function nestSelection(){ const ids=(state.selIds&&state.selIds.length)?state.selIds.slice():(state.selId!=null?[state.selId]:[]); let clips=ids.map(clipById).filter(Boolean); if(!clips.length){flashStatus(T('Select clips to nest','Selecciona clips para anidar'));return;}
   pushUndo();
+  /* [R225·8] DECISIÓN de Beltrán (2026-07-29): al componer desde clips con audio ENLAZADO, ese audio SE ELIMINA.
+     Razón: la composición se convierte en un solo clip de vídeo y la mitad de audio de cada fuente quedaba sonando
+     suelta en el padre, apilada con las demás → varios audios superpuestos que nadie pidió. Los clips de audio
+     enlazados a la selección (que desde R223 NO entran en la selección: el enlace es del gesto, no de la selección)
+     no se anidan y se borran de la línea de tiempo. La copia de vídeo que entra al nest conserva `avRole:'v'` —sin
+     `link`, que ya no tiene pareja— porque es exactamente el flag que `collectAudioEvents` respeta para no volver a
+     sacar el sonido del archivo original: si no, el nest sonaría por dentro y se rompería la regla de oro (nunca
+     suena audio que no esté visible en una pista de audio). Un clip de audio SELECCIONADO a mano sí entra al nest:
+     ése es el camino del audio de composición del ítem 9. */
+  const audioIdsFuera=[]; { const sel=new Set(ids);
+    for(const c of clips){ const p=linkPartner(c); if(!p||sel.has(p.id))continue;
+      const pl=state.lanes[p.lane]; if(!(pl&&pl.kind==='audio')&&p.avRole!=='a')continue; // sólo la mitad de AUDIO se descarta; un enlace de vídeo↔vídeo no existe hoy, pero no lo damos por supuesto
+      audioIdsFuera.push(p.id); } }
+  if(audioIdsFuera.length){ const fuera=new Set(audioIdsFuera); clips=clips.filter(c=>!fuera.has(c.id)); for(const id of audioIdsFuera)if(!ids.includes(id))ids.push(id); }
+  if(!clips.length){ flashStatus(T('Nothing to nest','Nada que anidar'),'err'); return; }
   const minStart=Math.min(...clips.map(c=>c.start)), maxEnd=Math.max(...clips.map(c=>c.start+c.dur)), dur=Math.max(0.1,maxEnd-minStart);
   const used=[...new Set(clips.map(c=>c.lane))].sort((a,b)=>a-b); const lm={};
   const nestLanes=used.map((li,i)=>{ lm[li]=i; const L=state.lanes[li]; return {id:uid(),name:(L?L.name:'Video '+(i+1)),tag:(L?L.tag:'V'+(i+1)),kind:(L?L.kind:'video')}; });
   if(!nestLanes.length)nestLanes.push({id:uid(),name:'Video 1',tag:'V1',kind:'video'});
   const nestClips=clips.map(c=>({...c,id:uid(),start:c.start-minStart,lane:(lm[c.lane]||0),props:{...c.props},kf:JSON.parse(JSON.stringify(c.kf||{})),fx:JSON.parse(JSON.stringify(c.fx||[])),maskTex:null,_penCv:null,penMasks:c.penMasks?JSON.parse(JSON.stringify(c.penMasks)):undefined})); nestClips.forEach((nc,i)=>sepAuto(nc,clips[i]));
+  /* [R225·8] un enlace cuya otra mitad no entró al nest queda huérfano: se borra el `link` (sin pareja, `linkPartner`
+     devolvería null y el gesto de mover/recortar buscaría un fantasma) pero se CONSERVA `avRole:'v'`, que es lo que
+     mantiene muda por dentro a la mitad de vídeo cuyo audio se acaba de eliminar. */
+  { const dentro=new Set(clips.map(c=>c.link).filter(Boolean).filter(l=>clips.filter(c=>c.link===l).length>1));
+    for(const nc of nestClips) if(nc.link&&!dentro.has(nc.link)) delete nc.link; }
   for(const nc2 of nestClips)if(nc2.maskData||(nc2.penMasks&&nc2.penMasks.length))rebuildMaskTex(nc2);
   const nest=newSeqMedia(T('Nest ','Nido ')+(state.media.filter(isSeqMedia).length+1), state.fps, state.seqW, state.seqH, nestClips, nestLanes, isFlat()?'flat':'dome'); nest.dur=dur; // [R92-T1 C4] inherit the compositing mode — a nest made in a 2D/room sequence must NOT default to dome warping (room content nests as flat: the strip IS rectangular)
   state.media.push(nest);
   { const rx=state.reactive; if(rx&&rx.srcClipId!=null){ const ri=clips.findIndex(c=>c.id===rx.srcClipId); if(ri>=0){ rx.srcClipId=nestClips[ri].id; _arCache=null; try{arRecompute();}catch(e){} } } } // [R92-T1 C5] the reactive source clip gets a NEW id inside the nest — remap so audio-reactive FX keep reacting
   state.clips=state.clips.filter(c=>!ids.includes(c.id));
   const vidLane=used.find(li=>state.lanes[li]&&state.lanes[li].kind==='video'); // [R212] a nest is video content — land it on a VIDEO lane, not just the lowest-index used lane (which could be an audio lane if only its linked audio was selected, and activeClips() skips non-video lanes → an invisible nest)
-  const nc=makeClip(nest,(vidLane!=null?vidLane:(used[0]||0)),minStart); nc.dur=dur; nc.props.fulldome=!isFlat(); state.clips.push(nc);
-  state.selId=nc.id; state.selIds=[nc.id]; renderMedia(); renderSeqBar(); renderTimeline(); renderInspector(); render(); markDirty(); flashStatus(clips.length+T(' clips → nest','  clips → nido')); }
+  const nc=makeClip(nest,(vidLane!=null?vidLane:(used[0]||0)),minStart); nc.dur=dur; nc.props.fulldome=true; nc.props.equirect=false; state.clips.push(nc); // [R225·2] nest = SIEMPRE máster de domo (en flat/room el flag no lo lee nadie: drawClipFlat entra antes)
+  state.selId=nc.id; state.selIds=[nc.id];
+  syncNestAudioClips(); // [R225·9] si al nest le entró audio (clips de audio seleccionados a mano), el padre estrena su clip de audio DERIVADO
+  renderMedia(); renderSeqBar(); renderTimeline(); renderInspector(); render(); markDirty();
+  flashStatus(clips.length+T(' clips → nest','  clips → nido')+(audioIdsFuera.length?' · '+audioIdsFuera.length+T(' linked audio clip(s) removed',' clip(s) de audio enlazado eliminados'):'')); }
 /* [T4] render-ahead: cache the flattened master composite per frame (downscaled via blitFramebuffer),
    so heavy playback can replay one flat texture instead of recompositing N layers + decoding N videos.
    The master composite is view-independent → serves both 2D and 3D. Flag-gated (_raOn, default off);
@@ -1768,11 +1792,22 @@ async function loadCustomFont(){ if(!(IS_ELEC&&DSP.pickFile&&DSP.openRead&&DSP.r
     if(!_customFonts.includes(fam))_customFonts.push(fam);
     flashStatus(T('Font loaded: ','Fuente cargada: ')+fam); return fam;
   }catch(e){ flashStatus(T('Could not load that font','No se pudo cargar esa fuente'),'err'); return null; } }
-function renderTextMedia(m){ const fs=Math.max(8,m.tfontSize||140), ff=m.tfont||'Inter, sans-serif', weight=m.tweight||'700', style=m.titalic?'italic ':'', pad=Math.round(fs*0.4);
-  const align=m.talign||'center', lhF=Math.max(0.7,m.tlineH||1.25); // [U8] paragraph controls: font · weight · italic · size · alignment · line height
-  const meas=document.createElement('canvas').getContext('2d'); meas.font=style+weight+' '+fs+'px '+ff;
-  const lines=String(m.text==null?'':m.text).split('\n'); let maxw=1; for(const ln of lines)maxw=Math.max(maxw,meas.measureText(ln||' ').width);
-  const lh=fs*lhF, W=Math.min(4096,Math.max(8,Math.ceil(maxw)+pad*2)), H=Math.min(4096,Math.max(8,Math.ceil(lines.length*lh)+pad*2));
+/* [R225·6] El texto NO tiene campos de píxeles en el inspector: es vectorial hasta el render y su tamaño en pantalla
+   lo pone el Scale/Size del clip. `tfontSize` sobrevive SÓLO como resolución interna del rásterizado — y no altera el
+   encuadre, porque ancho y alto del lienzo crecen los dos proporcionalmente al cuerpo (W≈maxw+0,8·fs, H≈líneas·lh+0,8·fs),
+   así que la PROPORCIÓN es invariante al cuerpo. Los medios nuevos nacen con un cuerpo base generoso; los `.isp` viejos
+   conservan el suyo (misma proporción, sólo distinta nitidez). El ajuste final evita el único caso en que el cuerpo SÍ
+   cambiaría el encuadre: un párrafo largo que topase con el límite de 4096 px y quedase recortado. */
+const TXT_BASE_PX=300, TXT_MAX_PX=4096;
+function renderTextMedia(m){ const ff=m.tfont||'Inter, sans-serif', weight=m.tweight||'700', style=m.titalic?'italic ':'';
+  const align=m.talign||'center', lhF=Math.max(0.7,m.tlineH||1.25); // [U8] paragraph controls: font · weight · italic · alignment
+  const meas=document.createElement('canvas').getContext('2d');
+  const lines=String(m.text==null?'':m.text).split('\n');
+  const medir=f=>{ meas.font=style+weight+' '+f+'px '+ff; let mw=1; for(const ln of lines)mw=Math.max(mw,meas.measureText(ln||' ').width);
+    const p=Math.round(f*0.4), l=f*lhF; return {pad:p,lh:l,W:Math.ceil(mw)+p*2,H:Math.ceil(lines.length*l)+p*2}; };
+  let fs=Math.max(8,m.tfontSize||TXT_BASE_PX), g=medir(fs);
+  if(g.W>TXT_MAX_PX||g.H>TXT_MAX_PX){ fs=Math.max(8,Math.floor(fs*Math.min(TXT_MAX_PX/g.W,TXT_MAX_PX/g.H))); g=medir(fs); }
+  const pad=g.pad, lh=g.lh, W=Math.max(8,g.W), H=Math.max(8,g.H);
   const cv=document.createElement('canvas'); cv.width=W; cv.height=H; const x=cv.getContext('2d');
   if(m.tbg&&m.tbg!=='transparent'){ x.fillStyle=m.tbg; x.fillRect(0,0,W,H); }
   x.font=style+weight+' '+fs+'px '+ff; x.textAlign=align; x.textBaseline='middle';
@@ -1780,7 +1815,7 @@ function renderTextMedia(m){ const fs=Math.max(8,m.tfontSize||140), ff=m.tfont||
   lines.forEach((ln,i)=>{ const y=pad+lh*(i+0.5); if(m.tstroke){ x.lineWidth=Math.max(2,fs*0.09); x.strokeStyle=m.tstrokeColor||'#000000'; x.lineJoin='round'; x.strokeText(ln,ax,y); } x.fillStyle=m.tcolor||'#ffffff'; x.fillText(ln,ax,y); });
   m.w=W; m.h=H; m.el=cv; m.originalEl=cv; if(!m.tex)m.tex=newTex(); upTex(m.tex,cv); try{m.thumb=cv.toDataURL();}catch(e){} }
 function createTextClip(preset){ preset=(preset&&typeof preset==='object'&&!preset.preventDefault)?preset:{};
-  const m={id:uid(),kind:'text',name:preset.name||T('Text','Texto'),text:preset.text||'TITLE',tfontSize:preset.tfontSize||160,tweight:preset.tweight||'700',tfont:'Inter, sans-serif',tcolor:preset.tcolor||'#ffffff',tbg:'transparent',tstroke:!!preset.tstroke,tstrokeColor:'#000000',dur:6,fps:0,color:clipColorFor('text'),folder:(state.mediaView==='grid'&&state.mediaFolder)||null}; // file into the folder being browsed (R88 audit)
+  const m={id:uid(),kind:'text',name:preset.name||T('Text','Texto'),text:preset.text||'TITLE',tfontSize:TXT_BASE_PX,tweight:preset.tweight||'700',tfont:'Inter, sans-serif',tcolor:preset.tcolor||'#ffffff',tbg:'transparent',tstroke:!!preset.tstroke,tstrokeColor:'#000000',dur:6,fps:0,color:clipColorFor('text'),folder:(state.mediaView==='grid'&&state.mediaFolder)||null}; // [R225·6] cuerpo = resolución interna, siempre la base generosa (el tamaño en pantalla lo pone c.props.size/scale del preset) // file into the folder being browsed (R88 audit)
   renderTextMedia(m); state.media.push(m); renderMedia(); addClip(m);
   const c=state.clips[state.clips.length-1]; if(c){ if(preset.el!=null)c.props.el=preset.el; if(preset.size!=null)c.props.size=preset.size; if(preset.az!=null)c.props.az=preset.az; state.selId=c.id; state.selIds=[c.id]; }
   renderInspector(); renderTimeline(); render(); markDirty(); flashStatus(T('Text clip added','Clip de texto añadido'));
@@ -1841,8 +1876,15 @@ function collectAudioEvents(clips,lanes,tlOffset,winA,winB,depth,out,S,pVol,pFiE
       { const tot=visB-visA; fi=Math.min(fi,tot); fo=Math.min(fo,tot); if(fi+fo>tot&&fi+fo>1e-6){ const s=tot/(fi+fo); fi*=s; fo*=s; } } // [R92-T6] proportional rescale like fadeFactor — video crossfaded but its audio didn't when fadeIn+fadeOut > dur
       const e={id:c.id, buffer:buf, start:visA, off:Math.max(0,(c.inP||0)+front*(c.speed||1)), rate, dur:visB-visA, fadeIn:fi, fadeOut:fo, vol:pVol*(c.props&&c.props.volume!=null?Math.max(0,c.props.volume/100):1)};
       if(c.loop&&c.loopLen>0){ e.loopLen=c.loopLen; e.loopS=(c.inP||0); } out.push(e); } // R81: loopable audio carries its loop region
-    else if(isSeqMedia(m)&&ncUsable(m)) continue; // [R180] el caché lleva la mezcla del nest horneada y suena por su <audio> (ver vinstAudio); descender aquí además haría sonar dos veces lo de dentro. En export ncUsable() es false y esto vuelve a bajar a las fuentes.
-    else if(isSeqMedia(m)&&m.nestClips){
+    /* [R225·9] REGLA DE ORO: un nest sólo aporta sonido cuando está en una pista de AUDIO — es decir, por su clip
+       DERIVADO (`nestAudioOf`). En una pista de vídeo no se desciende: antes sí, y la mezcla de dentro salía de una
+       pista de vídeo, sin nada visible que se pudiera silenciar ni mover. Cuando SÍ se desciende se ignora el proxy
+       de composición ([R180] hacía sonar el `<audio>` del archivo horneado): la mezcla se recompone de las fuentes,
+       que es barato —sólo audio— y da el mismo resultado con o sin proxy. `vinstAudio` devuelve null para nests, así
+       que el archivo horneado ya no suena por su cuenta. El nivel MÁS ALTO del export (runExport con seqId = el
+       propio nest, que es lo que hornea ncBuild) no pasa por aquí: ahí los clips de audio del nest son de primer
+       nivel y siguen entrando normales → el proxy conserva el audio. */
+    else if(isSeqMedia(m)&&m.nestClips&&(lane&&lane.kind==='audio')){
       const nl=(m.nestLanes&&m.nestLanes.length?m.nestLanes:lanes); const r=(c.speed||1); const S2=S/r; // one inner-local second lasts S/r top seconds
       const nVol=pVol*(c.props&&c.props.volume!=null?Math.max(0,c.props.volume/100):1);
       const nfi=(c.fadeIn||0)*S, nfo=(absEnd<=visB+1e-6)?(c.fadeOut||0)*S:0;
@@ -1882,6 +1924,13 @@ function addImage(file,path){ const url=URL.createObjectURL(file); const img=new
 function addVideo(file,path){ const url=URL.createObjectURL(file); const folder=_importFolder; const v=document.createElement('video'); v.src=url;v.muted=true;v.playsInline=true;v.preload='auto';
   v.addEventListener('loadedmetadata',()=>{ const m={id:uid(),name:file.name,kind:'video',el:v,originalEl:v,srcUrl:url,tex:newTex(),w:v.videoWidth,h:v.videoHeight,dur:v.duration,fps:30,thumb:null,color:clipColorFor('video'),proxyReady:false,proxyPct:0,path:path||null,fsize:file.size||0,folder:folder||null};
     state.media.push(m); adopt(m); renderMedia(); markDirty();
+    /* [R225·11] Al IMPORTAR (diálogo o arrastre) se busca si el archivo ya tiene un proxy hecho junto a él y se
+       engancha solo. La maquinaria ya existía desde [R107] (`attachExistingProxy`: candidatos por hash exacto y luego
+       cualquier `<nombre>.dsp-proxy-*.mp4` hermano, validando por duración y borrando los corruptos), pero sólo corría
+       al REABRIR un proyecto (`reloadMedia`). Así, reimportar un clip ya proxyficado —o traerlo a un proyecto nuevo—
+       lo dejaba reproduciendo el original pesado hasta que alguien pedía «Generar proxy» a mano y descubría que ya
+       estaba. La GENERACIÓN sigue siendo manual (ADR-0003): esto sólo ADOPTA lo que ya hay en disco. */
+    if(m.path)attachExistingProxy(m,true).then(ok=>{ if(ok)flashStatus(T('Existing proxy found for ','Proxy existente encontrado para ')+m.name); }).catch(()=>{});
     detectFps(v,m,()=>{ seekMedia(m,0,true).then(()=>{makeThumb(m);render();}); }); },{once:true}); } // proxies are MANUAL now (right-click media → Generate proxy)
 function makeThumb(m){const c=document.createElement('canvas');c.width=108;c.height=64;try{c.getContext('2d').drawImage(m.originalEl||m.el,0,0,108,64);m.thumb=c.toDataURL();renderMedia();}catch(e){}}
 function detectFps(v,m,done){let fin=false;const fn=f=>{if(fin)return;fin=true;if(f>0)m.fps=f;if(done)done();};
@@ -2354,6 +2403,59 @@ function linkClips(v,a){ if(!v||!a||v.link||a.link)return; pushUndo();
   const id=uid(); v.link=id; v.avRole='v'; a.link=id; a.avRole='a';
   renderTimeline(); renderInspector(); markDirty(); reschedAudio();
   flashStatus(T('Linked','Enlazados')); }
+/* ============================================================================================================
+   [R225·9] AUDIO DE COMPOSICIÓN — el clip de audio DERIVADO
+   ------------------------------------------------------------------------------------------------------------
+   REGLA DE ORO (Beltrán): nunca suena audio que no esté visible en una pista de audio.
+   Hasta R224 un nest con sonido dentro sonaba por su clip de VÍDEO: `collectAudioEvents` descendía a sus
+   `nestClips`, y con proxy de composición ([R180]) sonaba además el `<audio>` del archivo horneado. En los dos
+   casos salía sonido de una pista de vídeo, sin nada que se pudiera silenciar, mover ni ver.
+   MODELO NUEVO, con lo que ya existía y nada más:
+     · El derivado es un CLIP DE AUDIO normal cuyo `mediaId` ES el nest, en una pista de audio del padre, marcado
+       `nestAudioOf:<id del clip de vídeo>` y enlazado a él con el `link`/`avRole` de siempre ([R170]/[R223]) →
+       se mueve, se recorta, cambia de velocidad y se deslinca como cualquier par A/V, y el doble clic entra a la
+       secuencia del nest porque ese camino sólo mira el medio del clip (es el nest).
+     · Su sonido = la mezcla de las pistas de audio del nest: `collectAudioEvents` desciende SÓLO cuando el clip
+       de nest está en una pista de AUDIO. En una pista de vídeo ya no aporta nada, y `vinstAudio` devuelve null
+       para los nests, así que el `<audio>` del proxy tampoco suena. Una sola vía, visible.
+     · `syncNestAudioClips()` lo crea si falta y lo retira si el nest se queda sin audio dentro. Se llama al
+       componer, al volver de una secuencia y al abrir proyecto.
+   `serClip` es un clon profundo → `nestAudioOf` viaja en el `.isp` sin tocar la serialización.
+   ============================================================================================================ */
+/* ¿este nest tiene sonido PROPIO dentro? = algún clip suyo en una pista de audio de su secuencia (recursivo: un
+   nest dentro de otro cuenta a través de SU derivado, que también vive en una pista de audio). */
+function nestHasInnerAudio(m,depth){ if(!isSeqMedia(m)||(depth||0)>6)return false;
+  const lanes=(m.nestLanes&&m.nestLanes.length)?m.nestLanes:[];
+  for(const c of (m.nestClips||[])){ if(c.disabled)continue; const l=lanes[c.lane]; if(!(l&&l.kind==='audio'))continue;
+    const cm=mediaById(c.mediaId); if(!cm)continue;
+    if(cm.kind==='audio'||cm.kind==='video')return true;             // un vídeo en pista de audio = la mitad de audio de un par enlazado
+    if(isSeqMedia(cm)&&nestHasInnerAudio(cm,(depth||0)+1))return true; }
+  return false; }
+function isNestAudioClip(c){ return !!(c&&c.nestAudioOf!=null); }
+/* la pista de audio donde poner el derivado, y el clip de vídeo al que pertenece */
+function syncNestAudioClips(){ let creados=0, quitados=0;
+  const vivos=new Set();
+  for(const c of state.clips.slice()){ if(isNestAudioClip(c))continue;
+    const l=state.lanes[c.lane]; if(!(l&&l.kind==='video'))continue;
+    const m=mediaById(c.mediaId); if(!isSeqMedia(m)||!nestHasInnerAudio(m))continue;
+    vivos.add(c.id);
+    if(state.clips.some(x=>x.nestAudioOf===c.id))continue;
+    const {lane:la}=nearestAudioLane(c.lane,c.start,c.dur);
+    const id=(c.link!=null)?c.link:uid();
+    if(c.link==null){ c.link=id; c.avRole='v'; }
+    const ca={id:uid(),mediaId:m.id,lane:la,start:c.start,dur:c.dur,inP:c.inP||0,name:m.name+T(' · audio',' · audio'),color:m.color,
+      fadeIn:0,fadeOut:0,props:{volume:100},kf:{},fx:[],link:id,avRole:'a',nestAudioOf:c.id};
+    if(c.speed)ca.speed=c.speed;
+    state.clips.push(ca); creados++; }
+  /* retirada: el derivado se va si su clip de vídeo desapareció o si el nest se quedó sin audio dentro. Se quita
+     también el `avRole:'v'` de la mitad de vídeo para que no quede muda por un enlace que ya no existe. */
+  for(const c of state.clips.slice()){ if(!isNestAudioClip(c))continue;
+    if(vivos.has(c.nestAudioOf))continue;
+    const vc=state.clips.find(x=>x.id===c.nestAudioOf);
+    state.clips=state.clips.filter(x=>x!==c); quitados++;
+    if(vc&&vc.link===c.link){ delete vc.link; delete vc.avRole; } }
+  if(creados||quitados){ markDirty(); reschedAudio(); }
+  return {creados,quitados}; }
 function nearestAudioLane(li,start,dur){
   const audio=state.lanes.map((l,i)=>i).filter(i=>state.lanes[i].kind==='audio');
   const libre=audio.filter(i=>!state.clips.some(c=>c.lane===i && start<c.start+c.dur-1e-6 && c.start<start+dur-1e-6));
@@ -2369,7 +2471,9 @@ function nearestAudioLane(li,start,dur){
 }
 function makeClip(m,lane,start,props,extra){
   return Object.assign({id:uid(),mediaId:m.id,lane,start:Math.max(0,start),dur:m.dur||6,inP:0,name:m.name,color:m.color,
-    fadeIn:0,fadeOut:0,props:Object.assign({az:0,el:35,size:55,rot:0,spin:0,mirror:false,opacity:100,blur:0,feather:0,crop:0,mask:'none',blend:'normal',exposure:0,contrast:0,saturation:0,temperature:0,tint:0,glow:0,chroma:0,react:'none',reactAmt:60,fulldome:false,fisheye:false,fisheyeAmt:60,equirect:(!isFlat()&&pareceEquirect(m)),eqPitch:0,/* [F7 fase 2] un 2:1 grande arranca como panorama; sólo en secuencias de domo, donde equirect significa algo */blackKey:false,blackKeyAmt:15,blackKeySoft:30,warp:'patch',secAz:60,secEl:30,volume:100,x:0,y:0,scale:100,lut:null,lutMix:100},props||{}),kf:{},fx:[]}, extra||{});
+    /* [R225·2] Un nest nace SIEMPRE máster de domo (`fulldome:true`) y nunca equirect: es el lienzo completo de su
+       propia secuencia, no un parche. Los demás tipos de medio no cambian. */
+    fadeIn:0,fadeOut:0,props:Object.assign({az:0,el:35,size:55,rot:0,spin:0,mirror:false,opacity:100,blur:0,feather:0,crop:0,mask:'none',blend:'normal',exposure:0,contrast:0,saturation:0,temperature:0,tint:0,glow:0,chroma:0,react:'none',reactAmt:60,fulldome:isSeqMedia(m),fisheye:false,fisheyeAmt:60,equirect:(!isFlat()&&!isSeqMedia(m)&&pareceEquirect(m)),eqPitch:0,/* [F7 fase 2] un 2:1 grande arranca como panorama; sólo en secuencias de domo, donde equirect significa algo */blackKey:false,blackKeyAmt:15,blackKeySoft:30,warp:'patch',secAz:60,secEl:30,volume:100,x:0,y:0,scale:100,lut:null,lutMix:100},props||{}),kf:{},fx:[]}, extra||{});
 }
 function addClip(m,lane,start){
   if(isSeqMedia(m)&&(m.id===state.activeSeqId||seqReaches(m.id,state.activeSeqId))){ flashStatus(T("Can't nest a sequence inside itself (would create a loop)",'No se puede anidar una secuencia que crearía un bucle'),'err'); return; } // [R94-UT3·U-21]
@@ -2418,9 +2522,15 @@ function drawRuler(){ const rc=$('#rulerCv'), sc=$('#tlscroll'); if(!rc||!sc)ret
 /* draw the waveform for MEDIA-time range [t0,t1] into cvs (backing store already sized to display px).
    Sample-accurate min/max/RMS straight from the AudioBuffer when zoomed in (crisp transients), else the
    peak/RMS cache (aggregated per pixel). topHalf = Premiere-style single-sided for more vertical detail. */
+/* [R225·5] Escala del VISUALIZADOR de onda (zoom vertical de la forma dibujada). Es preferencia de vista, global a la
+   línea de tiempo como `waveTopHalf`, no un dato del clip ni del proyecto: no toca el sonido ni el export, sólo el
+   dibujo. Recorrido 0,25×…8× (WSCALE_MAX = tope de los dos lados: el surco es logarítmico y 1× cae en el centro). */
+const WSCALE_MAX=8;
+function waveScale(){ const v=state.tl.waveScale; return (typeof v==='number'&&v>0)?Math.max(1/WSCALE_MAX,Math.min(WSCALE_MAX,v)):1; }
+function wsLabel(v){ return (v>=1?v.toFixed(v<10?2:1):v.toFixed(2)).replace(/\.?0+$/,''); }
 function drawAudioWaveInto(cvs,m,t0,t1,topHalf,vol){
   const x=cvs.getContext('2d'); const W=cvs.width,H=cvs.height; x.clearRect(0,0,W,H); if(t1<=t0||W<1||H<1)return;
-  const baseY=topHalf?H-1.5:H/2, amp=(topHalf?H-3:H/2-2), span=t1-t0;
+  const baseY=topHalf?H-1.5:H/2, amp=(topHalf?H-3:H/2-2), span=t1-t0; vol=Math.max(0,vol==null?1:vol)*waveScale();
   x.strokeStyle='rgba(255,255,255,0.10)'; x.beginPath(); x.moveTo(0,baseY+.5); x.lineTo(W,baseY+.5); x.stroke();
   const buf=m.buffer, ch=buf&&buf.getChannelData(0), sr=buf?buf.sampleRate:48000;
   const peaks=m.peaks||[], rms=m.rms||peaks, N=peaks.length, res=N/Math.max(1e-3,(m.dur||1));
@@ -3244,7 +3354,7 @@ function _demoAddShape(shape,fill,lane,start,dur,az,el,size){
   const m={id:uid(),kind:'shape',name:T('Shape','Forma'),shape,fill,stroke:'#0E0F11',strokeW:0,sw:512,sh:512,dur,fps:0,color:clipColorFor('shape')};
   renderShapeMedia(m); return _demoPlace(m,lane,start,dur,az,el,size); }
 function _demoAddText(text,lane,start,dur,az,el,size){
-  const m={id:uid(),kind:'text',name:text,text,tfontSize:150,tweight:'700',tfont:'Inter, sans-serif',tcolor:'#F2F4F6',tbg:'transparent',tstroke:false,tstrokeColor:'#000',dur,fps:0,color:clipColorFor('text')};
+  const m={id:uid(),kind:'text',name:text,text,tfontSize:TXT_BASE_PX,tweight:'700',tfont:'Inter, sans-serif',tcolor:'#F2F4F6',tbg:'transparent',tstroke:false,tstrokeColor:'#000',dur,fps:0,color:clipColorFor('text')};
   renderTextMedia(m); return _demoPlace(m,lane,start,dur,az,el,size); }
 async function buildDemoProject(){ hideLanding();
   _tourSkipNext=true; // [R210] la escena de demostración es para los arneses de prueba: que no le salte el tour encima
@@ -4143,14 +4253,40 @@ function _renderInspectorMain(){
   const chost=$('#grpChipHost'); if(chost){ const gg=c.groupId!=null?groupById(c.groupId):null;
     chost.innerHTML = gg ? `<div class="grpchip" id="grpChip"><span class="gc">${ICO('ring',13)}</span><span style="flex:1;">${T('Part of','Parte de')} <b>${gg.name}</b></span><span style="color:var(--ink-3);">${T('Edit group','Editar grupo')} ›</span></div>` : '';
     if(gg) $('#grpChip').onclick=()=>selectGroup(gg.id); }
-  // Adjustment layer: no source media / no transform — just opacity (wet/dry) + a pointer to the Reactive FX tab
+  /* [R225·1] CONTRATO de la capa de ajuste: es UN SOLO clip fulldome a pantalla completa que actúa sobre todo lo
+     de debajo (modelo Premiere). No tiene fuente ni Transform —cubre siempre el cuadro entero, que es exactamente
+     cómo compone `drawAdjustment`: fotografía el composite ya dibujado y le pasa la cadena por encima—, pero sí
+     tiene la cadena de efectos COMPLETA: la sección **Effects** (`#motionFx`, el catálogo entero de `FXBY`,
+     estáticos y automatizables) se construye también aquí. Antes sólo se alcanzaba desde la pestaña Reactive FX y
+     el inspector de la capa no mostraba ni un efecto, así que "todos los efectos" era falso en la práctica.
+     El grado de color NO se ofrece a propósito: el pipeline de grado vive en los shaders POR CLIP (FSW/PFD) y el
+     post-pass máster se archivó en R150 (ADR-0008) → una sección Color aquí serían mandos muertos. */
   if(c.adjust){ $('#selMeta').textContent=T('Adjustment layer','Capa de ajuste');
-    ['#secTf','#mirrorWrap','#tfRows','#secSource','#sourceRows','#secPlayback','#playbackRows','#secColor','#colorRows','#secMotion','#motionRows'].forEach(s=>{const el=$(s);if(el)el.style.display='none';});
-    ['#secFx','#fxRows'].forEach(s=>{const el=$(s);if(el)el.style.display='';}); const ia0=$('#insAudio'); if(ia0)ia0.style.display='none';
-    { const sf=$('#secFx'); if(sf){const tt=sf.querySelector('.t'); if(tt)tt.textContent=T('Adjustment Layer','Capa de ajuste');} }
+    const ia0=$('#insAudio'); if(ia0)ia0.style.display='none';
+    /* Las filas de las secciones que no aplican se VACÍAN, no sólo se ocultan: `applySecCollapse` recorre los
+       hermanos de cada cabecera y les repone `display:''` cuando su sección no está plegada, así que esconderlas
+       no basta — quedaban Azimuth/Elevation/Size/Mirror/Loop/Speed sueltos, sin cabecera, sobre la capa de ajuste
+       (visto en captura). Vaciarlas también evita arrastrar las filas del clip anterior. */
+    ['#tfRows','#sourceRows','#playbackRows','#colorRows'].forEach(s=>{const el=$(s);if(el)el.innerHTML='';});
+    ['#secFx','#fxRows','#secMotion','#motionRows'].forEach(s=>{const el=$(s);if(el)el.style.display='';}); // el clip anterior pudo ser de audio, que las esconde; applySecCollapse decide luego si van plegadas
+    /* Claves de plegado PROPIAS mientras la capa de ajuste está seleccionada. Reusar `clip`/`motion` era un choque:
+       [I1] los deja plegados por defecto para un clip normal —donde Transform queda abierto arriba— y aquí no hay
+       Transform, así que el panel entero salía en blanco (dos cabeceras con el chevron a la derecha y nada más).
+       `applySecCollapse` y el clic de `wireSecHeads` leen `dataset.sec` EN EL MOMENTO, así que basta con cambiarlo:
+       claves nuevas sin valor guardado ⇒ desplegadas, y el usuario puede plegarlas sin afectar a los clips normales. */
+    { const sf=$('#secFx'), sm=$('#secMotion'); if(sf)sf.dataset.sec='adjfx'; if(sm)sm.dataset.sec='adjeff'; }
+    { const sf=$('#secFx'); if(sf){const tt=sf.querySelector('.t'); if(tt)tt.textContent=T('Adjustment Layer','Capa de ajuste'); sf.title=T('Full-frame layer — its effects affect everything below it','Capa a cuadro completo — sus efectos afectan todo lo de debajo');}
+      const sm=$('#secMotion'); if(sm){const tt=sm.querySelector('.t'); if(tt)tt.textContent=T('Effects','Efectos');} }
     $('#fxRows').innerHTML=''; buildRows('#fxRows',[['opacity','Opacity','%',0,100]],c);
-    const hint=document.createElement('div'); hint.style.cssText='padding:8px 14px 4px;font-size:11px;color:var(--ink-3);line-height:1.55;'; hint.innerHTML=T('Effects on this layer affect <b>everything below it</b> in the timeline. Add them in the <b>Reactive FX</b> tab.','Los efectos de esta capa afectan <b>todo lo de debajo</b> en la línea de tiempo. Añádelos en la pestaña <b>Reactive FX</b>.'); $('#fxRows').appendChild(hint);
+    $('#motionRows').innerHTML='';
+    { const fxb=document.createElement('div'); fxb.id='motionFx'; fxb.style.cssText='display:flex;flex-direction:column;gap:5px;'; $('#motionRows').appendChild(fxb); renderMotionFx(c);
+      const sub=$('#secMotionFx'); if(sub)sub.style.display='none'; } // la sub-cabecera de renderMotionFx también se llama "Effects": con la sección ya titulada así, aquí sobra (dos veces la misma palabra, una encima de la otra)
+    // renderMotionFx llama wireSecHeads+applySecCollapse…
+    // …y por eso el ocultado va DESPUÉS: lo que applySecCollapse repone, esto lo vuelve a quitar.
+    ['#secTf','#mirrorWrap','#tfRows','#secSource','#sourceRows','#secPlayback','#playbackRows','#secColor','#colorRows'].forEach(s=>{const el=$(s);if(el)el.style.display='none';});
+    ['#secFx','#secMotion'].forEach(s=>{const el=$(s);if(el)el.style.display='';});
     refreshInspector(); return; }
+  { const sf=$('#secFx'), sm=$('#secMotion'); if(sf)sf.dataset.sec='clip'; if(sm)sm.dataset.sec='motion'; } // [R225·1] devuelve las claves de plegado normales tras haber mirado una capa de ajuste
   // Audio clips get a dedicated Volume/Fade panel — the dome Transform/Effects don't apply to sound
   const isAud=!!(m&&m.kind==='audio')||isAudioClip(c);
   { const d=isAud?'none':''; ['#secTf','#mirrorWrap','#secFx','#tfRows','#fxRows','#secSource','#sourceRows','#secPlayback','#playbackRows','#secColor','#colorRows','#secMotion','#motionRows'].forEach(s=>{const el=$(s);if(el)el.style.display=d;}); const ia=$('#insAudio'); if(ia)ia.style.display=isAud?'block':'none'; }
@@ -4259,44 +4395,43 @@ function _renderInspectorMain(){
       b.onclick=()=>{ const cc=selClip(); if(!cc)return; pushUndo(); apply(cc,!b.classList.contains('on'));
         if(_raOn)raInvalidate(); render(); markDirty(); renderInspector(); }; };
 
-    /* [R216] Dome master / Patch — a nest clip gets its OWN, clearer toggle instead of the generic "Fulldome
-       src" switch below (same underlying prop, `c.props.fulldome`): a nest created inside a dome sequence
-       starts as a fulldome master (drawn 1:1 via PFD, Size zooms the whole thing around the zenith); Patch
-       draws the SAME clip through the normal gnomonic path (az/el/size place it like any other clip — verified
-       against the drawClip branch at ~L835, `if(c.props.fulldome){…PFD…} … else {…PW gnomonic patch…}`). */
+    /* [R225·2] Un NEST es SIEMPRE máster de domo. El conmutador Dome master / Patch de [R216] se archivó
+       (`_backup/deprecated/20260730-nest-dome-placement-toggle.js`, ADR-0007): una composición es el lienzo
+       completo de su propia secuencia, así que ubicarla como un parche gnomónico deformaba dos veces y era la
+       fuente del 90 % de las confusiones. El motor de parche (PW) NO se toca — lo siguen usando todos los demás
+       tipos de clip. Aquí sólo desaparece la elección: `props.fulldome` queda fijado a true al crear el clip
+       (nestSelection / createComposition / addClip) y, para los `.isp` guardados en Patch, MIGRADO al abrir
+       (`migrateNestFulldome`). Transform sigue aplicando: Size = zoom cenital, rot = giro, color, etc. */
     if(isSeqMedia(m)){
-      const master=!!c.props.fulldome;
-      const dmRow=document.createElement('div'); dmRow.className='prow'; dmRow.style.cssText='flex-direction:column;align-items:stretch;gap:4px;padding-top:5px;padding-bottom:6px;';
-      dmRow.innerHTML=`<div style="display:flex;align-items:center;gap:8px;">
-          <span class="kf" style="cursor:default;visibility:hidden;"></span>
-          <span class="lab" style="flex:1;min-width:0;">${T('Dome placement','Ubicación en domo')}</span>
-          <div class="seg2" id="domeModeSeg"><button data-v="master" class="${master?'on':''}">${T('Dome master','Máster domo')}</button><button data-v="patch" class="${!master?'on':''}">${T('Patch','Parche')}</button></div>
-        </div>
-        <div style="font-size:10px;color:var(--ink-3);line-height:1.4;">${master
-          ? T('Size zooms the whole dome around the zenith — off-center content exits at the rim','Size hace zoom del domo completo sobre el cenit — lo descentrado sale por el borde')
-          : T('Places and scales like a regular clip','Se ubica y escala como un clip normal')}</div>`;
-      $('#sourceRows').appendChild(dmRow);
-      dmRow.querySelectorAll('#domeModeSeg button').forEach(b=>b.onclick=()=>{ if(b.classList.contains('on'))return; const cc=selClip(); if(!cc)return; pushUndo();
-        cc.props.fulldome=(b.dataset.v==='master'); if(cc.props.fulldome)cc.props.equirect=false;
-        if(_raOn)raInvalidate(); render(); markDirty(); renderInspector(); });
+      if(!c.props.fulldome){ c.props.fulldome=true; c.props.equirect=false; } // salvavidas: cualquier ruta que aún deje un nest en patch se corrige al mirarlo
     } else {
       const fdrow=swRow('fdToggle',T('Fulldome src','Fuente fulldome'),T('Map 1:1 to dome (no warp)','Mapear 1:1 al domo (sin warp)'),!!c.props.fulldome);
-      swBind(fdrow,'fdToggle',(cc,on)=>{ cc.props.fulldome=on; if(on)cc.props.equirect=false; });
+      swBind(fdrow,'fdToggle',(cc,on)=>{ cc.props.fulldome=on; if(on)cc.props.equirect=false; if(!on)cc.props.fisheye=false; }); // [R225·3] sin fuente fulldome no hay ojo de pez que pre-deformar
     }
     // [F7] Equirect 360° source: the clip is a 2:1 panorama → mapped onto the dome. Azimuth (Transform) = camera yaw; Tilt = pitch. Mutually exclusive with Fulldome src.
+    // [R225·2] DESHABILITADO para nests: un nest ya es el máster del domo, tratarlo como panorama 2:1 no significa nada.
+    if(!isSeqMedia(m)){
     const eqrow=swRow('eqToggle',T('Equirect 360°','Equirect 360°'),T('Panorama → dome (Azimuth = yaw)','Panorama → domo (Azimut = giro)'),!!c.props.equirect);
-    swBind(eqrow,'eqToggle',(cc,on)=>{ cc.props.equirect=on; if(on)cc.props.fulldome=false; });
+    swBind(eqrow,'eqToggle',(cc,on)=>{ cc.props.equirect=on; if(on)cc.props.fulldome=false; }); }
     if(c.props.equirect){ const eprow=document.createElement('div'); eprow.className='prow';
       eprow.innerHTML=`<span class="kf" style="cursor:default;visibility:hidden;"></span><span class="lab" style="font-size:11px;color:var(--ink-2);">${T('Tilt','Inclinación')}</span>
         <input type="range" id="eqPitch" min="-90" max="90" value="${Math.round(c.props.eqPitch||0)}" style="flex:1;height:20px;"><span class="tnum" id="eqPitchV" style="width:40px;text-align:right;color:var(--ink-dim);">${Math.round(c.props.eqPitch||0)}°</span>`;
       $('#sourceRows').appendChild(eprow); // [Rev1] Source section
       const pr=eprow.querySelector('#eqPitch'); pr.onpointerdown=()=>pushUndo(); pr.oninput=e=>{ const cc=selClip(); if(!cc)return; cc.props.eqPitch=+e.target.value; eprow.querySelector('#eqPitchV').textContent=(+e.target.value)+'°'; if(_raOn)raInvalidate(); render(); }; pr.onchange=()=>markDirty(); }
     // Fisheye pre-warp (R83) — for FLAT clips that lack the fisheye curvature a dome master needs
-    const fhrow=swRow('fhToggle',T('Fisheye','Ojo de pez'),T('Warp flat → fisheye','Deformar plano → ojo de pez'),!!c.props.fisheye);
-    swBind(fhrow,'fhToggle',(cc,on)=>{ cc.props.fisheye=on; });
+    /* [R225·3] El ojo de pez SÓLO tiene sentido con la fuente fulldome activa: es la pre-deformación que le da a
+       un plano la curvatura que un máster de domo necesita. Sin fulldome el clip ya entra por el camino gnomónico
+       (que curva por su cuenta) y el resultado era una deformación doble sin ningún uso. La fila se deshabilita en
+       vez de esconderse para que se vea POR QUÉ no se puede tocar (tooltip). Un nest siempre tiene fulldome → la
+       fila queda habilitada ahí. Los proyectos viejos con fisheye y sin fulldome siguen renderizando igual; el
+       dato se limpia en cuanto se toca el interruptor de fulldome. */
+    const fhEnab=!!c.props.fulldome;
+    const fhrow=swRow('fhToggle',T('Fisheye','Ojo de pez'),fhEnab?T('Warp flat → fisheye','Deformar plano → ojo de pez'):T('Needs the Fulldome src switch on','Requiere la fuente fulldome activada'),!!c.props.fisheye);
+    if(!fhEnab){ fhrow.style.opacity='.42'; const fb=fhrow.querySelector('#fhToggle'); if(fb){ fb.style.pointerEvents='none'; fb.setAttribute('aria-disabled','true'); } }
+    else swBind(fhrow,'fhToggle',(cc,on)=>{ cc.props.fisheye=on; });
     // Amount vive en su PROPIA fila y sólo cuando Fisheye está encendido (diseño RevDomo:317-319) — antes era un
     // number pegado a la derecha del checkbox, semi-transparente cuando no aplicaba.
-    if(c.props.fisheye){ const farow=document.createElement('div'); farow.className='prow';
+    if(fhEnab&&c.props.fisheye){ const farow=document.createElement('div'); farow.className='prow';
       const amt=c.props.fisheyeAmt!=null?c.props.fisheyeAmt:60;
       farow.innerHTML=`<span class="kf" style="cursor:default;visibility:hidden;"></span><span class="lab" style="font-size:11px;color:var(--ink-2);">${T('Amount','Cantidad')}</span>
         <input type="range" id="fhAmt" min="0" max="100" value="${amt}" style="flex:1;height:20px;"><span class="tnum" id="fhAmtV" style="width:40px;text-align:right;color:var(--ink-dim);">${amt}</span>`;
@@ -4444,16 +4579,15 @@ function _renderInspectorMain(){
       </div>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
         <div class="seg2" id="txtAlign" style="height:20px;">${[['left','L'],['center','C'],['right','R']].map(a=>`<button data-a="${a[0]}" class="${align===a[0]?'on':''}" title="${a[0]}">${a[1]}</button>`).join('')}</div>
-        <input type="number" id="txtSize" value="${m.tfontSize||160}" min="8" max="600" title="${T('Size (px)','Tamaño (px)')}" style="width:54px;${inp}">
-        <input type="number" id="txtLineH" value="${(m.tlineH||1.25)}" min="0.7" max="3" step="0.05" title="${T('Line height','Interlineado')}" style="width:50px;${inp}">
-        <input type="color" id="txtColor" value="${m.tcolor||'#ffffff'}" title="${T('Color','Color')}" style="width:30px;height:20px;padding:0;background:none;border:none;cursor:pointer;">
+        <input type="color" id="txtColor" value="${m.tcolor||'#ffffff'}" title="${T('Text color','Color del texto')}" style="width:30px;height:20px;padding:0;background:none;border:none;cursor:pointer;">
+        <input type="color" id="txtStrokeCol" value="${m.tstrokeColor||'#000000'}" title="${T('Outline color','Color del contorno')}" style="width:30px;height:20px;padding:0;background:none;border:none;cursor:pointer;${m.tstroke?'':'opacity:.35;'}">
         ${ioswHtml('txtStroke',!!m.tstroke,T('Outline','Contorno'))}
       </div>
       <button class="mbtn" id="txtLoadFont" style="height:20px;justify-content:center;gap:6px;">${ICO('upload',12)} ${T('Load font…','Cargar fuente…')}</button>`;
     $('#fxRows').appendChild(trow);
     trow.querySelector('#txtContent').value=m.text||'';
-    const reTxt=()=>{ const cc=selClip(); if(!cc)return; const mm=mediaById(cc.mediaId); if(!mm)return; mm.text=$('#txtContent').value; mm.tcolor=$('#txtColor').value; mm.tfontSize=+$('#txtSize').value||160; mm.tstroke=$('#txtStroke').checked; mm.tfont=$('#txtFont').value; mm.tweight=$('#txtWeight').value; mm.tlineH=Math.max(0.7,+$('#txtLineH').value||1.25); renderTextMedia(mm); renderMedia(); render(); markDirty(); };
-    trow.querySelector('#txtContent').oninput=reTxt; trow.querySelector('#txtColor').oninput=reTxt; trow.querySelector('#txtSize').onchange=reTxt; ioswBind(trow,'txtStroke').onchange=reTxt; trow.querySelector('#txtFont').onchange=reTxt; trow.querySelector('#txtWeight').onchange=reTxt; trow.querySelector('#txtLineH').onchange=reTxt;
+    const reTxt=()=>{ const cc=selClip(); if(!cc)return; const mm=mediaById(cc.mediaId); if(!mm)return; mm.text=$('#txtContent').value; mm.tcolor=$('#txtColor').value; mm.tstroke=$('#txtStroke').checked; mm.tstrokeColor=$('#txtStrokeCol').value; mm.tfont=$('#txtFont').value; mm.tweight=$('#txtWeight').value; renderTextMedia(mm); renderMedia(); render(); markDirty(); };
+    trow.querySelector('#txtContent').oninput=reTxt; trow.querySelector('#txtColor').oninput=reTxt; trow.querySelector('#txtStrokeCol').oninput=reTxt; ioswBind(trow,'txtStroke').onchange=()=>{ reTxt(); renderInspector(); }; trow.querySelector('#txtFont').onchange=reTxt; trow.querySelector('#txtWeight').onchange=reTxt;
     trow.querySelector('#txtItalic').onclick=()=>{ const cc=selClip(); if(!cc)return; const mm=mediaById(cc.mediaId); if(!mm)return; mm.titalic=!mm.titalic; trow.querySelector('#txtItalic').classList.toggle('on',mm.titalic); renderTextMedia(mm); renderMedia(); render(); markDirty(); };
     trow.querySelectorAll('#txtAlign button').forEach(b=>b.onclick=()=>{ const cc=selClip(); if(!cc)return; const mm=mediaById(cc.mediaId); if(!mm)return; mm.talign=b.dataset.a; trow.querySelectorAll('#txtAlign button').forEach(x=>x.classList.toggle('on',x===b)); renderTextMedia(mm); renderMedia(); render(); markDirty(); });
     trow.querySelector('#txtLoadFont').onclick=()=>loadCustomFont().then(fam=>{ if(fam){ const cc=selClip(); const mm=cc&&mediaById(cc.mediaId); if(mm){ mm.tfont=fam; renderTextMedia(mm); renderMedia(); render(); markDirty(); } } });
@@ -4480,9 +4614,8 @@ function _renderInspectorMain(){
     anrow.innerHTML=`<div style="display:flex;align-items:center;gap:6px;">
         <span style="flex:1"></span>
         ${ioswHtml('motionPrev',state.motionPreview!==false,T('Live','En vivo'),T('Animate live in the editor while paused','Animar en vivo en el editor en pausa'))}</div>
-      <div style="display:flex;flex-wrap:wrap;gap:6px;">${chips}</div>
-      <div id="animList" style="display:flex;flex-direction:column;gap:6px;"></div>
-      <span style="font-size:11px;color:var(--ink-dim);line-height:1.35;">${T('Click or drag a chip onto the clip. Loops forever — independent of keyframes.','Haz clic o arrastra un chip al clip. Bucle infinito, independiente de los keyframes.')}</span>`;
+      <div style="display:flex;flex-wrap:wrap;gap:6px;" title="${T('Click or drag a chip onto the clip — loops forever, independent of keyframes','Clic o arrastra un chip al clip — bucle infinito, independiente de los keyframes')}">${chips}</div>
+      <div id="animList" style="display:flex;flex-direction:column;gap:6px;"></div>`; /* [R225·4] el párrafo de ayuda pasa a tooltip de la fila de chips: en Motion/Effects los textos instructivos ocupaban más que los propios mandos */
     $('#motionRows').appendChild(anrow);
     ioswBind(document,'motionPrev').onchange=e=>{ state.motionPreview=e.target.checked; if(state.motionPreview)startMotionPreview(); else { stopMotionPreview(); _previewClock=0; render(); } };
     anrow.querySelectorAll('.animchip').forEach(b=>{ b.onclick=()=>{ const cc=selClip(); if(!cc)return; pushUndo(); addAnimPreset(cc,b.dataset.k); buildAnimList(cc); render(); renderTimeline(); startMotionPreview(); markDirty(); };
@@ -4498,10 +4631,10 @@ function _renderInspectorMain(){
     const pr=$('#playbackRows'), ph=$('#secPlayback'); if(pr&&ph){ const e=!pr.children.length; ph.style.display=e?'none':''; if(e)pr.style.display='none'; } }
   refreshInspector();
 }
-/* draw a real (max-abs envelope) waveform, amplitude scaled by the clip volume */
+/* draw a real (max-abs envelope) waveform, amplitude scaled by the clip volume × the display scale [R225·5] */
 function drawWaveInto(cv,peaks,vol,rms){ const x=cv.getContext('2d'); const W=cv.width,H=cv.height,mid=H/2,amp=H/2-2; x.clearRect(0,0,W,H); x.fillStyle='#12141A'; x.fillRect(0,0,W,H);
   x.strokeStyle='rgba(255,255,255,0.12)'; x.beginPath(); x.moveTo(0,mid+.5); x.lineTo(W,mid+.5); x.stroke();
-  const N=peaks?peaks.length:0; if(!N)return; vol=Math.max(0,vol==null?1:vol); rms=rms||peaks;
+  const N=peaks?peaks.length:0; if(!N)return; vol=Math.max(0,vol==null?1:vol)*waveScale(); rms=rms||peaks;
   x.fillStyle='rgba(158,165,173,0.5)'; // peak (light)
   for(let px=0;px<W;px++){ const pi=Math.min(N-1,Math.floor(px/W*N)); const a=Math.min(1,(peaks[pi]||0)*vol); const bh=Math.max(0.6,a*amp); x.fillRect(px,mid-bh,1,bh*2); }
   x.fillStyle='#C5CAD0'; // RMS body (bright)
@@ -4517,12 +4650,25 @@ function buildAudioInspector(c,m){ const host=$('#insAudio'); if(!host)return; c
   host.innerHTML=`<button class="sechead"><span style="color:var(--ink-dim);display:flex;">${ICO('chevDown',13)}</span><span class="t">${T('Audio','Audio')}</span><span class="ln"></span></button>
     ${hayOnda?`<div style="padding:6px 12px 2px;"><canvas id="auWave" width="248" height="56" style="width:100%;height:56px;border-radius:2px;"></canvas></div>`:''}
       <div class="prow"><span class="kf" style="cursor:default;"></span><span class="lab">${T('Volume','Volumen')}</span><div class="field" id="auVol"><div class="track"><i style="width:${volPct}%"></i></div><div class="box"><span class="num">${Math.round(vol)}</span><span class="u">%</span></div></div></div>
-      <div class="prow"><span class="kf" style="cursor:default;"></span><span class="lab">${T('Fade in','Entrada')}</span><span style="flex:1;"></span><input type="number" id="auFi" class="tnum" value="${(+(c.fadeIn||0)).toFixed(2)}" min="0" max="60" step="0.1" style="${box42}"><span style="color:var(--ink-dim);font-size:11px;width:14px;text-align:right;">s</span></div>
-      <div class="prow"><span class="kf" style="cursor:default;"></span><span class="lab">${T('Fade out','Salida')}</span><span style="flex:1;"></span><input type="number" id="auFo" class="tnum" value="${(+(c.fadeOut||0)).toFixed(2)}" min="0" max="60" step="0.1" style="${box42}"><span style="color:var(--ink-dim);font-size:11px;width:14px;text-align:right;">s</span></div>
+      <div class="prow" title="${T('Vertical zoom of the drawn waveform — display only, it does not change the sound','Zoom vertical de la onda dibujada — sólo visual, no cambia el sonido')}"><span class="kf" style="cursor:default;"></span><span class="lab">${T('Wave scale','Escala de onda')}</span><div class="field" id="auWScale"><div class="track"><i style="width:${Math.round((Math.log(waveScale())/Math.log(WSCALE_MAX)+1)/2*100)}%"></i></div><div class="box"><span class="num">${wsLabel(waveScale())}</span><span class="u">×</span></div></div></div>
       <div class="prow" title="${T('Single-sided (Premiere-style)','Un solo lado (estilo Premiere)')}"><span class="kf" style="cursor:default;"></span><span class="lab" style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${T('Single-sided wave','Onda a un lado')}</span><button class="iosw ${state.tl.waveTopHalf?'on':''}" id="auHalf" role="switch" aria-checked="${state.tl.waveTopHalf?'true':'false'}"><i></i></button></div>
-      <div style="padding:2px 12px 10px;font-size:11px;color:var(--ink-dim);line-height:1.4;">${T('Zoom the timeline in to see transients in sample detail. Per-clip volume & fades; each copy plays independently.','Acércate en la línea de tiempo para ver transientes con detalle de muestra. Volumen y fundidos por clip; cada copia suena independiente.')}</div>`;
+      <div style="padding:2px 12px 10px;font-size:11px;color:var(--ink-dim);line-height:1.4;">${T('Zoom the timeline in to see transients in sample detail.','Acércate en la línea de tiempo para ver transientes con detalle de muestra.')}</div>`;
   const cv=host.querySelector('#auWave'); if(cv&&hayOnda)drawWaveInto(cv,m.peaks,vol/100,m.rms);
   { const hf=host.querySelector('#auHalf'); if(hf)hf.onclick=()=>{ state.tl.waveTopHalf=!state.tl.waveTopHalf; hf.classList.toggle('on',state.tl.waveTopHalf); hf.setAttribute('aria-checked',state.tl.waveTopHalf?'true':'false'); redrawAudioWaves(); markDirty(); }; }
+  /* [R225·5] Escala del visualizador: MISMA gramática de fila que Volume (arrastre horizontal + doble clic para
+     escribir), pero es una preferencia de VISTA —como "Onda a un lado"—, no un dato del clip: una sola escala para
+     toda la línea de tiempo, que es lo que se quiere al comparar pistas. Recorrido logarítmico 0,25×…8× para que el
+     centro del surco sea 1× y los dos extremos sean igual de alcanzables. */
+  { const fld=host.querySelector('#auWScale'); if(fld){ const fill=fld.querySelector('.track>i'), num=fld.querySelector('.num');
+    const set=v=>{ v=Math.max(1/WSCALE_MAX,Math.min(WSCALE_MAX,v)); state.tl.waveScale=v;
+      fill.style.width=((Math.log(v)/Math.log(WSCALE_MAX)+1)/2*100)+'%'; num.textContent=wsLabel(v);
+      if(cv&&hayOnda)drawWaveInto(cv,m.peaks,(selClip()&&selClip().props.volume!=null?selClip().props.volume:100)/100,m.rms); scheduleWaves(); };
+    fld.addEventListener('pointerdown',e=>{ if(e.button!==0)return; e.preventDefault();
+      const x0=e.clientX, l0=Math.log(waveScale())/Math.log(WSCALE_MAX);
+      const mv=ev=>set(Math.pow(WSCALE_MAX, l0+(ev.clientX-x0)*(ev.shiftKey?0.0015:0.006)));
+      const up=()=>{ document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up); };
+      document.addEventListener('pointermove',mv); document.addEventListener('pointerup',up); });
+    fld.addEventListener('dblclick',()=>{ appPrompt(T('Wave scale (1 = normal)','Escala de onda (1 = normal)'),wsLabel(waveScale()),v=>{ if(v==null)return; const nv=parseFloat(String(v).replace(',','.')); if(isNaN(nv)||nv<=0)return; set(nv); }); }); } }
   /* arrastre horizontal sobre el surco, como las demás filas — no se reusa startValDrag porque el volumen necesita
      además repintar la onda y aplicar la ganancia en vivo sobre el nodo que ya está sonando. */
   { const fld=host.querySelector('#auVol'); const fill=fld.querySelector('.track>i'), num=fld.querySelector('.num');
@@ -4533,9 +4679,10 @@ function buildAudioInspector(c,m){ const host=$('#insAudio'); if(!host)return; c
       const mv=ev=>set(v0+(ev.clientX-x0)*(ev.shiftKey?0.25:ev.altKey?4:1));
       const up=()=>{ document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up); renderTimeline(); markDirty(); };
       document.addEventListener('pointermove',mv); document.addEventListener('pointerup',up); }); }
-  const fi=host.querySelector('#auFi'), fo=host.querySelector('#auFo');
-  fi.onchange=()=>{ const cc=selClip(); if(!cc)return; pushUndo(); cc.fadeIn=Math.max(0,+fi.value||0); renderTimeline(); if(state.playing)startAudio(); markDirty(); };
-  fo.onchange=()=>{ const cc=selClip(); if(!cc)return; pushUndo(); cc.fadeOut=Math.max(0,+fo.value||0); renderTimeline(); if(state.playing)startAudio(); markDirty(); };
+  /* [R225·5] Sin filas de Fade in / Fade out: desde [R223] el fundido de un clip de AUDIO se hace arrastrando su
+     tirador en la esquina del clip y ES el volumen, así que el par de cajas numéricas era un segundo mando para lo
+     mismo, más lejos y sin ver el resultado. `c.fadeIn`/`c.fadeOut` siguen siendo los mismos datos (el gesto los
+     escribe, collectAudioEvents los aplica) — sólo desaparece el duplicado del inspector. */
 }
 /* [I3] pen (point) mask editor: draw silhouettes with points, invert, feather, expand — several per clip. Renders through
    rasterizePenMasks → c.maskTex (the custom-mask sampler). Points are 0..1 in the clip's mask space. */
@@ -5753,7 +5900,8 @@ function vinstDispose(id){ const vi=_vinst.get(id); if(!vi)return; if(vi.cd){try
    (proxies carry no audio track); decodes only the audio stream, so it's cheap even on a 12GB movie.
    [R92-T6] keyed by URL: it used to cache `null` forever if srcUrl wasn't loaded yet, and kept playing the OLD
    file's sound after Replace/Locate media. preservesPitch=false matches the export (which resamples). */
-function vinstAudio(vi,m){ const url=(m&&m.kind==='nest')?(ncUsable(m)?m.ncUrl:null):(m&&m.srcUrl); if(!url||m._noAudio)return (m&&m._noAudio)?null:(vi.ael||null); // [R92-T6] a probed-silent video never gets a demuxer again · [R180] un nest cacheado suena por la mezcla horneada en su propio archivo
+function vinstAudio(vi,m){ if(m&&m.kind==='nest')return null; /* [R225·9] REGLA DE ORO: la mezcla de un nest suena SÓLO por su clip de audio derivado, nunca por el <audio> del archivo horneado del proxy ([R180]) — que salía de una pista de vídeo y no se podía silenciar */
+  const url=(m&&m.srcUrl); if(!url||m._noAudio)return (m&&m._noAudio)?null:(vi.ael||null); // [R92-T6] a probed-silent video never gets a demuxer again
   if(vi.ael&&vi._aelUrl===url)return vi.ael;
   if(vi.ael){ try{vi.ael.pause();vi.ael.removeAttribute('src');vi.ael.load();}catch(e){} }
   const a=new Audio(); a.preload='auto'; try{a.preservesPitch=false;}catch(e){} a.src=url; vi.ael=a; vi._aelUrl=url; return a; }
@@ -5825,9 +5973,17 @@ function driveCD(vi,c,m,local){ if(!vi)return false;
 function collectDrawnVideoClips(clips,lanes,t,depth,out,pGain,pRate){ out=out||[]; if((depth||0)>6||!clips||!lanes)return out; const pg=(pGain==null)?1:pGain, pr=(pRate==null)?1:pRate;
   const sc=state.clips, sl=state.lanes; state.clips=clips; state.lanes=lanes; let drawn; try{ drawn=compositeClips(t); }finally{ state.clips=sc; state.lanes=sl; }
   for(const x of drawn){ const c=x.c, m=mediaById(c.mediaId); if(!m)continue; const lt=srcT(c,t);
-    const lane=lanes[c.lane]; const g=pg*((lane&&lane.mute)?0:1)*fadeFactor(c,t)*((c.props&&c.props.volume!=null)?Math.max(0,c.props.volume/100):1); const rr=pr*(c.speed||1);
+    const lane=lanes[c.lane]; let g=pg*((lane&&lane.mute)?0:1)*fadeFactor(c,t)*((c.props&&c.props.volume!=null)?Math.max(0,c.props.volume/100):1); const rr=pr*(c.speed||1);
+    /* [R225·9] REGLA DE ORO, tercera vía cerrada: DENTRO de un nest (depth>0) el `<audio>` de previsualización de un
+       clip de vídeo se silencia. Ese camino sacaba sonido de una pista de VÍDEO de una secuencia que ni siquiera está
+       abierta, sin nada que se pudiera silenciar. Lo que sí suena de un nest es su mezcla de pistas de AUDIO, y suena
+       por el clip derivado del padre. Consecuencia asumida: un vídeo metido en un nest cuya mitad de audio no existe
+       (archivo por encima del tope de LINK_MAX_BYTES, o sin sonido demuxable) queda mudo — que es exactamente lo que
+       la regla pide, porque su sonido no está representado en ninguna pista. La ganancia se pone a 0 y no se inventa
+       un flag: `gain<=0.001` ya es lo que mutea en las dos ramas (play() y ploop()) y se compone hacia dentro. */
+    if((depth||0)>0) g=0;
     if(m.kind==='video') out.push({c,m,local:lt,gain:g,rate:rr});
-    else if(m.kind==='nest'&&ncUsable(m)) out.push({c,m,local:lt,gain:g,rate:rr}); // [R180] AQUÍ está la ganancia: el caché entra como un vídeo y NO se desciende — quince decodificaciones pasan a ser una
+    else if(m.kind==='nest'&&ncUsable(m)) out.push({c,m,local:lt,gain:0,rate:rr}); // [R180] el caché entra como un vídeo y NO se desciende · [R225·9] su audio horneado NO suena aquí (vinstAudio devuelve null para nests): la mezcla va por el clip derivado
     else if(m.kind==='nest'&&m.nestClips) collectDrawnVideoClips(m.nestClips,(m.nestLanes&&m.nestLanes.length?m.nestLanes:lanes),lt,(depth||0)+1,out,g,rr); }
   return out; }
 let playRaf=0,lastT=0,_phLast=null,_audioBase=0,_audioHead=0;
@@ -7269,7 +7425,22 @@ function ensureSequences(){ let seqs=state.media.filter(isSeqMedia);
   if(!state.openSeqs||!state.openSeqs.length || !state.openSeqs.some(id=>isSeqMedia(mediaById(id)))) state.openSeqs=[seqs[0].id];
   if(!activeSeq()) state.activeSeqId=state.openSeqs[0]||seqs[0].id;
   loadSeqIntoState(activeSeq()); }
-function saveActiveSeq(){ const s=activeSeq(); if(!s)return; s.nestClips=state.clips; s.nestLanes=state.lanes; s.nestMarkers=state.markers; s.nestGroups=state.groups; s.nestPlayhead=state.playhead; s.nestWorkIn=state.workIn; s.nestWorkOut=state.workOut; s.dur=seqDur(s); } /* [archivado 20260725] s.grade */ // nests render via the per-frame _nestPool (no per-media FBO); serMedia omits transient GL fields
+function saveActiveSeq(){ const s=activeSeq(); if(!s)return; s.nestClips=state.clips; s.nestLanes=state.lanes; s.nestMarkers=state.markers; s.nestGroups=state.groups; s.nestPlayhead=state.playhead; s.nestWorkIn=state.workIn; s.nestWorkOut=state.workOut; s.dur=seqDur(s);
+  if(clampNestInstances(s.id))scheduleTimeline(); } /* [archivado 20260725] s.grade */ // nests render via the per-frame _nestPool (no per-media FBO); serMedia omits transient GL fields
+/* [R225·7] Si el contenido de un nest se ACORTA (se borra o se recorta lo último de dentro), sus instancias en las
+   secuencias padre se acortan solas. Antes el límite `seqDur(m)` sólo se consultaba al intentar EXTENDER un clip de
+   nest (`trimItem`, `_applyLoopToggle`): al reducir el contenido, la instancia del padre seguía midiendo lo de antes y
+   su cola mostraba el último fotograma congelado sin decir por qué. Se engancha a `saveActiveSeq`, que es el punto por
+   el que pasa SIEMPRE que se abandona o se guarda una secuencia (switchSeq · closeSeqTab · serProject).
+   Sólo recorta: extender el contenido NO estira la instancia (eso sigue siendo un recorte manual, como en Premiere).
+   Los clips en bucle (`c.loop`) se respetan — su duración no la manda el material disponible. */
+function clampNestInstances(nestId){ const nm=mediaById(nestId); if(!isSeqMedia(nm))return 0; const lim=seqDur(nm); let n=0;
+  const fix=arr=>{ for(const c of (arr||[])){ if(c.mediaId!==nestId||c.loop)continue;
+    const mx=Math.max(0.05,(lim-(c.inP||0))/(c.speed||1));
+    if(c.dur>mx+1e-6){ c.dur=mx; n++; } } };
+  fix(state.clips);
+  for(const m of state.media) if(m.kind==='nest'&&m.nestClips!==state.clips) fix(m.nestClips);
+  return n; }
 function loadSeqIntoState(s){ if(!s)return; state.clips=s.nestClips||[]; state.lanes=(s.nestLanes&&s.nestLanes.length?s.nestLanes:defLanes());
   if(!s.comp && !state.lanes.some(l=>l.kind==='audio')){ const n=state.lanes.filter(l=>l.kind==='audio').length+1;
     /* [R165] unshift, no push: desde R155 el índice 0 es el FONDO de la pila, que es donde va el audio.
@@ -7307,10 +7478,11 @@ function updModeUI(){ const fl=isFlat(), room=isRoom(); // a 360 room has a real
 function openSeq(id){ const m=mediaById(id); if(!isSeqMedia(m))return; if(!state.openSeqs)state.openSeqs=[]; if(!state.openSeqs.includes(id))state.openSeqs.push(id); switchSeq(id); }
 function switchSeq(id){ const m=mediaById(id); if(!isSeqMedia(m))return; if(id===state.activeSeqId){ if(!state.openSeqs.includes(id))state.openSeqs.push(id); renderSeqBar(); return; }
   saveActiveSeq(); state.activeSeqId=id; if(!state.openSeqs.includes(id))state.openSeqs.push(id); loadSeqIntoState(m); // [R92-T1] per-sequence undo stacks survive the switch
+  syncNestAudioClips(); // [R225·9] al ATERRIZAR en una secuencia: si alguno de sus nests estrenó (o perdió) audio dentro, su clip derivado se crea/retira aquí
   renderSeqBar(); renderMedia(); renderTimeline(); renderInspector(); renderWork(); render(); updStatus(); updFmtChip(); projTitle(); flashStatus(T('Sequence: ','Secuencia: ')+m.name); } // [R212] the window/tab title shows the active sequence name — switching tabs left it stale until the next unrelated projTitle() call
 function closeSeqTab(id){ if(!state.openSeqs)return; const wasActive=(id===state.activeSeqId); if(wasActive)saveActiveSeq();
   const next=state.openSeqs.filter(x=>x!==id); if(!next.length){ flashStatus(T('At least one sequence stays open','Al menos una secuencia queda abierta')); return; } state.openSeqs=next;
-  if(wasActive){ state.activeSeqId=state.openSeqs[state.openSeqs.length-1]; loadSeqIntoState(activeSeq()); renderMedia(); renderTimeline(); renderInspector(); renderWork(); render(); updStatus(); updFmtChip(); }
+  if(wasActive){ state.activeSeqId=state.openSeqs[state.openSeqs.length-1]; loadSeqIntoState(activeSeq()); syncNestAudioClips(); renderMedia(); renderTimeline(); renderInspector(); renderWork(); render(); updStatus(); updFmtChip(); } // [R225·9]
   renderSeqBar(); }
 function renameSequence(id){ const m=mediaById(id); if(!isSeqMedia(m))return; const el=document.querySelector('#seqTabs .seqtab[data-seq="'+id+'"] .seqlab');
   if(!inlineEdit(el,m.name,v=>{ m.name=v; renderSeqBar(); renderMedia(); projTitle(); markDirty(); })) appPrompt(T('Sequence name:','Nombre de la secuencia:'),m.name,n=>{ if(n!=null){ m.name=n; renderSeqBar(); renderMedia(); projTitle(); markDirty(); } }); }
@@ -7959,6 +8131,19 @@ function migrateRoomFloor(wseq){
   }
   room.floorSeqId=null;
 }
+/* [R225·2] MIGRACIÓN del conmutador Dome master / Patch de [R216], que ya no existe: cualquier clip de nest guardado
+   en "Patch" (`props.fulldome===false`) pasa a máster de domo, y se le quita el equirect si lo llevaba. Es la decisión
+   consciente de la ronda: un proyecto de ayer con una composición ubicada como parche la verá A PANTALLA COMPLETA al
+   reabrirlo. Se prefiere eso a dejar clips en un estado que la interfaz ya no sabe explicar ni deshacer — el
+   `az/el/size` guardado no se toca, así que Size sigue actuando (ahora como zoom cenital) y el encuadre se recupera
+   con dos arrastres. Idempotente: no hace nada en proyectos ya limpios. */
+function migrateNestFulldome(){ let n=0;
+  const fix=arr=>{ for(const c of (arr||[])){ if(c.adjust||c.mediaId==null)continue; const m=mediaById(c.mediaId); if(!isSeqMedia(m))continue;
+    const P=c.props||(c.props={}); if(P.fulldome!==true||P.equirect){ P.fulldome=true; P.equirect=false; n++; } } };
+  fix(state.clips);
+  for(const m of state.media) if(m.kind==='nest') fix(m.nestClips);
+  if(n)flashStatus(n+T(' nest clip(s) set to dome master (the Patch option is gone)',' clip(s) de composición pasan a máster de domo (la opción Parche ya no existe)'));
+  return n; }
 function loadProject(obj){ relinkReset(); // [R204] el índice de reenlace es de ESTE proyecto: se tira al cargar otro
   try{ if(!_bootEsperandoProyecto)showLoadingScreen(T('Loading project…','Cargando proyecto…')); else bootMark(72); }catch(e){} /* [R175] durante el arranque la cuenta la lleva el splash, no una segunda pantalla encima del editor */ // [U9] logo-loop loading screen while the project + its proxies buffer
   if(state.playing)pause(); disposeAllVinst(); try{freeFxResources();}catch(e){} for(const _tid in (state.mediaTrash||{})) disposeMedia(state.mediaTrash[_tid]); state.mediaTrash={}; resetLutReg(); // free deleted-media textures + FX history from the previous project
@@ -7980,6 +8165,7 @@ function loadProject(obj){ relinkReset(); // [R204] el índice de reenlace es de
     if(m.room.stripH==null)m.room.stripH=m.h;
     if(m.room.floorSeqId)migrateRoomFloor(m);
   } }
+  migrateNestFulldome(); // [R225·2] un .isp con un nest en "Patch" pasa a máster de domo (el conmutador ya no existe)
   state.selId=null; state.dirty=false;
   state.autoItems=(obj.autoItems&&typeof obj.autoItems==='object')?obj.autoItems:{}; // [R95·D2]
   state.workIn=(obj.workIn!=null?obj.workIn:null); state.workOut=(obj.workOut!=null?obj.workOut:null); state.folders=Array.isArray(obj.folders)?obj.folders:[]; state.folderColors=(obj.folderColors&&typeof obj.folderColors==='object')?obj.folderColors:{}; state.exportPresets=Array.isArray(obj.exportPresets)?obj.exportPresets:[];
@@ -8002,6 +8188,7 @@ function loadProject(obj){ relinkReset(); // [R204] el índice de reenlace es de
       state.media.push(m); ids.push(m.id); }
     _id=mx2+1; state.openSeqs=ids; state.activeSeqId=(obj.activeSeqId&&ids.includes(obj.activeSeqId))?obj.activeSeqId:ids[0]; loadSeqIntoState(activeSeq());
   } else { state.openSeqs=[]; state.activeSeqId=null; ensureSequences(); }
+  syncNestAudioClips(); // [R225·9] ya con la secuencia activa cargada: un nest con audio dentro y sin su clip derivado (proyecto anterior a R225) lo estrena aquí
   renderSeqBar(); updFmtChip();
   renderWork();
   if(IS_ELEC){ for(const m of state.media) reloadMedia(m); }
@@ -8364,10 +8551,12 @@ function showMediaSearch(on){ const si=$('#mediaSearch'), sp=$('#filtSpacer'), f
 $('#textBtn').onclick=()=>createTextClip();
 $('#textBtn').addEventListener('contextmenu',e=>{ e.preventDefault(); openMenu(e.clientX,e.clientY,[
   {label:T('Plain text','Texto simple'),ico:'plus',fn:()=>createTextClip()},
-  {label:T('Title (upper dome)','Título (domo superior)'),fn:()=>createTextClip({text:'TITLE',tfontSize:190,el:62,size:55})},
-  {label:T('Subtitle','Subtítulo'),fn:()=>createTextClip({text:'Subtitle',tfontSize:90,tcolor:'#C9CDD3',el:48,size:40})},
-  {label:T('Lower third','Tercio inferior'),fn:()=>createTextClip({text:'NAME\nRole',tfontSize:84,tstroke:true,el:18,size:44})},
-  {label:T('Credits','Créditos'),fn:()=>createTextClip({text:'Directed by\nNAME',tfontSize:74,el:35,size:50})} ]); });
+  /* [R225·6] los presets ya NO llevan cuerpo en píxeles (era resolución, no tamaño): la jerarquía la marca `size`,
+     el diámetro angular del clip en el domo — que es lo que de verdad se ve. */
+  {label:T('Title (upper dome)','Título (domo superior)'),fn:()=>createTextClip({text:'TITLE',el:62,size:55})},
+  {label:T('Subtitle','Subtítulo'),fn:()=>createTextClip({text:'Subtitle',tcolor:'#C9CDD3',el:48,size:40})},
+  {label:T('Lower third','Tercio inferior'),fn:()=>createTextClip({text:'NAME\nRole',tstroke:true,el:18,size:44})},
+  {label:T('Credits','Créditos'),fn:()=>createTextClip({text:'Directed by\nNAME',el:35,size:50})} ]); });
 $('#shapeBtn').onclick=()=>createShapeClip('rect');
 $('#fileInput').onchange=e=>{importFiles(e.target.files, state.mediaView==='grid'?state.mediaFolder:(state.selFolder||state.mediaFolder||null));e.target.value='';}; // Import button files into the folder you're in (browsed or selected)
 wireDrop($('#mediaList')); wireDrop($('#stage'));
@@ -8508,7 +8697,8 @@ function openVpMore(){ const F=vpFits(); closeMenu();
       .forEach(([d,lab])=>mirror(r,document.querySelector('#dispSeg button[data-d="'+d+'"]'),lab)); }
   if(!F.qp){ const r=sec(T('Quality','Calidad'));
     [['1','Full'],['0.5','½'],['0.25','¼']].forEach(([q,lab])=>mirror(r,document.querySelector('#qualitySeg button[data-q="'+q+'"]'),lab));
-    mirror(r,document.querySelector('#proxyToggle button'),'Proxy'); }
+    mirror(r,document.querySelector('#proxyToggle button'),T('Clip proxy','Proxy de clip')); // [R225·10] mismo rótulo que la barra (rayo + Clip), desplegado porque en el menú no hay icono que lo explique
+    mirror(r,document.querySelector('#nestCacheToggle button'),T('Comp proxy','Proxy de composición')); }
   if(!F.out){ const r=sec('Output'); mirror(r,$('#outputBtn'),'Output…'); }
   /* [R165] La lectura sólo tiene sentido en 3D (FOV/DOLLY o DIST). La rama 2D leía `state.view.az` / `state.view.el`,
      que dejaron de existir en R158 al quitar la lectura AZ/EL del visor: imprimía un "AZ 0° · EL 35°" inventado. */
@@ -9237,6 +9427,17 @@ function ensureCompOrder(g,count,mcount){ if(!g.shuffle||mcount<=1){ if(!g.shuff
   if(!Array.isArray(g.order)||g.order.length!==count||g._orderM!==mcount||g._orderR){ const a=[]; for(let i=0;i<count;i++)a.push(i%mcount); for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); const t=a[i]; a[i]=a[j]; a[j]=t; } g.order=a; g._orderM=mcount; g._orderR=false; } }
 function compMediaIndex(g,i,mcount){ if(g.shuffle&&Array.isArray(g.order)&&g.order[i]!=null) return ((g.order[i]%mcount)+mcount)%mcount; return i%mcount; }
 /* Premiere-style: a composition becomes a NEST clip inside the current sequence (double-click to edit it as its own sequence). */
+/* [R225·7] Duración de una composición al CREARLA: la del contenido MÁS LARGO que la compone. Sólo cuentan los medios
+   con duración real (vídeo · audio · secuencia de imágenes · otro nest); si TODO son fijos (fotos, texto, formas) no hay
+   "más largo" que medir y se usan 5 s, que es lo que dura por defecto una foto en la línea de tiempo ([M5]).
+   Antes se hacía `max(s.dur||6)` sobre TODOS los medios: bastaba un texto o una forma (dur 6 por defecto) para que una
+   composición de fotos durase 6 s, y una foto suelta con su dur nominal ganaba a un vídeo si el vídeo era más corto. */
+const COMP_STILL_DUR=5;
+function compSrcDur(srcs){ let mx=0;
+  for(const s of (srcs||[])){ if(!s)continue;
+    const real=(s.kind==='video'||s.kind==='audio'||s.kind==='sequence'||s.kind==='ndi'||s.kind==='spout')?(s.dur||0):(isSeqMedia(s)?seqDur(s):0);
+    if(real>mx)mx=real; }
+  return mx>0.05?mx:COMP_STILL_DUR; }
 function createComposition(opts){ pushUndo();
   const cap=s=>s.charAt(0).toUpperCase()+s.slice(1);
   const g=Object.assign({id:uid(),kind:'ring',mediaId:null,mediaIds:null,count:6,spin:0,el:30,size:40,arc:140,cols:3,elMin:10,elMax:60,turns:3,lineRot:true,mask:'none',shuffle:false,rand:[]},opts);
@@ -9245,7 +9446,7 @@ function createComposition(opts){ pushUndo();
   g.mediaIds=srcs.map(s=>s.id); g.mediaId=srcs[0].id;
   const scope=opts._scope||null; delete g._scope; if(scope){ g.scopeInP=scope.inP||0; if(scope.speed&&scope.speed!==1)g.scopeSpeed=scope.speed; } // R88: PERSIST the cut in-point on the comp group so re-generating (edit params) keeps the trim, not frame 0
   const flat=isFlat(); const compMode=flat?state.seqMode:'dome'; // flat/room compositions place elements with x/y/scale in their own format
-  ensureRand(g); const lay=flat?compLayoutFlat(g):compLayout(g); const dur=scope?Math.max(0.1,scope.dur):Math.max(0.1, Math.max(...srcs.map(s=>s.dur||6)));
+  ensureRand(g); const lay=flat?compLayoutFlat(g):compLayout(g); const dur=scope?Math.max(0.1,scope.dur):compSrcDur(srcs);
   // build the nest: one composed element per nest-lane (no same-lane overlap → no spurious crossfade), geometry from compLayout; media cycle across elements
   const nestLanes=lay.map((p,i)=>({id:uid(),name:'V'+(i+1),tag:'V'+(i+1),kind:'video'}));
   ensureCompOrder(g,lay.length,srcs.length);
@@ -9258,13 +9459,13 @@ function createComposition(opts){ pushUndo();
   // R88: EVERY composition lands on a BRAND-NEW top video lane (never reuses an existing track → no accidental overlap)
   const vn=state.lanes.filter(l=>l.kind==='video').length+1; state.lanes.push({id:uid(),name:'V'+vn,tag:'V'+vn,kind:'video'}); const vlane=state.lanes.length-1;
   const start=scope?(scope.start!=null?scope.start:state.playhead):state.playhead;
-  const nc=makeClip(nest,vlane,start); nc.dur=dur; if(!flat)nc.props.fulldome=true; state.clips.push(nc);
+  const nc=makeClip(nest,vlane,start); nc.dur=dur; nc.props.fulldome=true; nc.props.equirect=false; state.clips.push(nc); // [R225·2] siempre máster de domo
   state.selId=nc.id; state.selIds=[nc.id]; state.selGroupId=null;
   renderMedia(); renderSeqBar(); renderTimeline(); renderInspector(); render(); markDirty();
   flashStatus(cap(kindES(g.kind))+' → '+T('nest · ','nido · ')+g.count+' '+T('items','elementos')); return nest; }
 /* rebuild a compose-nest's inner clips/lanes from its stored comp params (live edit from the inspector / Recompose dialog) */
 function regenComposeNest(m){ if(!m||!m.comp)return false; const g=m.comp; const ids=(g.mediaIds&&g.mediaIds.length)?g.mediaIds:(g.mediaId!=null?[g.mediaId]:[]); const srcs=ids.map(mediaById).filter(Boolean); if(!srcs.length)return false; g.mediaIds=srcs.map(s=>s.id); g.mediaId=srcs[0].id; ensureRand(g); const flat=flatLikeMode(m.mode); const lay=flat?compLayoutFlat(g):compLayout(g);
-  const dur=Math.max(0.1, m.dur||Math.max(...srcs.map(s=>s.dur||6)));
+  const dur=Math.max(0.1, m.dur||compSrcDur(srcs)); // [R225·7] misma regla al recomponer (sólo si el nest no tiene ya su duración)
   const prev=Array.isArray(m.nestClips)?m.nestClips:[]; // [N4] reuse the existing inner clips so per-element tweaks survive a recompose
   for(const c of prev)if(c.slot>=lay.length&&c.maskTex){try{gl.deleteTexture(c.maskTex);}catch(e){}} // free dropped slots' masks
   m.nestLanes=lay.map((p,i)=>({id:uid(),name:'V'+(i+1),tag:'V'+(i+1),kind:'video'}));
@@ -10106,7 +10307,7 @@ function renderMotionFx(c){ const host=$('#motionFx'); if(!host||!c)return;
      applies the current collapse state the same way it does for every other section. The body is always built (like
      every other section builds its rows even while collapsed) — display is governed entirely by applySecCollapse's
      sibling walk, not by an inline style computed here. */
-  const fxHtml=(c.fx&&c.fx.length)?c.fx.map(f=>fxCardHtml(c,f,false)).join(''):`<div style="padding:1px 2px 3px;color:var(--ink-dim);font-size:11px;line-height:1.4;">${T('No effects yet. Distortion, stylize, color… added here run as static, keyframable effects.','Sin efectos aún. Distorsión, estilizado, color… añadidos aquí corren como efectos estáticos y automatizables.')}</div>`;
+  const fxHtml=(c.fx&&c.fx.length)?c.fx.map(f=>fxCardHtml(c,f,false)).join(''):`<div style="padding:1px 2px 3px;color:var(--ink-dim);font-size:11px;" title="${T('Effects added here run as static, keyframable effects','Los efectos añadidos aquí corren estáticos y automatizables')}">${T('No effects','Sin efectos')}</div>`; // [R225·4] el párrafo instructivo pasa a tooltip; queda el estado vacío a secas
   host.innerHTML=`<button class="sechead" id="secMotionFx" data-sec="mfx"><span class="ic" style="color:var(--ink-dim);display:flex;">${ICO('chevDown',13)}</span><span class="t">${T('Effects','Efectos')}</span><span class="ln"></span></button><div id="motionFxBody">${fxHtml}<div style="padding:2px 10px 0;"><button class="mbtn" id="motionAddFx" style="width:100%;justify-content:center;gap:6px;height:24px;font-size:11px;border-radius:2px;">${ICO('plus',12)} ${T('Add Effect','Añadir efecto')}</button></div></div>`;
   { const mAdd=$('#motionAddFx'); if(mAdd)mAdd.onclick=(ev)=>openFxMenu(ev,true); } // motion → static effect (int seeded visible, no audio routing)
   wireFxCards(c,'#motionFx',()=>renderMotionFx(c));

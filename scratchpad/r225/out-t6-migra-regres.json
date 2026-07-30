@@ -1,0 +1,61 @@
+{
+  "R": {
+    "botones": {
+      "clip": {
+        "txt": "Clip",
+        "ico": "bolt",
+        "svg": true,
+        "on": true
+      },
+      "comp": {
+        "txt": "Comp",
+        "ico": "bolt",
+        "svg": true,
+        "on": true
+      }
+    },
+    "botonesFuncionan": {
+      "proxy": true,
+      "comp": true
+    },
+    "ispViejo": {
+      "clipsEnPatch": 1
+    },
+    "trasMigrar": {
+      "nestClips": 2,
+      "siguenEnPatch": 0,
+      "derivadosVivos": 1,
+      "abre": true
+    },
+    "undo": {
+      "n0": 2,
+      "n1": 3,
+      "n2": 2,
+      "n3": 3,
+      "ok": true
+    },
+    "roundtrip": {
+      "clipsAntes": 2,
+      "clipsDespues": 2,
+      "mediaAntes": 15,
+      "mediaDespues": 15,
+      "igual": true
+    },
+    "play": {
+      "avanzo": 0.69,
+      "ok": true
+    },
+    "render2d": {
+      "w": 991,
+      "h": 624,
+      "muestrasConTinta": 362
+    },
+    "render3d": {
+      "w": 991,
+      "h": 624,
+      "muestrasConTinta": 858
+    },
+    "tres_d_ok": true
+  },
+  "errs": []
+}

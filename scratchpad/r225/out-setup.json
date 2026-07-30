@@ -1,0 +1,15 @@
+{
+  "ok": true,
+  "seq": 6,
+  "MV1": 8,
+  "MV2": 9,
+  "MI1": 10,
+  "im2": 12,
+  "MA1": 11,
+  "lanes": [
+    "0:audio",
+    "1:video",
+    "2:video"
+  ],
+  "errs": []
+}

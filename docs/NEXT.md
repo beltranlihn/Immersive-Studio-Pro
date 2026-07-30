@@ -87,21 +87,75 @@
       `_backup/deprecated/20260730-clip-motion-badge.js`. También sale del código `autoDuo` (variante del chooser con
       `<select>`, sin llamadores desde R156) → `20260730-auto-duo-selects.js`.
 
-### Etapa 3 · Inspector + adjustment + nest/compose [R225]
-- [ ] Adjustment layer: todos los efectos; afecta lo de abajo como un solo clip fulldome; default fulldome full.
-- [ ] Nest SIEMPRE dome master: eliminar toggle R216 (archivar), sin dome placement, equirect deshabilitado.
-- [ ] Fisheye solo habilitado con fulldome src activo.
-- [ ] Sin textos instructivos en Motion/Effects del inspector.
-- [ ] Inspector de audio: sin fade in/out (queda el manual del clip) + escala del waveform.
-- [ ] Inspector de text: sin campos de pixelaje ni switch sin función.
-- [ ] Compose: duración = clip más largo (solo fotos: 5s); acortar dentro del nest acorta la instancia padre
-      automáticamente (hoy solo al intentar extender).
-- [ ] Compose desde clips con audio: el audio SE ELIMINA.
-- [ ] Audio de nest: si el nest tiene pistas de audio (agregadas dentro), el padre muestra clip de audio DERIVADO
+### Etapa 3 · Inspector + adjustment + nest/compose [R225] — CERRADA ✅
+> Verificada por CDP (guiones `scratchpad/r225-*.mjs`, salidas y capturas en `scratchpad/r225/`). `__errs` vacío en las
+> nueve corridas · `node --check` limpio. Eliminaciones archivadas (ADR-0007): conmutador Dome master/Patch, filas de
+> fundido del inspector de audio, campos de píxeles del texto.
+- [x] Adjustment layer: todos los efectos; afecta lo de abajo como un solo clip fulldome; default fulldome full. _(R225)_
+      El catálogo entero (`#motionFx`, `FXBY`, estático y automatizable) se construye ahora también para `c.adjust`
+      —antes sólo se alcanzaba desde la pestaña Reactive FX y el inspector de la capa no mostraba ni un efecto—, con
+      **claves de plegado propias** (`adjfx`/`adjeff`): reusar `clip`/`motion` dejaba el panel entero plegado, porque
+      [I1] los pliega por defecto contando con que Transform queda abierto arriba, y aquí no hay Transform. Las filas
+      de las secciones que no aplican se VACÍAN además de esconderse: `applySecCollapse` recorre los hermanos de cada
+      cabecera y les repone el `display`, así que quedaban Azimuth/Size/Loop/Speed sueltos sobre la capa (visto en
+      captura, corregido). Contrato confirmado por píxeles: un Hue Shift en la capa mueve los DOS clips de debajo
+      (rojo 255,32,32 → 202,170,0 · azul 32,64,255 → 0,181,181) y quitarlo los devuelve exactos. **Color NO se ofrece**
+      a propósito: el grado vive en los shaders por clip y el post-pass máster se archivó en R150 (serían mandos muertos).
+- [x] Nest SIEMPRE dome master: eliminar toggle R216 (archivar), sin dome placement, equirect deshabilitado. _(R225)_
+      `makeClip` nace con `fulldome:isSeqMedia(m)` y nunca autodetecta equirect para un nest; `nestSelection` y
+      `createComposition` lo fijan; la fila Equirect no se dibuja para nests; salvavidas en el inspector.
+      **Migración:** `migrateNestFulldome()` en `loadProject` convierte los `.isp` guardados en Patch — un proyecto de
+      ayer con una composición como parche se ve a PANTALLA COMPLETA al reabrirlo (decisión asumida; el `az/el/size`
+      guardado no se toca, así que el encuadre se recupera con dos arrastres). Archivo:
+      `_backup/deprecated/20260730-nest-dome-placement-toggle.js`. El motor de parche (PW) queda intacto.
+- [x] Fisheye solo habilitado con fulldome src activo. _(R225)_ Fila deshabilitada (opacidad .42 + `aria-disabled` +
+      tooltip que dice por qué) en vez de escondida, y apagar Fulldome src apaga también el ojo de pez, para que el
+      dato no contradiga a la interfaz. En un nest queda habilitada (su fulldome es siempre true).
+- [x] Sin textos instructivos en Motion/Effects del inspector. _(R225)_ El párrafo de los chips y el del estado vacío
+      de efectos pasan a tooltip; el estado vacío se queda en «No effects» a secas. La ayuda de la capa de ajuste
+      desaparece con la sección Effects real.
+- [x] Inspector de audio: sin fade in/out (queda el manual del clip) + escala del waveform. _(R225)_ Fila **Wave scale**
+      (`state.tl.waveScale`, recorrido logarítmico 0,25×…8×, 1× en el centro del surco): preferencia de VISTA global a
+      la línea de tiempo como «Onda a un lado», no dato del clip — no toca el sonido ni el export. Se aplica en
+      `drawAudioWaveInto` (clip) y en `drawWaveInto` (inspector). `c.fadeIn/fadeOut` siguen vivos: los escribe el
+      tirador de R223. Archivo: `_backup/deprecated/20260730-audio-inspector-fade-rows.js`.
+- [x] Inspector de text: sin campos de pixelaje ni switch sin función. _(R225)_ Fuera `#txtSize` y `#txtLineH`: el
+      cuerpo en píxeles no cambiaba el encuadre (ancho y alto del lienzo crecen los dos con el cuerpo → **proporción
+      invariante**, medido: 3,790 a 300 px vs 3,784 a 90 px) sino sólo la nitidez. Los medios nuevos nacen con
+      `TXT_BASE_PX`=300 y `renderTextMedia` reduce el cuerpo si el lienzo fuese a topar con 4096 px (párrafo largo →
+      4093×129, sin recorte). Los presets dejan de llevar cuerpo: la jerarquía la marca `size`.
+      **El switch NO estaba muerto:** medido, `Outline` añade píxeles al rásterizado (193 603 → 333 078 opacos) y su
+      color cambia el resultado; lo que faltaba era el mando de ese color (`tstrokeColor` se guardaba sin control, así
+      que quedaba negro sobre un domo negro → parecía no hacer nada). Se añade `#txtStrokeCol`.
+- [x] Compose: duración = clip más largo (solo fotos: 5s); acortar dentro del nest acorta la instancia padre
+      automáticamente (hoy solo al intentar extender). _(R225)_ `compSrcDur(srcs)`: sólo cuentan los medios con
+      duración real (vídeo/audio/secuencia/nest); si todo son fijos, 5 s. Antes `max(s.dur||6)` sobre TODOS dejaba que
+      un texto o una forma (dur 6) mandara sobre una composición de fotos. Verificado: 8 s+3 s → 8 · dos fotos → 5 ·
+      foto+vídeo de 3 s → 3 · texto+foto → 5. El acortado lo hace `clampNestInstances(nestId)` colgado de
+      `saveActiveSeq` —el punto por el que pasa siempre que se abandona o se guarda una secuencia—: contenido de 8 s
+      recortado a 4 s dentro ⇒ la instancia del padre pasa de 8 a 4 al volver. Sólo recorta (extender sigue siendo
+      manual) y respeta los clips en bucle.
+- [x] Compose desde clips con audio: el audio SE ELIMINA. _(R225)_ Los clips de audio enlazados a la selección no
+      entran al nido y se borran de la línea de tiempo (4 clips → 1). La copia de vídeo de dentro conserva `avRole:'v'`
+      sin `link`: es el flag que impide que el nest vuelva a sacar el sonido del archivo original por dentro.
+- [x] Audio de nest: si el nest tiene pistas de audio (agregadas dentro), el padre muestra clip de audio DERIVADO
       linkeado (deslinkeable); doble clic entra al nest; acortar dentro acorta ambos; proxy conserva ese audio;
-      REGLA: nunca suena audio no visible en una pista de audio.
-- [ ] Botones ⚡Clip / ⚡Comp en la toolbar de proxy.
-- [ ] Al arrastrar un clip a media: buscar proxy existente en la carpeta de origen automáticamente.
+      REGLA: nunca suena audio no visible en una pista de audio. _(R225)_ `syncNestAudioClips()` crea/retira el
+      derivado (clip de audio cuyo `mediaId` ES el nest + `nestAudioOf`, con el `link`/`avRole` de R170/R223) al
+      componer, al aterrizar en una secuencia y al abrir proyecto. **Tres vías de fuga cerradas** para la regla de oro:
+      (a) `collectAudioEvents` sólo desciende a un nest si el clip está en pista de AUDIO; (b) `vinstAudio` devuelve
+      null para nests, así que el `<audio>` del proxy horneado ([R180]) no suena; (c) dentro de un nest (depth>0) el
+      `<audio>` de previsualización de los clips de vídeo va con ganancia 0. Medido: con derivado 1 evento, sin
+      derivado 0, con su pista muteada 0. El proxy sí conserva el audio (`ncBuild` exporta el nest como nivel superior,
+      donde sus pistas de audio son de primer nivel: 1 evento al hornear). Consecuencia asumida: un vídeo dentro de un
+      nest cuya mitad de audio no existe (archivo por encima de `LINK_MAX_BYTES`) queda mudo — que es lo que la regla pide.
+- [x] Botones ⚡Clip / ⚡Comp en la toolbar de proxy. _(R225)_ Los dos comparten el icono de rayo y se distinguen por
+      el rótulo (`Clip` = proxy de cada clip · `Comp` = proxy de composición); el desplegable `vpMore` estrena la
+      entrada del segundo, que antes no aparecía en ningún sitio cuando la barra se estrechaba.
+- [x] Al arrastrar un clip a media: buscar proxy existente en la carpeta de origen automáticamente. _(R225)_
+      `addVideo` (el camino de `importFiles`, diálogo y arrastre) llama a `attachExistingProxy`, que existía desde
+      R107 pero sólo corría al REABRIR proyectos. Medido: al importar un archivo con su proxy al lado queda
+      `proxyReady` en 201 ms, el visor ya usa el proxy y **nadie encoló nada** (la generación sigue manual, ADR-0003).
 
 ### Etapa 4 · Mask en canvas + viewer window [R226]
 - [ ] Pen mask editable EN EL CANVAS (no en el inspector).

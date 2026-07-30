@@ -1,5 +1,53 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 225 — Feedback, Etapa 3: inspector, capa de ajuste y composiciones
+
+Los 11 ítems de la Etapa 3 de `docs/NEXT.md` cerrados y verificados por CDP (detalle por ítem ahí; guiones
+`scratchpad/r225-*.mjs`, salidas y capturas en `scratchpad/r225/`, `__errs` vacío en las nueve corridas).
+
+**El cambio conceptual de la ronda es el audio de las composiciones.** Beltrán puso la regla: *nunca suena audio
+que no esté visible en una pista de audio*. Hasta ahora un nido con sonido dentro sonaba por su clip de VÍDEO —y con
+proxy de composición, además, por el `<audio>` del archivo horneado—, así que salía sonido de una pista de vídeo sin
+nada que se pudiera silenciar, mover ni ver. Ahora un nido con pistas de audio dentro estrena en el padre un **clip de
+audio derivado**: un clip normal cuyo `mediaId` ES el nido, en una pista de audio, con `nestAudioOf` y el
+`link`/`avRole` de siempre. Se mueve, recorta y deslinca como cualquier par A/V, el doble clic entra a la secuencia,
+y acortar el contenido de dentro acorta las dos mitades. Se cerraron **tres** vías de fuga, no una: el descenso de
+`collectAudioEvents` (sólo desde pista de audio), el `<audio>` del proxy (`vinstAudio` devuelve null para nests) y el
+`<audio>` de previsualización de los clips que están DENTRO de un nido (ganancia 0 a `depth>0`). El horneado del proxy
+no se entera —`ncBuild` exporta el nido como nivel superior, donde sus pistas de audio son de primer nivel—, así que
+el proxy sigue llevando el audio.
+
+**Un nido es SIEMPRE máster de domo.** Se archiva el conmutador Dome master/Patch de R216 (ADR-0007): una composición
+es el lienzo completo de su propia secuencia, y ubicarla como parche gnomónico volvía a deformar algo ya deformado.
+El motor de parche (PW) queda intacto —lo usan todos los demás tipos de clip—, sólo desaparece la elección.
+`migrateNestFulldome` convierte los `.isp` guardados en Patch: **decisión asumida**, un proyecto de ayer con una
+composición como parche se ve a pantalla completa al reabrirlo (el `az/el/size` no se toca, el encuadre vuelve con dos
+arrastres). Se prefiere eso a dejar clips en un estado que la interfaz ya no sabe explicar.
+
+**La capa de ajuste tiene por fin todos los efectos.** El catálogo entero se construye ahora en su inspector, no sólo
+en la pestaña Reactive FX. Dos trampas por el camino, las dos vistas en captura y corregidas: `applySecCollapse`
+recorre los hermanos de cada cabecera y REPONE el `display`, así que esconder las filas que no aplican no bastaba
+(quedaban Azimuth/Size/Loop/Speed sueltos sobre la capa) → se vacían y se ocultan después de construir; y reusar las
+claves de plegado `clip`/`motion` dejaba el panel entero plegado, porque [I1] las pliega contando con que Transform
+queda abierto arriba y aquí no hay Transform → claves propias `adjfx`/`adjeff`. Verificado por píxeles: un Hue Shift
+en la capa mueve los dos clips de debajo como un solo pase y quitarlo los devuelve exactos.
+
+**Dos mandos que parecían de tamaño y eran de resolución.** Fuera los campos de píxeles del texto: la proporción del
+lienzo es invariante al cuerpo de la fuente (medido: 3,790 a 300 px vs 3,784 a 90 px), así que sólo cambiaban la
+nitidez — los medios nuevos nacen a 300 px y el rásterizado reduce el cuerpo si fuese a topar con 4096 px. En cambio
+el interruptor **Outline sí funcionaba** (193 603 → 333 078 píxeles opacos, medido): lo que faltaba era el mando del
+COLOR del contorno, que se guardaba sin control y quedaba negro sobre un domo negro. Se añade, no se archiva.
+
+Y el resto: fila **Fisheye** deshabilitada sin fuente fulldome (con tooltip que dice por qué, y apagar fulldome apaga
+también el ojo de pez) · inspector de audio sin las filas de fundido —el gesto de R223 ya es ese mando— y con una
+**escala de onda** logarítmica que es preferencia de vista, no dato del clip · duración de una composición = el
+contenido más largo con duración REAL, 5 s si todo son fijos (antes un texto de 6 s mandaba sobre una composición de
+fotos) · acortar dentro del nido acorta la instancia del padre (`clampNestInstances` colgado de `saveActiveSeq`) ·
+el audio enlazado desaparece al componer, por decisión de Beltrán, para no apilar audios · los dos interruptores de
+proxy pasan a leerse como un par (⚡Clip / ⚡Comp) · y al importar un archivo se adopta el proxy que ya esté a su lado
+(la maquinaria era de R107, pero sólo corría al reabrir proyectos: 201 ms medidos, y sin encolar nada — la generación
+sigue manual).
+
 ## ROUND 224 — Feedback, Etapa 2: automatización que dialoga
 
 Los 8 ítems de la Etapa 2 de `docs/NEXT.md` cerrados y verificados por CDP (detalle por ítem ahí). El corazón:

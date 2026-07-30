@@ -1,0 +1,51 @@
+{
+  "R": {
+    "paramsHue": [
+      "shift=180"
+    ],
+    "antes": {
+      "rojo": [
+        255,
+        32,
+        32
+      ],
+      "azul": [
+        32,
+        64,
+        255
+      ],
+      "pintados": 16569
+    },
+    "despues": {
+      "rojo": [
+        202,
+        170,
+        0
+      ],
+      "azul": [
+        0,
+        181,
+        181
+      ],
+      "pintados": 16569
+    },
+    "difRojo": 223,
+    "difAzul": 223,
+    "losDosCambian": true,
+    "vuelta": {
+      "rojo": [
+        255,
+        32,
+        32
+      ],
+      "azul": [
+        32,
+        64,
+        255
+      ],
+      "pintados": 16569
+    },
+    "reversible": true
+  },
+  "errs": []
+}

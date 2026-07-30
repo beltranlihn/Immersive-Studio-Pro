@@ -1,0 +1,34 @@
+{
+  "R": {
+    "medio": {
+      "id": 44,
+      "texto": "HOLA MUNDO",
+      "w": 2331,
+      "h": 615
+    },
+    "firmas": {
+      "sinContorno": {
+        "op": 193602,
+        "r": 255,
+        "g": 255,
+        "b": 255
+      },
+      "contornoNegro": {
+        "op": 333078,
+        "r": 145,
+        "g": 145,
+        "b": 145
+      },
+      "contornoRojo": {
+        "op": 333078,
+        "r": 255,
+        "g": 145,
+        "b": 145
+      }
+    },
+    "contornoAnadePixeles": true,
+    "colorDelContornoImporta": true,
+    "conclusion": "Outline FUNCIONA; lo que faltaba era el selector de color (tstrokeColor se guardaba sin mando) — no se archiva"
+  },
+  "errs": []
+}
