@@ -1122,6 +1122,7 @@ function nestSelection(){ const ids=(state.selIds&&state.selIds.length)?state.se
   const nc=makeClip(nest,(vidLane!=null?vidLane:(used[0]||0)),minStart); nc.dur=dur; nc.props.fulldome=true; nc.props.equirect=false; state.clips.push(nc); // [R225·2] nest = SIEMPRE máster de domo (en flat/room el flag no lo lee nadie: drawClipFlat entra antes)
   state.selId=nc.id; state.selIds=[nc.id];
   syncNestAudioClips(); // [R225·9] si al nest le entró audio (clips de audio seleccionados a mano), el padre estrena su clip de audio DERIVADO
+  if(_demoBatch)return nc; // [R228] lote de construcción del demo: el nido ya existe y está seleccionado; repinta `_demoFinish`
   renderMedia(); renderSeqBar(); renderTimeline(); renderInspector(); render(); markDirty();
   flashStatus(clips.length+T(' clips → nest','  clips → nido')+(audioIdsFuera.length?' · '+audioIdsFuera.length+T(' linked audio clip(s) removed',' clip(s) de audio enlazado eliminados'):'')); }
 /* [T4] render-ahead: cache the flattened master composite per frame (downscaled via blitFramebuffer),
@@ -2687,7 +2688,9 @@ function addClip(m,lane,start){
     if(lane<0){ const n=state.lanes.filter(l=>l.kind===want).length+1; state.lanes.push({id:uid(),name:(want==='audio'?'Audio ':'Video ')+n,tag:(want==='audio'?'A':'V')+n,kind:want}); lane=state.lanes.length-1; } } // auto-create a track of the right kind (dragging audio in with no audio track makes one)
   start=(start!=null)?start:state.playhead;
   const c=makeClip(m,lane,start);
-  state.clips.push(c); state.selId=c.id; state.selIds=[c.id]; state.selGroupId=null; clearMediaSel(); renderTimeline(); renderInspector(); render(); updStatus(); // adding to the timeline hands Delete-priority to the new clip (R86)
+  state.clips.push(c); state.selId=c.id; state.selIds=[c.id]; state.selGroupId=null; clearMediaSel();
+  if(_demoBatch)return c; // [R228] lote de construcción del demo: el estado ya está mutado, el repintado (y el aviso 2:1 / el audio enlazado, que un demo de formas y texto no tiene) lo hace `_demoFinish` de una vez
+  renderTimeline(); renderInspector(); render(); updStatus(); // adding to the timeline hands Delete-priority to the new clip (R86)
   if(c.props&&c.props.equirect) flashStatus(T('2:1 source — treated as a 360° panorama (toggle it in Source)','Fuente 2:1 — se trata como panorama 360° (se cambia en Source)')); // [F7 fase 2] la detección nunca es silenciosa
   if(m.kind==='video') attachLinkedAudio(c,m); // [R170] si el vídeo trae sonido, su mitad de audio baja sola a la pista más cercana
 }
@@ -2946,33 +2949,47 @@ function appPrompt(message,def,cb){ try{closeMenu();}catch(e){}
   inp.addEventListener('keydown',e=>{ e.stopPropagation(); if(e.key==='Enter'){e.preventDefault();fin(inp.value);} else if(e.key==='Escape'){e.preventDefault();fin(null);} });
   ov.addEventListener('pointerdown',e=>{ if(e.target===ov)fin(null); }); }
 /* ===== Styled in-app dialogs (match the app aesthetic, replace native confirm/alert) ===== */
-function appConfirm(message,cb,opts){ opts=opts||{}; try{closeMenu();}catch(e){}
-
-  const ov=document.createElement('div'); ov.className='overlay'; ov.id='confirmOv';
-  ov.innerHTML='<div class="modal" style="width:390px;padding:16px 18px;"><div style="font-size:13px;color:var(--ink-2);line-height:1.5;margin-bottom:15px;">'+message+'</div><div style="display:flex;gap:8px;justify-content:flex-end;"><button id="cfCancel" class="togbtn2">'+(opts.cancel||T('Cancel','Cancelar'))+'</button><button id="cfOk" class="togbtn2 on"'+(opts.danger?' style="background:#33383F;border-color:rgba(255,255,255,0.2);color:#fff;"':'')+'>'+(opts.ok||T('OK','Aceptar'))+'</button></div></div>';
-  document.body.appendChild(ov); let done=false; const fin=v=>{ if(done)return; done=true; document.removeEventListener('keydown',onk,true); ov.remove(); if(cb)cb(v); };
-  ov.querySelector('#cfOk').onclick=()=>fin(true); ov.querySelector('#cfCancel').onclick=()=>fin(false); ov.addEventListener('pointerdown',e=>{ if(e.target===ov)fin(false); });
-  const onk=e=>{ if(!ov.isConnected){document.removeEventListener('keydown',onk,true);return;} /* [R218] guarda de conexión: overlay destruido por otra vía → no matar atajos para siempre */ e.stopPropagation(); if(e.key==='Escape'){e.preventDefault();fin(false);} else if(e.key==='Enter'){e.preventDefault();fin(true);} }; document.addEventListener('keydown',onk,true);
-  setTimeout(()=>{try{ov.querySelector('#cfOk').focus();}catch(e){}},10); }
+/* [R228] Andamiaje ÚNICO de los diálogos de pregunta (antes duplicado literal en `appConfirm` y `appConfirm3`):
+   overlay + fila de botones + guarda de conexión R218 + foco inicial + Esc/Enter. `buttons` va en orden de pintado
+   (izquierda → derecha) y cada uno es {v, label, style, primary}; el ÚLTIMO `primary` recibe el foco y es el
+   `default` de Enter. `esc` = valor que devuelve Escape y el clic fuera.
+   Enter: si el foco está en uno de los botones del diálogo, activa ESE botón — antes Enter respondía siempre el
+   default aunque el usuario hubiera llegado con Tab hasta «Descartar» (una respuesta que no era la suya). */
+function _dialogBase(message,buttons,opts){ opts=opts||{}; try{closeMenu();}catch(e){}
+  const ov=document.createElement('div'); ov.className='overlay'; if(opts.id)ov.id=opts.id; if(opts.z)ov.style.zIndex=opts.z;
+  const html=buttons.map((b,i)=>'<button data-di="'+i+'"'+(b.id?' id="'+b.id+'"':'')+' class="togbtn2'+(b.primary?' on':'')+'"'+(b.style?' style="'+b.style+'"':'')+'>'+b.label+'</button>').join(''); // los `id` se conservan (#cfOk/#c3Save…): los arneses de prueba y el CDP los pulsan por id
+  ov.innerHTML='<div class="modal" style="width:'+(opts.width||390)+'px;padding:16px 18px;"><div style="font-size:13px;color:var(--ink-2);line-height:1.5;margin-bottom:15px;">'+message+'</div>'
+    +'<div style="display:flex;gap:8px;justify-content:flex-end;">'+html+'</div></div>';
+  document.body.appendChild(ov);
+  return new Promise(res=>{
+    let done=false; const fin=v=>{ if(done)return; done=true; document.removeEventListener('keydown',onk,true); ov.remove(); res(v); };
+    const btns=Array.from(ov.querySelectorAll('button[data-di]'));
+    btns.forEach((el,i)=>{ el.onclick=()=>fin(buttons[i].v); });
+    let def=null; for(let i=0;i<buttons.length;i++)if(buttons[i].primary)def=i;
+    ov.addEventListener('pointerdown',e=>{ if(e.target===ov)fin(opts.esc); });
+    const onk=e=>{ if(!ov.isConnected){document.removeEventListener('keydown',onk,true);return;} /* [R218] guarda de conexión: overlay destruido por otra vía → no matar atajos para siempre */
+      e.stopPropagation();
+      if(e.key==='Escape'){ e.preventDefault(); fin(opts.esc); return; }
+      if(e.key==='Enter'){ e.preventDefault(); const k=btns.indexOf(document.activeElement); fin(buttons[k>=0?k:(def!=null?def:buttons.length-1)].v); } };
+    document.addEventListener('keydown',onk,true);
+    if(def!=null)setTimeout(()=>{try{btns[def].focus();}catch(e){}},10);
+  }); }
+function appConfirm(message,cb,opts){ opts=opts||{};
+  return _dialogBase(message,[
+    {v:false,id:'cfCancel',label:(opts.cancel||T('Cancel','Cancelar'))},
+    {v:true,id:'cfOk',label:(opts.ok||T('OK','Aceptar')),primary:true,style:(opts.danger?'background:#33383F;border-color:rgba(255,255,255,0.2);color:#fff;':'')}
+  ],{id:'confirmOv',esc:false,width:390}).then(v=>{ if(cb)cb(v); return v; }); } // [R228] wrapper de `_dialogBase`; sigue siendo de CALLBACK (docenas de llamadores) y además devuelve la promesa
 /* [R227] Pregunta de TRES salidas — guardar / descartar / cancelar. `appConfirm` sólo tiene dos botones y la
    respuesta "guárdalo primero" no cabe en un booleano: para una acción que se lleva por delante el proyecto abierto
    (File → «New project…» vuelve a la pantalla de inicio) obligar a elegir entre perder el trabajo y no hacer nada
-   era una trampa. Devuelve 'save' | 'discard' | 'cancel'; Esc y el clic fuera cancelan, Enter guarda. */
-function appConfirm3(message,opts){ opts=opts||{}; try{closeMenu();}catch(e){}
-  return new Promise(res=>{
-    const ov=document.createElement('div'); ov.className='overlay'; ov.id='confirm3Ov'; ov.style.zIndex='360'; // por encima del launcher (300): la pregunta puede salir con la pantalla de inicio ya pedida
-    ov.innerHTML='<div class="modal" style="width:410px;padding:16px 18px;"><div style="font-size:13px;color:var(--ink-2);line-height:1.5;margin-bottom:15px;">'+message+'</div>'
-      +'<div style="display:flex;gap:8px;justify-content:flex-end;"><button id="c3Cancel" class="togbtn2">'+(opts.cancel||T('Cancel','Cancelar'))+'</button>'
-      +'<button id="c3Discard" class="togbtn2" style="background:#33383F;border-color:rgba(255,255,255,0.2);color:#fff;">'+(opts.discard||T('Discard','Descartar'))+'</button>'
-      +'<button id="c3Save" class="togbtn2 on">'+(opts.save||T('Save','Guardar'))+'</button></div></div>';
-    document.body.appendChild(ov); let done=false;
-    const fin=v=>{ if(done)return; done=true; document.removeEventListener('keydown',onk,true); ov.remove(); res(v); };
-    ov.querySelector('#c3Save').onclick=()=>fin('save'); ov.querySelector('#c3Discard').onclick=()=>fin('discard'); ov.querySelector('#c3Cancel').onclick=()=>fin('cancel');
-    ov.addEventListener('pointerdown',e=>{ if(e.target===ov)fin('cancel'); });
-    const onk=e=>{ if(!ov.isConnected){document.removeEventListener('keydown',onk,true);return;} /* misma guarda de conexión que appConfirm */ e.stopPropagation(); if(e.key==='Escape'){e.preventDefault();fin('cancel');} else if(e.key==='Enter'){e.preventDefault();fin('save');} };
-    document.addEventListener('keydown',onk,true);
-    setTimeout(()=>{try{ov.querySelector('#c3Save').focus();}catch(e){}},10);
-  }); }
+   era una trampa. Devuelve 'save' | 'discard' | 'cancel'; Esc y el clic fuera cancelan, Enter responde el botón
+   ENFOCADO (Guardar si no hay ninguno). */
+function appConfirm3(message,opts){ opts=opts||{};
+  return _dialogBase(message,[
+    {v:'cancel',id:'c3Cancel',label:(opts.cancel||T('Cancel','Cancelar'))},
+    {v:'discard',id:'c3Discard',label:(opts.discard||T('Discard','Descartar')),style:'background:#33383F;border-color:rgba(255,255,255,0.2);color:#fff;'},
+    {v:'save',id:'c3Save',label:(opts.save||T('Save','Guardar')),primary:true}
+  ],{id:'confirm3Ov',esc:'cancel',width:410,z:'360'}); } // z-360 = por encima del launcher (300): la pregunta puede salir con la pantalla de inicio ya pedida
 function appAlert(message,cb){ try{closeMenu();}catch(e){}
   /* [R176] Sólo los AVISOS sueltan el splash: un aviso durante el arranque significa que algo falló y no va a
      haber proyecto que esperar. Las preguntas (appConfirm/appPrompt) ya no interrumpen el arranque — ver
@@ -3005,7 +3022,14 @@ function saveRecents(a){ try{ localStorage.setItem('domeProRecents', JSON.string
 function projThumb(){ try{ if(!glc.width)return null; const w=200, h=Math.max(1,Math.round(w*glc.height/glc.width)); const c=document.createElement('canvas'); c.width=w; c.height=h; c.getContext('2d').drawImage(glc,0,0,w,h); return c.toDataURL('image/jpeg',0.72); }catch(e){ return null; } }
 function addRecent(path,thumb){ if(!path||!IS_ELEC)return; const base=(DSP.basename?DSP.basename(path):(path.split(/[\\/]/).pop()||path)); const name=base.replace(/\.(isp|ise|rdome)$/i,''); const folder=path.replace(/[\\/][^\\/]*$/,''); const prev=getRecents().find(r=>r.path===path); const a=getRecents().filter(r=>r.path!==path); a.unshift({path,name,folder,t:Date.now(),thumb:thumb||(prev&&prev.thumb)||null}); saveRecents(a); }
 function relTime(ts){ if(!ts)return ''; const d=(Date.now()-ts)/1000; if(d<60)return T('just now','ahora mismo'); if(d<3600)return Math.floor(d/60)+' min'; if(d<86400)return Math.floor(d/3600)+' h'; if(d<604800)return Math.floor(d/86400)+' d'; try{return new Date(ts).toLocaleDateString();}catch(e){return '';} }
-function hideLanding(){ const o=document.getElementById('landingOv'); if(o){ if(o._stopLogo)o._stopLogo(); o.remove(); } _lchVolver=false; } // [R227] al salir del launcher se olvida de dónde se venía: la próxima vez decide quien lo abra
+/* [R228] `hideLanding` sólo QUITA EL OVERLAY. Antes también ponía `_lchVolver=false`, y como se llama al EMPEZAR una
+   creación —antes de que el `confirmDiscard` de `newProject` resuelva— cualquier cancelación devolvía al launcher ya
+   sin «Back to project»: puerta de un solo sentido con el proyecto viejo todavía vivo detrás. Quién abandona el
+   launcher CON ÉXITO lo dice ahora explícitamente con `lchLeave()`. */
+function hideLanding(){ const o=document.getElementById('landingOv'); if(o){ if(o._stopLogo)o._stopLogo(); o.remove(); } }
+/* [R228] Se abandonó el launcher con éxito (proyecto creado o abierto): el proyecto anterior ya no existe, así que no
+   hay a dónde volver ni consentimiento de descarte que conservar. */
+function lchLeave(){ _lchVolver=false; if(_lch)_lch.discardOk=false; hideLanding(); }
 function lchShowing(){ return !!document.getElementById('landingOv'); } // [R220] `_lch` itself is set once at first init and never nulled back — the DOM node is the real "is the launcher on screen right now" signal (same check renderLauncher/lchPaintNow/lchPaint3D already use)
 /* [U9] loading screen with the logo loop — shown while a project opens and its media/proxies buffer */
 let _loadingOv=null,_loadingStop=null,_loadingPoll=0,_loadingLoops=0;
@@ -3067,7 +3091,15 @@ let _lch=null;
    vivo en memoria detrás. Sólo entonces se pinta «Back to project»: en el arranque no hay nada a lo que volver, y sin
    esa salida la entrada del menú sería una puerta de un solo sentido (el launcher no se puede cerrar). */
 let _lchVolver=false;
-function lchInit(){ return { ptype:'dome', pname:'',
+/* [R228] EL CONSENTIMIENTO DE DESCARTAR ES DE LA SESIÓN DEL LAUNCHER. Antes vivía en una bandera global de un solo
+   uso (`_descartarYaDicho`) que consumía A DISTANCIA la siguiente `confirmDiscard()` — quien fuera. Bastaba abrir el
+   selector de archivos desde el launcher y cancelarlo para quemarla, y la siguiente acción volvía a preguntar por unos
+   cambios que el usuario ya había aceptado perder. Ahora vive en `_lch.discardOk` y se pasa EXPLÍCITO como
+   `skipConfirm` a `newProject`/`newRoomProject`/`openProject`/`openProjectPath`: nadie lo consume por accidente y
+   cancelar a mitad de camino no lo gasta. Se limpia sólo al abandonar el launcher con éxito (`lchLeave`) o con Back. */
+function lchConsent(){ return !!(_lch&&_lch.discardOk); }
+function lchArmConsent(){ _lch=_lch||lchInit(); _lch.discardOk=true; }
+function lchInit(){ return { ptype:'dome', pname:'', discardOk:false,
   domeRes:4096, domeCov:180,
   flatW:1920, flatH:1080,
   roomCount:4, roomFloor:true, roomUniform:false, // [R197] fuera el interruptor Uniform: los muros se editan por separado, que es lo que hace falta para que los angulos salgan de sus medidas
@@ -3238,8 +3270,8 @@ function showLanding(){ if(document.getElementById('landingOv'))return;
       </div>
     </div></div></div>`;
   document.body.appendChild(ov);
-  ov.querySelector('#lchOpen').onclick=()=>{ openProject().then(()=>{}); }; // loadProject esconde el launcher al abrir
-  { const b=ov.querySelector('#lchBack'); if(b)b.onclick=()=>{ _descartarYaDicho=false; _lchVolver=false; hideLanding(); }; } // [R227] el proyecto nunca se tocó: basta con quitar el overlay (y devolver el "descartar" que se había adelantado)
+  ov.querySelector('#lchOpen').onclick=()=>{ openProject(lchConsent()).then(()=>{}); }; // loadProject esconde el launcher al abrir · [R228] el consentimiento ya dado viaja explícito; cancelar el selector no lo gasta
+  { const b=ov.querySelector('#lchBack'); if(b)b.onclick=()=>{ _lchVolver=false; if(_lch)_lch.discardOk=false; hideLanding(); }; } // [R227] el proyecto nunca se tocó: basta con quitar el overlay · [R228] y retirar el "descartar" que se había adelantado (el proyecto vuelve con sus cambios)
   { const b=ov.querySelector('#lchDemo'); if(b)b.onclick=()=>{ const r=b.getBoundingClientRect();
       openMenu(Math.max(6,Math.min(window.innerWidth-190,r.left-40)), r.bottom+5, [ // el menú global es z-500: se pinta por encima del launcher (z-300) sin trucos
         {label:T('Demo · Dome','Demo · Domo'),ico:'view3d',fn:()=>startDemoProject('dome')},
@@ -3540,9 +3572,9 @@ function lchRenderRecents(){ const host=document.getElementById('lchRecents'); i
         <span class="lch-dur">${lchEsc(relTime(r.t))}</span></span>
       <span class="lch-rbody"><span class="n">${lchEsc(r.name)}</span><span class="m">${lchEsc((r.folder||'').split(/[\\/]/).pop()||'')}</span></span>
     </button>`).join('');
-  host.querySelectorAll('.lch-rcard').forEach(b=>{ b.onclick=()=>{ const p=b.dataset.path; if(!p)return;
-    if(IS_ELEC&&DSP.exists){ DSP.exists(p).then(ok=>{ if(ok)openProjectPath(p); else { appAlert(T('That project file was moved or deleted.','Ese archivo de proyecto se movió o eliminó.')); saveRecents(getRecents().filter(r=>r.path!==p)); lchRenderRecents(); } }); }
-    else openProjectPath(p); }; });
+  host.querySelectorAll('.lch-rcard').forEach(b=>{ b.onclick=()=>{ const p=b.dataset.path; if(!p)return; const sk=lchConsent(); // [R228] abrir un reciente DESDE el launcher hereda el "descartar" ya respondido
+    if(IS_ELEC&&DSP.exists){ DSP.exists(p).then(ok=>{ if(ok)openProjectPath(p,sk); else { appAlert(T('That project file was moved or deleted.','Ese archivo de proyecto se movió o eliminó.')); saveRecents(getRecents().filter(r=>r.path!==p)); lchRenderRecents(); } }); }
+    else openProjectPath(p,sk); }; });
 }
 
 /* Crear: se delega en las MISMAS funciones que usan los diálogos, así el proyecto sale idéntico venga de donde venga. */
@@ -3551,12 +3583,16 @@ function lchCreate(){ const S=_lch, name=(S.pname||'').trim();
      recorrido va con los DEMOS del botón «Demos» de esta misma pantalla, que sí tienen material que señalar.
      `after` sólo corre si la creación ocurrió DE VERDAD — con el booleano que devuelven ahora esas funciones. Sin
      él, un `confirmDiscard()` cancelado renombraba la secuencia activa del proyecto ANTERIOR. */
-  const after=ok=>{ if(!ok){ showLanding(); return; } if(name){ const as=activeSeq(); if(as){ as.name=name; renderSeqBar(); } projTitle(); } };
+  /* [R228] La cancelación vuelve al launcher SIN tocar `_lchVolver` ni el consentimiento: el proyecto viejo sigue vivo,
+     así que «Back to project» tiene que seguir ahí. El éxito es lo que cierra la sesión del launcher (`lchLeave`). */
+  const after=ok=>{ if(!ok){ showLanding(); return; } lchLeave(); if(name){ const as=activeSeq(); if(as){ as.name=name; renderSeqBar(); } projTitle(); } };
+  const fallo=e=>{ try{diag('error','launcher','create failed',{ptype:S.ptype,err:String((e&&e.message)||e)});}catch(_){} showLanding(); }; // [R228] antes el handler de rechazo se tragaba el error en silencio
+  const sk=lchConsent();
   hideLanding();
-  if(S.ptype==='dome') newProject('dome',S.domeRes,S.domeRes,S.fps,S.domeCov).then(after,()=>showLanding());
-  else if(S.ptype==='flat') newProject('flat',S.flatW,S.flatH,S.fps).then(after,()=>showLanding());
+  if(S.ptype==='dome') newProject('dome',S.domeRes,S.domeRes,S.fps,S.domeCov,sk).then(after).catch(fallo);
+  else if(S.ptype==='flat') newProject('flat',S.flatW,S.flatH,S.fps,null,sk).then(after).catch(fallo);
   else { const muros=lchCfgWalls(); const cfg={ walls:muros, fps:S.fps, floor:S.roomFloor?lchFloorCfg(muros):null }; // [R165] el piso sale de los muros, no de un tamaño fijo
-    newRoomProject(cfg).then(after,()=>showLanding()); }
+    newRoomProject(cfg,sk).then(after).catch(fallo); }
 }
 addEventListener('resize',()=>{ if(document.getElementById('landingOv'))lchPaint(); });
 
@@ -3579,6 +3615,10 @@ addEventListener('resize',()=>{ if(document.getElementById('landingOv'))lchPaint
    que el recorrido necesita señalar. Añadir un formato = un `_demoBuild*` + su rama en `startDemoProject`. */
 const DEMO_DUR=22; // segundos de la pieza demo — todo se coloca dentro de esta ventana
 let _demoRefs=null; // {fmt,fxClipId,autoClipId,autoParam,autoLane,compClipId} → lo lee tourSteps para saber QUÉ señalar
+/* [R228] LOTE de construcción del demo. Mientras está encendida, `pushUndo` no apila (el demo nace con historial
+   limpio de todos modos) y `addClip`/`nestSelection` mutan el estado pero NO repintan: el único render es el de
+   `_demoFinish`. La enciende y la apaga sólo `startDemoProject`/`buildDemoProject`, siempre con `try/finally`. */
+let _demoBatch=false;
 /* ---- ayudantes de construcción (comunes a los tres formatos) ---- */
 /* registra un medio demo, suelta un clip en su pista/tiempo y le fija las props de colocación
    (domo: {az,el,size} · 2D y sala: {x,y,scale}, x/y en % del semilado del lienzo, y+ hacia arriba) */
@@ -3591,7 +3631,10 @@ function _demoAddText(text,lane,start,dur,props){
   const m={id:uid(),kind:'text',name:text,text,tfontSize:TXT_BASE_PX,tweight:'700',tfont:'Inter, sans-serif',tcolor:'#F2F4F6',tbg:'transparent',tstroke:false,tstrokeColor:'#000',dur,fps:0,color:clipColorFor('text')};
   renderTextMedia(m); return _demoPlace(m,lane,start,dur,props); }
 /* pts=[[tLocal,valor],…] — tiempos RELATIVOS al inicio del clip, que es como los guarda `setKf` */
-function _demoKf(c,p,pts,ease){ if(!c)return; for(const q of pts) setKf(c,p,c.start+q[0],q[1],ease||'easeInOut'); }
+/* [R228] el token por defecto era `'easeInOut'`, que NO existe: `easeF` sólo entiende 'in'|'out'|'both'|'hold' y
+   cualquier otra cosa cae en el `default` LINEAL. Todas las curvas del demo interpolaban recto y el token inventado
+   se guardaba en el `.isp`. 'both' es el suave de entrada y salida que se quería. */
+function _demoKf(c,p,pts,ease){ if(!c)return; for(const q of pts) setKf(c,p,c.start+q[0],q[1],ease||'both'); }
 /* `over` = ajustes sobre el preset (p. ej. pasar un desplazamiento LINEAL a OSCILANTE). Hace falta porque en 2D
    plano un movimiento lineal de `x` no vuelve nunca: el clip se va del lienzo y el demo se queda vacío a los pocos
    segundos. En el domo (azimut) y en la sala (costura de muros) el recorrido da la vuelta y no hay problema. */
@@ -3600,8 +3643,13 @@ function _demoMotion(c,key,speed,over){ if(!c)return null; addAnimPreset(c,key);
 /* Un efecto VISIBLE sin audio: `int` es la intensidad estática y `amt` la reactividad al sonido. `newFx` nace en
    int:0 / amt:100 (pensado para reaccionar a una pista de audio), y en un demo sin audio eso es un efecto que no
    se ve — de ahí el intercambio. */
-function _demoFx(c,type,params,int){ if(!c||!FXBY[type])return null; c.fx=c.fx||[]; const f=newFx(type);
-  f.int=(int!=null?int:100); f.amt=0; f.band='none'; if(params)Object.assign(f.params,params); c.fx.push(f); return f; }
+/* [R228] se crea por el CAMINO REAL (`addFxToClip` con `motion=true`: efecto estático, sin engancharle una fuente de
+   audio) y sólo después se sobreescriben int/amt/params del demo. Así el efecto del demo es indistinguible de uno
+   añadido a mano. El `pushUndo` que mete `addFxToClip` lo absorbe el `clearAllUndo()` de `_demoFinish`. */
+function _demoFx(c,type,params,int){ if(!c||!FXBY[type])return null;
+  addFxToClip(c,type,true);
+  const f=(c.fx||[])[(c.fx||[]).length-1]; if(!f||f.type!==type)return null;
+  f.int=(int!=null?int:100); f.amt=0; f.band='none'; if(params)Object.assign(f.params,params); return f; }
 /* Composición = el MISMO camino que Edit → «Nest selection»: se seleccionan los clips y se anida, así el demo no
    inventa una estructura paralela y lo que se ve es exactamente lo que produce el gesto del usuario. */
 function _demoCompose(clips,name){ clips=(clips||[]).filter(Boolean); if(clips.length<2)return null;
@@ -3664,38 +3712,53 @@ function _demoBuildRoom(V,dur){
 const DEMO_LABEL=fmt=>fmt==='flat'?T('2D','2D'):fmt==='room'?T('360 Room','Sala 360'):T('Dome','Domo');
 /* Un demo del formato pedido + el recorrido guiado encima. Se llama desde el botón «Demos» de la pantalla de inicio. */
 async function startDemoProject(fmt){ try{closeMenu();}catch(e){}
+  const sk=lchConsent(); // [R228] el consentimiento de descartar viaja explícito (antes lo consumía a distancia una bandera global)
   hideLanding();
   try{
     let ok;
     if(fmt==='room'){ const walls=NS_ROOM_ROLES_BY_N[4].map((r,i)=>({role:r,order:i+1,wcm:(r==='Left'||r==='Right')?400:500,hcm:300,pxW:1920,pxH:1080}));
-      ok=await newRoomProject({walls,floor:{pxW:1920,pxH:1080},fps:60}); }
-    else if(fmt==='flat') ok=await newProject('flat',1920,1080,60);
-    else ok=await newProject('dome',4096,4096,60,180);
-    if(!ok){ showLanding(); return; } // `confirmDiscard` dijo que no: el proyecto de antes sigue intacto y volvemos a la pantalla de inicio
-    const V=state.lanes.map((l,i)=>i).filter(i=>state.lanes[i].kind!=='audio');
-    while(V.length<4){ const n=state.lanes.filter(l=>l.kind==='video').length+1; state.lanes.push({id:uid(),name:'Video '+n,tag:'V'+n,kind:'video'}); V.push(state.lanes.length-1); } // el demo cuenta con cuatro pistas de vídeo; `defLanes` ya las da, esto es el cinturón
-    const refs=(fmt==='room')?_demoBuildRoom(V,DEMO_DUR):(fmt==='flat')?_demoBuildFlat(V,DEMO_DUR):_demoBuildDome(V,DEMO_DUR);
-    _demoRefs=Object.assign({fmt},refs);
-    _demoFinish(fmt,DEMO_DUR);
+      ok=await newRoomProject({walls,floor:{pxW:1920,pxH:1080},fps:60},sk); }
+    else if(fmt==='flat') ok=await newProject('flat',1920,1080,60,null,sk);
+    else ok=await newProject('dome',4096,4096,60,180,sk);
+    if(!ok){ showLanding(); return; } // `confirmDiscard` dijo que no: el proyecto de antes sigue intacto y volvemos a la pantalla de inicio — con su «Back to project», que ya no se borra al empezar [R228]
+    lchLeave(); // desde aquí el proyecto anterior YA NO EXISTE: se cierra la sesión del launcher
+    const V=ensureVideoLanes(4); // el demo cuenta con cuatro pistas de vídeo (`defLanes` ya las da)
+    /* [R228] El build entero va en un LOTE: `_demoBatch` corta el historial (`pushUndo`) y las suites de render de
+       `addClip`/`nestSelection`. Antes cada uno de los ~8 clips repintaba la línea de tiempo, el inspector y el
+       visor para nada: `_demoFinish` hace el único render que importa. `finally` garantiza que la bandera se apague
+       incluso si un `_demoBuild*` lanza a mitad. */
+    _demoBatch=true;
+    try{ _demoRefs=Object.assign({fmt},(fmt==='room')?_demoBuildRoom(V,DEMO_DUR):(fmt==='flat')?_demoBuildFlat(V,DEMO_DUR):_demoBuildDome(V,DEMO_DUR)); }
+    finally{ _demoBatch=false; }
+    _demoFinish(fmt);
     tourTrasCrear(fmt,true);
-  }catch(e){ try{diag('error','demo','build failed',{fmt,err:String((e&&e.message)||e)});}catch(_){}
-    appAlert(T('Could not build the demo project.','No se pudo construir el proyecto de demostración.')); }
+  }catch(e){ _demoBatch=false; // cinturón: el `finally` ya la apagó, pero un fallo en otro tramo no debe dejarla encendida
+    try{diag('error','demo','build failed',{fmt,err:String((e&&e.message)||e)});}catch(_){}
+    /* [R228] En este punto el proyecto ANTERIOR ya fue destruido por `newProject`/`newRoomProject` (vaciaron medios,
+       clips, pistas e historial): no hay nada a lo que "volver". Lo digno es tirar el demo a medio construir y
+       devolver al usuario a la pantalla de inicio SIN «Back to project», para que empiece de cero. El aviso va
+       primero porque el launcher (z-300) taparía el diálogo (z-50). */
+    _demoRefs=null; _lchVolver=false; if(_lch)_lch.discardOk=false;
+    appAlert(T('Could not build the demo project.','No se pudo construir el proyecto de demostración.'), ()=>showLanding()); }
 }
 /* Cierre común: encaja la línea de tiempo a la pieza, deja seleccionado el clip que el recorrido va a explicar y
    devuelve el proyecto a "recién nacido" — sin ruta, sin historial y sin cambios pendientes. */
-function _demoFinish(fmt,dur){
+function _demoFinish(fmt){ // [R228] ya no recibe `dur`: el zoom lo pone `fitAll()`, que lo saca de `duration()`
   const as=activeSeq(); if(as)as.name=T('Demo','Demo')+' · '+DEMO_LABEL(fmt);
   state.playhead=0; state.workIn=null; state.workOut=null;
-  { const sc=$('#tlscroll'); const vw=(sc&&sc.clientWidth)||900; state.tl.pxPerSec=Math.max(TL_PPS_MIN,Math.min(TL_PPS_MAX,(vw*0.94)/Math.max(0.5,dur))); if(sc)sc.scrollLeft=0; } // como «Fit all», pero sin su aviso de estado
+  fitAll(); // [R228] el mismo «Fit all» de siempre en vez de recalcular el zoom a mano; su aviso de estado lo pisa el «Demo project ready» de dos líneas más abajo
   if(_demoRefs&&_demoRefs.fxClipId){ state.selId=_demoRefs.fxClipId; state.selIds=[_demoRefs.fxClipId]; } // el inspector arranca con algo que mirar
   clearAllUndo(); currentPath=null; state.dirty=false; // proyecto nuevo de verdad: Save pedirá dónde guardarlo
   renderMedia(); renderSeqBar(); renderTimeline(); renderInspector(); render(); updStatus(); projTitle(); updFmtChip();
   flashStatus(T('Demo project ready — edit anything and save it wherever you like','Proyecto demo listo — edítalo a gusto y guárdalo donde quieras')); }
 /* [R210→R227] `buildDemoProject()` se mantiene como ALIAS del demo de domo SIN recorrido: no lo llama la app, lo
    llaman los arneses de prueba de `scratchpad/` para montar una escena reproducible. */
-async function buildDemoProject(){ hideLanding(); await newProject('dome',4096,4096,60,180);
-  const V=state.lanes.map((l,i)=>i).filter(i=>state.lanes[i].kind!=='audio');
-  _demoRefs=Object.assign({fmt:'dome'},_demoBuildDome(V,DEMO_DUR)); _demoFinish('dome',DEMO_DUR); }
+async function buildDemoProject(){ hideLanding();
+  if(!(await newProject('dome',4096,4096,60,180)))return; // [R228] `confirmDiscard` pudo decir que no: sin este chequeo el demo se construía ENCIMA del proyecto anterior
+  const V=ensureVideoLanes(4);
+  _demoBatch=true;
+  try{ _demoRefs=Object.assign({fmt:'dome'},_demoBuildDome(V,DEMO_DUR)); } finally{ _demoBatch=false; }
+  _demoFinish('dome'); }
 /* ===================== [D7] RECORRIDO GUIADO — coach-marks sobre el editor real =====================
    Recorre visor → línea de tiempo → inspector → automatización → composición → visor 2D/3D → export, con textos
    propios de cada formato. Se salta con Esc o con «Skip tour», y se relanza desde Ventana → «Recorrido guiado».
@@ -3711,7 +3774,8 @@ function tourTrasCrear(fmt,demo){ setTimeout(()=>{ try{ startTour(fmt,demo); }ca
    toca. IDEMPOTENTE — sólo re-renderiza lo que de verdad cambia, porque `act` se ejecuta en cada `draw` (volver
    atrás, redimensionar). Sin `markDirty`: enseñar no es editar. */
 function _demoSelect(clipId,tab){ const c=clipById(clipId); let ren=false;
-  if(c&&state.selId!==c.id){ state.selId=c.id; state.selIds=[c.id]; state.selGroupId=null; renderTimeline(); ren=true; }
+  if(c&&state.selId!==c.id){ state.selId=c.id; state.selIds=[c.id]; state.selGroupId=null;
+    $$('.clip').forEach(x=>x.classList.toggle('sel',+x.dataset.clip===c.id)); ren=true; } // [R228] idioma LIGERO de selección (el mismo que los clics reales de la línea de tiempo): mover una clase, no reconstruir la línea de tiempo entera
   if(tab&&state.inspTab!==tab){ state.inspTab=tab; ren=true; }
   if(ren){ renderInspector(); if(state.inspTab==='react')try{arMeterStart();}catch(e){} } }
 /* ---- the coach-mark tour ---- */
@@ -3759,20 +3823,31 @@ function tourSteps(fmt,demo){
      act:()=>_demoSelect(R.fxClipId,'react'),
      body:T('The right pane has two tabs: "Inspector" for placement, colour and motion, and "Reactive FX" for the effect chain. This clip has RGB Split applied — Intensity is the static amount, Reactivity makes it follow an audio track.','El panel derecho tiene dos pestañas: «Inspector» para colocación, color y movimiento, y «Reactive FX» para la cadena de efectos. Este clip lleva un RGB Split aplicado — Intensity es la cantidad fija y Reactivity lo hace seguir a una pista de audio.')},
     {sel:()=>'#tracks .lane[data-lane="'+R.autoLane+'"]', reveal:true, title:T('Automation','Automatización'),
+     /* [R228] El acto entero va detrás del guard `cambio` —que ahora incluye la SELECCIÓN, antes fuera de él— porque
+        `act` corre en cada `draw` (volver atrás, redimensionar): sin eso `syncAutoUI` y la clase del botón se
+        reejecutaban por nada y una selección rancia (el usuario tocó otro clip) nunca se corregía. La selección usa
+        el idioma ligero de `_demoSelect`; la curva, el gesto compartido `revealAutomation` (sin `dirty`: mostrar una
+        curva no es editar el proyecto). */
      act:()=>{ const c=clipById(R.autoClipId); if(!c)return;
-       if(state.selId!==c.id){ state.selId=c.id; state.selIds=[c.id]; renderInspector(); }
-       const lane=state.lanes[R.autoLane]; const cambio=(!state.inlineCurves)||(lane&&lane._autoP!==R.autoParam);
-       state.inlineCurves=true; if(lane&&lane.kind!=='audio')lane._autoP=R.autoParam; syncAutoUI(); { const b=$('#curvesBtn'); if(b)b.classList.add('on'); }
-       if(cambio)renderTimeline(); }, // sin markDirty: mostrar una curva no es editar el proyecto
+       const lane=state.lanes[R.autoLane];
+       const cambio=(state.selId!==c.id)||(!state.inlineCurves)||(lane&&lane._autoP!==R.autoParam);
+       if(!cambio)return;
+       if(state.selId!==c.id){ state.selId=c.id; state.selIds=[c.id]; state.selGroupId=null;
+         $$('.clip').forEach(x=>x.classList.toggle('sel',+x.dataset.clip===c.id)); renderInspector(); }
+       revealAutomation(c,R.autoParam,{lazy:true}); },
      body:T('Automation is on. The curve drawn over the clip is a real parameter over time — click to add points, drag them, right-click for options. Each track shows one parameter at a time; the choosers in its header pick which.','La automatización está encendida. La curva dibujada sobre el clip es un parámetro real a lo largo del tiempo — clic para añadir puntos, arrástralos, clic derecho para más opciones. Cada pista muestra un parámetro a la vez; los selectores de su cabecera eligen cuál.')},
     {sel:()=>R.compClipId?('.clip[data-clip="'+R.compClipId+'"]'):'.timeline', reveal:true, title:T('Compositions','Composiciones'),
      act:()=>_demoSelect(R.compClipId,'insp'),
      body:T('This clip is a composition: two clips nested into one. Double-click it to go inside and edit its content; the tabs above the timeline switch back. Effects applied out here affect the whole composition.','Este clip es una composición: dos clips anidados en uno. Haz doble clic para entrar y editar su contenido; las pestañas de encima de la línea de tiempo te devuelven. Los efectos aplicados aquí fuera afectan a toda la composición.')});
   } else pasos.push({sel:'#inspPane',title:T('The inspector','El inspector'), body:insp});
   pasos.push(
-  {sel:'#viewModeSeg', title:T('2D and 3D','2D y 3D'),
+  /* [R228] En 2D plano NO hay vista 3D: `updModeUI` esconde ese botón y el que queda se llama «Canvas». El texto
+     prometía un 3D inexistente y mandaba al usuario a buscar un botón que no está — así que el 2D tiene su propia
+     copia, sobre el lienzo y su zoom. Domo y sala conservan la suya. */
+  {sel:'#viewModeSeg', title:flat?T('The canvas view','La vista del lienzo'):T('2D and 3D','2D y 3D'),
    body:dom?T('2D is the fisheye master — the file a dome projector eats. 3D puts you inside the dome to check how it really reads.','2D es el máster fisheye — el archivo que se le da a un proyector de domo. 3D te mete dentro del domo para comprobar cómo se lee de verdad.')
      :room?T('2D is the unrolled strip you edit. 3D assembles the room around you — drag to look, scroll to zoom.','2D es la tira desenrollada que editas. 3D monta la sala a tu alrededor — arrastra para mirar, rueda para acercarte.')
+     :flat?T('"Canvas" is the only view a 2D project needs: what you see is exactly what gets exported. Scroll to zoom in on the detail and drag to pan around it — there is no 3D here, because the canvas IS the piece.','«Canvas» es la única vista que necesita un proyecto 2D: lo que ves es exactamente lo que se exporta. Usa la rueda para acercarte al detalle y arrastra para desplazarte — aquí no hay 3D, porque el lienzo ES la obra.')
      :T('2D is your canvas as it will be exported; 3D previews it in space.','2D es tu lienzo tal y como se exportará; 3D lo previsualiza en el espacio.')},
   {sel:'#menubar', title:T('Export','Exportar'), body:exp});
   return pasos; }
@@ -5360,7 +5435,7 @@ function sepAuto(n,c){ if(Array.isArray(c.anim)) n.anim=JSON.parse(JSON.stringif
   if(c.kfLink&&typeof c.kfLink==='object')n.kfLink=Object.assign({},c.kfLink); // [R95·D2] the copy stays an INSTANCE of the same item (that's the point of pooling: duplicate a clip, edit either, both follow)
   return n; } // [R95·C1] the modulation stack is deep-copied (fresh ids) — split/duplicate/nest must never share layer objects by reference // anim (motion modifiers + wetKf) deep-copied too — split/duplicate/nest copies must never share modifier objects
 function isAudioClip(c){ const l=c&&state.lanes[c.lane]; return !!(l&&l.kind==='audio'); }
-function openAuto(c,p){ if(!c||isAudioClip(c))return; const lane=state.lanes[c.lane]; if(!lane)return; lane._autoP=isFxKey(p)?(function(){ const q=p.split(':'); const fx=(c.fx||[]).find(f=>f.id===+q[1]); return (fx&&FXBY[fx.type])?('fxt:'+fx.type+':'+q[2]):null; })()||p:p; state.inlineCurves=true; syncAutoUI(); const cb=$('#curvesBtn'); if(cb)cb.classList.add('on'); renderTimeline(); } // [R93] armed param becomes the TRACK's primary overlay (Ableton: the chooser lives on the track header)
+function openAuto(c,p){ revealAutomation(c,p,{fallback:true}); } // [R93] armed param becomes the TRACK's primary overlay (Ableton: the chooser lives on the track header) · [R228] el gesto es ahora `revealAutomation`, compartido con showAutomationParam y el recorrido guiado
 /* [R143] closeAuto (mantenía la lista legacy a nivel de clip c._auto, nunca renderizada; sus llamadores re-renderizan igual) ARCHIVADO → _backup/deprecated/20260723-automation-sublanes-and-clip-auto.js */
 /* [R93] which fx TYPES exist on a track's clips (device dropdown), + all their lane keys */
 function laneFxTypes(li){ const seen=[]; for(const c of state.clips)if(c.lane===li)for(const f of (c.fx||[]))if(FXBY[f.type]&&!seen.includes(f.type))seen.push(f.type); return seen; }
@@ -5701,12 +5776,26 @@ function clipArmedTrackKeys(c){ const out=[]; if(!c||!c.kf)return out;
 function trackKeyFor(c,p){ if(isFxKey(p)){ const q=String(p).split(':'); const fx=((c&&c.fx)||[]).find(f=>f.id===+q[1]); return (fx&&FXBY[fx.type])?('fxt:'+fx.type+':'+q[2]):null; } return p; }
 function focusAutoParam(c,p){ if(!state.inlineCurves||!c||isAudioClip(c))return; const lane=state.lanes[c.lane]; if(!lane||lane.kind==='audio')return;
   const np=trackKeyFor(c,p); if(!np||lane._autoP===np)return; lane._autoP=np; renderTimeline(); markDirty(); } // markDirty porque `_autoP` se guarda en el .isp (es parte de la vista del proyecto)
+/* [R228] EL GESTO COMPARTIDO «mostrar en su pista la automatización de este parámetro»: enciende el modo, arma el
+   parámetro en la cabecera de la pista, sincroniza la UI y repinta. Estaba copiado tres veces (`openAuto`,
+   `showAutomationParam` y el acto del paso de automatización del recorrido guiado), con una normalización de clave
+   `fx:` → `fxt:` escrita a mano en dos de ellas. Devuelve la clave de PISTA aplicada, o null si no se pudo.
+   Opciones: `fallback` = una clave `fx:` cuyo efecto ya no está en el clip se arma tal cual en vez de descartarse
+   (lo que hacía `openAuto`) · `dirty` = marca el proyecto como modificado (`_autoP` se guarda en el `.isp`) ·
+   `lazy` = no repintar si nada cambió, para llamadores que se ejecutan en cada fotograma (el recorrido guiado). */
+function revealAutomation(c,p,opts){ opts=opts||{};
+  if(!c||isAudioClip(c))return null;
+  const lane=state.lanes[c.lane]; if(!lane)return null;
+  const np=trackKeyFor(c,p)||(opts.fallback?p:null); if(!np)return null;
+  const cambio=(!state.inlineCurves)||(lane._autoP!==np);
+  state.inlineCurves=true; lane._autoP=np;
+  syncAutoUI(); { const b=$('#curvesBtn'); if(b)b.classList.add('on'); }
+  if(cambio||!opts.lazy){ renderTimeline(); if(opts.dirty)markDirty(); }
+  return np; }
 function showAutomationParam(c,p){ if(!c)return;
   if(isAudioClip(c)){ flashStatus(T('Audio clips have no visual automation','Los clips de audio no tienen automatización visual'),'err'); return; }
-  const lane=state.lanes[c.lane]; const np=trackKeyFor(c,p); if(!np)return;
-  state.inlineCurves=true; syncAutoUI(); { const b=$('#curvesBtn'); if(b)b.classList.add('on'); }
-  if(lane&&lane.kind!=='audio')lane._autoP=np;
-  renderTimeline(); markDirty(); const d=paramDef(c,np); flashStatus(T('Showing automation · ','Mostrando automatización · ')+(d?d[1]:np)); }
+  const np=revealAutomation(c,p,{dirty:true}); if(!np)return;
+  const d=paramDef(c,np); flashStatus(T('Showing automation · ','Mostrando automatización · ')+(d?d[1]:np)); }
 /* [R224] Mix de Motion legacy (`a.wetKf` 0..1 / `a.wet`) → parámetro `mot:<param>:mix` (c.kf / c.props, 0-100 %).
    Idempotente y sin pérdida: si la clave nueva ya existe se respeta, y el `.isp` viejo se sigue abriendo igual. */
 function migrateMotionWet(){ for(const c of state.clips){ if(!Array.isArray(c.anim))continue;
@@ -8337,14 +8426,16 @@ async function saveProject(saveAs){ const json=JSON.stringify(serProject());
     try{ const ok=await DSP.writeText(p,json); if(ok===false)throw new Error('write returned false'); currentPath=p; state.dirty=false; projTitle(); flashStatus(T('Project saved','Proyecto guardado')); addRecent(p, projThumb()); clearLiveAutosaves(); } // the file is now the newest copy → drop the crash autosaves so a later open never falsely offers "restore a newer autosave"
     catch(e){ _ok=false; appAlert(T('Could not save the project (disk full, locked file, or no permission). Try Save As to another location.','No se pudo guardar el proyecto (disco lleno, archivo bloqueado o sin permiso). Prueba Guardar como en otra ubicación.')); }
     if(_ok){ try{ purgeMediaTrash(); }catch(e){ console.warn('purgeMediaTrash failed',e); } } } // [R215] fuera del try de escritura y sólo tras éxito CONFIRMADO — un fallo del purge nunca debe reportarse como "Could not save"
+  /* [R228] SABIDO Y ACEPTADO: esta rama (navegador, no Electron) marca el proyecto como limpio SIN confirmación de
+     escritura — la descarga puede cancelarse en el diálogo del navegador y el asterisco se habría ido igual. No se
+     arregla porque el objetivo de distribución es el `.exe` de Electron; la rama web es un apaño de desarrollo. */
   else { dlBlob(new Blob([json],{type:'application/json'}),(currentTitle()==='Untitled project'?'proyecto':currentTitle())+'.isp'); state.dirty=false; projTitle(); flashStatus(T('Project saved','Proyecto guardado')); } } // [R215] sin purgeMediaTrash aquí: la descarga del navegador no confirma que el archivo se haya escrito a disco — purgar destruiría medias sin garantía real de que el guardado llegó a buen puerto
-/* [R227] `_descartarYaDicho` = el usuario acaba de responder "descartar" en la pregunta de tres salidas de
-   «New project…». Es de UN SOLO USO y lo consume la siguiente `confirmDiscard()` (la del `newProject`/
-   `newRoomProject` que va a lanzar el launcher, o la de abrir un reciente desde ahí mismo): sin él la misma
-   pregunta salía dos veces seguidas. NO se toca `state.dirty`, así que «Back to project» devuelve el proyecto
-   exactamente como estaba, con sus cambios y su asterisco. */
-let _descartarYaDicho=false;
-function confirmDiscard(){ return new Promise(res=>{ if(_descartarYaDicho){ _descartarYaDicho=false; res(true); return; } if(!state.dirty){ res(true); return; } appConfirm(T('There are unsaved changes. Continue and discard them?','Hay cambios sin guardar. ¿Continuar y descartarlos?'), res, {ok:T('Discard','Descartar'),danger:true}); }); }
+/* [R227→R228] `skipConfirm` = el usuario YA respondió "descartar" en la pregunta de tres salidas de «New project…»
+   y quien llama trae ese consentimiento consigo (lo guarda la sesión del launcher, `_lch.discardOk` — ver
+   `lchConsent`). Sustituye a la bandera global de un solo uso `_descartarYaDicho`, que la consumía a distancia
+   cualquier `confirmDiscard()`, incluida la de un selector de archivos que luego se cancelaba. NO se toca
+   `state.dirty`, así que «Back to project» devuelve el proyecto exactamente como estaba, con sus cambios y su asterisco. */
+function confirmDiscard(skipConfirm){ return new Promise(res=>{ if(skipConfirm||!state.dirty){ res(true); return; } appConfirm(T('There are unsaved changes. Continue and discard them?','Hay cambios sin guardar. ¿Continuar y descartarlos?'), res, {ok:T('Discard','Descartar'),danger:true}); }); }
 /* [R227] File → «New project…»: UNA entrada que devuelve a la PANTALLA DE INICIO, que es donde se configura un
    proyecto nuevo (con vista previa y todos los parámetros). Antes el menú repetía los tres diálogos de creación
    —domo, 2D, sala— duplicando lo que el launcher hace mejor: tres entradas, tres diálogos que mantener y ningún
@@ -8354,30 +8445,30 @@ async function newProjectViaLanding(){
   if(state.dirty){ const q=await appConfirm3(T('There are unsaved changes in this project.','Hay cambios sin guardar en este proyecto.'),{save:T('Save','Guardar'),discard:T('Discard','Descartar')});
     if(q==='cancel')return;
     if(q==='save'){ await saveProject(false); if(state.dirty)return; } // el diálogo de guardar se pudo cancelar (o falló la escritura): sigue sucio → no seguimos adelante
-    else _descartarYaDicho=true; }
+    lchArmConsent(); } // [R228] el consentimiento pasa a ser de la SESIÓN del launcher (guardado o descartado, el usuario ya dijo que sí a seguir adelante)
   if(state.playing)pause();
   _lchVolver=true; showLanding(); }
-async function openProject(){ if(!(await confirmDiscard()))return;
+async function openProject(skipConfirm){ if(!(await confirmDiscard(skipConfirm)))return;
   if(IS_ELEC){ const p=await DSP.openDialog(); if(!p)return; const txt=await DSP.readText(p); if(txt==null){appAlert(T('Could not read the file.','No se pudo leer el archivo.'));return;} let obj; try{obj=JSON.parse(txt);}catch(e){appAlert(T('Invalid project','Proyecto no válido'));return;} currentPath=p; hideLanding(); loadProject(await maybeOfferAutosave(p,obj)); } // hide the landing FIRST so the recovery prompt (if any) shows on a clean screen, not buried behind the start screen
   else { $('#projInput').click(); } }
 /* [R175] Cada salida de aquí tiene que soltar el splash. Si el archivo no se puede leer, no es JSON válido o el
    usuario cancela, `_bootEsperandoProyecto` se quedaría en true y el editor NO aparecería nunca: el splash se
    quedaría fijo hasta el plazo del proceso principal, y encima revelaría una ventana todavía en `preboot`. */
-async function openProjectPath(p){ if(!p||!IS_ELEC){ bootProyectoListo(); return; }
-  if(!(await confirmDiscard())){ bootProyectoListo(); return; } // open a .isp handed in by a double-click (file association)
+async function openProjectPath(p,skipConfirm){ if(!p||!IS_ELEC){ bootProyectoListo(); return; }
+  if(!(await confirmDiscard(skipConfirm))){ bootProyectoListo(); return; } // open a .isp handed in by a double-click (file association) — o un reciente del launcher, que trae su consentimiento en `skipConfirm` [R228]
   try{ const txt=await DSP.readText(p); if(txt==null){appAlert(T('Could not read the file.','No se pudo leer el archivo.'));bootProyectoListo();return;} let obj; try{obj=JSON.parse(txt);}catch(e){appAlert(T('Invalid project','Proyecto no válido'));bootProyectoListo();return;} currentPath=p; hideLanding(); loadProject(await maybeOfferAutosave(p,obj)); } // hide the landing FIRST so the recovery prompt shows on a clean screen
   catch(e){ appAlert(T('Could not open the project.','No se pudo abrir el proyecto.')); bootProyectoListo(); } }
 function disposeMedia(m){ try{ disposeDecoder(m); if(m.srcUrl)URL.revokeObjectURL(m.srcUrl); if(m.proxyUrl)URL.revokeObjectURL(m.proxyUrl); if(m._frameUrls)m._frameUrls.forEach(u=>{try{URL.revokeObjectURL(u);}catch(e){}}); if(m.thumb&&typeof m.thumb==='string'&&m.thumb.indexOf('blob:')===0)URL.revokeObjectURL(m.thumb); if(m.tex)gl.deleteTexture(m.tex); if(m.fbo){try{gl.deleteFramebuffer(m.fbo);}catch(e){}} if(m.nestClips)for(const c of m.nestClips)if(c.maskTex){try{gl.deleteTexture(c.maskTex);}catch(e){}} }catch(e){} }
 /* [R227] Devuelve `true` si el proyecto se creó de verdad y `false` si `confirmDiscard()` lo canceló. Antes no
    devolvía nada, así que quien llamaba (el launcher, los demos) no podía distinguir "creado" de "el usuario dijo
    que no" y seguía adelante tocando el proyecto ANTERIOR. */
-async function newProject(mode,w,h,fps,cov){ if(!(await confirmDiscard()))return false; if(state.playing)pause(); disposeAllVinst();
+async function newProject(mode,w,h,fps,cov,skipConfirm){ if(!(await confirmDiscard(skipConfirm)))return false; if(state.playing)pause(); disposeAllVinst(); // [R228] skipConfirm = consentimiento de descarte que trae el launcher
   for(const c of state.clips){ try{ if(c.maskTex)gl.deleteTexture(c.maskTex); }catch(e){} }
   try{ closeAllNdi(); }catch(e){} for(const m of state.media) disposeMedia(m); for(const id in (state.mediaTrash||{})) disposeMedia(state.mediaTrash[id]); state.mediaTrash={}; clearFrameCache(); resetLutReg();
   state.media=[]; state.clips=[]; state.groups=[]; state.markers=[]; state.selId=null; state.selGroupId=null; state.selMarkerId=null; state.playhead=0; state.workIn=null; state.workOut=null; state.folders=[]; state.folderColors={}; state.selFolder=null; state.mediaFolder=null; state.selIds=[];
   state.reactive=null; _arCache=null; _fxEnvCache.clear(); try{freeFxResources();}catch(e){}
   state.lanes=defLanes();
-  const _fl=(mode==='flat'); state.seqMode=_fl?'flat':'dome'; state.seqW=_fl?(w||1920):4096; state.seqH=_fl?(h||1080):4096; state.seqCov=_fl?180:(cov||180); if(fps)state.fps=fps;
+  const _fl=(mode==='flat'); state.seqMode=_fl?'flat':'dome'; const _dres=Math.max(512,Math.round(w||4096)); state.seqW=_fl?(w||1920):_dres; state.seqH=_fl?(h||1080):_dres; state.seqCov=_fl?180:(cov||180); if(fps)state.fps=fps; // [R228] el domo respeta la resolución elegida en el launcher (antes forzaba 4096 y el selector Resolution no hacía nada); cuadrado siempre
   state.openSeqs=[]; state.activeSeqId=null; ensureSequences();
   clearAllUndo(); currentPath=null; state.dirty=false;
   renderMedia(); renderSeqBar(); renderTimeline(); renderInspector(); render(); updStatus(); projTitle(); updFmtChip(); flashStatus(_fl?T('New 2D project','Nuevo proyecto 2D'):T('New project','Proyecto nuevo'));
@@ -8432,7 +8523,7 @@ function createRoomSequences(cfg){
   const wseq=newSeqMedia(T('Walls','Muros'),fps,stripW,stripH+floorH,null,null,'room'); wseq.room=room; state.media.push(wseq);
   return wseq;
 }
-async function newRoomProject(cfg){ if(!(await confirmDiscard()))return false; if(state.playing)pause(); disposeAllVinst(); // [R227] mismo contrato que newProject: true = creada, false = cancelada
+async function newRoomProject(cfg,skipConfirm){ if(!(await confirmDiscard(skipConfirm)))return false; if(state.playing)pause(); disposeAllVinst(); // [R227] mismo contrato que newProject: true = creada, false = cancelada · [R228] + skipConfirm
   for(const c of state.clips){ try{ if(c.maskTex)gl.deleteTexture(c.maskTex); }catch(e){} }
   try{ closeAllNdi(); }catch(e){} for(const m of state.media) disposeMedia(m); for(const id in (state.mediaTrash||{})) disposeMedia(state.mediaTrash[id]); state.mediaTrash={}; clearFrameCache(); resetLutReg();
   state.media=[]; state.clips=[]; state.groups=[]; state.markers=[]; state.selId=null; state.selGroupId=null; state.selMarkerId=null; state.playhead=0; state.workIn=null; state.workOut=null; state.folders=[]; state.folderColors={}; state.selFolder=null; state.mediaFolder=null; state.selIds=[];
@@ -8598,7 +8689,7 @@ function loadProject(obj){ relinkReset(); // [R204] el índice de reenlace es de
   renderWork();
   if(IS_ELEC){ for(const m of state.media) reloadMedia(m); }
   renderMedia(); renderTimeline(); renderInspector(); render(); updRelink(); updStatus(); projTitle(); try{preloadLUTs();}catch(e){} flashStatus(T('Project loaded','Proyecto cargado'));
-  hideLanding(); if(currentPath)addRecent(currentPath, projThumb());
+  lchLeave(); if(currentPath)addRecent(currentPath, projThumb()); // [R228] la carga llegó a buen puerto: el proyecto de antes ya no existe → se cierra la sesión del launcher (fuera «Back to project» y fuera el consentimiento)
   try{ if(_bootEsperandoProyecto){ bootMark(88); esperarMediosArranque(Date.now()+30000); } else loadingWaitMedia(Date.now()+20000); }catch(e){ hideLoadingScreen(); bootProyectoListo(); } }
 /* [R175] Gemelo de loadingWaitMedia para el arranque: mismo criterio de "listo" (nada decodificando ni generando
    proxy) pero en vez de quitar una pantalla, revela el editor. Plazo más largo que el de la pantalla normal
@@ -8827,7 +8918,8 @@ const _undoBySeq={}; const UNDO_BYTE_CAP=250e6; // large-project guard: 80 snaps
 function _ustk(){ const id=state.activeSeqId!=null?state.activeSeqId:'_'; return _undoBySeq[id]||(_undoBySeq[id]={u:[],r:[],bytes:0}); }
 function clearAllUndo(){ for(const k in _undoBySeq)delete _undoBySeq[k]; }
 function snapshot(trashIds){ return JSON.stringify({clips:state.clips.map(serClip),lanes:state.lanes,selId:state.selId,selIds:state.selIds,selLane:state.selLane,markers:state.markers,selMarkerId:state.selMarkerId,groups:state.groups,selGroupId:state.selGroupId,reactive:state.reactive||null,autoItems:state.autoItems||{},trashIds:trashIds||undefined}); } // [R95·D2] items are undoable state too: editing a pooled curve rewrites the item · [R212] trashIds: media ids this action just sent to state.mediaTrash — restore() must revive them even if no clip references them (unused media deleted from the panel)
-function pushUndo(trashIds){ const st=_ustk(); const s=snapshot(trashIds); st.u.push(s); st.bytes+=s.length; st.r.length=0;
+function pushUndo(trashIds){ if(_demoBatch)return; // [R228] construyendo un proyecto demo: no hay nada que deshacer (`_demoFinish` limpia el historial de todos modos) y cada snapshot de un lote de 8 clips es caro
+  const st=_ustk(); const s=snapshot(trashIds); st.u.push(s); st.bytes+=s.length; st.r.length=0;
   let total=0,count=0; for(const k in _undoBySeq){ total+=_undoBySeq[k].bytes; count+=_undoBySeq[k].u.length; }
   while(count>80||(total>UNDO_BYTE_CAP&&count>8)){ let bk=null; for(const k in _undoBySeq)if(_undoBySeq[k].u.length&&(bk==null||_undoBySeq[k].bytes>_undoBySeq[bk].bytes))bk=k; if(bk==null)break; const d=_undoBySeq[bk].u.shift(); _undoBySeq[bk].bytes-=d.length; total-=d.length; count--; } // evict oldest from the heaviest sequence — caps are global across all stacks
   markDirty(); }

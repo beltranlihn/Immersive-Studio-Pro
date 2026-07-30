@@ -197,6 +197,29 @@
       enciende la automatización, resalta el nest). El demo arranca sin ruta y sin historial: se edita y se guarda
       con el Save normal (verificado: guardar + reabrir conserva clips, nest, curvas, motions y efectos).
 
+**[R228] Correcciones del code review de la Etapa 5** (8 revisores; guiones `scratchpad/r228-verify*.mjs`, captura
+`scratchpad/r228-demo-flat-canvas.png`, `__errs` vacío en todas las corridas):
+- **Bugs.** `_demoKf` pasaba `'easeInOut'`, un token que `easeF` no conoce → TODAS las curvas del demo interpolaban
+  LINEAL y el token falso se guardaba en el `.isp` (ahora `'both'`). **La trampa de la puerta única del launcher:** el
+  consentimiento de descartar deja de ser una bandera global de un solo uso (`_descartarYaDicho`) y pasa a ser de la
+  SESIÓN del launcher (`_lch.discardOk`), viajando explícito como `skipConfirm`; `hideLanding()` ya no borra
+  `_lchVolver` (lo hace `lchLeave()`, sólo al salir con éxito), así que cancelar a mitad de camino devuelve al launcher
+  **con «Back to project»**. `buildDemoProject` mira el booleano de `newProject`. `appConfirm3` con Enter responde el
+  botón ENFOCADO, no siempre Guardar. El paso «2D and 3D» tiene copy propio en 2D plano (ahí no hay 3D). El `catch` de
+  `startDemoProject` vuelve al landing en vez de dejar un proyecto mestizo. El acto del paso «Automation» mete la
+  selección en su guard `cambio` y corrige una selección rancia.
+- **Calidad.** `_dialogBase` = andamiaje único de `appConfirm`/`appConfirm3`. `revealAutomation(c,p,opts)` = gesto
+  compartido por `openAuto`/`showAutomationParam`/el recorrido. `_demoBatch` = build del demo en LOTE (0 snapshots de
+  undo y 3 repintados en vez de ~10). `_demoFx` crea por `addFxToClip`. `_demoFinish` reusa `fitAll()`. Fuera el
+  cinturón muerto de pistas (`ensureVideoLanes(4)`). `lchCreate` ya no se traga los errores en su `.catch`.
+- **DIFERIDO (decidido, no hacer hoy):** consolidar los tres `_demoBuild*` en un script configurable por formato — el
+  churn supera el beneficio mientras sólo hay tres formatos y los ayudantes ya están compartidos. La rama web de
+  `saveProject` (`dlBlob`) marca limpio sin confirmación de escritura: SABIDO Y ACEPTADO (el objetivo de distribución
+  es el `.exe`), documentado en el propio código.
+- [x] **Hallazgo suelto ARREGLADO en R228** (decisión: manda el control): `newProject` ahora respeta la resolución
+  de domo elegida en el launcher (`seqW/seqH = w` cuadrado, clamp mínimo 512; antes forzaba 4096 siempre).
+  Verificado por CDP: launcher a 2048 → proyecto 2048².
+
 ## 📋 Tanda de Beltrán — 2026-07-27 · EN CURSO
 > Orden: primero lo independiente y barato, luego el landing **de una sola pasada** (son 8 puntos del mismo sitio),
 > y al final lo conceptual. Las tandas 1-3 no dependen entre sí: se pueden reordenar sin coste.
