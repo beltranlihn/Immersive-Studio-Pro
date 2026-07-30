@@ -74,7 +74,12 @@ const LAST_EXP_KEY='dspLastExport';
 function lastExportGet(){ if(state.lastExport)return state.lastExport;
   try{ const s=localStorage.getItem(LAST_EXP_KEY); if(s)return (state.lastExport=JSON.parse(s)); }catch(_){} return null; }
 function lastExportSet(v){ state.lastExport=v; try{ localStorage.setItem(LAST_EXP_KEY,JSON.stringify(v)); }catch(_){} }
-const TRACK_COLORS=['#B4BAC1','#9EA5AD','#C5CAD0','#8A9199','#A7ADB5'];
+/* [R231] El color de una PISTA lo manda su función, no el gusto del momento: gris = vídeo, verde = audio,
+   rojo = piso. Se quitó el "Elegir color de pista…" del menú contextual (el color por CLIP sigue siendo libre):
+   con colores fijos la lectura del timeline es la misma en cualquier proyecto. Los `lane.color` guardados en
+   `.isp` viejos se ignoran sin más. */
+const LANE_COL={video:'#B4BAC1',audio:'#8FBF7A',floor:'#D8624F'};
+function laneColor(lane){ return lane?(lane.surf==='floor'?LANE_COL.floor:(lane.kind==='audio'?LANE_COL.audio:LANE_COL.video)):LANE_COL.video; }
 /* [R102·D-T2] Color de clip = TIPO de medio, por TONO a luminosidad constante (L*=50.0, spread 0.26).
    Antes: 6 grises entre L* 19 y 29, saturación ~18%, repartidos POR TURNO (`colorIdx++`). Es decir: el color
    no significaba nada, no se distinguían entre sí, y encima ocupaban el eje de brillo.
@@ -1361,7 +1366,12 @@ let _viewerWin=null, _viewerCtx=null;
 let _vMode='auto';        // 'auto' = complementaria del editor · '2d'/'3d' = override manual del operador
 let _vEditorMode=null;    // modo del editor cuando se fijó el override (si cambia, el override se suelta)
 let _vCam=null;           // cámara PROPIA (sirve para el domo y para la sala: mismos campos yaw/pitch/dist/fov/back)
-let _vThree='orbit', _vGrid=false, _vOverlay=false; // toggles propios de la ventana
+let _vThree='orbit', _vGrid=false, _vOverlay=false, _vFloor=true; // toggles propios de la ventana · [R231] _vFloor = su propio interruptor de piso (parte el visor en muros|piso, como el editor)
+/* [R231] Encuadre PROPIO de la emergente, por superficie ('_' = panel único). Antes la ventana se pintaba con
+   `V.zoom=0.94; V.pan=[0,0]` fijos, así que su rueda no tenía dónde escribir y el zoom del visor 2D no existía.
+   Es un almacén aparte del editor: acercarse en la ventana no mueve el encuadre de trabajo, ni al revés. */
+let _vVp={};
+function vVpState(surf){ const k=surf||'_'; if(!_vVp[k])_vVp[k]={pan:[0,0],zoom:0.94}; return _vVp[k]; }
 let _vDirty=false, _vRaf=0, _vPaint=false, _vBusy=false, _vBarSig='', _viewerBar=null;
 let _reuseComp=false, _lastSrcTex=null;
 function viewerOpen(){ return !!(_viewerWin && !_viewerWin.closed && _viewerCtx); }
@@ -1412,16 +1422,19 @@ function viewerBuildDoc(w){
        así no hay que acordarse de refrescarla en cada sitio que puede cambiar el estado */
     const paintBar=()=>{ const eff=viewerMode(), threeRow=(eff==='3d');
       const ovlAplica=!(isRoom()&&threeRow); // la costura de la sala es una guía de la TIRA 2D: en el 3D de la sala el botón no haría nada, así que no se muestra (el horizonte del domo sí vale en los dos)
+      const _as=activeSeq(), hayPiso=!!(isRoom()&&_as&&_as.room&&_as.room.floor&&!threeRow); // [R231] el piso parte el visor 2D; en el 3D de la sala ya se ve entero
       bar.innerHTML=(viewerHas3D()?'<span class="seg"><button data-a="2d">2D</button><button data-a="3d">3D</button></span>':'')+
         '<button class="tog" data-a="grid">'+T('Grid','Cuadrícula')+'</button>'+
         (ovlAplica?'<button class="tog" data-a="ovl">'+viewerOverlayLabel()+'</button>':'')+
+        (hayPiso?'<button class="tog" data-a="floor">'+T('Floor','Piso')+'</button>':'')+
         (threeRow?'<span class="seg"><button data-a="orbit">'+T('Orbit','Órbita')+'</button><button data-a="spec">'+T('Viewer','Espectador')+'</button></span>':'');
       const on=(sel,v)=>{ const b=bar.querySelector('[data-a="'+sel+'"]'); if(b)b.classList.toggle('on',!!v); };
-      on('2d',eff==='2d'); on('3d',eff==='3d'); on('grid',_vGrid); on('ovl',_vOverlay); on('orbit',_vThree==='orbit'); on('spec',_vThree==='spec');
+      on('2d',eff==='2d'); on('3d',eff==='3d'); on('grid',_vGrid); on('ovl',_vOverlay); on('floor',_vFloor); on('orbit',_vThree==='orbit'); on('spec',_vThree==='spec');
       bar.querySelectorAll('button').forEach(b=>{ b.onclick=ev=>{ ev.stopPropagation(); const a=b.dataset.a;
         if(a==='2d'||a==='3d'){ _vMode=a; _vEditorMode=state.view.mode; } // override manual: vive hasta que el editor cambie de modo
         else if(a==='grid')_vGrid=!_vGrid;
         else if(a==='ovl')_vOverlay=!_vOverlay;
+        else if(a==='floor')_vFloor=!_vFloor; // [R231]
         else if(a==='orbit'||a==='spec')_vThree=a;
         _vBarSig=''; vDirty(); }; });
     };
@@ -1433,14 +1446,32 @@ function viewerBuildDoc(w){
       const mv=e2=>{ _vCam.yaw=yw-(e2.clientX-x0)*0.0065*inv; _vCam.pitch=Math.max(-HALF_PI+0.02,Math.min(HALF_PI-0.02,pt+(e2.clientY-y0)*0.0065*inv)); vDirty(); };
       const up=()=>{ try{cv.style.cursor='grab';}catch(e){} w.removeEventListener('pointermove',mv); w.removeEventListener('pointerup',up); };
       w.addEventListener('pointermove',mv); w.addEventListener('pointerup',up); });
-    cv.addEventListener('wheel',ev=>{ if(viewerMode()!=='3d')return; ev.preventDefault();
-      if(_vThree==='spec')_vCam.back=Math.max(-0.9,Math.min(2.4,_vCam.back+ev.deltaY*0.0016));
-      else _vCam.dist=Math.max(1.2,Math.min(12,_vCam.dist*Math.exp(ev.deltaY*0.0012)));
+    cv.addEventListener('wheel',ev=>{ ev.preventDefault();
+      if(viewerMode()==='3d'){ if(_vThree==='spec')_vCam.back=Math.max(-0.9,Math.min(2.4,_vCam.back+ev.deltaY*0.0016));
+        else _vCam.dist=Math.max(1.2,Math.min(12,_vCam.dist*Math.exp(ev.deltaY*0.0012)));
+        vDirty(); return; }
+      /* [R231] Zoom del visor 2D de la emergente. Antes esta línea salía por la puerta si el modo no era 3D, así
+         que en 2D la rueda no hacía NADA. Mismo anclaje que el editor (el punto bajo el cursor se queda quieto) y
+         sobre el panel bajo el cursor, para que en la sala partida cada superficie se acerque por su cuenta. */
+      const r=cv.getBoundingClientRect(), px=ev.clientX-r.left, py=ev.clientY-r.top;
+      vWithViewport(w,()=>{ const V=state.view; const P=vpPanelAt(px,py)||vpPanels()[0]; const st=vpState(P.surf), fl=isFlat();
+        const sync=()=>{ if(!P.surf){ V.zoom=st.zoom; V.pan=st.pan; } }; // el camino del domo lee state.view directamente
+        const anchor=()=>fl?pix2frame(px,py,P):pix2f(px,py);
+        const fu=anchor(); st.zoom=Math.max(0.2,Math.min(12,st.zoom*Math.exp(-ev.deltaY*0.0015))); sync();
+        const af=anchor(); st.pan=[st.pan[0]+fu[0]-af[0], st.pan[1]+fu[1]-af[1]]; sync(); });
       vDirty(); },{passive:false});
     w.addEventListener('resize',()=>vDirty());
     w.addEventListener('beforeunload',()=>viewerClosed());
     _vDirty=true; return true;
   }catch(e){ return false; } }
+/* [R231] Ejecuta `fn` con el viewport, el modo y el encuadre de la VENTANA solo-visor puestos, y lo deja todo
+   como estaba. Sin esto, un gesto de la emergente calcularía los paneles con el tamaño del editor: `vpPanels()`
+   se apoya en `view.cw/ch`, y `vpSplitOn()` mira `state.view.mode` y `_vPaint`. */
+function vWithViewport(w,fn){ const V=state.view;
+  const bak={cw:view.cw,ch:view.ch,vs:VSIZE,mode:V.mode,zoom:V.zoom,pan:V.pan,vp:_vPaint};
+  const cssW=Math.max(80,w.innerWidth||960), cssH=Math.max(80,w.innerHeight||960), g=vVpState(null);
+  try{ view.cw=cssW; view.ch=cssH; VSIZE=Math.min(cssW,cssH); V.mode=viewerMode(); V.zoom=g.zoom; V.pan=g.pan; _vPaint=true; return fn(); }
+  finally{ view.cw=bak.cw; view.ch=bak.ch; VSIZE=bak.vs; V.mode=bak.mode; V.zoom=bak.zoom; V.pan=bak.pan; _vPaint=bak.vp; } }
 function viewerClosed(){ if(_vRaf&&_viewerWin){ try{_viewerWin.cancelAnimationFrame(_vRaf);}catch(e){} }
   _vRaf=0; _viewerWin=null; _viewerCtx=null; _viewerBar=null; _vDirty=false;
   const b=$('#popoutBtn'); if(b)b.classList.remove('on');
@@ -1463,9 +1494,10 @@ function viewerPaint(){ if(_vBusy||!viewerOpen()||exporting||glLost)return; cons
     const cssW=Math.max(80,w.innerWidth||960), cssH=Math.max(80,w.innerHeight||960);
     const W=Math.max(16,Math.round(cssW*dpr)), H=Math.max(16,Math.round(cssH*dpr));
     const eff=viewerMode();
-    const sig=eff+'|'+S.seqMode+'|'+(_vGrid?1:0)+'|'+(_vOverlay?1:0)+'|'+_vThree+'|'+S.lang;
+    const sig=eff+'|'+S.seqMode+'|'+(_vGrid?1:0)+'|'+(_vOverlay?1:0)+'|'+(_vFloor?1:0)+'|'+_vThree+'|'+S.lang; // [R231] + el botón Floor
     if(sig!==_vBarSig){ _vBarSig=sig; if(_viewerBar)try{_viewerBar();}catch(e){} }
-    V.mode=eff; V.three=_vThree; V.cam=_vCam; V.zoom=0.94; V.pan=[0,0]; // salida limpia: sin el pan/zoom del editor
+    const _vg=vVpState(null); // [R231] encuadre PROPIO de la ventana (antes 0.94/[0,0] fijos: su rueda no tenía dónde escribir)
+    V.mode=eff; V.three=_vThree; V.cam=_vCam; V.zoom=_vg.zoom; V.pan=_vg.pan; // sin el pan/zoom del EDITOR, pero con el suyo
     V.showGrid=_vGrid; V.showOutline=false; V.checkerBg=false; V.showScopes=false; // contornos/scopes/alfa son ayudas de EDICIÓN, no de salida
     V.hfade=(!isFlat()&&_vOverlay); V.showSeam=(isRoom()&&_vOverlay); V.showCenter=(isFlat()&&!isRoom()&&_vOverlay);
     view.cw=cssW; view.ch=cssH; VSIZE=Math.min(cssW,cssH);
@@ -1701,8 +1733,10 @@ function roomSurfLanes(){ return state.lanes.some(l=>l&&l.surf); } // salas lega
    pistas del proyecto de fondo para decidir si partirse. */
 let _lchShot=false;
 function vpSplitOn(){ const as=activeSeq(), room=as&&as.room;
-  return !!(isRoom()&&room&&state.view.mode!=='3d'&&!_vPaint&&!_lchShot&&roomSurfLanes()); }
-function vpFloorOn(){ const as=activeSeq(), room=as&&as.room; return !!(room&&room.floor&&state.view.roomFloor!==false); }
+  return !!(isRoom()&&room&&state.view.mode!=='3d'&&!_lchShot&&(!_vPaint||_vFloor)&&roomSurfLanes()); } // [R231] la emergente TAMBIÉN se parte, pero según SU interruptor (_vFloor); las miniaturas del launcher nunca
+function vpFloorOn(){ const as=activeSeq(), room=as&&as.room;
+  if(_vPaint)return !!(room&&room.floor&&_vFloor); // [R231] en la emergente manda su propio botón Floor
+  return !!(room&&room.floor&&state.view.roomFloor!==false); }
 /* La partición del visor es una preferencia de la HERRAMIENTA, no del proyecto: se guarda en localStorage —como
    la calidad de previsualización— y no viaja en el `.isp`. Se guarda la PROPORCIÓN del divisor, no los píxeles,
    para que aguante cualquier tamaño de ventana. */
@@ -1711,7 +1745,12 @@ function saveRoomVpPrefs(){ try{ localStorage.setItem(ROOM_VP_KEY,JSON.stringify
 function restoreRoomVpPrefs(){ try{ const s=localStorage.getItem(ROOM_VP_KEY); if(!s)return; const p=JSON.parse(s)||{};
   if(typeof p.div==='number'&&isFinite(p.div))state.view.roomDiv=Math.max(0.15,Math.min(0.88,p.div));
   if(p.floor===false)state.view.roomFloor=false; }catch(_){} }
-function vpState(surf){ const v=state.view; if(!surf)return v; // el panel único usa el par global de siempre
+/* [R231] Abrir o crear una sala CON piso entra con el visor partido abierto: el piso es una superficie del
+   proyecto, y estrenarlo escondido detrás de una preferencia de una sesión anterior lo hacía parecer perdido.
+   El botón Floor sigue mandando durante la sesión; esto sólo fija el punto de partida. */
+function roomVpAutoFloor(hayPiso){ if(hayPiso)state.view.roomFloor=true; saveRoomVpPrefs(); }
+function vpState(surf){ if(_vPaint)return vVpState(surf); // [R231] la ventana solo-visor tiene su propio encuadre, por panel
+  const v=state.view; if(!surf)return v; // el panel único usa el par global de siempre
   if(!v.vp)v.vp={}; if(!v.vp[surf])v.vp[surf]={pan:[0,0],zoom:0.92}; return v.vp[surf]; }
 /* [R230b] Los botones +/− y el rótulo de % de la barra escribían y leían `state.view.zoom`, que con el visor
    partido ya no es el zoom de NINGÚN panel: quedaban inertes y el rótulo mentía («100%» siempre). Ahora obedecen
@@ -1751,7 +1790,7 @@ function vpDivX(){ const ps=vpPanels(); return ps.length>1?(ps[0].x+ps[0].w+VP_D
 function flatMap(P){ P=P||vpPanels()[0];
   const A=(P.rx1-P.rx0)/Math.max(1,(P.ry1-P.ry0)), wa=P.w/P.h; let sx,sy; if(A>=wa){sx=1;sy=wa/A;}else{sy=1;sx=A/wa;}
   const st=vpState(P.surf), z=st.zoom, p=st.pan;
-  return { A,Fx:Math.min(1,A),Fy:Math.min(1,1/A), P,
+  return { A,Fx:Math.min(1,A),Fy:Math.min(1,1/A), P, sx,sy,z, // [R231] `sx/sy/z` salen fuera: son lo que convierte unidades de marco en píxeles de PANTALLA (lo necesita el umbral del imán)
     px:(fx,fy)=>{ const ndx=(fx-p[0])*z*sx, ndy=(fy-p[1])*z*sy; return [P.x+(ndx*0.5+0.5)*P.w, P.y+(1-(ndy*0.5+0.5))*P.h]; } }; }
 function drawFlatFrame(P){ const M=flatMap(P); const a=M.px(-1,1), b=M.px(1,-1); const x0=a[0],y0=a[1],w=b[0]-a[0],h=b[1]-a[1];
   gx.lineWidth=1; gx.strokeStyle='rgba(255,255,255,0.30)'; gx.strokeRect(x0,y0,w,h);
@@ -1897,6 +1936,7 @@ function drawFlatHandles(){ if(_vPaint)return; /* [R226·V1] la ventana solo-vis
    nunca replicó. Por eso los puntos caen sobre el contenido DEFORMADO y no al lado.
    La rasterización (`rasterizePenMasks`) no se toca: sólo cambia la superficie de edición. */
 let _maskEdit=null, _maskDrag=null; // {clipId} · {pi}
+let _maskHover=null, _maskHoverSig=''; // [R231] arista bajo el cursor: {si, x,y (punto proyectado), ax,ay,bx,by (extremos)} · la firma evita repintar en cada píxel
 /* Auto-sanante (patrón R218): el modo se apaga solo si el clip desapareció, si se quedó sin máscaras o si la
    selección se fue a otro clip — así ningún camino de edición tiene que acordarse de cerrarlo. */
 function maskEditClip(){ if(!_maskEdit)return null; const c=clipById(_maskEdit.clipId);
@@ -1948,6 +1988,23 @@ function maskPointHit(px,py){ const c=maskEditClip(); if(!c)return -1; const mk=
   let best=-1,bd=9*9;
   for(let i=0;i<mk.pts.length;i++){ const q=penPtPix(c,m,t,mk.pts[i],B); if(!q)continue; const d=(q[0]-px)*(q[0]-px)+(q[1]-py)*(q[1]-py); if(d<bd){bd=d;best=i;} }
   return best; }
+/* [R231] ¿qué ARISTA del polígono activo está bajo el cursor? Devuelve el segmento y el punto proyectado sobre
+   él. Antes un clic que no cayera sobre un vértice hacía `pts.push(...)`: el punto se añadía AL FINAL del anillo,
+   así que el polígono se cruzaba consigo mismo y cada intento de "añadir un punto en esta línea" lo enredaba más.
+   Los extremos (u<6% o u>94%) se ceden al vértice: ahí manda el arrastre, no la inserción. */
+function maskSegHit(px,py){ const c=maskEditClip(); if(!c)return null; const mk=c.penMasks[c._penSel]; if(!mk||!mk.pts||mk.pts.length<2)return null;
+  const m=mediaById(c.mediaId); if(!m)return null; const t=state.playhead;
+  if(t<c.start||t>=c.start+c.dur)return null;
+  const B=isFlat()?null:penDomeBasis(c,m,t);
+  const q=mk.pts.map(p=>penPtPix(c,m,t,p,B));
+  let best=null,bd=8*8; // 8 px, un pelo por debajo de la tolerancia del vértice (9) para que el vértice gane el empate
+  for(let i=0;i<q.length;i++){ const a=q[i], b=q[(i+1)%q.length]; if(!a||!b)continue;
+    const vx=b[0]-a[0], vy=b[1]-a[1], L2=vx*vx+vy*vy; if(L2<1e-9)continue;
+    const u=((px-a[0])*vx+(py-a[1])*vy)/L2; if(u<0.06||u>0.94)continue;
+    const cx=a[0]+u*vx, cy=a[1]+u*vy, d=(px-cx)*(px-cx)+(py-cy)*(py-cy);
+    if(d<bd){ bd=d; best={si:i,x:cx,y:cy,ax:a[0],ay:a[1],bx:b[0],by:b[1]}; } }
+  return best; }
+function maskHoverClear(){ if(!_maskHover&&!_maskHoverSig)return false; _maskHover=null; _maskHoverSig=''; return true; }
 function drawMaskEditOverlay(){ if(_vPaint)return; const c=maskEditClip(); if(!c)return; const m=mediaById(c.mediaId); if(!m)return;
   const t=state.playhead; const inClip=(t>=c.start&&t<c.start+c.dur);
   const B=isFlat()?null:penDomeBasis(c,m,t);
@@ -1959,7 +2016,14 @@ function drawMaskEditOverlay(){ if(_vPaint)return; const c=maskEditClip(); if(!c
     gx.fill(); gx.stroke();
     if(active)pts.forEach((q,i)=>{ gx.fillStyle=(_maskDrag&&_maskDrag.pi===i)?'#EAF7FC':'#4FC3E8'; gx.beginPath(); gx.arc(q[0],q[1],4.2,0,6.283); gx.fill();
       gx.fillStyle='#0c0d10'; gx.beginPath(); gx.arc(q[0],q[1],1.7,0,6.283); gx.fill(); }); });
-  const lbl=inClip?T('Mask edit · click to add · drag to move · double-click to remove · Esc to finish','Editar máscara · clic para añadir · arrastra para mover · doble clic para quitar · Esc para salir')
+  /* [R231] Realce de la arista bajo el cursor + fantasma del punto que se insertaría: sin esta señal, "añadir un
+     punto en esta línea" era pura puntería a ciegas. */
+  if(inClip&&_maskHover&&!_maskDrag){ const h=_maskHover;
+    gx.lineWidth=2.6; gx.strokeStyle='rgba(79,195,232,0.55)'; gx.beginPath(); gx.moveTo(h.ax,h.ay); gx.lineTo(h.bx,h.by); gx.stroke();
+    gx.lineWidth=1.4; gx.strokeStyle='#EAF7FC'; gx.fillStyle='rgba(12,13,16,0.85)';
+    gx.beginPath(); gx.arc(h.x,h.y,5.4,0,6.283); gx.fill(); gx.stroke();
+    gx.lineWidth=1.2; gx.beginPath(); gx.moveTo(h.x-2.6,h.y); gx.lineTo(h.x+2.6,h.y); gx.moveTo(h.x,h.y-2.6); gx.lineTo(h.x,h.y+2.6); gx.stroke(); }
+  const lbl=inClip?T('Mask edit · click the outline to add · drag to move · double-click to remove · Esc to finish','Editar máscara · clic en el contorno para añadir · arrastra para mover · doble clic para quitar · Esc para salir')
                   :T('Mask edit · move the playhead over the clip to see it','Editar máscara · lleva el cabezal sobre el clip para verla');
   gx.font='11px Geist'; gx.textAlign='center'; gx.textBaseline='middle';
   const tw=Math.max(1,gx.measureText(lbl).width), cx=view.cw/2, cy=(mediaWarming()?46:22); // [R220] si el pill de «Preparando medios…» ya ocupa la fila de arriba, este baja
@@ -1974,7 +2038,7 @@ function startMaskEdit(c,mi){ if(!c||!Array.isArray(c.penMasks)||!c.penMasks.len
   _maskEdit={clipId:c.id}; _maskDrag=null;
   renderInspector(); renderTimeline(); render();
   flashStatus(T('Editing mask on canvas — Esc or Done to finish','Editando la máscara en el lienzo — Esc o Done para terminar')); }
-function endMaskEdit(silent){ if(!_maskEdit)return; _maskEdit=null; _maskDrag=null; setVpCursor();
+function endMaskEdit(silent){ if(!_maskEdit)return; _maskEdit=null; _maskDrag=null; maskHoverClear(); setVpCursor();
   renderInspector(); render(); if(!silent)flashStatus(T('Mask edit finished','Edición de máscara terminada')); }
 /* ===================== fin [R226 · I3] ===================== */
 /* 3D camera */
@@ -2926,14 +2990,14 @@ function renderTimeline(){ reconcileVinst(); // free private decoders of clips t
     for(let i=0;i<laneClips.length-1;i++){ const a=laneClips[i],b=laneClips[i+1]; const ovS=b.start, ovE=Math.min(a.start+a.dur,b.start+b.dur);
       if(ovE>ovS+1e-4){ const xf=document.createElement('div'); xf.className='xfade'; xf.style.left=(ovS*pps)+'px'; xf.style.width=((ovE-ovS)*pps)+'px'; row.appendChild(xf); } }
     rowT.appendChild(row);
-    const hd=document.createElement('div'); hd.className='lanehdr'+(state.selLane===li?' sel':'')+(collapsed?' collapsed':'')+(_isAud?' aud':'')+(lane.surf==='floor'?' floor':''); hd.style.height=LH+'px'; hd.dataset.lane=li; if(lane.color)hd.style.background=hexA(lane.color,state.selLane===li?0.34:0.16); // tint the whole header rectangle; brighter when selected (+ the .sel inset outline gives contrast over any colour) · [FLOOR-GROUP] mismo patrón que .aud para distinguir las pistas de piso
+    const hd=document.createElement('div'); hd.className='lanehdr'+(state.selLane===li?' sel':'')+(collapsed?' collapsed':'')+(_isAud?' aud':'')+(lane.surf==='floor'?' floor':''); hd.style.height=LH+'px'; hd.dataset.lane=li; // [R231] el tinte de la cabecera lo pone el CSS por clase (.aud / .floor): sin color por pista, no hay nada que aplicar en línea · [FLOOR-GROUP] mismo patrón que .aud para distinguir las pistas de piso
     /* [R157] La cabecera es una COLUMNA en flujo (identidad arriba, chips de automatización abajo), como el
        prototipo (RevDomo:542). Antes los chips iban en `position:absolute; bottom:3px`, o sea pegados al borde
        por construcción y pisando el nombre cuando la pista era baja. */
-    hd.innerHTML=`<span class="bar" style="background:${lane.color||TRACK_COLORS[li%TRACK_COLORS.length]}"></span>
+    hd.innerHTML=`<span class="bar" style="background:${laneColor(lane)}"></span>
       <div class="lnrow">
         <button class="lcol" data-m="collapse" title="${collapsed?T('Expand track','Expandir pista'):T('Collapse track','Contraer pista')}"><span style="display:inline-flex;transform:rotate(${collapsed?-90:0}deg);">${ICO('chevDown',11)}</span></button>
-        <span class="tag${lane.surf==='floor'?' floor':''}"${lane.color?' style="color:'+lane.color+'"':''}${lane.surf==='floor'?' title="'+T('Floor track — composites onto the room floor, not the walls','Pista de piso — compone sobre el piso de la sala, no sobre los muros')+'"':''}>${lane.tag}</span><span class="nm"${lane.color?' style="color:'+lane.color+'"':''}>${lane.name===lane.tag?'':lane.name}</span>
+        <span class="tag${lane.surf==='floor'?' floor':''}"${lane.surf==='floor'?' title="'+T('Floor track — composites onto the room floor, not the walls','Pista de piso — compone sobre el piso de la sala, no sobre los muros')+'"':''}>${lane.tag}</span><span class="nm">${lane.name===lane.tag?'':lane.name}</span>
         <button class="ms ${lane.mute?'on':''}" data-m="mute">M</button><button class="ms solo ${lane.solo?'on':''}" data-m="solo">S</button>
       </div>`;
     /* [R224 · ítem 7] Los chips de automatización CONSUMEN el clic: elegir qué curva se ve es navegación dentro de la
@@ -2949,7 +3013,7 @@ function renderTimeline(){ reconcileVinst(); // free private decoders of clips t
     hd.querySelector('[data-m=mute]').onclick=()=>{pushUndo();lane.mute=!lane.mute;renderTimeline();render();reschedAudio();};
     hd.querySelector('[data-m=solo]').onclick=()=>{pushUndo();lane.solo=!lane.solo;renderTimeline();render();reschedAudio();};
     hd.querySelector('[data-m=collapse]').onclick=ev=>{ev.stopPropagation();pushUndo();lane.collapsed=!lane.collapsed;renderTimeline();};
-    hd.oncontextmenu=ev=>{ev.preventDefault();openMenu(ev.clientX,ev.clientY,[{label:T('Rename track','Cambiar nombre de pista'),key:'⌘R',fn:()=>renameLane(li)},{label:T('Set track color…','Elegir color de pista…'),fn:()=>openLaneColorPopup(li,ev.clientX,ev.clientY)},...trackCreateItems(lane.kind),{label:T('Duplicate track','Duplicar pista'),fn:()=>duplicateLane(li)},'sep',{label:T('Delete track','Eliminar pista'),danger:true,fn:()=>removeLane(li)}]);};
+    hd.oncontextmenu=ev=>{ev.preventDefault();openMenu(ev.clientX,ev.clientY,[{label:T('Rename track','Cambiar nombre de pista'),key:'⌘R',fn:()=>renameLane(li)},...trackCreateItems(lane.kind),{label:T('Duplicate track','Duplicar pista'),fn:()=>duplicateLane(li)},'sep',{label:T('Delete track','Eliminar pista'),danger:true,fn:()=>removeLane(li)}]);};
     // [R93] Ableton: automation mode puts the device+parameter choosers INSIDE the track header rectangle (primary overlay param)
     if(state.inlineCurves&&!_isAud&&!collapsed&&LH>=AUTO_LANE_MIN_H){ const P=laneAutoP(lane,li); // [R163] misma constante que el suelo de wheelResizeLanes
       const ac=document.createElement('div'); ac.className='autoctl'; // [R94b] just the two choosers + '+' (swatch and A/↻ removed per request — override lives in the inspector)
@@ -3213,7 +3277,8 @@ function lchArmConsent(){ _lch=_lch||lchInit(); _lch.discardOk=true; }
 function lchInit(){ return { ptype:'dome', pname:'', discardOk:false,
   domeRes:4096, domeCov:180,
   flatW:1920, flatH:1080,
-  roomCount:4, roomFloor:true, roomUniform:false, // [R197] fuera el interruptor Uniform: los muros se editan por separado, que es lo que hace falta para que los angulos salgan de sus medidas
+  roomCount:4, roomFloor:false, roomUniform:false, // [R197] fuera el interruptor Uniform: los muros se editan por separado, que es lo que hace falta para que los angulos salgan de sus medidas · [R231] el piso ya NO viene activado de fábrica: una sala sin piso es el caso corriente y añadirlo era una decisión que nadie había tomado
+  roomPre:'',                                     // [R231] preajuste de sala elegido a mano ('' = ninguno). Antes el desplegable se auto-marcaba con el que coincidiera con el pixelaje de los muros, así que "4K" salía preseleccionado sin que nadie lo hubiera pedido
   floorPx:null,                                   // [R198] resolución del piso elegida a mano; null = la que sale de los muros. Sus MEDIDAS nunca se editan: las manda la huella de la sala
   roomCam:{yaw:1.99,pitch:0.42,dist:2.9},         // [R198] cámara del visor 3D de la sala (arrastrar para girar, rueda para acercar) · [R211] detrás del muro Back: FRONT queda al fondo/arriba, como en el plano
   domeCam:{yaw:0,pitch:0.5,dist:3.0},             // [R200] ídem para el domo — los valores son los que ya usaba por defecto, así que la vista de partida no cambia
@@ -3255,7 +3320,8 @@ function lchApply(key,v){
   else if(key==='fpxW'||key==='fpxH'){ // [R198] del piso sólo se toca el pixelaje
     const base=_lch.floorPx||lchFloorCfg(lchCfgWalls()); _lch.floorPx={pxW:base.pxW,pxH:base.pxH}; _lch.floorPx[key==='fpxW'?'pxW':'pxH']=v; }
   else { const m=key.match(/^w(\d+)(pxW|pxH|wcm|hcm)$/); if(m){ const i=+m[1],k=m[2];
-    const uni=_lch.roomUniform; _lch.walls.forEach((w,j)=>{ if(uni||j===i)w[k]=v; }); } }
+    const uni=_lch.roomUniform; _lch.walls.forEach((w,j)=>{ if(uni||j===i)w[k]=v; });
+    if(k==='pxW'||k==='pxH')_lch.roomPre=''; } } // [R231] tocar el pixelaje a mano deja de ser "el preajuste X"
   renderLauncher();
 }
 /* clic en la orientación: pasa a la siguiente e INTERCAMBIA con quien la tuviera (nunca dos iguales) */
@@ -3285,10 +3351,13 @@ function lchSaveUserPreset(){ const S=_lch; appPrompt(T('Preset name','Nombre de
     floor:!!S.roomFloor, floorPx:(S.roomFloor&&S.floorPx)?{pxW:S.floorPx.pxW,pxH:S.floorPx.pxH}:null});
   try{ localStorage.setItem('ispRoomPresets',JSON.stringify(lista.slice(-24))); }catch(e){}
   renderLauncher(); flashStatus(T('Preset saved','Preajuste guardado')); }); }
-function lchPresetOptions(S){ const cur=S.walls[0].pxW+'x'+S.walls[0].pxH; const us=lchUserPresets();
-  return LCH_ROOM_PRE.map(p=>`<option value="${p.v}"${p.v===cur?' selected':''}>${lchEsc(p.label)}</option>`).join('')
-    + (us.length?('<option disabled>──────</option>'+us.map((p,i)=>`<option value="u:${i}">${lchEsc(p.label)}</option>`).join('')):''); }
+function lchPresetOptions(S){ const cur=S.roomPre||''; const us=lchUserPresets(); // [R231] lo que marca el desplegable es lo que el usuario ELIGIÓ, no lo que coincida con los muros
+  return `<option value=""${cur?'':' selected'}>—</option>`
+    + LCH_ROOM_PRE.map(p=>`<option value="${p.v}"${p.v===cur?' selected':''}>${lchEsc(p.label)}</option>`).join('')
+    + (us.length?('<option disabled>──────</option>'+us.map((p,i)=>`<option value="u:${i}"${('u:'+i)===cur?' selected':''}>${lchEsc(p.label)}</option>`).join('')):''); }
 function lchApplyPreset(v){ const S=_lch;
+  if(!v){ S.roomPre=''; renderLauncher(); return; } // volver a "—" no deshace nada: sólo deja de anunciar un preajuste
+  S.roomPre=String(v);
   if(String(v).indexOf('u:')===0){ const p=lchUserPresets()[+String(v).slice(2)]; if(!p)return;
     if(p.count)lchSetWallCount(p.count); // [R199] por el reparto de orientaciones, no tocando la cuenta a pelo
     (p.walls||[]).forEach((s,i)=>{ const w=S.walls[i]; if(!w)return;
@@ -4367,13 +4436,13 @@ function onTLMove(e){ if(!drag)return; const c=clipById(drag.id);if(!c)return; c
     let targetLane=null;
     const primaryCount=drag.primaryIds?drag.primaryIds.size:(drag.items?drag.items.length:1); // [R223] "single/multi" se decide por la SELECCIÓN real, no por drag.items (que ahora también trae al partner enlazado)
     if(primaryCount<=1){ // single: pick the lane under the cursor (same kind)
-      const wantKind=(m&&m.kind==='audio')?'audio':'video';
+      const wantKind=(isAudioClip(c)||(m&&m.kind==='audio'))?'audio':'video'; // [R231] manda la PISTA donde vive el clip, no el medio: el audio de un vídeo comparte medio (kind 'video') con su pareja de imagen, así que leyendo el medio se le dejaba caer en pistas de vídeo y no en las de audio — justo al revés
       const rows=getDragLaneRects(); for(const rc of rows){ if(e.clientY>=rc.top&&e.clientY<=rc.bottom){ const li=rc.li; if(state.lanes[li]&&state.lanes[li].kind===wantKind)targetLane=li; break; } }
       drag._laneDelta=0;
     } else { // multi: RELATIVE lane shift (Premiere-style) — the anchor follows the cursor and every clip keeps its lane offset; only applied if every destination lane exists and kind-matches
       let hoverLane=null; const rows=getDragLaneRects(); for(const rc of rows){ if(e.clientY>=rc.top&&e.clientY<=rc.bottom){ hoverLane=rc.li; break; } }
       let delta=(hoverLane!=null)?(hoverLane-c.lane):0;
-      if(delta!==0){ for(const it of drag.items){ if(it.linked)continue; /* [R223] el partner enlazado NO cambia de pista — libertad vertical: sólo lo primario valida/mueve de lane */ const oc=clipById(it.id); if(!oc){delta=0;break;} const mm=mediaById(oc.mediaId); const kind=(mm&&mm.kind==='audio')?'audio':'video'; const nl=state.lanes[oc.lane+delta]; if(!nl||nl.kind!==kind){ delta=0; break; } } }
+      if(delta!==0){ for(const it of drag.items){ if(it.linked)continue; /* [R223] el partner enlazado NO cambia de pista — libertad vertical: sólo lo primario valida/mueve de lane */ const oc=clipById(it.id); if(!oc){delta=0;break;} const mm=mediaById(oc.mediaId); const kind=(isAudioClip(oc)||(mm&&mm.kind==='audio'))?'audio':'video'; /* [R231] ídem que en el caso simple */ const nl=state.lanes[oc.lane+delta]; if(!nl||nl.kind!==kind){ delta=0; break; } } }
       drag._laneDelta=delta; }
     drag._applied=applied; drag._lane=(targetLane!=null?targetLane:c.lane); drag._copy=!!e.altKey; // [R94e] Alt-drag duplicates (Premiere); Ctrl is free again
     showSnap(snap); showMoveGhosts(drag,applied,targetLane,drag._copy); return; // original stays; ghost shows destination, applied on pointerup
@@ -4752,8 +4821,17 @@ function roomWallScissorRects(roles){ const as=activeSeq(),room=as&&as.room; if(
     const yTop=Math.round((Fy*0.5+0.5)*size), yBot=Math.round(((Fy-2*w.pxH/sw)*0.5+0.5)*size);
     out.push({x:x0,y:yBot,w:Math.max(1,x1-x0),h:Math.max(1,yTop-yBot)}); }
   return out; }
-function snapFrame(v,seams,bypass){ if(bypass)return v; const thr=0.018/Math.max(0.2,vpFocusState().zoom); /* [R230b] mismo criterio que snapMoveAxis */ let best=v,bd=thr; for(const s of seams){ const d=Math.abs(s-v); if(d<bd){bd=d;best=s;} } return best; }
-function snapMoveAxis(center,half,seams,bypass){ if(bypass)return center; const thr=0.018/Math.max(0.2,vpFocusState().zoom); /* [R230b] el zoom VISIBLE es el del panel con el foco, no el global */ let best=center,bd=thr; for(const s of seams)for(const edge of [center-half,center,center+half]){ const d=Math.abs(s-edge); if(d<bd){bd=d;best=center+(s-edge);} } return best; } // snap the clip's near edge OR center to a wall seam
+/* [R231] El umbral del imán se mide en PÍXELES DE PANTALLA, no en unidades de marco. Las unidades de marco valen
+   distinto en cada eje: en la tira de una sala (7680×1080 dentro de un panel apaisado) el mismo 0.018 daba una
+   zona de captura de ~5 px en X pero de ~0.8 px en Y — sub-píxel. Por eso "sólo hacía snap con los bordes
+   verticales": los horizontales (arriba/abajo del muro), el centro vertical del lienzo y el centro de cada muro
+   SÍ estaban en la lista de costuras, pero eran inalcanzables con el puntero. Ahora los dos ejes capturan igual. */
+const SNAP_PX=7;
+function snapThr(P,axis){ const M=flatMap(P||vpFocusPanel()), Pp=M.P;
+  const den=(axis==='y')?(M.z*M.sy*Pp.h):(M.z*M.sx*Pp.w);
+  return SNAP_PX*2/Math.max(1,den); }
+function snapFrame(v,seams,bypass,P,axis){ if(bypass)return v; const thr=snapThr(P,axis); let best=v,bd=thr; for(const s of seams){ const d=Math.abs(s-v); if(d<bd){bd=d;best=s;} } return best; }
+function snapMoveAxis(center,half,seams,bypass,P,axis){ if(bypass)return center; const thr=snapThr(P,axis); let best=center,bd=thr; for(const s of seams)for(const edge of [center-half,center,center+half]){ const d=Math.abs(s-edge); if(d<bd){bd=d;best=center+(s-edge);} } return best; } // snap the clip's near edge OR center to a wall seam
 /* capture base geometry for a corner/edge resize; the OPPOSITE handle stays fixed in frame space */
 function beginFlatResize(c,h){ const CP0=clipPanel(c); if(!CP0)return null; // [R230b]
   pushUndo(); const m=mediaById(c.mediaId),t=state.playhead; const M=flatMap(CP0); const P=flatPlace(c,m,t,clipSurfA(c)); // [R230] escala en el marco de su superficie
@@ -4767,13 +4845,23 @@ function beginFlatResize(c,h){ const CP0=clipPanel(c); if(!CP0)return null; // [
    movería el clip a la vez. Sale con Esc, con el botón Done del inspector o al deseleccionar el clip. */
 function maskEditPointerDown(e,px,py){ const c=maskEditClip(); if(!c)return false;
   const mk=c.penMasks[c._penSel]; if(!mk)return false;
+  /* [R231] El modo máscara sólo se queda con el botón IZQUIERDO a secas. Antes `if(e.button!==0)return true` se
+     tragaba también el botón central, que es el que panea el lienzo: al añadir una máscara el visor se quedaba
+     sin arrastre. El botón central y Shift+arrastre vuelven a caer en el gesto normal de paneo. */
+  if(e.button!==0||e.shiftKey)return false;
   const m=mediaById(c.mediaId); const t=state.playhead;
   if(!m||t<c.start||t>=c.start+c.dur)return true; // el clip no está bajo el cabezal: se traga el gesto, no hay dónde poner el punto
-  if(e.button!==0)return true;
   const hi=maskPointHit(px,py);
-  if(hi>=0){ pushUndo(); _maskDrag={pi:hi}; gridc.style.cursor='grabbing'; render(); return true; }
-  const l=penFromPix(c,m,t,px,py); if(!l){ flashStatus(T('Point outside the clip','Punto fuera del clip')); return true; }
-  pushUndo(); mk.pts.push(penUnlocal(c,l[0],l[1])); rasterizePenMasks(c); render(); renderInspector(); markDirty(); return true; }
+  if(hi>=0){ pushUndo(); _maskDrag={pi:hi}; maskHoverClear(); gridc.style.cursor='grabbing'; render(); return true; }
+  /* Sobre una arista se INSERTA en su sitio del anillo, y en el punto proyectado: así la figura no cambia de
+     forma al ganar un punto. Fuera de ella no se añade nada — es lo que convertía la máscara en una maraña. */
+  const seg=maskSegHit(px,py);
+  if(seg){ const ls=penFromPix(c,m,t,seg.x,seg.y);
+    if(ls){ pushUndo(); mk.pts.splice(seg.si+1,0,penUnlocal(c,ls[0],ls[1])); maskHoverClear(); rasterizePenMasks(c); render(); renderInspector(); markDirty(); return true; } }
+  if(mk.pts.length<3){ // un polígono a medio dibujar todavía se completa clicando suelto
+    const l=penFromPix(c,m,t,px,py); if(!l){ flashStatus(T('Point outside the clip','Punto fuera del clip')); return true; }
+    pushUndo(); mk.pts.push(penUnlocal(c,l[0],l[1])); rasterizePenMasks(c); render(); renderInspector(); markDirty(); return true; }
+  flashStatus(T('Click on the mask outline to add a point','Haz clic sobre el contorno de la máscara para añadir un punto')); return true; }
 function maskEditPointerMove(e,px,py){ if(!_maskDrag)return false; const c=maskEditClip(); if(!c){ _maskDrag=null; return false; }
   const mk=c.penMasks[c._penSel]; const m=mediaById(c.mediaId); if(!mk||!mk.pts[_maskDrag.pi]||!m){ _maskDrag=null; return false; }
   const l=penFromPix(c,m,state.playhead,px,py); if(!l)return true;
@@ -4803,9 +4891,12 @@ gridc.addEventListener('pointerdown',e=>{ const r=gridc.getBoundingClientRect();
   setVpCursor(); try{gridc.setPointerCapture(e.pointerId);}catch(_){}
 });
 gridc.addEventListener('pointermove',e=>{
-  if(maskEditClip()){ const r0=gridc.getBoundingClientRect(); const mx=e.clientX-r0.left,my=e.clientY-r0.top; // [R226·I3]
+  if(maskEditClip()&&!vdrag){ const r0=gridc.getBoundingClientRect(); const mx=e.clientX-r0.left,my=e.clientY-r0.top; // [R226·I3] · [R231] con un paneo en curso manda el arrastre, no el hover de la máscara
     if(maskEditPointerMove(e,mx,my))return;
-    gridc.style.cursor=(maskPointHit(mx,my)>=0)?'grab':'crosshair'; return; }
+    const onVtx=(maskPointHit(mx,my)>=0); const hv=onVtx?null:maskSegHit(mx,my); // [R231]
+    const sig=hv?(hv.si+':'+Math.round(hv.x)+':'+Math.round(hv.y)):'';
+    if(sig!==_maskHoverSig){ _maskHoverSig=sig; _maskHover=hv; render(); }
+    gridc.style.cursor=onVtx?'grab':(hv?'copy':'crosshair'); return; }
   if(!vdrag){ if(isFlat()&&state.view.mode!=='3d'){ const r0=gridc.getBoundingClientRect(); const mx=e.clientX-r0.left,my=e.clientY-r0.top;
       const dvx=vpDivX(); if(dvx!=null && Math.abs(mx-dvx)<=VP_DIV_HIT+VP_DIVW/2){ gridc.style.cursor='col-resize'; return; } // [R230]
       const h=_flatHandles?flatHandleHit(mx,my):null; gridc.style.cursor=h?_resizeCursor(h.sx,h.sy):'default'; } return; } const r=gridc.getBoundingClientRect(); const px=e.clientX-r.left,py=e.clientY-r.top;
@@ -4818,10 +4909,10 @@ gridc.addEventListener('pointermove',e=>{
   else if(vdrag.mode==='elemFlat'){ const c=clipById(vdrag.id); if(!c)return; const m=mediaById(c.mediaId);
     const CP=clipPanel(c); if(!CP)return; const SR=clipSurfRect(c); const fp=pix2frame(px,py,CP); let nx=fp[0],ny=fp[1]; // [R230] siempre en el marco de SU superficie
     if(isRoom()&&m){ const P=flatPlace(c,m,state.playhead,clipSurfA(c)),M=flatMap(CP); const hwx=(Math.abs(P.fx[0])+Math.abs(P.fy[0]))/M.Fx, hhy=(Math.abs(P.fx[1])+Math.abs(P.fy[1]))/M.Fy;
-      nx=snapMoveAxis(fp[0],hwx,roomSeamX(SR),e.altKey); ny=snapMoveAxis(fp[1],hhy,roomSeamY(SR),e.altKey); }
+      nx=snapMoveAxis(fp[0],hwx,roomSeamX(SR),e.altKey,CP,'x'); ny=snapMoveAxis(fp[1],hhy,roomSeamY(SR),e.altKey,CP,'y'); } // [R231] el umbral se mide en el panel del clip, por eje
     manualEdit(c,'x',Math.max(-150,Math.min(150,Math.round(nx*1000)/10))); manualEdit(c,'y',Math.max(-150,Math.min(150,Math.round(ny*1000)/10))); refreshInspector(); renderTimeline(); render(); updStatus(); }
   else if(vdrag.mode==='resizeFlat'){ const c=clipById(vdrag.id); if(!c)return; const d=vdrag;
-    const CPr=clipPanel(c); if(!CPr)return; const SRr=clipSurfRect(c); let fp=pix2frame(px,py,CPr); if(isRoom()){ fp=[snapFrame(fp[0],roomSeamX(SRr),e.altKey), snapFrame(fp[1],roomSeamY(SRr),e.altKey)]; } // [R230]
+    const CPr=clipPanel(c); if(!CPr)return; const SRr=clipSurfRect(c); let fp=pix2frame(px,py,CPr); if(isRoom()){ fp=[snapFrame(fp[0],roomSeamX(SRr),e.altKey,CPr,'x'), snapFrame(fp[1],roomSeamY(SRr),e.altKey,CPr,'y')]; } // [R230] · [R231] umbral por eje en px de pantalla
     const q=[fp[0]*d.Fx,fp[1]*d.Fy], rel=[q[0]-d.anchor[0],q[1]-d.anchor[1]];
     const pu=rel[0]*d.u[0]+rel[1]*d.u[1], pv=rel[0]*d.v[0]+rel[1]*d.v[1];
     let nfx=d.fx0,nfy=d.fy0; if(d.sx!==0)nfx=Math.max(0.004,pu/(2*d.sx)); if(d.sy!==0)nfy=Math.max(0.004,pv/(2*d.sy));
@@ -4835,6 +4926,7 @@ gridc.addEventListener('pointermove',e=>{
 function endVdrag(){ if(vdrag&&vdrag.mode==='vpdiv')saveRoomVpPrefs(); // [R230b] una sola escritura a localStorage por arrastre
   if(_maskDrag){ _maskDrag=null; markDirty(); renderInspector(); render(); } // [R226·I3] soltar un punto cierra el arrastre (el pushUndo se hizo al agarrarlo)
   vdrag=null; setVpCursor(); }
+gridc.addEventListener('pointerleave',()=>{ if(maskHoverClear())render(); }); // [R231] el fantasma del punto no se queda colgado al salir del lienzo
 gridc.addEventListener('pointerup',endVdrag); gridc.addEventListener('pointercancel',endVdrag); window.addEventListener('pointerup',()=>{ if(vdrag)endVdrag(); });
 gridc.addEventListener('contextmenu',e=>{ if(state.view.mode==='3d')e.preventDefault(); });
 gridc.addEventListener('wheel',e=>{ e.preventDefault();
@@ -5361,7 +5453,7 @@ function buildPenMaskUI(host,c){ if(!c)return; const masks=c.penMasks||(c.penMas
     <button class="mbtn${editing?' on':''}" id="penEdit" style="height:22px;display:${masks.length?'inline-flex':'none'};justify-content:center;">${editing?T('Done','Terminar'):T('Edit on canvas','Editar en el lienzo')}</button>
     <div class="prow" id="penExpRow" style="padding:0;gap:6px;display:${masks.length?'flex':'none'};"><span class="lab" style="width:auto;color:var(--ink-3);">${T('Expand','Expandir')}</span><input type="range" id="penExp" min="20" max="200" value="${Math.round((c.penExpand||1)*100)}" style="flex:1;"><span class="tnum" id="penExpV" style="width:38px;text-align:right;color:var(--ink-dim);">${Math.round((c.penExpand||1)*100)}%</span></div>
     <span style="font-size:11px;color:var(--ink-dim);line-height:1.35;display:${masks.length?'block':'none'}" id="penHint">${editing
-      ? T('On the viewer: click to add a point · drag to move · double-click to remove · Esc to finish.','En el visor: clic para añadir un punto · arrastra para mover · doble clic para quitar · Esc para terminar.')
+      ? T('On the viewer: click the outline to add a point · drag to move · double-click to remove · Esc to finish.','En el visor: clic en el contorno para añadir un punto · arrastra para mover · doble clic para quitar · Esc para terminar.')
       : T('Edit the points on the viewer canvas, right over the clip.','Los puntos se editan en el lienzo del visor, sobre el clip.')}</span>`;
   host.appendChild(wrap);
   const syncVis=()=>{ const on=!!(c.penMasks&&c.penMasks.length);
@@ -8745,6 +8837,7 @@ async function newRoomProject(cfg,skipConfirm){ if(!(await confirmDiscard(skipCo
   state.seqMode='room'; state.seqW=stripW; state.seqH=stripH;
   state.view.cam.yaw=1.99; state.view.cam.pitch=0.42; // [R211] vista 3D inicial desde detrás de Back → FRONT al fondo/arriba, calza con el plano (sólo al crear; el domo conserva su default)
   state.view.pan=[0,0]; state.view.zoom=0.92; state.view.vp=null; state.view.vpFocus=null; // [R221] el suelo ya es parte del mismo canvas — el letterbox centra la tira+suelo solo, sin compensación de dock · [R230b] y el encuadre por panel no se hereda de la sala anterior
+  roomVpAutoFloor(cfg&&cfg.floor); // [R231] si la sala nace CON piso, el visor partido entra ya abierto
   state.openSeqs=state.media.filter(isSeqMedia).map(s=>s.id); state.activeSeqId=wseq.id; loadSeqIntoState(wseq);
   clearAllUndo(); currentPath=null; state.dirty=false;
   renderMedia(); renderSeqBar(); renderTimeline(); renderInspector(); render(); updStatus(); projTitle(); updFmtChip();
@@ -8898,6 +8991,7 @@ function loadProject(obj){ relinkReset(); // [R204] el índice de reenlace es de
     _id=mx2+1; state.openSeqs=ids; state.activeSeqId=(obj.activeSeqId&&ids.includes(obj.activeSeqId))?obj.activeSeqId:ids[0]; loadSeqIntoState(activeSeq());
   } else { state.openSeqs=[]; state.activeSeqId=null; ensureSequences(); }
   syncNestAudioClips(); // [R225·9] ya con la secuencia activa cargada: un nest con audio dentro y sin su clip derivado (proyecto anterior a R225) lo estrena aquí
+  { const _as=activeSeq(); roomVpAutoFloor(!!(_as&&_as.room&&_as.room.floor)); } // [R231] abrir una sala con piso enseña el visor partido
   renderSeqBar(); updFmtChip();
   renderWork();
   if(IS_ELEC){ for(const m of state.media) reloadMedia(m); }
@@ -9320,7 +9414,7 @@ function colorPopup(x,y,cur,onPick,onClear){ document.querySelectorAll('.lanecol
   const off=()=>{ m.remove(); document.removeEventListener('pointerdown',close,true); document.removeEventListener('keydown',esc,true); };
   const close=e=>{ if(!m.contains(e.target))off(); }; const esc=e=>{ if(!m.isConnected){off();return;} /* [R218] guarda de conexión */ if(e.key==='Escape')off(); };
   setTimeout(()=>{ document.addEventListener('pointerdown',close,true); document.addEventListener('keydown',esc,true); },0); }
-function openLaneColorPopup(li,x,y){ const lane=state.lanes[li]; if(!lane)return; colorPopup(x,y,lane.color,col=>{ pushUndo(); lane.color=col; renderTimeline(); render(); markDirty(); }, ()=>{ pushUndo(); delete lane.color; renderTimeline(); render(); markDirty(); }); } // track colour = the lane header only (R84c)
+// [R231] openLaneColorPopup eliminado: el color de pista pasa a ser fijo por función (ver LANE_COL / laneColor). El de CLIP sigue vivo aquí debajo.
 function openClipColorPopup(x,y){ const sel=(state.selIds&&state.selIds.length?state.selIds:(state.selId!=null?[state.selId]:[])).map(clipById).filter(Boolean); if(!sel.length)return; colorPopup(x,y,sel[0].color,col=>{ pushUndo(); for(const c of sel)c.color=col; renderTimeline(); render(); renderInspector(); markDirty(); }, ()=>{ pushUndo(); for(const c of sel)c.color=null; renderTimeline(); render(); renderInspector(); markDirty(); }); } // per-clip colour (all selected)
 function insColState(){ if(!state.insCol)state.insCol={clip:true,color:true,motion:true,mfx:false}; return state.insCol; } // [I1] default: Transform expanded, Clip/Color/Motion collapsed · [R215] mfx (Motion → Effects sub-section) expanded by default, matching its pre-R215 implicit default
 function applySecCollapse(){ const st=insColState(); document.querySelectorAll('#insCtl .sechead[data-sec]').forEach(h=>{ const col=!!st[h.dataset.sec];

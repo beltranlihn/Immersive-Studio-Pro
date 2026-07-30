@@ -1,5 +1,59 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 231 — Siete correcciones de la prueba sobre el .exe
+
+Beltrán probó el `.exe` de R230c (compilado y desplegado en Windows ese mismo día: NDI sobrevivió al
+`npmRebuild:false` de R207 porque los addons ya estaban compilados contra este mismo Electron 42.4.1) y trajo una
+lista de siete puntos. Todos cerrados y verificados por CDP en dev con `__errs` vacío — `scratchpad/r231-fixes.mjs`,
+más `r231-diag.mjs` y `r231-mask-dom.mjs` para el detalle de la máscara.
+
+### La máscara manual era una trampa
+
+Añadir un punto «en esta línea» no existía: un clic que no cayera sobre un vértice hacía `mk.pts.push(...)`, o sea
+**añadía el punto al final del anillo**. El polígono se cruzaba consigo mismo y cada intento de arreglarlo lo
+enredaba más — la captura que mandó Beltrán es exactamente eso. Ahora hay `maskSegHit`: la arista bajo el cursor se
+realza, aparece el fantasma del punto que se insertaría (círculo con cruz) y el cursor pasa a `copy`; el clic
+**inserta en su sitio** (`splice(si+1,…)`) y **en el punto proyectado sobre la arista**, así que la figura no cambia
+de forma al ganar un punto. Fuera del contorno ya no se añade nada, sólo un aviso. Un polígono a medio dibujar
+(menos de 3 puntos) se sigue completando clicando suelto. La tolerancia son 8 px, un pelo por debajo de los 9 del
+vértice, para que en el empate mande el arrastre del punto.
+
+El segundo síntoma —«al agregar una máscara se me bloquea el arrastre por el lienzo con la rueda del ratón»— tenía
+una causa de una línea: `if(e.button!==0)return true` se tragaba **el botón central**, que es el que panea. El modo
+máscara sólo se queda ya con el botón izquierdo a secas; el central y Shift+arrastre vuelven al gesto normal.
+
+### El snap sólo parecía existir en vertical
+
+No faltaban costuras: `roomSeamY` ya daba el borde superior e inferior de cada muro, su centro vertical y el centro
+del lienzo. Lo que fallaba era el **umbral**, que estaba en unidades de MARCO — y una unidad de marco vale distinto
+en cada eje. En la tira de una sala (7680×1080 metida en un panel apaisado) los mismos `0.018` daban **4.59 px** de
+zona de captura en X y **0.65 px en Y**: sub-píxel, inalcanzable con el ratón. Ahora el umbral se mide en píxeles de
+pantalla y por eje (`SNAP_PX=7`, `snapThr(P,axis)`, con `flatMap` exponiendo `sx/sy/z`): los dos ejes capturan a 7 px
+(medido). Alt sigue anulando el imán.
+
+### Lo demás
+
+**El audio de un vídeo iba al revés.** La validación de pista destino leía `media.kind`, pero el clip de audio de un
+vídeo **comparte medio con su pareja de imagen** (`kind:'video'`): se le dejaba caer en pistas de vídeo y se le
+impedía moverse entre las de audio. Manda `isAudioClip(clip)` — la pista donde vive.
+
+**Colores de pista fijos por función:** gris vídeo, verde audio, rojo piso (`LANE_COL`/`laneColor`). Fuera «Set track
+color…» del menú de la cabecera y fuera `openLaneColorPopup`; el color por CLIP se conserva intacto. Los tags F1/F2
+de R230c y el tinte de fila del piso pasan de azul a rojo, para que el marco y el color de la pista digan lo mismo.
+
+**El launcher de sala arranca en blanco:** sin preajuste marcado (había una opción `—` nueva; antes el desplegable se
+auto-marcaba con el que coincidiera con el pixelaje, así que «4K» salía elegido sin que nadie lo pidiera) y sin piso
+(`roomFloor:false`). Editar `pxW`/`pxH` a mano limpia el preajuste. En cambio, **una sala QUE SÍ tiene piso entra al
+editor con el visor partido abierto** (`roomVpAutoFloor`, al crear y al abrir): estrenarlo escondido detrás de una
+preferencia de otra sesión lo hacía parecer perdido.
+
+**La ventana solo-visor recupera dos cosas.** R230b la dejó entera a propósito, pero entonces no había forma de
+encuadrar el piso en la segunda pantalla: ahora se parte en muros|piso según **su propio** botón `Floor` (`_vFloor`),
+mientras las miniaturas del launcher siguen sacando el lienzo entero. Y su rueda en 2D ya hace zoom: salía por la
+puerta con `if(viewerMode()!=='3d')return`, así que en 2D no hacía nada. El encuadre es **suyo** (`_vVp`, por
+superficie), así que acercarse ahí no mueve el del editor ni al revés; `vWithViewport` le presta el viewport y el
+modo mientras dura el gesto, porque si no `vpPanels()` calcularía los paneles con el tamaño del editor.
+
 ## ROUND 230b — Lo que encontró la revisión del visor partido
 
 Auditoría del diff de R230 con dos revisores independientes (uno sobre paneles/puntero, otro sobre el piso por

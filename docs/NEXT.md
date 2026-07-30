@@ -2,7 +2,29 @@
 
 > Tareas ordenadas de **más rápido de resolver → más complejo**. Marcá `[x]` a medida que se cierran (y actualizá la fila
 > en `COMPONENTS.md` + una entrada en `PLAN.md` en el mismo commit, como manda el ritual de `/commit`).
-> Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: 2026-07-29.
+> Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: 2026-07-30.
+
+## 🧪 Tanda de Beltrán — 2026-07-30 (prueba sobre el .exe desplegado) · CERRADA EN CÓDIGO ✅ [R231]
+> Siete puntos de una prueba real sobre el `.exe` de R230c. Todos verificados por CDP en dev
+> (`scratchpad/r231-fixes.mjs`, con `r231-diag.mjs` y `r231-mask-dom.mjs` de apoyo), `__errs` vacío.
+- [x] **Máscara manual · hover sobre la arista** — realce del segmento + fantasma del punto y cursor `copy`. El clic
+      **inserta en su sitio** (`splice`) y en el punto proyectado, en vez de hacer `push` al final del anillo (que era
+      lo que convertía la máscara en una maraña). Fuera del contorno ya no añade nada.
+- [x] **Máscara manual · el paneo volvía bloqueado** — `maskEditPointerDown` se tragaba el botón CENTRAL. Ahora sólo
+      se queda con el izquierdo a secas; botón central y Shift+arrastre vuelven al paneo.
+- [x] **Landing 360 · sin preajuste por defecto** (opción `—`; el desplegable marca lo elegido, no lo que coincida con
+      los muros) y **sin piso por defecto** (`roomFloor:false`).
+- [x] **Sala con piso ⇒ visor partido abierto al entrar** (`roomVpAutoFloor`, al crear y al abrir).
+- [x] **Visor externo 2D · botón `Floor` + zoom** — se parte en muros|piso según su propio `_vFloor`, y la rueda en 2D
+      hace zoom anclado con encuadre PROPIO (`_vVp`); antes salía por la puerta con `if(viewerMode()!=='3d')return`.
+- [x] **Colores de pista fijos por función** — gris vídeo · verde audio · rojo piso (`LANE_COL`/`laneColor`); fuera
+      «Set track color…» del menú de la cabecera. El color por CLIP se conserva.
+- [x] **Audio de un clip de vídeo → sólo a pistas de audio** — la validación leía `media.kind` (que es `'video'`,
+      porque comparte medio con su pareja de imagen); ahora manda `isAudioClip(clip)`.
+- [x] **Snap 360 · bordes horizontales y centros** — el umbral estaba en unidades de MARCO: ~4.6 px de captura en X
+      pero **0.65 px en Y**. Pasa a píxeles de pantalla por eje (`SNAP_PX=7`, `snapThr(P,axis)`). Las costuras de
+      borde superior/inferior, centro de muro y centro vertical del lienzo **ya existían**; eran inalcanzables.
+- [ ] **Windows: `npm run dist` + copiar `app.asar` a las 3 instalaciones** (cierre de esta tanda).
 
 ## 🧭 Tanda de Beltrán — 2026-07-30 (post-testeo) · CERRADA EN CÓDIGO ✅
 > Spec completa: **`CORRECCIONES-360-VIEWER.md`** (arquitectura, fórmulas, anclas, etapas). Decisiones: grupo fijo de
@@ -23,7 +45,9 @@
       arrastre de clip por panel; ida y vuelta pantalla↔marco con error 0)_
 - [x] ~~**360 · Etapa 3** — pulido de overlays + deploy.~~ _(R230 en código: fold-wrap R222 archivado en
       `_backup/deprecated/`, overlays y grilla por panel. **El deploy queda pendiente en Windows**)_
-- [ ] **Windows: `npm run dist` + copiar `app.asar` a las 3 instalaciones.** Único ítem abierto de esta tanda.
+- [x] ~~**Windows: `npm run dist` + copiar `app.asar` a las 3 instalaciones.**~~ _(2026-07-30: compilado y desplegado a
+      las 3 rutas; NDI verificado vivo pese a `npmRebuild:false` — los `.node` estaban compilados contra el mismo
+      Electron 42.4.1 y `DSP.ndi.start()` devolvió `true`. Visor partido, piso cuadrado, `F1/F2` y 3D comprobados)_
 
 ## 🎯 Tanda de Beltrán — 2026-07-29 (post-prueba real) · EN CURSO · R223+
 > 30 ítems en 5 etapas. Decisiones tomadas con Beltrán: (1) al crear un compose, el audio linkeado de los clips
