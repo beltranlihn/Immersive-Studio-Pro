@@ -34,6 +34,16 @@
       El contenido va sin sombrear; el sombreado queda en la carcasa translúcida de fuera)_
 - [x] ~~**El clip saltaba a centrarse en el cursor al arrastrarlo (R234).**~~ _Ahora se ancla en el punto de agarre;
       igual en plano/sala y en domo._
+- [x] ~~**Revisión desde el Mac (R234b/c)**~~ — seis hallazgos reales: el acotado del muestreo tiene que ser por
+      SUPERFICIE (el piso es una isla; el pie de los muros se mezclaba con el piso), el desfase del agarre se medía
+      en `evalR` y se escribía en la base (igual en la ESCALA, anterior a R234), el azimut del domo se guardaba
+      fuera de [0,360), reordenar muros se llevaba clips más anchos que su muro, y deshacer devolvía los clips sin
+      la geometría. Verificados en `scratchpad/r234b-review.mjs` y `r234c-reorden.mjs`.
+- [ ] **Deuda anotada (bajo impacto, de la misma revisión):** el barrido del solver puede perder LAS DOS raíces
+      cuando el mínimo de la curva roza el cero (`N=360`; exige medidas degeneradas como 240/10/1200/1200 y falla
+      del lado seguro: avisa) · el rótulo «These sizes don't close a room» se reutiliza para el caso «cierra pero
+      cruzada», que un barrido de 28 561 combinaciones dice que no se alcanza · al cambiar el ANCHO de un muro el
+      clip se recentra pero no se reescala, así que puede desbordarlo.
 - [ ] Probar en el `.exe` desplegado y confirmar con una sala real medida a mano.
 
 ## 🧪 Tanda de Beltrán — 2026-07-30 (prueba sobre el .exe desplegado) · CERRADA EN CÓDIGO ✅ [R231]

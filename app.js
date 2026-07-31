@@ -421,6 +421,20 @@ const LB={p:gl.getAttribLocation(PB,'a_p'),pan:gl.getUniformLocation(PB,'u_pan')
    paneles. Con un lienzo cuadrado o el domo da (0,0,1,1), o sea la textura entera. */
 function compContentLim(){ const A=_compAspect, s=Math.min(2/A,2), Fx=s*A/2, Fy=s/2;
   return [(1-Fx)/2,(1-Fy)/2,(1+Fx)/2,(1+Fy)/2]; }
+/* [R234b] El límite del muestreo es la frontera del CONTENIDO, y en una sala el contenido no llega hasta el borde
+   del lienzo: cada superficie es una isla. El rect del piso `[fx0,fx1]×[stripH,H]` tiene VACÍO a izquierda y a
+   derecha (los clips de piso van con scissor a su rect y los de muro nunca bajan de `stripH`), así que acotar a la
+   banda del lienzo devolvía justo la línea negra que R233 quitó, ahora en los costados del piso. Y al revés: el
+   pie del panel de muros se mezclaba con el contenido del PISO que hay debajo en el composite — contenido válido,
+   pero de OTRA superficie.
+   Ojo con la distinción que costó R233b: los MUROS entre sí SÍ son contiguos (la tira es una sola superficie y un
+   clip la cruza por la costura), así que un export por-muro tiene que seguir acotando a la banda del lienzo, no a
+   su recorte. Regla: se acota a la SUPERFICIE, nunca al recorte. */
+function compLimForRect(x0,y0,x1,y1){ const A=_compAspect, s=Math.min(2/A,2), Fx=s*A/2, Fy=s/2;
+  const W=Math.max(1,state.seqW||1), H=Math.max(1,state.seqH||1), K=2*Fx/W;
+  const u=px=>((K*px-Fx)*0.5+0.5), v=py=>((Fy-(2*Fy/H)*py)*0.5+0.5);
+  const L=compContentLim(); // nunca fuera de la banda del lienzo
+  return [Math.max(L[0],u(x0)), Math.max(L[1],v(y1)), Math.min(L[2],u(x1)), Math.min(L[3],v(y0))]; }
 const HFADE=0.14; // horizon-fade band (fraction of the dome radius) when enabled
 const quadVAO=gl.createVertexArray(); gl.bindVertexArray(quadVAO);
 (()=>{const vb=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,vb);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,-1,1,1,-1,1]),gl.STATIC_DRAW);gl.enableVertexAttribArray(LB.p);gl.vertexAttribPointer(LB.p,2,gl.FLOAT,false,0,0);})();
@@ -1362,7 +1376,9 @@ function render(){ if(glLost)return;
         gl.uniform2f(LB.pan,st.pan[0],st.pan[1]); gl.uniform1f(LB.zoom,st.zoom);
         gl.uniform2f(LB.aspect,sx,sy); gl.uniform1f(LB.flat,1); gl.uniform1f(LB.hfade,0);
         gl.uniform2f(LB.uvsc,uOf(P.rx1)-uOf(P.rx0),vOf(P.ry0)-vOf(P.ry1)); gl.uniform2f(LB.uvof,uOf(P.rx0),vOf(P.ry1));
-        { const L=compContentLim(); gl.uniform4f(LB.uvlim,L[0],L[1],L[2],L[3]); } // [R233b] el límite es la banda del LIENZO, no el recorte del panel
+        /* [R234b] Con panel de SUPERFICIE (muros o piso) el límite es esa superficie — es donde acaba su
+           contenido. Con el panel único histórico (domo, 2D plano, sala legacy) sigue siendo la banda del lienzo. */
+        { const L=P.surf?compLimForRect(P.rx0,P.ry0,P.rx1,P.ry1):compContentLim(); gl.uniform4f(LB.uvlim,L[0],L[1],L[2],L[3]); }
         gl.drawArrays(gl.TRIANGLES,0,6); }
       gl.disable(gl.SCISSOR_TEST); gl.viewport(0,0,W,H); }
     else { gl.uniform2f(LB.pan,state.view.pan[0],state.view.pan[1]); gl.uniform1f(LB.zoom,state.view.zoom);
@@ -3730,21 +3746,40 @@ function renderLauncher(){ const ov=document.getElementById('landingOv'); if(!ov
    Se guarda la posición RELATIVA dentro del muro que contiene al clip y se restituye sobre el rect nuevo de ESE
    mismo muro, así que «centrado en Front» sigue centrado en Front aunque Front cambie de sitio o de ancho.
    Sólo toca clips de pista de MURO: el piso tiene su propio rect y no se mueve con la tira. */
+/* [R234b] La pertenencia a un muro se decidía SÓLO por el centro del clip, sin mirar cuánto MIDE. Los muros son
+   UNA superficie contigua (por eso hay seam wrap y por eso un export por-muro no acota a su recorte), así que un
+   clip más ancho que un muro lo cruza legítimamente: una imagen estirada sobre los cuatro muros tiene su centro
+   en una costura y al reordenar se la llevaba entera a un solo muro, dejando el resto en negro.
+   Regla: sigue a su muro el clip que CABE dentro de él; el que lo desborda pertenece a la tira y se queda quieto.
+   La holgura absorbe el redondeo de `props.x` (a 0,1 % de la tira) y el de los `x0/x1` en píxeles enteros, para
+   que una imagen encuadrada AL RAS de su muro siga contando como suya. */
+function clipHalfPx(c,stripW,stripH){ const m=(typeof mediaById==='function')?mediaById(c.mediaId):null; if(!m)return 0;
+  const A=stripW/Math.max(1,stripH), ca=Math.max(0.01,(m.w||16)/(m.h||9));
+  let wW,wH; if(ca>=A){ wW=A; wH=A/ca; } else { wH=1; wW=ca; }
+  const sc=Math.max(0.001,(c.props.scale==null?100:c.props.scale)/100);
+  const sxm=(c.props.scaleX==null?1:Math.max(0.001,c.props.scaleX)), sym=(c.props.scaleY==null?1:Math.max(0.001,c.props.scaleY));
+  const hw=wW/2*sc*sxm, hh=wH/2*sc*sym;
+  const rot=(c.props.rot||0)*Math.PI/180, cs=Math.abs(Math.cos(rot)), sn=Math.abs(Math.sin(rot));
+  return (hw*cs+hh*sn)/A*stripW; } // semiancho del clip, en píxeles de la tira
 function reubicarClipsPorMuro(clips,lanes,viejos,viejoW,nuevos,nuevoW){
   if(!(viejoW>0)||!(nuevoW>0)||!viejos.length)return 0;
   const nuevoPorRol={}; for(const w of nuevos)nuevoPorRol[w.role]=w;
-  const remap=pc=>{ const cx=(pc/100+1)/2*viejoW;                   // % del marco → píxel de la tira vieja
+  const stripHv=Math.max(16,Math.max(...viejos.map(w=>+w.pxH||16)));
+  const remap=(pc,half)=>{ const cx=(pc/100+1)/2*viejoW;           // % del marco → píxel de la tira vieja
     const v=viejos.find(w=>cx>=w.x0&&cx<w.x1); if(!v)return null;   // fuera de todo muro (p.ej. desbordado): no se toca
     const n=nuevoPorRol[v.role]; if(!n)return null;                 // su muro ya no existe: se queda donde está
+    const tol=Math.max(2,0.01*(v.x1-v.x0));
+    if(half>0 && (cx-half<v.x0-tol || cx+half>v.x1+tol))return null; // desborda su muro: pertenece a la TIRA, no a un muro
     const u=(cx-v.x0)/Math.max(1,v.x1-v.x0);                        // posición relativa DENTRO de su muro
     return ((n.x0+u*Math.max(1,n.x1-n.x0))/nuevoW*2-1)*100; };
   let tocados=0;
   for(const c of (clips||[])){ const lane=(lanes||[])[c.lane]; if(!lane||lane.surf!=='wall'||!c.props)continue;
+    const half=clipHalfPx(c,viejoW,stripHv);
     let cambio=false;
-    if(typeof c.props.x==='number'){ const nx=remap(c.props.x);
+    if(typeof c.props.x==='number'){ const nx=remap(c.props.x,half);
       if(nx!=null&&Math.abs(nx-c.props.x)>1e-6){ c.props.x=Math.round(nx*10)/10; cambio=true; } }
     const ks=c.kf&&c.kf.x; // la curva de posición viaja igual, punto por punto
-    if(ks&&ks.length)for(const k of ks){ const nv=remap(k.v);
+    if(ks&&ks.length)for(const k of ks){ const nv=remap(k.v,half);
       if(nv!=null&&Math.abs(nv-k.v)>1e-6){ k.v=Math.round(nv*10)/10; cambio=true; } }
     if(cambio)tocados++; }
   return tocados; }
@@ -4951,7 +4986,14 @@ function beginFlatResize(c,h){ const CP0=clipPanel(c); if(!CP0)return null; // [
   const rot=(evalR(c,'rot',t)||0)*D2R, u=[Math.cos(rot),Math.sin(rot)], v=[-Math.sin(rot),Math.cos(rot)];
   const anchor=[P.fc[0]-h.sx*P.fx[0]-h.sy*P.fy[0], P.fc[1]-h.sx*P.fx[1]-h.sy*P.fy[1]]; // opposite handle
   const scale0=Math.max(0.001,(evalR(c,'scale',t)||100)/100), sxm0=(c.props.scaleX==null?1:c.props.scaleX), sym0=(c.props.scaleY==null?1:c.props.scaleY);
-  return {mode:'resizeFlat',id:c.id,sx:h.sx,sy:h.sy,Fx:M.Fx,Fy:M.Fy,fx0,fy0,u,v,anchor,scale0,sxm0,sym0,cur:_resizeCursor(h.sx,h.sy)}; }
+  /* [R234b] El mismo desajuste que R234 arregló en el arrastre, aquí en la escala: toda esta geometría sale de
+     `flatPlace`/`evalR` —lo que se VE, con el preset de movimiento y la modulación dentro— pero el centro se
+     escribe con `manualEdit`, que toca la BASE. Se guarda el desplazamiento PROCEDIMENTAL para restarlo al
+     escribir; así el tirador sigue donde se ve y la base no se come la animación. Es anterior a R234, pero es
+     exactamente el mismo error de espacios. */
+  const anim=[ (evalR(c,'x',t)||0)-(evalP(c,'x',t)||0), (evalR(c,'y',t)||0)-(evalP(c,'y',t)||0) ];
+  const animS=(evalR(c,'scale',t)||100)-(evalP(c,'scale',t)||100);
+  return {mode:'resizeFlat',id:c.id,sx:h.sx,sy:h.sy,Fx:M.Fx,Fy:M.Fy,fx0,fy0,u,v,anchor,scale0,sxm0,sym0,anim,animS,cur:_resizeCursor(h.sx,h.sy)}; }
 /* [R226·I3] modo de máscara: mientras está activo el lienzo edita PUNTOS, así que los gestos normales
    (seleccionar/mover/escalar clip, panear, orbitar) quedan suspendidos — un clic suelto crearía un punto y
    movería el clip a la vez. Sale con Esc, con el botón Done del inspector o al deseleccionar el clip. */
@@ -5002,10 +5044,13 @@ gridc.addEventListener('pointerdown',e=>{ const r=gridc.getBoundingClientRect();
          pinchó. Sin él, `elemFlat` escribía el punto del cursor como centro, así que al empezar a arrastrar el
          clip pegaba un salto para centrarse en el puntero — agarrar una esquina y ver saltar el clip. */
       else if(sel && !sel.adjust && flatRectHit(sel,px,py)){ pushUndo();
+        /* [R234b] El desfase se mide con `evalP` —la BASE, que es lo que escribe `manualEdit`— y no con
+           `flatPlace`, que resuelve por `evalR` = base + preset de movimiento + pila de modulación. Con un preset
+           activo, `off` traía la animación dentro y el primer movimiento la escribía en la base: el clip saltaba
+           al doble del desplazamiento procedimental. La rama del domo ya lo hacía bien con `evalP`. */
         let off=[0,0];
-        try{ const _m=mediaById(sel.mediaId), _CP=clipPanel(sel);
-          if(_m&&_CP){ const _M=flatMap(_CP), _P=flatPlace(sel,_m,state.playhead,clipSurfA(sel)), _f=pix2frame(px,py,_CP);
-            off=[_P.fc[0]/_M.Fx-_f[0], _P.fc[1]/_M.Fy-_f[1]]; } }catch(_){}
+        try{ const _CP=clipPanel(sel); if(_CP){ const _f=pix2frame(px,py,_CP);
+          off=[((evalP(sel,'x',state.playhead)||0)/100)-_f[0], ((evalP(sel,'y',state.playhead)||0)/100)-_f[1]]; } }catch(_){}
         vdrag={mode:'elemFlat',id:sel.id,off}; }
       else { const st=vpState((vpPanelAt(px,py)||vpPanels()[0]).surf); vdrag={mode:'pan',x:e.clientX,y:e.clientY,pan:[...st.pan],st}; } } // [R94e] the viewport never re-picks: selection comes from the timeline, so a clip under other layers stays draggable
     else { // dome 2D: same rule — only the timeline-selected clip is draggable (no hit-test stealing by the top layer)
@@ -5037,7 +5082,12 @@ gridc.addEventListener('pointermove',e=>{
   else if(vdrag.mode==='pan'){ const st=vdrag.st||state.view; const S=Math.min(view.cw,view.ch); const d=[(e.clientX-vdrag.x)/(S/2),-(e.clientY-vdrag.y)/(S/2)]; st.pan=[vdrag.pan[0]-d[0]/st.zoom,vdrag.pan[1]-d[1]/st.zoom]; render(); }
   else if(vdrag.mode==='elem'){ const c=clipById(vdrag.id); if(!c)return; const f=pix2f(px,py); const ae=f2azel(f[0],f[1]);
     const off=vdrag.off||[0,0]; // [R234] el punto de agarre manda
-    manualEdit(c,'az',ae.az+off[0]); manualEdit(c,'el',Math.max(-90,Math.min(90,ae.el+off[1]))); refreshInspector(); renderTimeline(); render(); updStatus(); }
+    /* [R234b] El azimut se normaliza a [0,360): `f2azel` sí normaliza, pero sumarle un desfase que cruza el corte
+       de rama dejaba guardado un valor fuera de rango (p. ej. −349,9). No se notaba en pantalla —`dirAzEl` es
+       periódica— pero el fader de Azimuth lo acota a [0,360] y al primer roce el clip teleportaba, y un `az`
+       automatizado interpolaba ~700° hacia atrás entre keyframes. */
+    { let az=(ae.az+off[0])%360; if(az<0)az+=360; manualEdit(c,'az',az); }
+    manualEdit(c,'el',Math.max(-90,Math.min(90,ae.el+off[1]))); refreshInspector(); renderTimeline(); render(); updStatus(); }
   else if(vdrag.mode==='elemFlat'){ const c=clipById(vdrag.id); if(!c)return; const m=mediaById(c.mediaId);
     const CP=clipPanel(c); if(!CP)return; const SR=clipSurfRect(c); const _f=pix2frame(px,py,CP); // [R230] siempre en el marco de SU superficie
     const off=vdrag.off||[0,0]; const fp=[_f[0]+off[0],_f[1]+off[1]]; let nx=fp[0],ny=fp[1]; // [R234] el punto de agarre manda: el clip no se recentra en el cursor
@@ -5050,10 +5100,11 @@ gridc.addEventListener('pointermove',e=>{
     const pu=rel[0]*d.u[0]+rel[1]*d.u[1], pv=rel[0]*d.v[0]+rel[1]*d.v[1];
     let nfx=d.fx0,nfy=d.fy0; if(d.sx!==0)nfx=Math.max(0.004,pu/(2*d.sx)); if(d.sy!==0)nfy=Math.max(0.004,pv/(2*d.sy));
     const corner=(d.sx!==0&&d.sy!==0);
-    if(corner&&!e.shiftKey){ const k=nfx/d.fx0; nfy=d.fy0*k; manualEdit(c,'scale',Math.round(d.scale0*k*1000)/10); } // uniform corner (Shift = free aspect)
+    if(corner&&!e.shiftKey){ const k=nfx/d.fx0; nfy=d.fy0*k; manualEdit(c,'scale',Math.round((d.scale0*k*100-(d.animS||0))*10)/10); } // uniform corner (Shift = free aspect) · [R234b] menos el desplazamiento procedimental
     else { if(d.sx!==0)c.props.scaleX=Math.max(0.01,d.sxm0*(nfx/d.fx0)); if(d.sy!==0)c.props.scaleY=Math.max(0.01,d.sym0*(nfy/d.fy0)); }
     const cx=d.anchor[0]+d.sx*nfx*d.u[0]+d.sy*nfy*d.v[0], cy=d.anchor[1]+d.sx*nfx*d.u[1]+d.sy*nfy*d.v[1];
-    manualEdit(c,'x',Math.max(-300,Math.min(300,Math.round(cx/d.Fx*1000)/10))); manualEdit(c,'y',Math.max(-300,Math.min(300,Math.round(cy/d.Fy*1000)/10)));
+    const _an=d.anim||[0,0]; // [R234b] la geometría va en lo que se VE; a la BASE se le resta la animación
+    manualEdit(c,'x',Math.max(-300,Math.min(300,Math.round((cx/d.Fx*100-_an[0])*10)/10))); manualEdit(c,'y',Math.max(-300,Math.min(300,Math.round((cy/d.Fy*100-_an[1])*10)/10)));
     markDirty(); refreshInspector(); renderTimeline(); render(); updStatus(); }
 });
 function endVdrag(){ if(vdrag&&vdrag.mode==='vpdiv')saveRoomVpPrefs(); // [R230b] una sola escritura a localStorage por arrastre
@@ -6991,12 +7042,22 @@ function renderExportFrame(t,res,ss,wall){ const flat=isFlat(); _drawFlat=flat; 
   if(wall){ const A=_compAspect, s=Math.min(2/A,2), Fx=s*A/2, Fy=s/2; const sw=wall.stripW||1, sh=wall.stripH||1; // F5 per-wall (+ [R221] whole-strip / floor) crop: crop a sub-rect of the room composite → resample into glc (pxW×pxH)
     const y0=wall.y0||0, y1=(wall.y1!=null)?wall.y1:(y0+(wall.pxH||0)); // [R221] y0/y1 generalize the old top-anchored (y0=0,y1=pxH) crop so a floor/strip-only job can crop an arbitrary vertical slice of the taller room canvas
     const uSc=(wall.x1-wall.x0)/sw*Fx, uOf=(1-Fx)/2+wall.x0/sw*Fx, vSc=(y1-y0)/sh*Fy, vOf=(1+Fy)/2-(y1/sh)*Fy;
-    gl.uniform1f(LB.flat,1); gl.uniform2f(LB.uvsc,uSc,vSc); gl.uniform2f(LB.uvof,uOf,vOf); gl.uniform1f(LB.hfade,0); _lim(); } // [R233b] el límite NO es este recorte: acotando a la costura, cada muro repetía su columna del borde y Front y Right dejaban de casar en la esquina
+    gl.uniform1f(LB.flat,1); gl.uniform2f(LB.uvsc,uSc,vSc); gl.uniform2f(LB.uvof,uOf,vOf); gl.uniform1f(LB.hfade,0);
+    /* [R233b] En un trabajo por-MURO el límite NO es este recorte: acotando a la costura, cada muro repetía su
+       columna del borde y Front y Right dejaban de casar en la esquina — los muros son UNA superficie contigua.
+       [R234b] El PISO no: es una isla con vacío a los lados, así que ahí se acota a su propio rect. */
+    if(wall.kind==='floor'){ const L=compLimForRect(wall.x0,y0,wall.x1,y1); gl.uniform4f(LB.uvlim,L[0],L[1],L[2],L[3]); }
+    else _lim(); }
   /* [R180] `_ncSquare` = estoy horneando el caché de un nest. Entonces la salida tiene que quedar EXACTAMENTE
      como la textura que produce `prepNests`: el composite cuadrado CON su letterbox, sin recortar y sin fundido
      de horizonte. Recortándolo (que es lo correcto para un export de entrega) un nest 16:9 se encuadraba
-     distinto con el caché puesto que sin él — medido: el centro de masa se iba un 29% en vertical. */
-  else if(flat){ const A=_compAspect, s=Math.min(2/A,2), Fx=s*A/2, Fy=s/2; gl.uniform1f(LB.flat,1); gl.uniform2f(LB.uvsc,Fx,Fy); gl.uniform2f(LB.uvof,(1-Fx)/2,(1-Fy)/2); gl.uniform1f(LB.hfade,0); _lim(); }
+     distinto con el caché puesto que sin él — medido: el centro de masa se iba un 29% en vertical.
+     [R234b] Un nest FLAT entra por la rama de abajo, no por la del domo, así que la exención se hace aquí y de
+     forma explícita. Hoy no cambia nada porque `ncBuild` sólo admite composiciones CUADRADAS (con un lienzo
+     cuadrado la banda ES la textura entera), pero el día que se admita un nest 16:9 el letterbox se habría
+     perdido en silencio: la exención descansaba en esa puerta, no en este bloque. */
+  else if(flat){ const A=_compAspect, s=Math.min(2/A,2), Fx=s*A/2, Fy=s/2; gl.uniform1f(LB.flat,1); gl.uniform2f(LB.uvsc,Fx,Fy); gl.uniform2f(LB.uvof,(1-Fx)/2,(1-Fy)/2); gl.uniform1f(LB.hfade,0);
+    if(_ncSquare)gl.uniform4f(LB.uvlim,0,0,1,1); else _lim(); } // [R234b] horneando el caché de un nest: textura entera, con su letterbox
   /* [R233b] Aquí el límite es la TEXTURA ENTERA, no la banda: con `_ncSquare` la salida tiene que ser el composite
      cuadrado CON su letterbox intacto, y acotar a la banda rellenaría el vacío con contenido repetido — justo lo
      que este caso lleva desde R180 cuidando de no tocar. En el domo el contenido llena la textura, así que da igual. */
@@ -8969,7 +9030,10 @@ async function newProject(mode,w,h,fps,cov,skipConfirm){ if(!(await confirmDisca
 function applyRoomGeometry(cfg){
   const wseq=activeSeq(), room=wseq&&wseq.room;
   if(!room){ flashStatus(T('This sequence is not a room','Esta secuencia no es una sala'),'err'); return; }
-  pushUndo();
+  /* [R234b] El deshacer tiene que devolver la GEOMETRÍA junto con los clips: desde R232c los clips se recolocan
+     con la sala, así que restituir sólo los clips los dejaba sobre los muros nuevos, en el hueco equivocado. */
+  pushUndo(null,{seqId:wseq.id,walls:JSON.parse(JSON.stringify(room.walls||[])),stripH:room.stripH,
+                 floor:room.floor?JSON.parse(JSON.stringify(room.floor)):null,w:wseq.w,h:wseq.h});
   const idPorRol=new Map((room.walls||[]).map(w=>[w.role,w.id]));
   /* [R232c] La huella VIEJA de cada muro, antes de recolocar la tira: con ella los clips siguen a su muro. */
   const _viejos=(room.walls||[]).map(w=>({role:w.role,x0:w.x0|0,x1:w.x1|0})), _viejoW=wseq.w|0;
@@ -9408,13 +9472,24 @@ function updRelink(){ const miss=state.media.filter(m=>m.missing&&!m._loading); 
 const _undoBySeq={}; const UNDO_BYTE_CAP=250e6; // large-project guard: 80 snapshots of a feature-film timeline could be hundreds of MB
 function _ustk(){ const id=state.activeSeqId!=null?state.activeSeqId:'_'; return _undoBySeq[id]||(_undoBySeq[id]={u:[],r:[],bytes:0}); }
 function clearAllUndo(){ for(const k in _undoBySeq)delete _undoBySeq[k]; }
-function snapshot(trashIds){ return JSON.stringify({clips:state.clips.map(serClip),lanes:state.lanes,selId:state.selId,selIds:state.selIds,selLane:state.selLane,markers:state.markers,selMarkerId:state.selMarkerId,groups:state.groups,selGroupId:state.selGroupId,reactive:state.reactive||null,autoItems:state.autoItems||{},trashIds:trashIds||undefined}); } // [R95·D2] items are undoable state too: editing a pooled curve rewrites the item · [R212] trashIds: media ids this action just sent to state.mediaTrash — restore() must revive them even if no clip references them (unused media deleted from the panel)
-function pushUndo(trashIds){ if(_demoBatch)return; // [R228] construyendo un proyecto demo: no hay nada que deshacer (`_demoFinish` limpia el historial de todos modos) y cada snapshot de un lote de 8 clips es caro
-  const st=_ustk(); const s=snapshot(trashIds); st.u.push(s); st.bytes+=s.length; st.r.length=0;
+/* [R234b] `room`: foto opcional de la GEOMETRÍA de la sala. Sólo la rellena `applyRoomGeometry`; en cualquier
+   otra acción el campo no existe y el snapshot es byte por byte el de siempre. Sin esto, deshacer un reorden de
+   muros devolvía los clips a su sitio VIEJO dejando los muros en el NUEVO — justo el descuadre que R232c vino a
+   arreglar, pero provocado por el propio Ctrl+Z. */
+function snapshot(trashIds,room){ return JSON.stringify({room:room||undefined,clips:state.clips.map(serClip),lanes:state.lanes,selId:state.selId,selIds:state.selIds,selLane:state.selLane,markers:state.markers,selMarkerId:state.selMarkerId,groups:state.groups,selGroupId:state.selGroupId,reactive:state.reactive||null,autoItems:state.autoItems||{},trashIds:trashIds||undefined}); } // [R95·D2] items are undoable state too: editing a pooled curve rewrites the item · [R212] trashIds: media ids this action just sent to state.mediaTrash — restore() must revive them even if no clip references them (unused media deleted from the panel)
+function pushUndo(trashIds,roomSnap){ if(_demoBatch)return; // [R228] construyendo un proyecto demo: no hay nada que deshacer (`_demoFinish` limpia el historial de todos modos) y cada snapshot de un lote de 8 clips es caro
+  const st=_ustk(); const s=snapshot(trashIds,roomSnap); st.u.push(s); st.bytes+=s.length; st.r.length=0;
   let total=0,count=0; for(const k in _undoBySeq){ total+=_undoBySeq[k].bytes; count+=_undoBySeq[k].u.length; }
   while(count>80||(total>UNDO_BYTE_CAP&&count>8)){ let bk=null; for(const k in _undoBySeq)if(_undoBySeq[k].u.length&&(bk==null||_undoBySeq[k].bytes>_undoBySeq[bk].bytes))bk=k; if(bk==null)break; const d=_undoBySeq[bk].u.shift(); _undoBySeq[bk].bytes-=d.length; total-=d.length; count--; } // evict oldest from the heaviest sequence — caps are global across all stacks
   markDirty(); }
-function restore(s){ const o=JSON.parse(s); state.clips=o.clips.map(c=>({...c,maskTex:null})); state.lanes=o.lanes; state.autoSel=null; state.hoverAuto=null; state.shapeBox=null; /* [R95·B1] the box holds live keyframe refs — undo/sequence switch replaces those objects, so it must go with them */ state.selId=o.selId; state.selIds=Array.isArray(o.selIds)?o.selIds:(o.selId!=null?[o.selId]:[]); state.selLane=o.selLane??null; if(o.markers)state.markers=o.markers; state.selMarkerId=o.selMarkerId??null; state.groups=o.groups||[]; state.selGroupId=o.selGroupId??null; if(o.reactive!==undefined){state.reactive=o.reactive;} if(o.autoItems!==undefined)state.autoItems=o.autoItems; /* [R95·D2] */ _arCache=null; _fxEnvCache.clear(); for(const c of state.clips)if(c.maskData||(c.penMasks&&c.penMasks.length))rebuildMaskTex(c);
+function restore(s){ const o=JSON.parse(s);
+  if(o.room){ /* [R234b] la geometría va PRIMERO: los clips que vienen detrás están medidos contra ella */
+    const wq=mediaById(o.room.seqId);
+    if(wq&&wq.room){ wq.room.walls=o.room.walls; wq.room.stripH=o.room.stripH; wq.room.floor=o.room.floor;
+      wq.w=o.room.w; wq.h=o.room.h;
+      if(state.activeSeqId===wq.id){ state.seqW=wq.w; state.seqH=wq.h; }
+      _roomGeo=null; _roomGeoSeq=null; _arCache=null; try{raInvalidate();}catch(e){} try{resize();}catch(e){} } }
+  state.clips=o.clips.map(c=>({...c,maskTex:null})); state.lanes=o.lanes; state.autoSel=null; state.hoverAuto=null; state.shapeBox=null; /* [R95·B1] the box holds live keyframe refs — undo/sequence switch replaces those objects, so it must go with them */ state.selId=o.selId; state.selIds=Array.isArray(o.selIds)?o.selIds:(o.selId!=null?[o.selId]:[]); state.selLane=o.selLane??null; if(o.markers)state.markers=o.markers; state.selMarkerId=o.selMarkerId??null; state.groups=o.groups||[]; state.selGroupId=o.selGroupId??null; if(o.reactive!==undefined){state.reactive=o.reactive;} if(o.autoItems!==undefined)state.autoItems=o.autoItems; /* [R95·D2] */ _arCache=null; _fxEnvCache.clear(); for(const c of state.clips)if(c.maskData||(c.penMasks&&c.penMasks.length))rebuildMaskTex(c);
   if(state.mediaTrash){ const need=new Set(); for(const s of state.media)if(isSeqMedia(s)){ const arr=(s.id===state.activeSeqId?state.clips:s.nestClips)||[]; for(const c of arr)need.add(c.mediaId); } for(const c of state.clips)need.add(c.mediaId); if(Array.isArray(o.trashIds))for(const id of o.trashIds)need.add(id); /* [R212] media deleted from the panel with no clip using it — revive it anyway, undo means undo */ for(const id in state.mediaTrash){ if(need.has(+id)){ if(!mediaById(+id)){ const tm=state.mediaTrash[id]; state.media.push(tm); if(tm._trashed){ delete tm._trashed; tm.missing=false; tm._loading=true; try{ reloadMedia(tm); }catch(e){} } } delete state.mediaTrash[id]; } } renderMedia(); }
   saveActiveSeq(); markDirty(); // re-heal the state.clips ⇄ activeSeq().nestClips alias (stale nestClips broke seqDur/seqReaches after undo) + an undone edit IS an unsaved change
   renderTimeline();renderInspector();render();updStatus(); reschedAudio(); }

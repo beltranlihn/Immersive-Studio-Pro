@@ -1,5 +1,92 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 234b/c — Revisión desde el Mac de R232→R234
+
+Cinco commits escritos en Windows (el solver de la planta, el reorden de muros, la línea negra del blit, el color
+del 3D y el anclaje del arrastre). Sus cuatro sondas pasan enteras en el Mac y mis tres de R230/R231c no muestran
+regresión. Dos revisores sobre el diff dieron **seis defectos reales**; todos corregidos y verificados
+(`scratchpad/r234b-review.mjs` y `r234c-reorden.mjs`), `__errs` vacío.
+
+### El límite del muestreo es la SUPERFICIE, no la banda del lienzo
+
+R233 acotó el muestreo del blit para matar la línea negra del borde; R233b cambió el límite del RECORTE a la BANDA
+DEL LIENZO, con razón: los muros entre sí **son una superficie contigua** —un clip la cruza por la costura— y
+acotar al recorte hacía que un export por-muro repitiera su columna del borde, con Front y Right sin casar en la
+esquina.
+
+Pero el piso no es eso. Su rect `[fx0,fx1]×[stripH,H]` es una **isla**: a izquierda y derecha tiene vacío, porque
+los clips de piso van con scissor a su rect y los de muro nunca bajan de `stripH`. Acotando a la banda del lienzo,
+los costados del piso volvían a ser exactamente el caso que R233 arregló. Y al revés: el pie del panel de muros se
+mezclaba con el contenido del PISO que hay debajo en el composite — contenido válido, pero de **otra superficie**.
+
+La regla queda: **se acota a la superficie, nunca al recorte**. `compLimForRect()` la implementa; el panel de
+muros y el de piso la usan, el export por-muro sigue con la banda y el de piso con su propio rect. Medido: el piso
+acota su costado derecho (0,25 frente a 1) y su techo; los muros no acotan los costados pero sí el pie.
+
+De paso, la exención de `_ncSquare` —el horneado del caché de un nest, que debe conservar su letterbox— se hace
+ahora explícita en la rama que le toca. No cambia nada hoy porque sólo se admiten nests cuadrados, pero descansaba
+en esa puerta y no en el bloque que el comentario señalaba.
+
+### El desfase del agarre se medía en un espacio y se escribía en otro
+
+R234 ancló el arrastre en el punto de agarre, pero calculaba el desfase con `flatPlace`, que resuelve por `evalR`
+= base + preset de movimiento + pila de modulación, mientras `manualEdit` escribe la **base**. Con un preset
+activo, `off` traía la animación dentro y el primer movimiento la escribía en la base: el clip saltaba al doble
+del desplazamiento procedimental. La rama del domo ya lo hacía bien con `evalP`; ahora las dos coinciden.
+
+**El mismo error estaba en la escala**, y es anterior a R234: `beginFlatResize` captura toda su geometría de
+`flatPlace` y escribe el centro con `manualEdit`. Se guarda el desplazamiento procedimental al empezar y se resta
+al escribir, así el tirador sigue donde se ve y la base no se come la animación. Medido con un desplazamiento
+inyectado de 30: arrastrar el cuerpo deja la base en 0, y escalar la deja en 0,2.
+
+*(Nota de método: la primera prueba dio un falso positivo porque agarraba en el borde del clip y caía en un
+tirador, no en el cuerpo — el modo real era `resizeFlat`. Ese falso positivo es lo que destapó el fallo de la
+escala.)*
+
+### El azimut del domo se guardaba fuera de rango
+
+`f2azel` normaliza a [0,360), pero sumarle un desfase que cruza el corte de rama dejaba guardado un valor como
+−349,9. En pantalla no se notaba —`dirAzEl` es periódica— pero el fader de Azimuth acota a [0,360] y al primer
+roce el clip teleportaba; y un `az` automatizado interpolaba ~700° hacia atrás entre keyframes.
+
+### Reordenar muros se llevaba clips que no eran de ese muro
+
+`reubicarClipsPorMuro` (R232c) decidía la pertenencia **sólo por el centro** del clip, sin mirar cuánto mide. Una
+imagen estirada sobre los cuatro muros tiene su centro en una costura: al reordenar se la llevaba entera a un solo
+muro y dejaba el resto en negro. Contradecía lo que el propio R233b dejó escrito — que los muros son una
+superficie contigua y cruzarla es legítimo.
+
+Ahora **sigue a su muro el clip que CABE en él**; el que lo desborda pertenece a la tira y se queda quieto. La
+holgura (1 % del ancho del muro, mínimo 2 px) absorbe el redondeo de `props.x` y el de los `x0/x1` enteros, para
+que una imagen encuadrada al ras de su muro siga contando como suya. Verificado: el clip que cabe pasa de −75 a
++75 siguiendo a Front del puesto 1 al 4, y el estirado sobre toda la tira no se mueve.
+
+### Deshacer devolvía los clips pero no la sala
+
+Desde R232c los clips se recolocan con la geometría, así que un Ctrl+Z que restituía **sólo** los clips los dejaba
+sobre los muros nuevos, en el hueco equivocado — con «Mask to wall» activo, en blanco. Es decir, el propio undo
+reproducía el descuadre que R232c vino a arreglar.
+
+`snapshot()` acepta ahora una foto opcional de la geometría, que sólo rellena `applyRoomGeometry`; en cualquier
+otra acción el campo no existe y el snapshot es byte por byte el de siempre. `restore()` la aplica **antes** que
+los clips, porque los clips vienen medidos contra ella. Verificado: tras deshacer, el orden vuelve a
+Front·Right·Back·Left, el lienzo a 7680×3000 y el clip a −75.
+
+### Lo que los revisores intentaron tumbar y no pudieron
+
+Ningún camino hereda un `u_uvlim` de la llamada anterior (las cinco ramas que usan `PB` y la única que usa `PR` lo
+fijan). El shader lee `textureSize`, así que cambiar la calidad de previsualización se resuelve solo. El desempate
+del solver por |θ| menor es determinista: no pueden existir dos raíces distintas con el mismo |θ|, y `g` es
+unimodal. Un barrido de 28 561 combinaciones extremas no encontró ni una planta cruzada sin avisar. `segCruza`
+sólo se llama sobre los pares no contiguos, que es lo correcto. Y el orden de los muros no puede quedar con
+huecos, repetidos ni fuera de rango por ninguna de las cuatro vías.
+
+Quedan anotados en `docs/NEXT.md`, sin corregir por ser de bajo impacto: el barrido del solver puede perder las dos
+raíces cuando el mínimo de la curva roza el cero (exige medidas degeneradas, y falla del lado seguro); el rótulo
+«no cierran una sala» se reutiliza para el caso «cierra pero cruzada», que el barrido dice que no se alcanza; y el
+tamaño del clip no acompaña al muro al cambiar su ancho, sólo la posición.
+
+
 ## ROUND 234 — El clip saltaba al agarrarlo
 
 Beltrán: «cuando arrastro un clip en el lienzo, se mueve solo para centrarse en el cursor; el anclaje debe ser
