@@ -394,21 +394,33 @@ void main(){ vec2 sc=(u_uvsc.x<0.0001&&u_uvsc.y<0.0001)?vec2(1.0):u_uvsc; v_uv=v
    7196×912 sólo ocupa ~65 texels de alto en un composite de 512², o sea 1 texel = 14 píxeles de lienzo, que a
    1000% de zoom son ~140 px de banda negra pegada al borde — y no se iba por mucho que se agrandara el clip,
    porque no era del clip sino del propio blit. Con el clamp, el borde repite su último texel y queda limpio. */
+/* [R233b] El límite es la BANDA DE CONTENIDO del lienzo (`u_uvlim`), NO el recorte de este blit. Acotando al
+   recorte, un límite INTERIOR al contenido —el panel de muros de un visor partido, que corta en `stripH` con el
+   piso debajo, o un export por-muro, que corta en la costura entre muros— se comía hasta un texel de contenido
+   real y repetía el borde: la costura entre Front y Right dejaba de casar. Con la banda, el borde exterior queda
+   protegido del vacío y las costuras interiores siguen muestreando el contenido de al lado, que es lo correcto.
+   `u_uvlim = (0,0,0,0)` (o degenerado) = sin límite, para que ningún camino que no lo fije quede a oscuras. */
+const UVLIM=`vec2 uvLim(sampler2D tx, vec4 lim, vec2 uv){
+  if(lim.z<=lim.x||lim.w<=lim.y) return uv;
+  vec2 N=vec2(textureSize(tx,0));
+  /* Medio texel NO basta: la banda no cae en múltiplos de texel (7196×912 ocupa 64,9), así que el texel del borde
+     está PARCIALMENTE cubierto y ya viene mezclado con el vacío desde el propio composite. Se acota al centro del
+     primer y del último texel ENTERAMENTE cubiertos. Si el límite cae justo (domo, lienzo cuadrado), esto da
+     0.5/N y N−0.5/N: el borde exacto de siempre, sin recortar nada. */
+  vec2 a=(ceil(lim.xy*N)+0.5)/N, b=(floor(lim.zw*N)-0.5)/N;
+  return clamp(uv,min(a,b),max(a,b)); }`;
 const FSB=`#version 300 es
-precision highp float; in vec2 v_uv; in vec2 v_p; uniform sampler2D u_tex; uniform float u_hfade,u_flat; uniform vec2 u_uvsc,u_uvof; out vec4 o;
+precision highp float; in vec2 v_uv; in vec2 v_p; uniform sampler2D u_tex; uniform float u_hfade,u_flat; uniform vec4 u_uvlim; out vec4 o;
+${UVLIM}
 void main(){ float r=length(v_p); if(u_flat<0.5 && r>1.0) discard;
-  vec2 sc=(u_uvsc.x<0.0001&&u_uvsc.y<0.0001)?vec2(1.0):u_uvsc;           // mismo repliegue que el vertex shader
-  vec2 N=vec2(textureSize(u_tex,0));
-  vec2 t0=min(u_uvof,u_uvof+sc)*N, t1=max(u_uvof,u_uvof+sc)*N;
-  /* Medio texel NO basta: la banda de contenido no cae en múltiplos de texel (7196×912 ocupa 64,9 texels), así
-     que el texel del borde está PARCIALMENTE cubierto y ya viene mezclado con el vacío desde el composite. Se
-     acota al centro del primer y del último texel ENTERAMENTE cubiertos. Cuando el límite sí cae justo (u=0, u=1
-     del domo o de un lienzo cuadrado) esto da 0.5/N y N−0.5/N, o sea el borde exacto: no recorta nada. */
-  vec2 a=(ceil(t0)+0.5)/N, b=(floor(t1)-0.5)/N;
-  o=texture(u_tex,clamp(v_uv,min(a,b),max(a,b)));                        // min/max: una región de menos de un texel no invierte el rango
+  o=texture(u_tex,uvLim(u_tex,u_uvlim,v_uv));
   if(u_hfade>0.0){ float f=smoothstep(1.0, 1.0-u_hfade, r); o.rgb*=f; o.a*=f; } }`; // u_flat: skip the dome disc clip so the flat rect shows fully; horizon fade softens the dome spring line
 const PB=prog(VSB,FSB);
-const LB={p:gl.getAttribLocation(PB,'a_p'),pan:gl.getUniformLocation(PB,'u_pan'),zoom:gl.getUniformLocation(PB,'u_zoom'),aspect:gl.getUniformLocation(PB,'u_aspect'),tex:gl.getUniformLocation(PB,'u_tex'),hfade:gl.getUniformLocation(PB,'u_hfade'),flat:gl.getUniformLocation(PB,'u_flat'),uvsc:gl.getUniformLocation(PB,'u_uvsc'),uvof:gl.getUniformLocation(PB,'u_uvof')};
+const LB={p:gl.getAttribLocation(PB,'a_p'),pan:gl.getUniformLocation(PB,'u_pan'),zoom:gl.getUniformLocation(PB,'u_zoom'),aspect:gl.getUniformLocation(PB,'u_aspect'),tex:gl.getUniformLocation(PB,'u_tex'),hfade:gl.getUniformLocation(PB,'u_hfade'),flat:gl.getUniformLocation(PB,'u_flat'),uvsc:gl.getUniformLocation(PB,'u_uvsc'),uvof:gl.getUniformLocation(PB,'u_uvof'),uvlim:gl.getUniformLocation(PB,'u_uvlim')};
+/* [R233b] La banda que ocupa el lienzo dentro del composite CUADRADO — el límite del muestreo, común a todos los
+   paneles. Con un lienzo cuadrado o el domo da (0,0,1,1), o sea la textura entera. */
+function compContentLim(){ const A=_compAspect, s=Math.min(2/A,2), Fx=s*A/2, Fy=s/2;
+  return [(1-Fx)/2,(1-Fy)/2,(1+Fx)/2,(1+Fy)/2]; }
 const HFADE=0.14; // horizon-fade band (fraction of the dome radius) when enabled
 const quadVAO=gl.createVertexArray(); gl.bindVertexArray(quadVAO);
 (()=>{const vb=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,vb);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,-1,1,1,-1,1]),gl.STATIC_DRAW);gl.enableVertexAttribArray(LB.p);gl.vertexAttribPointer(LB.p,2,gl.FLOAT,false,0,0);})();
@@ -578,15 +590,26 @@ function drawEquirectSphere(mvp,t){ const c=equirectClipAt(t); if(!c)return fals
 const VSR=`#version 300 es
 precision highp float; in vec3 a_pos; in vec2 a_uv; in float a_shade; in vec2 a_nrm; uniform mat4 u_mvp; out vec2 v_uv; out float v_sh; out vec3 v_wp; out vec2 v_nrm;
 void main(){ v_uv=a_uv; v_sh=a_shade; v_wp=a_pos; v_nrm=a_nrm; gl_Position=u_mvp*vec4(a_pos,1.0); }`;
+/* [R233b] Dos arreglos aquí:
+   · Mismo acotado del muestreo que el blit 2D (`uvLim`): los muros muestrean la MISMA banda del composite
+     cuadrado, y su borde superior cae justo en el límite, así que sin clamp el alfa se desvanecía hacia el vacío
+     y `mix(u_base,…)` con base negra fundía a negro la parte alta del muro. Era la misma franja de R233, que
+     seguía viva en el 3D.
+   · El sombreado FALSO (`v_sh`, un foco direccional que oscurecía cada muro hasta un 38 %) deja de aplicarse a
+     las caras que enseñan CONTENIDO. Este visor es una previsualización de lo que se va a proyectar: los colores
+     tienen que ser los del lienzo, no una versión apagada. El piso ya iba sin sombrear desde R221 («same clarity
+     as the walls»); ahora los muros hacen lo mismo. El sombreado se conserva en la pasada de FUERA, que es la
+     carcasa translúcida y es donde sí ayuda a leer el volumen de la sala. */
 const FSR=`#version 300 es
-precision highp float; in vec2 v_uv; in float v_sh; in vec3 v_wp; in vec2 v_nrm; uniform sampler2D u_tex; uniform vec3 u_base,u_cam; uniform float u_pass,u_outTex,u_backA; out vec4 o;
-void main(){ vec4 t=texture(u_tex,v_uv); vec3 col=mix(u_base,t.rgb,t.a);
-  if(u_pass>1.5){ o=vec4(col*v_sh,1.0); return; } // floor (always opaque)
+precision highp float; in vec2 v_uv; in float v_sh; in vec3 v_wp; in vec2 v_nrm; uniform sampler2D u_tex; uniform vec3 u_base,u_cam; uniform float u_pass,u_outTex,u_backA; uniform vec4 u_uvlim; out vec4 o;
+${UVLIM}
+void main(){ vec4 t=texture(u_tex,uvLim(u_tex,u_uvlim,v_uv)); vec3 col=mix(u_base,t.rgb,t.a);
+  if(u_pass>1.5){ o=vec4(col,1.0); return; } // floor (always opaque) — sin sombrear: es contenido
   float inward = v_nrm.x*(u_cam.x-v_wp.x) + v_nrm.y*(u_cam.y-v_wp.y); // >0 → the room-facing (inside) surface is toward the camera
-  if(u_pass>0.5){ if(inward<=0.0) discard; o=vec4(col*v_sh,1.0); } // inside pass = opaque
-  else { if(inward>0.0) discard; vec3 c=(u_outTex>0.5)?col:u_base; o=vec4(c*v_sh,u_backA); } }`; // outside pass = translucent (flat, or the texture if enabled)
+  if(u_pass>0.5){ if(inward<=0.0) discard; o=vec4(col,1.0); } // inside pass = opaque, con el color REAL del lienzo
+  else { if(inward>0.0) discard; vec3 c=(u_outTex>0.5)?col:u_base; o=vec4(c*v_sh,u_backA); } }`; // outside pass = translucent (flat, or the texture if enabled) — aquí el sombreado sí da volumen
 const PR=prog(VSR,FSR);
-const LR={pos:gl.getAttribLocation(PR,'a_pos'),uv:gl.getAttribLocation(PR,'a_uv'),shade:gl.getAttribLocation(PR,'a_shade'),nrm:gl.getAttribLocation(PR,'a_nrm'),mvp:gl.getUniformLocation(PR,'u_mvp'),tex:gl.getUniformLocation(PR,'u_tex'),base:gl.getUniformLocation(PR,'u_base'),cam:gl.getUniformLocation(PR,'u_cam'),pass:gl.getUniformLocation(PR,'u_pass'),outTex:gl.getUniformLocation(PR,'u_outTex'),backA:gl.getUniformLocation(PR,'u_backA')};
+const LR={pos:gl.getAttribLocation(PR,'a_pos'),uv:gl.getAttribLocation(PR,'a_uv'),shade:gl.getAttribLocation(PR,'a_shade'),nrm:gl.getAttribLocation(PR,'a_nrm'),mvp:gl.getUniformLocation(PR,'u_mvp'),tex:gl.getUniformLocation(PR,'u_tex'),base:gl.getUniformLocation(PR,'u_base'),cam:gl.getUniformLocation(PR,'u_cam'),pass:gl.getUniformLocation(PR,'u_pass'),outTex:gl.getUniformLocation(PR,'u_outTex'),backA:gl.getUniformLocation(PR,'u_backA'),uvlim:gl.getUniformLocation(PR,'u_uvlim')};
 const roomVAO=gl.createVertexArray(), roomVB=gl.createBuffer();
 let _roomGeo=null, _roomGeoSeq=null;
 // [archivado 20260729 · R221] _roomFloorFBO/_roomFloorTex/_roomFloorSize — con ensureRoomFloorFBO/compositeFloorTex, ver _backup/deprecated/20260729-room-floor-fbo-composite.js
@@ -1280,6 +1303,7 @@ function renderRoom3D(wallsTex){ const seq=activeSeq(); const room=seq&&seq.room
   // [R221] the floor samples the SAME composite as the walls now — no separate compositeFloorTex/FBO to build or restore
   const cam=roomCameraMVP(state.view.three==='spec',W/H);
   gl.useProgram(PR); gl.uniformMatrix4fv(LR.mvp,false,(_mvpScratch.set(cam.mvp),_mvpScratch)); gl.uniform3f(LR.base,0,0,0); gl.uniform1i(LR.tex,0); // wall bg = black (matches the 2D strip); content shows over it, grid overlay gives structure
+  { const L=compContentLim(); gl.uniform4f(LR.uvlim,L[0],L[1],L[2],L[3]); } // [R233b] mismo acotado que el blit 2D: sin él, el borde alto de los muros se funde a negro
   gl.uniform3f(LR.cam,cam.eye[0],cam.eye[1],cam.eye[2]); gl.uniform1f(LR.outTex,state.view.roomOutTex?1:0); gl.uniform1f(LR.backA,0.17);
   gl.bindVertexArray(roomVAO); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,wallsTex);
   if(_roomGeo.wallVerts>0){ // pass 1: inside surfaces opaque (depth write) · pass 2: outside surfaces translucent (no depth write) → single composite, see-through from outside
@@ -1338,10 +1362,11 @@ function render(){ if(glLost)return;
         gl.uniform2f(LB.pan,st.pan[0],st.pan[1]); gl.uniform1f(LB.zoom,st.zoom);
         gl.uniform2f(LB.aspect,sx,sy); gl.uniform1f(LB.flat,1); gl.uniform1f(LB.hfade,0);
         gl.uniform2f(LB.uvsc,uOf(P.rx1)-uOf(P.rx0),vOf(P.ry0)-vOf(P.ry1)); gl.uniform2f(LB.uvof,uOf(P.rx0),vOf(P.ry1));
+        { const L=compContentLim(); gl.uniform4f(LB.uvlim,L[0],L[1],L[2],L[3]); } // [R233b] el límite es la banda del LIENZO, no el recorte del panel
         gl.drawArrays(gl.TRIANGLES,0,6); }
       gl.disable(gl.SCISSOR_TEST); gl.viewport(0,0,W,H); }
     else { gl.uniform2f(LB.pan,state.view.pan[0],state.view.pan[1]); gl.uniform1f(LB.zoom,state.view.zoom);
-      const mn=Math.min(glc.width,glc.height); gl.uniform2f(LB.aspect, mn/glc.width, mn/glc.height); gl.uniform1f(LB.flat,0); gl.uniform2f(LB.uvsc,1,1); gl.uniform2f(LB.uvof,0,0); gl.uniform1f(LB.hfade, state.view.hfade?HFADE:0);
+      const mn=Math.min(glc.width,glc.height); gl.uniform2f(LB.aspect, mn/glc.width, mn/glc.height); gl.uniform1f(LB.flat,0); gl.uniform2f(LB.uvsc,1,1); gl.uniform2f(LB.uvof,0,0); gl.uniform4f(LB.uvlim,0,0,1,1); gl.uniform1f(LB.hfade, state.view.hfade?HFADE:0); // [R233b] el domo llena la textura: el límite es la textura entera
       gl.drawArrays(gl.TRIANGLES,0,6); }
     gl.bindVertexArray(null);
     // [R221] the floor is now part of the SAME composite as the walls — it paints with the quad above, no separate dock texture/draw (archived: drawRoomFloorDock2D, _backup/deprecated)
@@ -4973,11 +4998,22 @@ gridc.addEventListener('pointerdown',e=>{ const r=gridc.getBoundingClientRect();
       const sel=selClip();
       const hh=(sel && !sel.adjust)?flatHandleHit(px,py):null;
       if(hh){ vdrag=beginFlatResize(sel,hh); } // Photoshop-style corner/edge resize (opposite handle stays fixed)
-      else if(sel && !sel.adjust && flatRectHit(sel,px,py)){ pushUndo(); vdrag={mode:'elemFlat',id:sel.id}; }
+      /* [R234] Se guarda el DESFASE del agarre: de dónde está el centro del clip respecto del punto donde se
+         pinchó. Sin él, `elemFlat` escribía el punto del cursor como centro, así que al empezar a arrastrar el
+         clip pegaba un salto para centrarse en el puntero — agarrar una esquina y ver saltar el clip. */
+      else if(sel && !sel.adjust && flatRectHit(sel,px,py)){ pushUndo();
+        let off=[0,0];
+        try{ const _m=mediaById(sel.mediaId), _CP=clipPanel(sel);
+          if(_m&&_CP){ const _M=flatMap(_CP), _P=flatPlace(sel,_m,state.playhead,clipSurfA(sel)), _f=pix2frame(px,py,_CP);
+            off=[_P.fc[0]/_M.Fx-_f[0], _P.fc[1]/_M.Fy-_f[1]]; } }catch(_){}
+        vdrag={mode:'elemFlat',id:sel.id,off}; }
       else { const st=vpState((vpPanelAt(px,py)||vpPanels()[0]).surf); vdrag={mode:'pan',x:e.clientX,y:e.clientY,pan:[...st.pan],st}; } } // [R94e] the viewport never re-picks: selection comes from the timeline, so a clip under other layers stays draggable
     else { // dome 2D: same rule — only the timeline-selected clip is draggable (no hit-test stealing by the top layer)
       const sel=selClip(); const selHit=(sel&&!sel.adjust)?domeClipHit(sel,px,py):false;
-      if(selHit){ pushUndo(); vdrag={mode:'elem',id:sel.id}; } else vdrag={mode:'pan',x:e.clientX,y:e.clientY,pan:[...state.view.pan],st:state.view}; }
+      if(selHit){ pushUndo(); // [R234] mismo desfase de agarre que en plano, en az/el
+        let off=[0,0]; try{ const f0=pix2f(px,py), a0=f2azel(f0[0],f0[1]);
+          off=[(evalP(sel,'az',state.playhead)||0)-a0.az, (evalP(sel,'el',state.playhead)||0)-a0.el]; }catch(_){}
+        vdrag={mode:'elem',id:sel.id,off}; } else vdrag={mode:'pan',x:e.clientX,y:e.clientY,pan:[...state.view.pan],st:state.view}; }
   }
   setVpCursor(); try{gridc.setPointerCapture(e.pointerId);}catch(_){}
 });
@@ -5000,9 +5036,11 @@ gridc.addEventListener('pointermove',e=>{
     state.view.roomDiv=Math.max(0.15,Math.min(0.88,px/Math.max(1,view.cw))); resize(); } // [R230b] se guarda al soltar (endVdrag), no en cada evento de movimiento
   else if(vdrag.mode==='pan'){ const st=vdrag.st||state.view; const S=Math.min(view.cw,view.ch); const d=[(e.clientX-vdrag.x)/(S/2),-(e.clientY-vdrag.y)/(S/2)]; st.pan=[vdrag.pan[0]-d[0]/st.zoom,vdrag.pan[1]-d[1]/st.zoom]; render(); }
   else if(vdrag.mode==='elem'){ const c=clipById(vdrag.id); if(!c)return; const f=pix2f(px,py); const ae=f2azel(f[0],f[1]);
-    manualEdit(c,'az',ae.az); manualEdit(c,'el',ae.el); refreshInspector(); renderTimeline(); render(); updStatus(); }
+    const off=vdrag.off||[0,0]; // [R234] el punto de agarre manda
+    manualEdit(c,'az',ae.az+off[0]); manualEdit(c,'el',Math.max(-90,Math.min(90,ae.el+off[1]))); refreshInspector(); renderTimeline(); render(); updStatus(); }
   else if(vdrag.mode==='elemFlat'){ const c=clipById(vdrag.id); if(!c)return; const m=mediaById(c.mediaId);
-    const CP=clipPanel(c); if(!CP)return; const SR=clipSurfRect(c); const fp=pix2frame(px,py,CP); let nx=fp[0],ny=fp[1]; // [R230] siempre en el marco de SU superficie
+    const CP=clipPanel(c); if(!CP)return; const SR=clipSurfRect(c); const _f=pix2frame(px,py,CP); // [R230] siempre en el marco de SU superficie
+    const off=vdrag.off||[0,0]; const fp=[_f[0]+off[0],_f[1]+off[1]]; let nx=fp[0],ny=fp[1]; // [R234] el punto de agarre manda: el clip no se recentra en el cursor
     if(isRoom()&&m){ const P=flatPlace(c,m,state.playhead,clipSurfA(c)),M=flatMap(CP); const hwx=(Math.abs(P.fx[0])+Math.abs(P.fy[0]))/M.Fx, hhy=(Math.abs(P.fx[1])+Math.abs(P.fy[1]))/M.Fy;
       nx=snapMoveAxis(fp[0],hwx,roomSeamX(SR),e.altKey,CP,'x'); ny=snapMoveAxis(fp[1],hhy,roomSeamY(SR),e.altKey,CP,'y'); } // [R231] el umbral se mide en el panel del clip, por eje
     manualEdit(c,'x',Math.max(-150,Math.min(150,Math.round(nx*1000)/10))); manualEdit(c,'y',Math.max(-150,Math.min(150,Math.round(ny*1000)/10))); refreshInspector(); renderTimeline(); render(); updStatus(); }
@@ -6949,16 +6987,20 @@ function renderExportFrame(t,res,ss,wall){ const flat=isFlat(); _drawFlat=flat; 
   gl.bindFramebuffer(gl.FRAMEBUFFER,_exFBO); composite(t,SR,true);
   gl.bindFramebuffer(gl.FRAMEBUFFER,null); gl.viewport(0,0,glc.width,glc.height); gl.disable(gl.DEPTH_TEST); gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT);
   gl.useProgram(PB); gl.bindVertexArray(quadVAO); gl.uniform2f(LB.pan,0,0); gl.uniform1f(LB.zoom,1); gl.uniform2f(LB.aspect,1,1);
+  const _lim=()=>{ const L=compContentLim(); gl.uniform4f(LB.uvlim,L[0],L[1],L[2],L[3]); }; // [R233b] banda del LIENZO
   if(wall){ const A=_compAspect, s=Math.min(2/A,2), Fx=s*A/2, Fy=s/2; const sw=wall.stripW||1, sh=wall.stripH||1; // F5 per-wall (+ [R221] whole-strip / floor) crop: crop a sub-rect of the room composite → resample into glc (pxW×pxH)
     const y0=wall.y0||0, y1=(wall.y1!=null)?wall.y1:(y0+(wall.pxH||0)); // [R221] y0/y1 generalize the old top-anchored (y0=0,y1=pxH) crop so a floor/strip-only job can crop an arbitrary vertical slice of the taller room canvas
     const uSc=(wall.x1-wall.x0)/sw*Fx, uOf=(1-Fx)/2+wall.x0/sw*Fx, vSc=(y1-y0)/sh*Fy, vOf=(1+Fy)/2-(y1/sh)*Fy;
-    gl.uniform1f(LB.flat,1); gl.uniform2f(LB.uvsc,uSc,vSc); gl.uniform2f(LB.uvof,uOf,vOf); gl.uniform1f(LB.hfade,0); }
+    gl.uniform1f(LB.flat,1); gl.uniform2f(LB.uvsc,uSc,vSc); gl.uniform2f(LB.uvof,uOf,vOf); gl.uniform1f(LB.hfade,0); _lim(); } // [R233b] el límite NO es este recorte: acotando a la costura, cada muro repetía su columna del borde y Front y Right dejaban de casar en la esquina
   /* [R180] `_ncSquare` = estoy horneando el caché de un nest. Entonces la salida tiene que quedar EXACTAMENTE
      como la textura que produce `prepNests`: el composite cuadrado CON su letterbox, sin recortar y sin fundido
      de horizonte. Recortándolo (que es lo correcto para un export de entrega) un nest 16:9 se encuadraba
      distinto con el caché puesto que sin él — medido: el centro de masa se iba un 29% en vertical. */
-  else if(flat){ const A=_compAspect, s=Math.min(2/A,2), Fx=s*A/2, Fy=s/2; gl.uniform1f(LB.flat,1); gl.uniform2f(LB.uvsc,Fx,Fy); gl.uniform2f(LB.uvof,(1-Fx)/2,(1-Fy)/2); gl.uniform1f(LB.hfade,0); }
-  else { gl.uniform1f(LB.flat,0); gl.uniform2f(LB.uvsc,1,1); gl.uniform2f(LB.uvof,0,0); gl.uniform1f(LB.hfade, _ncSquare?0:(state.view.hfade?HFADE:0)); } // [R180] el caché de un nest nunca lleva el fundido de horizonte horneado: es una ayuda del visor, no parte de la composición
+  else if(flat){ const A=_compAspect, s=Math.min(2/A,2), Fx=s*A/2, Fy=s/2; gl.uniform1f(LB.flat,1); gl.uniform2f(LB.uvsc,Fx,Fy); gl.uniform2f(LB.uvof,(1-Fx)/2,(1-Fy)/2); gl.uniform1f(LB.hfade,0); _lim(); }
+  /* [R233b] Aquí el límite es la TEXTURA ENTERA, no la banda: con `_ncSquare` la salida tiene que ser el composite
+     cuadrado CON su letterbox intacto, y acotar a la banda rellenaría el vacío con contenido repetido — justo lo
+     que este caso lleva desde R180 cuidando de no tocar. En el domo el contenido llena la textura, así que da igual. */
+  else { gl.uniform1f(LB.flat,0); gl.uniform2f(LB.uvsc,1,1); gl.uniform2f(LB.uvof,0,0); gl.uniform4f(LB.uvlim,0,0,1,1); gl.uniform1f(LB.hfade, _ncSquare?0:(state.view.hfade?HFADE:0)); } // [R180] el caché de un nest nunca lleva el fundido de horizonte horneado: es una ayuda del visor, no parte de la composición
   const _exOut=_exTex; // [archivado 20260725] ya no hay grade máster que hornear: el export es el composite tal cual (el grado vive por clip)
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,_exOut); gl.uniform1i(LB.tex,0); gl.drawArrays(gl.TRIANGLES,0,6); gl.bindVertexArray(null);
   gl.finish();

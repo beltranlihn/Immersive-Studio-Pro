@@ -1,5 +1,37 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 234 — El clip saltaba al agarrarlo
+
+Beltrán: «cuando arrastro un clip en el lienzo, se mueve solo para centrarse en el cursor; el anclaje debe ser
+desde donde lo agarré». Cierto y de una línea: `elemFlat` escribía el punto del puntero **como centro** del clip,
+sin guardar el desfase del agarre. Agarrar una esquina y ver el clip pegar un salto para centrarse.
+
+Ahora en el `pointerdown` se guarda `vdrag.off` = dónde está el centro respecto del punto pinchado, y el
+`pointermove` lo suma. El domo tenía exactamente el mismo fallo (`elem` escribía `az`/`el` del cursor); se arregla
+igual, con el desfase en grados y la elevación acotada a ±90. Verificado por CDP en sala y en domo: agarrando a
+21 y 19 px del centro, el `pointerdown` ya no mueve el clip ni una décima.
+
+## ROUND 233b — Lo que encontró la revisión de R233
+
+Dos hallazgos reales, más la duda de Beltrán sobre el color del 3D — que resultó ser el mismo shader.
+
+- **El acotado se hacía contra el RECORTE, no contra el contenido.** Con un límite INTERIOR al lienzo —el panel de
+  muros de un visor partido, que corta en `stripH` con el piso debajo, o un export **por-muro**, que corta en la
+  costura entre muros— se comía hasta un texel de contenido real y repetía el borde: Front y Right dejaban de
+  casar en la esquina. Ahora el límite es la **banda del lienzo** (`u_uvlim`, uniforme nuevo con `0,0,0,0` =
+  sin límite para que ningún camino quede a oscuras), así que el borde exterior sigue protegido del vacío y las
+  costuras interiores vuelven a muestrear el contenido de al lado. **Excepción cuidada:** el horneado del caché de
+  un nest (`_ncSquare`) mantiene el límite en la textura entera — su salida tiene que conservar el letterbox, y
+  acotar a la banda lo habría rellenado con contenido repetido.
+- **La franja seguía viva en el 3D.** `FSR` muestrea la misma banda sin acotar, y el borde alto de cada muro cae
+  justo en el límite: el alfa se desvanecía y `mix(u_base,…)` con base negra fundía el muro a negro. Mismo clamp.
+
+**Y el color del 3D:** los muros se pintaban con `col*v_sh`, un foco direccional falso que los oscurecía **hasta un
+38 %** según su orientación. Este visor es una previsualización de lo que se va a proyectar, así que las caras que
+enseñan CONTENIDO pasan a ir sin sombrear — el piso ya lo hacía desde R221 («same clarity as the walls»). El
+sombreado se conserva en la pasada de FUERA, la carcasa translúcida, que es donde ayuda a leer el volumen.
+Medido: el píxel más brillante del 3D sube de (18,29,49) a (22,35,58).
+
 ## ROUND 233 — La línea negra del borde del lienzo
 
 Beltrán: «en sala 360 el lienzo genera una línea negra en los bordes; por mucho que agrande el vídeo, ahí sigue».

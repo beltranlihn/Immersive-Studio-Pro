@@ -27,6 +27,13 @@
 - [ ] **Deuda anotada:** el composite cuadrado desperdicia resolución con lienzos muy apaisados (7196×912 → sólo 65
       de 512 texels de alto). Hacerlo del aspecto del lienzo daría nitidez vertical ×8 en sala y haría el clamp
       innecesario. Es un cambio de calado (afecta a `composite()`, `setCompSize`, export); no urgente.
+- [x] ~~**Revisión de R233 (R233b)**~~ — el acotado se hacía contra el RECORTE y no contra el contenido (comía un
+      texel en las costuras interiores: export por-muro y panel de muros); la franja seguía viva en el 3D. Ambos
+      corregidos con `u_uvlim` = banda del lienzo, salvando el caso `_ncSquare` (letterbox del caché de nest).
+- [x] ~~**El 3D apagaba los colores del lienzo.**~~ _(R233b: `v_sh`, un foco falso, oscurecía los muros hasta un 38 %.
+      El contenido va sin sombrear; el sombreado queda en la carcasa translúcida de fuera)_
+- [x] ~~**El clip saltaba a centrarse en el cursor al arrastrarlo (R234).**~~ _Ahora se ancla en el punto de agarre;
+      igual en plano/sala y en domo._
 - [ ] Probar en el `.exe` desplegado y confirmar con una sala real medida a mano.
 
 ## 🧪 Tanda de Beltrán — 2026-07-30 (prueba sobre el .exe desplegado) · CERRADA EN CÓDIGO ✅ [R231]
