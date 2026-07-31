@@ -3304,8 +3304,10 @@ function lchInit(){ return { ptype:'dome', pname:'', discardOk:false,
   floorPx:null,                                   // [R198] resolución del piso elegida a mano; null = la que sale de los muros. Sus MEDIDAS nunca se editan: las manda la huella de la sala
   roomCam:{yaw:1.99,pitch:0.42,dist:2.9},         // [R198] cámara del visor 3D de la sala (arrastrar para girar, rueda para acercar) · [R211] detrás del muro Back: FRONT queda al fondo/arriba, como en el plano
   domeCam:{yaw:0,pitch:0.5,dist:3.0},             // [R200] ídem para el domo — los valores son los que ya usaba por defecto, así que la vista de partida no cambia
-  walls:[{role:'Front',wcm:800,hcm:450,pxW:3840,pxH:2160},{role:'Right',wcm:800,hcm:450,pxW:3840,pxH:2160},
-         {role:'Back', wcm:800,hcm:450,pxW:3840,pxH:2160},{role:'Left', wcm:800,hcm:450,pxW:3840,pxH:2160}],
+  /* [R232] `ord` = puesto en el lienzo cosido (1..N, de izquierda a derecha). El ORDEN DE ESTE ARRAY es el de las
+     orientaciones, que es fijo; el del lienzo se edita aparte y los dos ya no tienen por qué coincidir. */
+  walls:[{role:'Front',ord:1,wcm:800,hcm:450,pxW:3840,pxH:2160},{role:'Right',ord:2,wcm:800,hcm:450,pxW:3840,pxH:2160},
+         {role:'Back', ord:3,wcm:800,hcm:450,pxW:3840,pxH:2160},{role:'Left', ord:4,wcm:800,hcm:450,pxW:3840,pxH:2160}],
   fps:60, draft:{} }; }
 const lchMP=(w,h)=>(w*h/1e6).toFixed(1)+' MP';
 function lchAspect(w,h){ return (w&&h)?fmtAspect(w,h):((w||0)+':'+(h||0)); } // [R214→R215] shares fmtAspect's core for the normal case (both reduce 1920×1080 → "16:9"). fmtAspect on its own returns '' for a falsy w/h — fine where it's shown standalone, but both call sites here (~2828/2903) splice the result into a string with ' · ' on either side, so an empty result left a dangling " ·  · " with nothing between the separators; the fallback keeps the output well-formed (e.g. "0:0") even mid-edit while a size field is momentarily empty/NaN
@@ -3341,19 +3343,23 @@ function lchApply(key,v){
   else if(key==='flatW')_lch.flatW=v; else if(key==='flatH')_lch.flatH=v;
   else if(key==='fpxW'||key==='fpxH'){ // [R198] del piso sólo se toca el pixelaje
     const base=_lch.floorPx||lchFloorCfg(lchCfgWalls()); _lch.floorPx={pxW:base.pxW,pxH:base.pxH}; _lch.floorPx[key==='fpxW'?'pxW':'pxH']=v; }
+  else if(/^w\d+ord$/.test(key)){ lchSetOrder(+key.match(/^w(\d+)ord$/)[1],v); return; } // [R232] el orden del lienzo se INTERCAMBIA (y ya re-renderiza)
   else { const m=key.match(/^w(\d+)(pxW|pxH|wcm|hcm)$/); if(m){ const i=+m[1],k=m[2];
-    const uni=_lch.roomUniform; _lch.walls.forEach((w,j)=>{ if(uni||j===i)w[k]=v; });
+    const aw=lchActiveWalls(), obj=aw[i]; const uni=_lch.roomUniform; // [R232] la fila `i` es la del orden FIJO de orientaciones, no el índice crudo del array
+    _lch.walls.forEach(w=>{ if(uni||w===obj)w[k]=v; });
     if(k==='pxW'||k==='pxH')_lch.roomPre=''; } } // [R231] tocar el pixelaje a mano deja de ser "el preajuste X"
   renderLauncher();
 }
-/* clic en la orientación: pasa a la siguiente e INTERCAMBIA con quien la tuviera (nunca dos iguales) */
-function lchSetFacing(i,next){ const cur=_lch.walls[i].role; if(next===cur)return;
-  const j=_lch.walls.findIndex(w=>w.role===next);
-  _lch.walls[i].role=next; if(j>=0&&j!==i)_lch.walls[j].role=cur; renderLauncher(); } // se INTERCAMBIAN: dos muros no pueden mirar al mismo sitio
-/* [R197] La orientación se elige de una LISTA, no dando vueltas a un botón: con cinco orientaciones, llegar a la
-   que quieres costaba hasta cuatro clics y no se veía cuáles había. */
-function lchFacingMenu(ev,i){ const cur=_lch.walls[i].role;
-  openMenu(ev.clientX,ev.clientY, lchFacings().map(f=>({label:(f.n===cur?'✓ ':'')+f.n, fn:()=>lchSetFacing(i,f.n)}))); }
+/* [R232] LA ORIENTACIÓN YA NO SE ELIGE. Front·Right·Back·Left es el recorrido de la sala, no una preferencia: la
+   huella (`roomPlan`) siempre se ha derivado de los ROLES, así que reasignarlos no cambiaba la forma ni un píxel
+   — sólo permitía dejar la tabla diciendo una cosa y la sala siendo otra. Lo que sí es una decisión del montaje
+   es en qué ORDEN salen los muros en el lienzo cosido (qué trozo de la tira va a cada proyector), y eso es lo que
+   pasa a ser editable: el número de la primera columna, de izquierda a derecha.
+   `lchSetFacing`/`lchFacingMenu` (R197) quedan retirados con este cambio. */
+function lchSetOrder(i,n){ const aw=lchActiveWalls(); const w=aw[i]; if(!w)return;
+  n=Math.max(1,Math.min(aw.length,Math.round(n)||1)); const cur=w.ord||i+1; if(n===cur)return;
+  const otro=aw.find(x=>x!==w&&(x.ord||0)===n); if(otro)otro.ord=cur; // se INTERCAMBIAN: el orden es una permutación, no puede haber dos huecos iguales ni ninguno vacío
+  w.ord=n; renderLauncher(); }
 /* Preajustes de sala: los cinco de fábrica más los que guarde el usuario (persisten en el navegador, no en el
    proyecto — son una preferencia del equipo, no parte de la obra). */
 const LCH_ROOM_PRE=[{v:'1920x1080',label:'HD'},{v:'2560x1440',label:'1440p'},{v:'3840x2160',label:'4K'},{v:'4096x2160',label:'DCI'},{v:'2048x2048',label:'Square'}];
@@ -3369,7 +3375,7 @@ function lchSaveUserPreset(){ const S=_lch; appPrompt(T('Preset name','Nombre de
      siguiera a los muros — justo lo contrario de la regla de R198. Y no se pierde nada: los muros van en el
      preajuste, así que el pixelaje automático sale igual al recuperarlo. */
   lista.push({label:n, count:S.roomCount,
-    walls:lchActiveWalls().map(w=>({role:w.role,pxW:w.pxW,pxH:w.pxH,wcm:w.wcm,hcm:w.hcm})),
+    walls:lchActiveWalls().map(w=>({role:w.role,ord:w.ord,pxW:w.pxW,pxH:w.pxH,wcm:w.wcm,hcm:w.hcm})), // [R232] + el orden en el lienzo: es parte del montaje, como el pixelaje
     floor:!!S.roomFloor, floorPx:(S.roomFloor&&S.floorPx)?{pxW:S.floorPx.pxW,pxH:S.floorPx.pxH}:null});
   try{ localStorage.setItem('ispRoomPresets',JSON.stringify(lista.slice(-24))); }catch(e){}
   renderLauncher(); flashStatus(T('Preset saved','Preajuste guardado')); }); }
@@ -3382,20 +3388,16 @@ function lchApplyPreset(v){ const S=_lch;
   S.roomPre=String(v);
   if(String(v).indexOf('u:')===0){ const p=lchUserPresets()[+String(v).slice(2)]; if(!p)return;
     if(p.count)lchSetWallCount(p.count); // [R199] por el reparto de orientaciones, no tocando la cuenta a pelo
-    (p.walls||[]).forEach((s,i)=>{ const w=S.walls[i]; if(!w)return;
-      if(s.role)w.role=s.role; w.pxW=s.pxW; w.pxH=s.pxH; if(s.wcm)w.wcm=s.wcm; if(s.hcm)w.hcm=s.hcm; });
-    /* [R200] Tras imponer las orientaciones del preajuste hay que recolocar las que quedan fuera de juego: si el
-       preajuste usaba un rol que el reparto por cuenta había dejado detrás, saldrían DOS muros mirando al mismo
-       sitio y la huella se rompería.
-       [R200b] El complemento se calcula sobre los roles REALES de los muros activos ya aplicados, no sobre lo que
-       traía el preajuste. Leyéndolo del preajuste, uno viejo —los de R199 y anteriores no guardan `role`— dejaba
-       la lista de usados vacía, así que los cuatro roles salían como "sobrantes" y se reetiquetaban los muros
-       inactivos con roles que los activos ya tenían: dos muros mirando al mismo sitio y, al subir la cuenta, un
-       muro del preajuste desaparecía en silencio. */
-    { const n=(p.walls||[]).length;
-      const activos=S.walls.slice(0,n).map(w=>w.role);
-      const sobran=ROOM_ROLES.filter(r=>activos.indexOf(r)<0);
-      S.walls.forEach((w,i)=>{ if(i>=n)w.role=sobran[i-n]||w.role; }); }
+    /* [R232] El preajuste se aplica POR ORIENTACIÓN, no por posición en la lista: las orientaciones son fijas y
+       lo que viaja son las medidas, el pixelaje y el puesto en el lienzo. Antes se copiaba por índice, que con
+       roles reasignables podía dejar las medidas de un muro en otro. */
+    (p.walls||[]).forEach((s,i)=>{ const w=(s.role&&S.walls.find(x=>x.role===s.role))||S.walls[i]; if(!w)return;
+      w.pxW=s.pxW; w.pxH=s.pxH; if(s.wcm)w.wcm=s.wcm; if(s.hcm)w.hcm=s.hcm; if(s.ord)w.ord=s.ord; });
+    /* [R232] Aquí vivía el reparto de roles sobrantes de R200/R200b, que existía porque el preajuste IMPONÍA
+       orientaciones y podían salir dos muros mirando al mismo sitio. Ya no: las orientaciones las fija
+       `lchSetWallCount` y el preajuste sólo trae medidas, pixelaje y orden. Lo que sí hay que renormalizar es el
+       orden del lienzo, porque un preajuste viejo no lo trae. */
+    lchNormOrder();
     S.roomFloor=(p.floor!==undefined)?!!p.floor:S.roomFloor;   // el piso viaja con el preajuste
     S.floorPx=p.floorPx?{...p.floorPx}:null; }
   else { const p=String(v).split('x'); S.walls.forEach(w=>{ w.pxW=+p[0]; w.pxH=+p[1]; });
@@ -3412,9 +3414,18 @@ function lchSetWallCount(n){ const S=_lch; const quiero=LCH_ROOM_ROLES[n]||LCH_R
   const porRol={}; S.walls.forEach(w=>{ porRol[w.role]=w; });
   S.walls=quiero.concat(ROOM_ROLES.filter(r=>quiero.indexOf(r)<0))
     .map(r=>porRol[r]||{role:r,wcm:800,hcm:450,pxW:3840,pxH:2160});
-  S.roomCount=n; S.draft={}; }
+  S.roomCount=n; S.draft={}; lchNormOrder(); }
 function lchActiveWalls(){ return _lch.walls.slice(0,_lch.roomCount); }
-function lchCfgWalls(){ return lchActiveWalls().map((w,i)=>({role:w.role,order:i+1,wcm:w.wcm,hcm:w.hcm,pxW:w.pxW,pxH:w.pxH})); }
+/* [R232] El orden del lienzo es una PERMUTACIÓN de 1..N. Al cambiar la cuenta de muros (o al abrir un preajuste
+   viejo, que no lo trae) hay que renormalizarlo: se respeta el orden relativo que hubiera y se reparte 1..N sin
+   huecos ni repetidos. Sin esto, bajar de 4 a 3 muros dejaba un hueco del 4 y el muro que lo tuviera se iba al
+   final de la tira sin motivo. */
+function lchNormOrder(){ const aw=lchActiveWalls();
+  aw.slice().sort((a,b)=>(a.ord||9e9)-(b.ord||9e9)).forEach((w,i)=>{ w.ord=i+1; });
+  _lch.walls.slice(_lch.roomCount).forEach(w=>{ delete w.ord; }); } // los que salen de juego no ocupan hueco
+/* Los muros se PINTAN en el orden fijo de sus orientaciones, pero se COSEN en el orden que diga `ord`. */
+function lchCfgWalls(){ return lchActiveWalls().slice().sort((a,b)=>(a.ord||0)-(b.ord||0))
+  .map((w,i)=>({role:w.role,order:i+1,wcm:w.wcm,hcm:w.hcm,pxW:w.pxW,pxH:w.pxH})); }
 /* [R165] El piso del launcher iba clavado a 500×400 cm / 1920×1080 px pasara lo que pasara con los muros,
    mientras el previo lo dibuja abarcando la huella REAL de la sala: lo que se creaba no era lo que se veía.
    Aquí sale de los muros — ancho = el Front/Back más ancho, fondo = el Left/Right más ancho — y los píxeles a
@@ -3538,12 +3549,15 @@ function renderLauncher(){ const ov=document.getElementById('landingOv'); if(!ov
 
   let wallTable='';
   if(isRoom){ wallTable=`<div class="lch-walls">
-      <div class="lch-whead"><span style="width:16px;text-align:center;">#</span><span style="width:84px;">${T('Facing','Orientación')}</span>
+      <div class="lch-whead"><span style="width:34px;text-align:center;" title="${T('Left-to-right position on the stitched canvas','Posición en el lienzo cosido, de izquierda a derecha')}">${T('Ord','Ord')}</span><span style="width:84px;">${T('Facing','Orientación')}</span>
         <span style="width:58px;">${T('Width px','Ancho px')}</span><span style="width:58px;">${T('Height px','Alto px')}</span>
         <span style="width:52px;">${T('Width cm','Ancho cm')}</span><span style="width:52px;">${T('Height cm','Alto cm')}</span></div>`
-      + lchActiveWalls().map((w,i)=>`<div class="lch-wrow"><span class="ix">${i+1}</span>
-          <button class="lch-facing" data-lface="${i}" style="color:${lchColor(w.role)};" title="${T('Click to reassign this wall','Clic para reasignar este muro')}">
-            <span class="sw" style="background:${lchColor(w.role)};"></span>${w.role}<span style="flex:1;"></span>${ICO('chevDown',9)}</button>
+      /* [R232] La columna editable es el ORDEN EN EL LIENZO (1..N, de izquierda a derecha). La orientación es fija:
+         Front·Right·Back·Left es el recorrido de la sala, no una preferencia. */
+      + lchActiveWalls().map((w,i)=>`<div class="lch-wrow">
+          ${lchNum('w'+i+'ord',w.ord||i+1,1,lchActiveWalls().length,null,'lch-wnum').replace('class="lch-wnum"','class="lch-wnum" style="width:34px;text-align:center;"')}
+          <span class="lch-facing" style="color:${lchColor(w.role)};cursor:default;" title="${T('Fixed: the room always runs Front · Right · Back · Left','Fijo: la sala siempre recorre Front · Right · Back · Left')}">
+            <span class="sw" style="background:${lchColor(w.role)};"></span>${w.role}</span>
           ${lchNum('w'+i+'pxW',w.pxW,16,16384,null,'lch-wnum').replace('class="lch-wnum"','class="lch-wnum" style="width:58px;"')}
           ${lchNum('w'+i+'pxH',w.pxH,16,16384,null,'lch-wnum').replace('class="lch-wnum"','class="lch-wnum" style="width:58px;"')}
           ${lchNum('w'+i+'wcm',w.wcm,10,20000,null,'lch-wnum cm').replace('class="lch-wnum cm"','class="lch-wnum cm" style="width:52px;"')}
@@ -3625,7 +3639,7 @@ function renderLauncher(){ const ov=document.getElementById('landingOv'); if(!ov
     const sv=panel.querySelector('#lchPreSave'); if(sv)sv.onclick=()=>lchSaveUserPreset(); }
   { const s=panel.querySelector('#lchSwap'); if(s)s.onclick=()=>{ const w=_lch.flatW; _lch.flatW=_lch.flatH; _lch.flatH=w; _lch.draft={}; renderLauncher(); }; }
   { const f=panel.querySelector('#lchFloor'); if(f)f.onclick=()=>{ _lch.roomFloor=!_lch.roomFloor; renderLauncher(); }; }
-  panel.querySelectorAll('[data-lface]').forEach(b=>b.onclick=ev=>lchFacingMenu(ev,+b.dataset.lface));
+  // [R232] fuera el enganche del selector de orientación: ya no se reasigna el muro (ver lchSetOrder)
   /* [R198] Un 3D que no se puede mover apenas dice más que el esquema al que sustituye: se gira arrastrando y se
      acerca con la rueda. La cámara vive en `_lch`, así que sobrevive a los re-renderizados del panel (que son
      constantes: cada tecla en un número lo redibuja).
@@ -8401,6 +8415,14 @@ function roomRoleLabel(r){ return {Front:T('Front','Frente'),Back:T('Back','Fond
      = pasillo — y en la orientación que toque, no sólo para una combinación concreta de roles. Antes las formas
      estaban escritas para `Left+Front(+Right)`: desde el launcher, que reparte Front/Right/Back, dos y tres muros
      caían al salvavidas genérico y salían a 120°, ni L ni U. */
+/* [R232] ¿se cruzan dos segmentos? (orientaciones opuestas en las dos pruebas) */
+function segCruza(p,q,r,s){ const o=(a,b,c)=>Math.sign((b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]));
+  return o(p,q,r)!==o(p,q,s) && o(r,s,p)!==o(r,s,q); }
+/* [R232] ¿la planta que sale de este θ se cruza consigo misma? Basta mirar los dos pares de lados NO contiguos:
+   Front×Back y Left×Right — en un cuadrilátero no hay más forma de auto-cortarse. */
+function planCruzada(wF,wL,wR,th){ const FL=[-wF/2,0], FR=[wF/2,0];
+  const BL=[FL[0]-wR*Math.sin(th), FL[1]+wR*Math.cos(th)], BR=[FR[0]+wL*Math.sin(th), FR[1]+wL*Math.cos(th)];
+  return segCruza(FL,FR,BR,BL) || segCruza(FR,BR,BL,FL); }
 function roomPlan(walls){ const by={}; for(const w of (walls||[]))if(w&&w.role)by[w.role]=w;
   const has=r=>!!by[r], Wm=r=>by[r]?Math.max(0.02,by[r].wcm/100):0, Hm=r=>by[r]?Math.max(0.02,by[r].hcm/100):0;
   const presentes=ROOM_ROLES.filter(has);
@@ -8421,14 +8443,27 @@ function roomPlan(walls){ const by={}; for(const w of (walls||[]))if(w&&w.role)b
   let th=0, imposible=false;
   if(has('Back')&&(has('Left')||has('Right'))){
     const f=t=>Math.hypot(wF+(wL+wR)*Math.sin(t),(wR-wL)*Math.cos(t))-wB;
-    const LIM=Math.PI/2-1e-3, N=360; let lo=null,hi=null, pv=f(-LIM), pt=-LIM;
+    /* [R232] LA ECUACIÓN TIENE HASTA DOS RAÍCES, y la de |θ| grande pliega la sala sobre sí misma: las dos
+       esquinas traseras se intercambian de lado y la planta sale como un lazo. Antes el barrido cortaba en la
+       PRIMERA raíz que encontraba —y empieza en −90°, o sea por el lado plegado—, así que medidas de sala
+       perfectamente corrientes dibujaban el lazo en vez de la sala. Caso real de Beltrán: 648/745/641/648 cm
+       tiene raíz en −67,6° (cruzada) y en −0,6° (la sala casi rectangular que se había medido).
+       Ahora se recogen TODAS las raíces, se descartan las que se cruzan y se elige la de |θ| más pequeña: la
+       lectura más rectangular de las cuatro medidas, que es lo que quiere decir quien las teclea. */
+    const LIM=Math.PI/2-1e-3, N=360; const raices=[]; let pv=f(-LIM), pt=-LIM;
     for(let i=1;i<=N;i++){ const t=-LIM+2*LIM*i/N, v=f(t);
-      if((pv<=0&&v>=0)||(pv>=0&&v<=0)){ lo=pt; hi=t; break; } pv=v; pt=t; }
-    if(lo!==null){ const s=Math.sign(f(hi)-f(lo))||1;
-      for(let i=0;i<52;i++){ const m=(lo+hi)/2; if(s*f(m)<0)lo=m; else hi=m; } th=(lo+hi)/2; }
+      if((pv<=0&&v>=0)||(pv>=0&&v<=0)){ let lo=pt,hi=t; const s=Math.sign(f(hi)-f(lo))||1;
+        for(let k=0;k<52;k++){ const m=(lo+hi)/2; if(s*f(m)<0)lo=m; else hi=m; }
+        raices.push((lo+hi)/2); }
+      pv=v; pt=t; }
+    const porRecto=(a,b)=>Math.abs(a)-Math.abs(b);
+    const sanas=raices.filter(t=>!planCruzada(wF,wL,wR,t)).sort(porRecto);
+    if(sanas.length)th=sanas[0];
+    // Hay cierre, pero SÓLO cruzándose: se coge la menos plegada y se marca. Igual que abajo, no se enseña en
+    // silencio una sala que no es la que se ha escrito — así es como un error de medición llega al montaje.
+    else if(raices.length){ th=raices.slice().sort(porRecto)[0]; imposible=true; }
     // sin raíz, esas cuatro medidas no cierran NINGUNA sala (p.ej. un fondo más largo que frente + los dos
-    // laterales). Se dibuja la forma sana (θ=0) y se marca, para no enseñar en silencio un fondo que no es el que
-    // se ha escrito — que es como se cuela un error de medición hasta el montaje.
+    // laterales). Se dibuja la forma sana (θ=0) y se marca.
     else imposible=true;
   }
   const BL=[FL[0]-wR*Math.sin(th), FL[1]+wR*Math.cos(th)];
@@ -8609,8 +8644,15 @@ function roomSetupDialog(cb,partirDe){ const ov=document.createElement('div'); o
   let n=4, floor=true, walls=[defWall('Front',1),defWall('Right',2),defWall('Back',3),defWall('Left',4)];
   let floorTouched=false, _rsFloorSeed=null; // [R230] floorTouched: true en cuanto el piso se fija a mano (o viene dado) y deja de seguir a los muros
   if(partirDe&&partirDe.walls&&partirDe.walls.length){
-    walls=partirDe.walls.slice().sort((a,b)=>a.order-b.order)
-      .map((w,i)=>({role:w.role,order:i+1,wcm:w.wcm,hcm:w.hcm,pxW:w.pxW,pxH:w.pxH}));
+    /* [R232] Las filas van en el orden fijo de ORIENTACIONES (el recorrido de la sala); el puesto en el lienzo
+       viaja aparte, en `order`. Antes se ordenaba la tabla POR `order`, que era lo mismo porque el orden del
+       lienzo y el de las orientaciones estaban pegados; ahora son cosas distintas. Un `.isp` sin `order` (o con
+       huecos) se renormaliza respetando el orden relativo que traiga. */
+    const _porOrd=partirDe.walls.slice().sort((a,b)=>(a.order||9e9)-(b.order||9e9));
+    const _ord=new Map(_porOrd.map((w,i)=>[w,i+1]));
+    walls=partirDe.walls.slice()
+      .sort((a,b)=>ROOM_ROLES.indexOf(a.role)-ROOM_ROLES.indexOf(b.role))
+      .map(w=>({role:w.role,order:_ord.get(w),wcm:w.wcm,hcm:w.hcm,pxW:w.pxW,pxH:w.pxH}));
     n=walls.length; floor=!!partirDe.floor;
     /* [R230] El piso de la sala que se está editando manda: si ya trae medidas propias no se recalcula desde los
        muros (podría ser un pixelaje elegido a mano por el proyector). Un piso legacy sin cm sí se reencaja. */
@@ -8641,20 +8683,25 @@ function roomSetupDialog(cb,partirDe){ const ov=document.createElement('div'); o
   const refreshIso=()=>{ try{ drawRoomIso($('#rsIso'),walls,floor,activeRole); }catch(e){} try{ drawRoomStrip($('#rsStrip'),walls,floor,activeRole); }catch(e){} };
   const setActive=(r)=>{ activeRole=r; ov.querySelectorAll('#rsWalls .rs-wall').forEach(x=>x.classList.toggle('act',x.dataset.role===r)); refreshIso(); };
   const drawWalls=()=>{ const host=$('#rsWalls'); host.innerHTML='';
-    walls.forEach((w,i)=>{ w.order=i+1; const row=document.createElement('div'); row.className='rs-wall'; row.dataset.i=i; row.dataset.role=w.role; // [F3] Order = the row's position (screen order), fixed
+    /* [R232] Espejo del launcher: la ORIENTACIÓN es fija (Front·Right·Back·Left es el recorrido de la sala, y
+       `roomPlan` siempre la ha derivado de ahí) y lo editable es el ORDEN EN EL LIENZO. Las filas van en el orden
+       fijo de orientaciones; `w.order` dice a qué puesto de la tira cosida va cada una. */
+    walls.forEach((w,i)=>{ if(!(w.order>0))w.order=i+1; const row=document.createElement('div'); row.className='rs-wall'; row.dataset.i=i; row.dataset.role=w.role;
       row.innerHTML=`<span class="rs-dot" style="background:${ROOM_ROLE_COL[w.role]||'#8892A0'};"></span>
-        <span class="rs-ordnum">${i+1}</span>
-        <select data-k="role" class="sysel rs-role">${ROOM_ROLES.map(r=>`<option value="${r}" ${r===w.role?'selected':''}>${roomRoleLabel(r)}</option>`).join('')}</select>
+        <input data-k="order" class="rs-ordnum" type="number" min="1" max="${walls.length}" value="${w.order}" title="${T('Left-to-right position on the stitched canvas','Posición en el lienzo cosido, de izquierda a derecha')}">
+        <span class="rs-role" style="color:${ROOM_ROLE_COL[w.role]||'#8892A0'};" title="${T('Fixed: the room always runs Front · Right · Back · Left','Fijo: la sala siempre recorre Front · Right · Back · Left')}">${roomRoleLabel(w.role)}</span>
         ${well(w.wcm,'wcm',1,100000,'cm')}
         ${well(w.hcm,'hcm',1,100000,'cm')}
         <div class="rs-px">${well(w.pxW,'pxW',16,16384)}<span class="x">×</span>${well(w.pxH,'pxH',16,16384)}</div>`;
       row.addEventListener('pointerenter',()=>setActive(walls[i].role));
       row.addEventListener('pointerleave',()=>setActive(null));
-      // [F3] Wall roles are unique: picking a role already used elsewhere SWAPS the two walls (dims travel; the fixed Order positions stay), so you always have exactly Front/Right/Back/Left once
-      row.querySelector('[data-k=role]').onchange=e=>{ const nr=e.target.value; const j=walls.findIndex((ww,k)=>k!==i&&ww.role===nr);
-        if(j>=0){ const t=walls[i]; walls[i]=walls[j]; walls[j]=t; walls[i].order=i+1; walls[j].order=j+1; } else { walls[i].role=nr; }
-        drawWalls(); drawFloor(); setActive(walls[i].role); };
-      row.querySelectorAll('input[data-k]').forEach(inp=>{ inp.addEventListener('focus',()=>setActive(walls[i].role));
+      /* [R232] El orden del lienzo es una PERMUTACIÓN: darle a un muro un puesto ya ocupado los INTERCAMBIA, así
+         nunca hay dos en el mismo hueco ni un hueco vacío. (Antes esto mismo se hacía con el selector de
+         orientación, que no cambiaba la forma de la sala — sólo lo que decía la tabla.) */
+      row.querySelector('[data-k=order]').onchange=e=>{ const n=Math.max(1,Math.min(walls.length,Math.round(+e.target.value)||1));
+        const cur=walls[i].order, otro=walls.find(x=>x!==walls[i]&&x.order===n); if(otro)otro.order=cur;
+        walls[i].order=n; drawWalls(); drawFloor(); setActive(walls[i].role); };
+      row.querySelectorAll('input[data-k]:not([data-k=order])').forEach(inp=>{ inp.addEventListener('focus',()=>setActive(walls[i].role));
         const h=e=>{ walls[i][e.target.dataset.k]=+e.target.value||walls[i][e.target.dataset.k]; refreshIso(); };
         inp.onchange=e=>{ h(e); drawFloor(); }; inp.oninput=h; }); // [R230] al confirmar el muro, el piso se reencaja (si no se tocó a mano)
       host.appendChild(row); }); refreshIso(); };

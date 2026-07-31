@@ -756,8 +756,9 @@
   .lch-whead span{flex-shrink:0;font-size:9px;font-weight:600;letter-spacing:0.05em;color:var(--ink-dim);}
   .lch-wrow{display:flex;align-items:center;gap:5px;height:21px;}
   .lch-wrow .ix{width:16px;flex-shrink:0;display:grid;place-items:center;font-size:9.5px;font-weight:600;color:var(--ink-3);font-variant-numeric:tabular-nums;}
-  .lch-facing{width:84px;flex-shrink:0;display:flex;align-items:center;gap:5px;height:20px;padding:0 6px;border-radius:2px;border:.5px solid var(--line);background:var(--s2);font-family:inherit;font-size:10px;font-weight:600;cursor:pointer;}
-  .lch-facing:hover{border-color:var(--line-strong);}
+  /* [R232] La orientación dejó de ser un botón: es un rótulo. Sin relieve de control ni hover — Front·Right·Back·Left
+     es el recorrido de la sala, no algo que se elija (lo editable es el orden en el lienzo, a su izquierda). */
+  .lch-facing{width:84px;flex-shrink:0;display:flex;align-items:center;gap:5px;height:20px;padding:0 6px;border-radius:2px;border:.5px solid transparent;background:none;font-family:inherit;font-size:10px;font-weight:600;}
   .lch-facing .sw{width:6px;height:6px;border-radius:1px;flex-shrink:0;}
   .lch-wnum{flex-shrink:0;height:20px;padding:0 6px;border-radius:2px;border:.5px solid var(--line);background:var(--s0);color:var(--ink);font-family:inherit;font-size:10px;font-weight:500;font-variant-numeric:tabular-nums;outline:none;}
   .lch-wnum:focus{border-color:var(--line-strong);}
@@ -1009,7 +1010,13 @@
   .rs-sec::after{content:'';flex:1;height:.5px;background:var(--line-soft);}
   .rs-sec .rs-note{color:var(--ink-dim);letter-spacing:0.01em;text-transform:none;font-weight:500;font-size:10px;}
   .rs-hdr,.rs-wall{display:grid;grid-template-columns:20px 42px minmax(0,1.2fr) 62px 62px minmax(0,1.3fr);gap:8px;align-items:center;}
-  .rs-ordnum{justify-self:center;font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:12px;font-weight:600;color:var(--ink-2);} /* [F3] fixed screen-order number */
+  /* [R232] El número de orden pasa de rótulo fijo a CAMPO editable: es el puesto del muro en el lienzo cosido
+     (de izquierda a derecha), lo único que decide el montaje. La orientación, en cambio, ya no se elige. */
+  input.rs-ordnum{width:100%;height:22px;border-radius:2px;background:var(--s0);border:.5px solid var(--line);box-shadow:inset 0 1px 2px rgba(0,0,0,0.4);
+    color:var(--ink);text-align:center;font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:11px;font-weight:600;padding:0;}
+  input.rs-ordnum:focus{border-color:var(--line-strong);outline:none;}
+  input.rs-ordnum::-webkit-outer-spin-button,input.rs-ordnum::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+  span.rs-role{font-size:11px;font-weight:600;letter-spacing:-0.005em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .rs-hdr{padding:0 8px 6px;font-size:10px;font-weight:600;letter-spacing:0.01em;color:var(--ink-3);} /* [Rev1] sin uppercase */
   .rs-hdr>span:nth-child(n+3){text-align:center;}
   .rs-wall{padding:5px 8px;border-radius:3px;border:.5px solid transparent;transition:background .1s,border-color .1s;}

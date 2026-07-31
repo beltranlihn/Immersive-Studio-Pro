@@ -1,5 +1,39 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 232 — La sala en lazo, y por qué no era lo que parecía
+
+Beltrán trajo una captura del launcher con la planta hecha un lazo y una petición concreta: quitar el selector de
+orientación de la tabla, dejar Front·Right·Back·Left fijo, hacer editable el **orden en el lienzo** y prohibir que
+se formen figuras cruzadas.
+
+**Lo primero que hice fue reproducirlo, y desmintió el diagnóstico.** `roomPlan` deriva la huella SÓLO de los roles
+(`by[role]` + recorrido de `ROOM_ROLES`), así que el orden de la tabla nunca ha entrado en la geometría: tres
+disposiciones distintas de los mismos cuatro roles —la canónica, la de la captura y una deliberadamente cruzada—
+dan **exactamente la misma planta y el mismo cruce**. Reasignar la orientación no deformaba la sala; sólo permitía
+que la tabla dijera una cosa y la sala fuera otra.
+
+**El cruce estaba en el solver.** La ecuación que cierra la sala, `|BR−BL| = anchoFondo`, tiene **hasta dos
+raíces**, y la de |θ| grande pliega el cuadrilátero sobre sí mismo. El barrido cortaba en la PRIMERA que
+encontraba, y empieza en −90°, o sea por el lado plegado. Con las medidas de la captura —648/745/641/648 cm, una
+sala de lo más corriente— hay raíz en **−67,6° (cruzada)** y en **−0,6° (la sala casi rectangular que se había
+medido)**: se dibujaba la primera. Ahora se recogen todas las raíces, se descartan las que se cruzan
+(`planCruzada`, que prueba los dos pares de lados no contiguos) y se elige la de |θ| más pequeña — la lectura más
+rectangular de las cuatro medidas, que es lo que quiere decir quien las teclea. Si todas se cruzan, se coge la
+menos plegada y se marca `imposible`, que ya se avisa en la planta. Barrido de verificación: **784 combinaciones,
+0 plantas cruzadas sin avisar**.
+
+**Y el cambio de tabla, que sigue siendo bueno por otro motivo.** Un control que no hace nada sobre la forma pero
+puede descuadrar la etiqueta es peor que no tenerlo. La orientación pasa a rótulo fijo y la primera columna pasa a
+ser el **orden en el lienzo cosido** (1..N de izquierda a derecha), que sí es una decisión de montaje: qué trozo de
+la tira va a cada proyector. Repetir un número **intercambia** los dos muros, así que siempre es una permutación:
+ni huecos ni repetidos. Las filas se pintan en el orden fijo de orientaciones y la tira se cose por `ord`, que son
+ya dos cosas distintas — verificado que la planta no se mueve al reordenar el lienzo. El mismo cambio va en el
+diálogo «Geometría de la sala…», para que las dos puertas digan lo mismo.
+
+Retirados con esto: `lchSetFacing`/`lchFacingMenu` (R197) y el reparto de roles sobrantes de R200/R200b, que
+existía justo porque el preajuste imponía orientaciones. El preajuste ahora guarda el orden y se aplica **por
+orientación**, no por índice de la lista.
+
 ## ROUND 231c — Revisión del diff de R231/R231b desde el Mac
 
 R231 y R231b se escribieron y verificaron en la máquina Windows. Al traerlos al Mac pasé sus dos sondas —que

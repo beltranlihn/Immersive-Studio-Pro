@@ -4,6 +4,15 @@
 > en `COMPONENTS.md` + una entrada en `PLAN.md` en el mismo commit, como manda el ritual de `/commit`).
 > Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: 2026-07-30.
 
+## 🧭 Sala 360 · planta en lazo + orden del lienzo — 2026-07-30 · CERRADA ✅ [R232]
+- [x] **La planta ya no se cruza.** La causa NO era la tabla: `roomPlan` deriva la huella de los roles, y tres
+      disposiciones distintas dan la misma planta. Era el solver, que cogía la primera de las **dos raíces** de θ
+      y esa pliega la sala (648/745/641/648 → −67,6° cruzada vs −0,6° correcta). Ahora descarta las cruzadas y
+      elige la de |θ| menor. Barrido: 784 combinaciones, 0 cruzadas sin avisar.
+- [x] **Orientación fija (Front·Right·Back·Left)**, sin selector, en el launcher y en «Geometría de la sala…».
+- [x] **Primera columna = orden en el lienzo cosido** (1..N, izquierda→derecha), con intercambio al repetir.
+- [ ] Probar en el `.exe` desplegado y confirmar con una sala real medida a mano.
+
 ## 🧪 Tanda de Beltrán — 2026-07-30 (prueba sobre el .exe desplegado) · CERRADA EN CÓDIGO ✅ [R231]
 > Siete puntos de una prueba real sobre el `.exe` de R230c. Todos verificados por CDP en dev
 > (`scratchpad/r231-fixes.mjs`, con `r231-diag.mjs` y `r231-mask-dom.mjs` de apoyo), `__errs` vacío.
