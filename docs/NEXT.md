@@ -19,6 +19,14 @@
       contenido **sigue a su muro**. `reubicarClipsPorMuro` conserva la posición relativa dentro del muro, y la
       curva `kf.x` viaja con él. Verificado: Front del puesto 1 al 4 lleva su clip del píxel 960 al 6720, centrado
       y con su máscara intacta)_
+- [x] ~~**Línea negra en los bordes del lienzo (R233).**~~ _No era del vídeo ni de las guías: el composite máster es
+      una textura CUADRADA y un lienzo apaisado va encajado en una banda, así que el blit muestreaba en el límite y
+      `LINEAR` mezclaba el último texel con el vacío. Una tira de 7196×912 ocupa ~65 texels en un composite de 512²
+      → 1 texel = 14 px de lienzo → ~140 px de banda negra a 1000%. Arreglado acotando el muestreo al primer/último
+      texel ENTERAMENTE cubierto (medio texel no bastaba: la banda no cae en múltiplos de texel)._
+- [ ] **Deuda anotada:** el composite cuadrado desperdicia resolución con lienzos muy apaisados (7196×912 → sólo 65
+      de 512 texels de alto). Hacerlo del aspecto del lienzo daría nitidez vertical ×8 en sala y haría el clamp
+      innecesario. Es un cambio de calado (afecta a `composite()`, `setCompSize`, export); no urgente.
 - [ ] Probar en el `.exe` desplegado y confirmar con una sala real medida a mano.
 
 ## 🧪 Tanda de Beltrán — 2026-07-30 (prueba sobre el .exe desplegado) · CERRADA EN CÓDIGO ✅ [R231]

@@ -387,9 +387,25 @@ gl.bindVertexArray(null);
 const VSB=`#version 300 es
 precision highp float; in vec2 a_p; uniform vec2 u_pan; uniform float u_zoom; uniform vec2 u_aspect; uniform vec2 u_uvsc,u_uvof; out vec2 v_uv; out vec2 v_p;
 void main(){ vec2 sc=(u_uvsc.x<0.0001&&u_uvsc.y<0.0001)?vec2(1.0):u_uvsc; v_uv=vec2(a_p.x*0.5+0.5,a_p.y*0.5+0.5)*sc+u_uvof; v_p=a_p; gl_Position=vec4((a_p-u_pan)*u_zoom*u_aspect,0.0,1.0); }`;
+/* [R233] El muestreo se ACOTA a la región de contenido, con medio texel de margen. El composite es una textura
+   CUADRADA y un lienzo apaisado va encajado en una banda: fuera de ella la textura está en cero (transparente).
+   El blit muestreaba justo en el límite, así que `LINEAR` mezclaba el último texel de contenido con ese vacío y
+   dejaba un desvanecido a negro de UN TEXEL de ancho en el borde. En una sala 360 eso es enorme: una tira de
+   7196×912 sólo ocupa ~65 texels de alto en un composite de 512², o sea 1 texel = 14 píxeles de lienzo, que a
+   1000% de zoom son ~140 px de banda negra pegada al borde — y no se iba por mucho que se agrandara el clip,
+   porque no era del clip sino del propio blit. Con el clamp, el borde repite su último texel y queda limpio. */
 const FSB=`#version 300 es
-precision highp float; in vec2 v_uv; in vec2 v_p; uniform sampler2D u_tex; uniform float u_hfade,u_flat; out vec4 o;
-void main(){ float r=length(v_p); if(u_flat<0.5 && r>1.0) discard; o=texture(u_tex,v_uv);
+precision highp float; in vec2 v_uv; in vec2 v_p; uniform sampler2D u_tex; uniform float u_hfade,u_flat; uniform vec2 u_uvsc,u_uvof; out vec4 o;
+void main(){ float r=length(v_p); if(u_flat<0.5 && r>1.0) discard;
+  vec2 sc=(u_uvsc.x<0.0001&&u_uvsc.y<0.0001)?vec2(1.0):u_uvsc;           // mismo repliegue que el vertex shader
+  vec2 N=vec2(textureSize(u_tex,0));
+  vec2 t0=min(u_uvof,u_uvof+sc)*N, t1=max(u_uvof,u_uvof+sc)*N;
+  /* Medio texel NO basta: la banda de contenido no cae en múltiplos de texel (7196×912 ocupa 64,9 texels), así
+     que el texel del borde está PARCIALMENTE cubierto y ya viene mezclado con el vacío desde el composite. Se
+     acota al centro del primer y del último texel ENTERAMENTE cubiertos. Cuando el límite sí cae justo (u=0, u=1
+     del domo o de un lienzo cuadrado) esto da 0.5/N y N−0.5/N, o sea el borde exacto: no recorta nada. */
+  vec2 a=(ceil(t0)+0.5)/N, b=(floor(t1)-0.5)/N;
+  o=texture(u_tex,clamp(v_uv,min(a,b),max(a,b)));                        // min/max: una región de menos de un texel no invierte el rango
   if(u_hfade>0.0){ float f=smoothstep(1.0, 1.0-u_hfade, r); o.rgb*=f; o.a*=f; } }`; // u_flat: skip the dome disc clip so the flat rect shows fully; horizon fade softens the dome spring line
 const PB=prog(VSB,FSB);
 const LB={p:gl.getAttribLocation(PB,'a_p'),pan:gl.getUniformLocation(PB,'u_pan'),zoom:gl.getUniformLocation(PB,'u_zoom'),aspect:gl.getUniformLocation(PB,'u_aspect'),tex:gl.getUniformLocation(PB,'u_tex'),hfade:gl.getUniformLocation(PB,'u_hfade'),flat:gl.getUniformLocation(PB,'u_flat'),uvsc:gl.getUniformLocation(PB,'u_uvsc'),uvof:gl.getUniformLocation(PB,'u_uvof')};

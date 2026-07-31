@@ -1,5 +1,33 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 233 — La línea negra del borde del lienzo
+
+Beltrán: «en sala 360 el lienzo genera una línea negra en los bordes; por mucho que agrande el vídeo, ahí sigue».
+Efectivamente no era del vídeo: **era del blit del composite**.
+
+Se midió, no se supuso. Primero se descartó lo evidente: no es una guía del canvas 2D (separando las capas `glc`
+y `gridc`, el negro está en la GL), no es la zona muerta de `drawRoomGrid2D` (`hayZonaMuerta:false`) ni el
+divisor. Con las superposiciones apagadas, el alfa del contenido sube **en rampa** desde el borde: 0 → 41 → 102 →
+162 → 223 → 235 a lo largo de ~15 px de lienzo.
+
+Esa rampa mide **exactamente un texel del composite**. El composite máster es una textura **CUADRADA**
+(`COMP×COMP`) y un lienzo apaisado va *encajado* en una banda: una tira de 7196×912 (aspecto 7,89) ocupa sólo
+~65 texels de alto en un composite de 512², o sea **1 texel = 14 píxeles de lienzo**. El blit muestreaba justo en
+el límite de la banda, así que `LINEAR` mezclaba el último texel de contenido con el vacío transparente de
+alrededor. A 1000% de zoom eso son ~140 px de banda negra pegada al borde — y no se iba agrandando el clip,
+porque no era del clip.
+
+El arreglo acota el muestreo en el fragment shader del blit a la región de contenido. **Medio texel no bastaba**:
+la banda no cae en múltiplos de texel (64,9), así que el texel del borde está PARCIALMENTE cubierto y ya viene
+mezclado con el vacío desde el propio composite — con el clamp a medio texel la rampa sólo se aplanaba a la mitad
+(0→235 pasaba a un escalón en 130 y luego 130→235). Se acota al centro del primer y del último texel
+**enteramente** cubiertos: `a=(ceil(t0)+0.5)/N, b=(floor(t1)-0.5)/N`. Cuando el límite sí cae justo —el domo, un
+lienzo cuadrado, los laterales u=0 y u=1— eso da exactamente `0.5/N` y `N−0.5/N`, o sea el borde de siempre: no
+recorta nada.
+
+Verificado por CDP: el contenido llega **lleno (alfa 235) desde el primer píxel** dentro del lienzo, sin rampa.
+Domo, 2D plano, sala 2D y sala 3D siguen pintando igual y `__errs` vacío.
+
 ## ROUND 232c — El contenido sigue a su muro
 
 La decisión que quedaba abierta de R232b, resuelta con Beltrán: al reordenar los muros, **el contenido va con
