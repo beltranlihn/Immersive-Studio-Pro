@@ -1,5 +1,24 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 232c — El contenido sigue a su muro
+
+La decisión que quedaba abierta de R232b, resuelta con Beltrán: al reordenar los muros, **el contenido va con
+ellos**. Antes se recolocaban los `x0/x1` y los píxeles se quedaban donde estaban, así que mover Front al puesto 4
+dejaba su clip en el puesto 1 mientras su «Mask to wall: Front» se recortaba al 4 (`roomWallScissorRects` lee el
+rect nuevo): el clip salía **en blanco** y su contenido aparecía sobre el muro de otro.
+
+`reubicarClipsPorMuro` guarda la posición **relativa dentro del muro** que contiene a cada clip y la restituye
+sobre el rect nuevo de ESE mismo muro, así que «centrado en Front» sigue centrado en Front aunque Front cambie de
+sitio **o de ancho**. Viaja también la curva de posición (`c.kf.x`, punto por punto), porque si no el clip se
+colocaba bien y la animación lo devolvía al hueco viejo. Sólo toca pistas de muro —el piso tiene su propio rect— y
+un clip fuera de todo muro (desbordado) o cuyo muro ha desaparecido se queda donde está, que es la regla de «nunca
+se pierde material» que ya seguía el resto de la función. Se avisa en la barra de estado de cuántos clips se han
+movido solos.
+
+Verificado por CDP: un clip centrado en Front pasa del píxel 960 al 6720 al mandar Front del puesto 1 al 4,
+**sigue centrado** (u=0.5), conserva su máscara y su curva llega con él; el clip de Back, cuyo muro no cambia de
+puesto, no se mueve. `__errs` vacío.
+
 ## ROUND 232b — Lo que encontraron las dos revisiones del diff de R232
 
 Seis hallazgos, todos reales, todos corregidos y verificados por CDP (`scratchpad/r232b-review.mjs`), `__errs`

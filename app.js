@@ -3681,6 +3681,32 @@ function renderLauncher(){ const ov=document.getElementById('landingOv'); if(!ov
    newRoomProject) with identical math; unified into one function. Keeps this site's defensive `+w.pxW||16` /
    `+w.pxH||16` coercion (walls here can come from a legacy/loose room config with stringy fields) — harmless
    for the other two callers, whose walls are always already-numeric. */
+/* [R232c] EL CONTENIDO SIGUE A SU MURO. Al recolocar la tira —reordenar los muros o cambiarles el pixelaje— los
+   `x0/x1` cambian, pero los clips guardan su sitio en coordenadas del LIENZO ENTERO: `props.x` es el % del marco
+   de su superficie, y la superficie de un muro es la tira COMPLETA (`clipSurfRect` → `{x0:0,x1:W}`). Sin esto,
+   mover Front al puesto 3 dejaba sus píxeles en el puesto 1 mientras su «Mask to wall» se recortaba al 3
+   (`roomWallScissorRects` lee el rect NUEVO): el clip salía EN BLANCO y su contenido aparecía sobre otro muro.
+   Se guarda la posición RELATIVA dentro del muro que contiene al clip y se restituye sobre el rect nuevo de ESE
+   mismo muro, así que «centrado en Front» sigue centrado en Front aunque Front cambie de sitio o de ancho.
+   Sólo toca clips de pista de MURO: el piso tiene su propio rect y no se mueve con la tira. */
+function reubicarClipsPorMuro(clips,lanes,viejos,viejoW,nuevos,nuevoW){
+  if(!(viejoW>0)||!(nuevoW>0)||!viejos.length)return 0;
+  const nuevoPorRol={}; for(const w of nuevos)nuevoPorRol[w.role]=w;
+  const remap=pc=>{ const cx=(pc/100+1)/2*viejoW;                   // % del marco → píxel de la tira vieja
+    const v=viejos.find(w=>cx>=w.x0&&cx<w.x1); if(!v)return null;   // fuera de todo muro (p.ej. desbordado): no se toca
+    const n=nuevoPorRol[v.role]; if(!n)return null;                 // su muro ya no existe: se queda donde está
+    const u=(cx-v.x0)/Math.max(1,v.x1-v.x0);                        // posición relativa DENTRO de su muro
+    return ((n.x0+u*Math.max(1,n.x1-n.x0))/nuevoW*2-1)*100; };
+  let tocados=0;
+  for(const c of (clips||[])){ const lane=(lanes||[])[c.lane]; if(!lane||lane.surf!=='wall'||!c.props)continue;
+    let cambio=false;
+    if(typeof c.props.x==='number'){ const nx=remap(c.props.x);
+      if(nx!=null&&Math.abs(nx-c.props.x)>1e-6){ c.props.x=Math.round(nx*10)/10; cambio=true; } }
+    const ks=c.kf&&c.kf.x; // la curva de posición viaja igual, punto por punto
+    if(ks&&ks.length)for(const k of ks){ const nv=remap(k.v);
+      if(nv!=null&&Math.abs(nv-k.v)>1e-6){ k.v=Math.round(nv*10)/10; cambio=true; } }
+    if(cambio)tocados++; }
+  return tocados; }
 function layoutWallStrip(walls){
   const stripH=Math.max(16,Math.max(...walls.map(w=>+w.pxH||16)));
   let x=0; for(const w of walls){ w.x0=Math.round(x); w.x1=Math.round(x)+(+w.pxW||16); x=w.x1; }
@@ -8887,6 +8913,8 @@ function applyRoomGeometry(cfg){
   if(!room){ flashStatus(T('This sequence is not a room','Esta secuencia no es una sala'),'err'); return; }
   pushUndo();
   const idPorRol=new Map((room.walls||[]).map(w=>[w.role,w.id]));
+  /* [R232c] La huella VIEJA de cada muro, antes de recolocar la tira: con ella los clips siguen a su muro. */
+  const _viejos=(room.walls||[]).map(w=>({role:w.role,x0:w.x0|0,x1:w.x1|0})), _viejoW=wseq.w|0;
   const walls=cfg.walls.map(w=>({ id:idPorRol.get(w.role)||uid(), ...w })).sort((a,b)=>a.order-b.order);
   const {stripW,stripH}=layoutWallStrip(walls); // [R214] was duplicated inline here — see layoutWallStrip
   /* [R221] the floor is a pixel region of THIS SAME sequence now (no separate floorSeqId media to create/detach/
@@ -8897,6 +8925,7 @@ function applyRoomGeometry(cfg){
   const floorH=roomFloorH(walls,room.floor,stripW);
   wseq.w=stripW; wseq.h=stripH+floorH;
   if(state.activeSeqId===wseq.id){ state.seqW=wseq.w; state.seqH=wseq.h; }
+  const _movidos=reubicarClipsPorMuro(state.clips,state.lanes,_viejos,_viejoW,walls,stripW); // [R232c]
   const rolesVivos=new Set(walls.map(w=>w.role)); // un clip enmascarado a un muro que ya no existe perdería su máscara
   for(const c of state.clips){ if(!c.props||!c.props.maskWalls)continue;
     const q=c.props.maskWalls.filter(r=>rolesVivos.has(r)); if(q.length)c.props.maskWalls=q; else delete c.props.maskWalls; }
@@ -8905,7 +8934,7 @@ function applyRoomGeometry(cfg){
   _roomGeo=null; _roomGeoSeq=null; _arCache=null; try{raInvalidate();}catch(e){}
   { const _as=activeSeq(); roomVpAutoFloor(!!(_as&&_as.room&&_as.room.floor)); } // [R231c] cuarta vía: añadir piso desde el diálogo de geometría también abre el visor partido
   resize(); renderTimeline(); renderInspector(); renderMedia(); render(); markDirty(); updStatus();
-  flashStatus(T('Room geometry updated','Geometría de la sala actualizada'));
+  flashStatus(T('Room geometry updated','Geometría de la sala actualizada')+(_movidos?' · '+_movidos+' '+T('clip(s) followed their wall','clip(s) siguen a su muro'):'')); // [R232c] decirlo: el contenido se ha movido solo
 }
 /* [R217] Extracted from newRoomProject: builds the walls sequence (+ optional floor sequence) media for a room
    and pushes them onto state.media, WITHOUT touching anything else (no wipe, no view/tour, no activation). Lets
