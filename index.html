@@ -755,7 +755,9 @@
   .lch-whead{display:flex;align-items:center;gap:5px;height:12px;}
   .lch-whead span{flex-shrink:0;font-size:9px;font-weight:600;letter-spacing:0.05em;color:var(--ink-dim);}
   .lch-wrow{display:flex;align-items:center;gap:5px;height:21px;}
-  .lch-wrow .ix{width:16px;flex-shrink:0;display:grid;place-items:center;font-size:9.5px;font-weight:600;color:var(--ink-3);font-variant-numeric:tabular-nums;}
+  /* [R232b] 34px, no 16: la primera columna de los muros pasó a ser el campo de ORDEN y la cabecera la siguió,
+     pero la fila del PISO sigue usando `.ix` — con 16px se quedaba ella y todos sus campos 18px a la izquierda. */
+  .lch-wrow .ix{width:34px;flex-shrink:0;display:grid;place-items:center;font-size:9.5px;font-weight:600;color:var(--ink-3);font-variant-numeric:tabular-nums;}
   /* [R232] La orientación dejó de ser un botón: es un rótulo. Sin relieve de control ni hover — Front·Right·Back·Left
      es el recorrido de la sala, no algo que se elija (lo editable es el orden en el lienzo, a su izquierda). */
   .lch-facing{width:84px;flex-shrink:0;display:flex;align-items:center;gap:5px;height:20px;padding:0 6px;border-radius:2px;border:.5px solid transparent;background:none;font-family:inherit;font-size:10px;font-weight:600;}

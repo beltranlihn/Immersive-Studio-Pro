@@ -11,6 +11,16 @@
       elige la de |θ| menor. Barrido: 784 combinaciones, 0 cruzadas sin avisar.
 - [x] **Orientación fija (Front·Right·Back·Left)**, sin selector, en el launcher y en «Geometría de la sala…».
 - [x] **Primera columna = orden en el lienzo cosido** (1..N, izquierda→derecha), con intercambio al repetir.
+- [x] ~~**Revisión del diff (R232b)**~~ — seis hallazgos: `lchNormOrder` descolocaba la tira al cambiar la cuenta
+      de muros, pulsar la cuenta ya activa reescribía los órdenes (launcher y diálogo), la fila del piso quedaba
+      18 px a la izquierda, el campo de orden del diálogo perdía el foco a cada paso, las flechas movían de 10 en
+      10, y confirmar el mismo orden no repintaba. Verificados en `scratchpad/r232b-review.mjs`.
+- [ ] **DECISIÓN PENDIENTE · reordenar muros no mueve el contenido ya colocado.** Al cambiar el orden en
+      «Geometría de la sala…» se re-colocan los `x0/x1`, pero los píxeles de los clips se quedan donde estaban: un
+      clip con «Mask to wall: Front» se recorta al hueco NUEVO de Front y sale **en blanco**. No es de R232 (el
+      selector de orientación de antes intercambiaba los muros de hueco igual). Hay que elegir: **(a)** el
+      contenido sigue a su muro (se desplazan los clips que caen en su franja) o **(b)** el contenido se queda en
+      el lienzo y sólo cambia qué muro lo proyecta. Preguntar a Beltrán.
 - [ ] Probar en el `.exe` desplegado y confirmar con una sala real medida a mano.
 
 ## 🧪 Tanda de Beltrán — 2026-07-30 (prueba sobre el .exe desplegado) · CERRADA EN CÓDIGO ✅ [R231]

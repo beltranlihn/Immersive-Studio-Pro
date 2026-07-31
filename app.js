@@ -3331,7 +3331,9 @@ function lchWireNums(root){
       if(e.key==='Enter'){ commit(inp.value); inp.blur(); }
       else if(e.key==='Escape'){ delete _lch.draft[key]; inp.blur(); renderLauncher(); }
       else if(e.key==='ArrowUp'||e.key==='ArrowDown'){ e.preventDefault();
-        const step=e.shiftKey?100:(e.altKey?1:10);
+        /* [R232b] El orden del lienzo va de 1 a N: con el paso de 10 de los píxeles, subir desde 1 se iba al tope
+           y acababa intercambiando con el último muro en vez de moverse un puesto. */
+        const step=/ord$/.test(key)?1:(e.shiftKey?100:(e.altKey?1:10));
         const base=parseInt(String(_lch.draft[key]!==undefined?_lch.draft[key]:inp.value).replace(/[^0-9]/g,''),10)||0;
         delete _lch.draft[key];
         lchApply(key,Math.max(min,Math.min(max,base+(e.key==='ArrowUp'?step:-step)))); } };
@@ -3357,7 +3359,8 @@ function lchApply(key,v){
    pasa a ser editable: el número de la primera columna, de izquierda a derecha.
    `lchSetFacing`/`lchFacingMenu` (R197) quedan retirados con este cambio. */
 function lchSetOrder(i,n){ const aw=lchActiveWalls(); const w=aw[i]; if(!w)return;
-  n=Math.max(1,Math.min(aw.length,Math.round(n)||1)); const cur=w.ord||i+1; if(n===cur)return;
+  n=Math.max(1,Math.min(aw.length,Math.round(n)||1)); const cur=w.ord||i+1;
+  if(n===cur){ renderLauncher(); return; } // [R232b] repintar IGUALMENTE: si no, lo tecleado en crudo («01», «1x») se queda en el campo mientras el estado dice otra cosa
   const otro=aw.find(x=>x!==w&&(x.ord||0)===n); if(otro)otro.ord=cur; // se INTERCAMBIAN: el orden es una permutación, no puede haber dos huecos iguales ni ninguno vacío
   w.ord=n; renderLauncher(); }
 /* Preajustes de sala: los cinco de fábrica más los que guarde el usuario (persisten en el navegador, no en el
@@ -3410,11 +3413,17 @@ function lchApplyPreset(v){ const S=_lch;
    Back por ser el orden de la lista, lo que daba una U tumbada de lado. Cada orientación conserva SUS medidas al
    cambiar la cuenta, y las que salen de juego quedan detrás por si se vuelve a subir. */
 const LCH_ROOM_ROLES={2:['Left','Front'],3:['Left','Front','Right'],4:['Front','Right','Back','Left']};
-function lchSetWallCount(n){ const S=_lch; const quiero=LCH_ROOM_ROLES[n]||LCH_ROOM_ROLES[4];
+function lchSetWallCount(n){ const S=_lch; if(n===S.roomCount)return; // [R232b] pulsar la cuenta que ya está puesta es un no-op: rehacía la sala y se llevaba por delante el orden del lienzo
+  const quiero=LCH_ROOM_ROLES[n]||LCH_ROOM_ROLES[4];
   const porRol={}; S.walls.forEach(w=>{ porRol[w.role]=w; });
   S.walls=quiero.concat(ROOM_ROLES.filter(r=>quiero.indexOf(r)<0))
     .map(r=>porRol[r]||{role:r,wcm:800,hcm:450,pxW:3840,pxH:2160});
-  S.roomCount=n; S.draft={}; lchNormOrder(); }
+  S.roomCount=n; S.draft={};
+  /* [R232b] Cambiar CUÁNTOS muros hay rehace la sala, así que el orden del lienzo vuelve al RECORRIDO FÍSICO
+     (`LCH_ROOM_ROLES[n]`), que es el reparto natural. Renormalizar el orden viejo —lo que hacía `lchNormOrder`
+     aquí— lo dejaba absurdo: los muros que salían de juego perdían su hueco y al volver entraban por el final,
+     así que 4→2→4 daba la tira `Front|Left|Right|Back` y 4→3 pegaba dos muros que no se tocan. */
+  S.walls.forEach((w,i)=>{ if(i<n)w.ord=i+1; else delete w.ord; }); }
 function lchActiveWalls(){ return _lch.walls.slice(0,_lch.roomCount); }
 /* [R232] El orden del lienzo es una PERMUTACIÓN de 1..N. Al cambiar la cuenta de muros (o al abrir un preajuste
    viejo, que no lo trae) hay que renormalizarlo: se respeta el orden relativo que hubiera y se reparte 1..N sin
@@ -8700,7 +8709,12 @@ function roomSetupDialog(cb,partirDe){ const ov=document.createElement('div'); o
          orientación, que no cambiaba la forma de la sala — sólo lo que decía la tabla.) */
       row.querySelector('[data-k=order]').onchange=e=>{ const n=Math.max(1,Math.min(walls.length,Math.round(+e.target.value)||1));
         const cur=walls[i].order, otro=walls.find(x=>x!==walls[i]&&x.order===n); if(otro)otro.order=cur;
-        walls[i].order=n; drawWalls(); drawFloor(); setActive(walls[i].role); };
+        walls[i].order=n; drawWalls(); drawFloor(); setActive(walls[i].role);
+        /* [R232b] `drawWalls` rehace TODAS las filas, así que el campo que se estaba usando desaparecía y el foco
+           se perdía: con las flechas no se podía dar más de un paso. Las filas van por orientación (fijas), así
+           que la de este muro sigue siendo la `i`. */
+        const otra=host.children[i]&&host.children[i].querySelector('[data-k=order]');
+        if(otra){ otra.focus(); try{ otra.select(); }catch(_){} } };
       row.querySelectorAll('input[data-k]:not([data-k=order])').forEach(inp=>{ inp.addEventListener('focus',()=>setActive(walls[i].role));
         const h=e=>{ walls[i][e.target.dataset.k]=+e.target.value||walls[i][e.target.dataset.k]; refreshIso(); };
         inp.onchange=e=>{ h(e); drawFloor(); }; inp.oninput=h; }); // [R230] al confirmar el muro, el piso se reencaja (si no se tocó a mano)
@@ -8722,8 +8736,11 @@ function roomSetupDialog(cb,partirDe){ const ov=document.createElement('div'); o
         <div class="rs-px">${well(+host.dataset.pxW,'fpxW',16,16384)}<span class="x">×</span>${well(+host.dataset.pxH,'fpxH',16,16384)}</div>
       </div>`;
     host.querySelectorAll('input[data-k]').forEach(inp=>inp.onchange=e=>{ floorTouched=true; host.dataset[{fwcm:'wcm',fdcm:'dcm',fpxW:'pxW',fpxH:'pxH'}[e.target.dataset.k]]=+e.target.value||0; }); };
-  const setN=k=>{ n=k; ov.querySelectorAll('#rsN button').forEach(b=>b.classList.toggle('on',+b.dataset.n===k));
+  const setN=k=>{ if(k===n)return; // [R232b] pulsar la cuenta ya activa parecía un no-op y en realidad reescribía todos los órdenes
+    n=k; ov.querySelectorAll('#rsN button').forEach(b=>b.classList.toggle('on',+b.dataset.n===k));
     const roles=({2:['Left','Front'],3:['Left','Front','Right'],4:['Front','Right','Back','Left']})[k];
+    /* [R232b] Cambiar la cuenta rehace la sala: el orden del lienzo vuelve al recorrido físico, igual que en el
+       launcher (`lchSetWallCount`), para que la misma sala salga igual por las dos puertas. */
     walls=roles.map((r,i)=>{ const ex=walls.find(w=>w.role===r); return ex?{...ex,order:i+1}:defWall(r,i+1); }); drawWalls(); drawFloor(); };
   ov.querySelectorAll('#rsN button').forEach(b=>b.onclick=()=>setN(+b.dataset.n));
   $('#rsFloor').onchange=e=>{ floor=e.target.checked; drawFloor(); refreshIso(); };

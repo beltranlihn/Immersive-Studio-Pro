@@ -1,5 +1,35 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 232b — Lo que encontraron las dos revisiones del diff de R232
+
+Seis hallazgos, todos reales, todos corregidos y verificados por CDP (`scratchpad/r232b-review.mjs`), `__errs`
+vacío. Las dos revisiones dieron por bueno el arreglo del solver de forma independiente: una lo comprobó
+analíticamente (la rama descendente siempre tiene las esquinas traseras cruzadas), la otra con un barrido de 6561
+combinaciones de 4 muros y 2187 de 3 — 0 plantas cruzadas sin marcar y 0 `imposible` falsos nuevos.
+
+- **`lchNormOrder` descolocaba la tira al cambiar la cuenta de muros.** Los que salían de juego perdían su hueco y
+  al volver entraban por el final: 4→3 dejaba `Front|Right|Left` (pegando dos muros que no se tocan) y 4→2→4 daba
+  `Front|Left|Right|Back` en vez del recorrido físico. Ahora cambiar la cuenta **rehace la sala** y el orden del
+  lienzo vuelve al recorrido natural, que es lo predecible; `lchNormOrder` se queda sólo para lo suyo, renormalizar
+  un preajuste viejo sin `ord`.
+- **Pulsar la cuenta de muros YA ACTIVA parecía un no-op y reescribía todos los órdenes** — en el launcher y en el
+  diálogo. Los dos salen antes de tocar nada si la cuenta no cambia.
+- **La fila del piso quedaba 18 px a la izquierda.** La primera columna de los muros pasó de 16 a 34 px y la
+  cabecera la siguió, pero la fila del piso sigue usando `.ix`, que se quedó en 16.
+- **En el diálogo, el campo de orden perdía el foco a cada paso:** `drawWalls()` rehace todas las filas, así que
+  con las flechas no se podía dar más de un paso. Se devuelve el foco a la misma fila (que es la del muro, porque
+  van por orientación).
+- **Las flechas movían de 10 en 10** en un rango de 1..N, así que subir desde 1 se iba al tope e intercambiaba con
+  el último muro. Paso 1 para este campo.
+- **Confirmar el MISMO orden no repintaba**, y lo tecleado en crudo («01») se quedaba en el campo mientras el
+  estado decía otra cosa.
+
+**Queda anotado, no corregido** (ver `docs/NEXT.md`): reordenar muros en «Geometría de la sala…» re-coloca los
+`x0/x1` pero **no mueve el contenido ya colocado**, así que un clip con «Mask to wall: Front» se recorta al hueco
+NUEVO de Front mientras sus píxeles siguen en el viejo, y sale en blanco. No es de esta tanda —el selector de
+orientación de antes intercambiaba los muros de hueco igual— y arreglarlo es una decisión de diseño que hay que
+tomar con Beltrán: si el contenido debe **seguir a su muro** o **quedarse donde está en el lienzo**.
+
 ## ROUND 232 — La sala en lazo, y por qué no era lo que parecía
 
 Beltrán trajo una captura del launcher con la planta hecha un lazo y una petición concreta: quitar el selector de
