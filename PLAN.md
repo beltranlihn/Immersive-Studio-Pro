@@ -1,5 +1,45 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 252b — Flotar gana su mando de intensidad
+
+Beltrán: *«que tenga un parámetro para decidir la intensidad, pero me imagino que ya lo agregaste»*. **No estaba.**
+Lo que había era la amplitud de cada uno de los tres por separado (y su Mix), pero ningún mando único que subiera o
+bajara el flotar entero. Eso es lo que entra aquí.
+
+### Un maestro, no una caja negra
+
+Al estampar un acorde, sus miembros se marcan con `grp` (qué preset es) y `gid` (esta copia concreta). Con eso el
+inspector puede poner **una fila maestra encima de los modificadores que gobierna** — y ellos siguen abajo,
+enteros, con su onda, su velocidad, su amplitud y su Mix. El maestro los mueve a la vez; no los esconde ni los
+sustituye. Un preset de un solo modificador no lleva grupo: no hay nada que coordinar.
+
+### Por qué se calcula así
+
+En cada cambio se recalcula primero `g0` —la amplitud que tendría ese miembro al 100 %— **a partir de la amplitud
+actual**, y sólo después se aplica la intensidad nueva. Ese orden compra dos cosas:
+
+- **Respeta los retoques a mano.** Si se baja el balanceo para que gire menos, ese ajuste queda absorbido en `g0` y
+  sobrevive a mover el maestro. Un maestro que borrara los ajustes finos no sería un maestro.
+- **Bajar a 0 no destruye nada.** Como `amp` se recalcula desde `g0` en vez de multiplicarse sobre sí misma, las
+  proporciones siguen guardadas y volver a subir las recupera. Multiplicar relativamente (×nuevo/viejo) habría sido
+  más corto pero deja el 0 como agujero negro: cero por lo que sea es cero, y no hay vuelta.
+
+Rango 0–300 %.
+
+### Verificado sobre el .exe
+
+| | |
+|---|---|
+| Al ponerlo | `[0,05 · 0,038 · 4]`, un grupo, fila en pantalla |
+| Al 200 % | `[0,1 · 0,076 · 8]` — ×2 exacto |
+| Al 50 % | `[0,025 · 0,019 · 2]` — ×0,5 exacto |
+| Balanceo bajado a mano a 0,5 y maestro al 100 % | `rot = 1` (= 0,5 × 2): **el retoque sobrevive** |
+| Al 0 % | todo a cero |
+| De vuelta al 100 % | recupera exactamente las proporciones de antes |
+| Guardar `.isp` y reabrir | intensidad 1,7 y sus tres miembros, intactos |
+
+---
+
 ## ROUND 252 — Flotar: el primer Motion que es un acorde, no un parámetro
 
 Beltrán: *«para mí el efecto de flotar es que el objeto se esté moviendo suavemente arriba y abajo, suavemente a la

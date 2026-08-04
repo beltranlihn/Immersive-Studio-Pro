@@ -824,8 +824,32 @@ function addAnimPreset(c,key){ if(!c)return; if(!c.anim)c.anim=[];
   const p=set.find(x=>x.key===key)||ANIM_PRESETS.concat(ANIM_PRESETS_FLAT).find(x=>x.key===key)||set[0];
   const partes=p.parts||[{param:p.param,mode:p.mode,speed:p.speed,amp:p.amp,phase:0,tile:p.tile}];
   c.props=c.props||{};
-  for(const q of partes){ c.anim.push({id:uid(),param:q.param,mode:q.mode,speed:q.speed,amp:q.amp,phase:q.phase||0,on:true,tile:q.tile||false});
+  /* [R252b] Un acorde se marca con `grp` (qué preset es) y `gid` (ESTA copia), que es lo que permite darle un
+     mando de INTENSIDAD para los tres a la vez. Un preset de un solo modificador no lleva grupo: no hay nada que
+     coordinar y una fila maestra sobre un único mando sería ruido. */
+  const gid=(partes.length>1)?uid():null;
+  for(const q of partes){ const a={id:uid(),param:q.param,mode:q.mode,speed:q.speed,amp:q.amp,phase:q.phase||0,on:true,tile:q.tile||false};
+    if(gid){ a.grp=p.key; a.gid=gid; a.gint=1; }
+    c.anim.push(a);
     const mk='mot:'+q.param+':mix'; if(c.props[mk]==null)c.props[mk]=100; } } // [R224] el Mix nace al 100 % como valor base del parámetro (antes era `a.wet` ausente = 1)
+/* [R252b] La INTENSIDAD de un acorde: un mando que sube o baja los tres a la vez conservando sus proporciones.
+   En cada cambio se recalcula primero `g0` —la amplitud que tendría ese miembro al 100 %— a partir de la amplitud
+   ACTUAL, y sólo después se aplica la intensidad nueva. Ese orden es lo que hace que el maestro respete los
+   retoques a mano: si se ha bajado el balanceo para que gire menos, ese ajuste queda absorbido en `g0` y sobrevive
+   a mover el maestro. Y como `amp` se recalcula siempre desde `g0` (y no se multiplica sobre sí misma), bajar a 0
+   no borra nada: las proporciones siguen guardadas y volver a subir las recupera. */
+function setAnimGroupInt(c,gid,k){ if(!c||!c.anim)return;
+  const ms=c.anim.filter(a=>a.gid===gid); if(!ms.length)return;
+  const nv=Math.max(0,Math.min(3,k||0)), viejo=(ms[0].gint!=null?ms[0].gint:1);
+  if(Math.abs(nv-viejo)<1e-4)return;
+  for(const a of ms){
+    if(viejo>1e-6)a.g0=a.amp/viejo;              // sólo se puede deducir si la intensidad de partida no era 0
+    a.amp=(a.g0!=null?a.g0:a.amp)*nv;
+    a.gint=nv; } }
+function animGroups(c){ const out=[]; const vis=new Set();
+  for(const a of ((c&&c.anim)||[])){ if(!a.gid||vis.has(a.gid))continue; vis.add(a.gid);
+    out.push({gid:a.gid, grp:a.grp, int:(a.gint!=null?a.gint:1), n:c.anim.filter(x=>x.gid===a.gid).length}); }
+  return out; }
 let _previewClock=0,_prevRaf=0,_prevLast=0;
 function animTime(t){ return (state.playing||exporting)?t:(t+_previewClock); } // paused editor advances a preview clock; export/playback use the real frame time (deterministic)
 /* per-modifier dry/wet (0..1) — keyframeable so the user can decide WHEN a motion ramps in on the timeline.
@@ -6058,6 +6082,23 @@ function animToggleWetKf(a,c){ const key=motKeyFor(a), cur=Math.max(0,Math.min(1
 function refreshMotionWet(){ const c=selClip(); const host=$('#animList'); if(!c||!c.anim||!host)return; host.querySelectorAll('[data-ai]').forEach(it=>{ const a=c.anim[+it.dataset.ai]; if(!a)return; const p=Math.round(Math.max(0,Math.min(1,evalWet(c,a,state.playhead)))*100); const r=it.querySelector('.awet'), v=it.querySelector('.awetv'), kb=it.querySelector('.awetkf'); const hasWK=animHasWetKf(a,c); if(r&&document.activeElement!==r)r.value=p; if(v)v.textContent=p+'%'+(hasWK?' ◆':''); if(kb){ const kfHere=!!animWetKfAt(a,c); kb.style.color=hasWK?(kfHere?'#FFFFFF':'#C9CDD3'):'#5A6069'; } }); } // [R224] `hasWK` lee el parámetro mot:…:mix (antes a.wetKf, y la variable local se llamaba `hasKf` — tapaba la función global del mismo nombre)
 function buildAnimList(c){ const host=$('#animList'); if(!host)return; host.innerHTML='';
   if(!c||!c.anim||!c.anim.length){ host.innerHTML=`<span style="font-size:11px;color:#4d525a;">${T('No motion yet.','Sin movimiento aún.')}</span>`; return; }
+  /* [R252b] Maestro de cada ACORDE (hoy, Flotar): un solo mando para el conjunto. Va ARRIBA de los modificadores
+     que gobierna, y ellos siguen abajo enteros — el maestro no los esconde ni los sustituye, sólo los mueve a la
+     vez. Es la diferencia entre un mando y una caja negra. */
+  for(const g of animGroups(c)){
+    const et=(ANIM_PRESETS.concat(ANIM_PRESETS_FLAT).find(x=>x.key===g.grp)||{label:[g.grp,g.grp]}).label;
+    const gr=document.createElement('div');
+    gr.style.cssText='display:flex;align-items:center;gap:8px;background:#20242b;border:.5px solid rgba(255,255,255,0.12);border-radius:3px;padding:6px 8px;';
+    gr.innerHTML=`<span style="font-size:11px;color:var(--ink);font-weight:600;white-space:nowrap;">${T(et[0],et[1])}</span>`
+      +`<span style="font-size:10px;color:var(--ink-dim);white-space:nowrap;">${T('Intensity','Intensidad')}</span>`
+      +`<input type="range" min="0" max="300" value="${Math.round(g.int*100)}" style="flex:1;height:18px;min-width:70px;">`
+      +`<span class="tnum" style="width:42px;text-align:right;color:var(--ink-2);">${Math.round(g.int*100)}%</span>`;
+    const sl=gr.querySelector('input'), out=gr.querySelector('.tnum');
+    sl.onpointerdown=()=>pushUndo();
+    sl.oninput=()=>{ const cc=selClip(); if(!cc)return; out.textContent=sl.value+'%';
+      setAnimGroupInt(cc,g.gid,(+sl.value)/100); buildAnimList(cc); render(); startMotionPreview(); };
+    sl.onchange=()=>markDirty();
+    host.appendChild(gr); }
   c.anim.forEach((a,i)=>{ const item=document.createElement('div'); item.dataset.ai=i; item.style.cssText='display:flex;flex-direction:column;gap:4px;background:#1b1e24;border:.5px solid rgba(255,255,255,0.09);border-radius:2px;padding:5px 6px;';
     const isWave=a.mode==='wave'; const wetPct=Math.round(Math.max(0,Math.min(1,evalWet(c,a,state.playhead)))*100);
     const hasWK=animHasWetKf(a,c), kfHere=!!animWetKfAt(a,c); // [R224] ídem: sin sombra sobre la función global hasKf

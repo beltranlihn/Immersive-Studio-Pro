@@ -1,0 +1,21 @@
+import http from 'http'; import fs from 'fs';
+const t=await new Promise((res,rej)=>{http.get({host:'127.0.0.1',port:9222,path:'/json/list'},r=>{let b='';r.on('data',c=>b+=c);r.on('end',()=>res(JSON.parse(b)));}).on('error',rej);});
+const page=t.find(x=>x.type==='page'&&x.webSocketDebuggerUrl&&/index\.html/.test(x.url));
+const ws=new WebSocket(page.webSocketDebuggerUrl); await new Promise(r=>ws.onopen=r);
+let id=0;const p=new Map();ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id&&p.has(m.id)){p.get(m.id)(m);p.delete(m.id);}};
+const cmd=(m,q={})=>new Promise((res,rej)=>{const i=++id;p.set(i,x=>x.error?rej(new Error(JSON.stringify(x.error))):res(x.result));ws.send(JSON.stringify({id:i,method:m,params:q}));});
+const ev=async x=>{const r=await cmd('Runtime.evaluate',{expression:x,awaitPromise:true,returnByValue:true,timeout:60000});if(r.exceptionDetails)throw new Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);return r.result.value;};
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+console.log(await ev(`(function(){ const c=state.clips[0]; state.selId=c.id; state.selIds=[c.id];
+  setAnimGroupInt(c,c.anim[0].gid,1);
+  state.insCol=state.insCol||{}; for(const k in state.insCol) state.insCol[k]=false;   // desplegar todas las secciones
+  renderInspector();
+  const sec=[...document.querySelectorAll('.psec,.sechdr')].map(e=>e.textContent.trim().slice(0,14));
+  const lista=document.querySelector('#animList');
+  if(lista) lista.scrollIntoView({block:'center'});
+  return { filas:lista?lista.children.length:0, sec:sec.slice(0,10) }; })()`));
+await wait(500);
+const shot=await cmd('Page.captureScreenshot',{format:'png'});
+fs.writeFileSync('scratchpad/r252b-inspector.png', Buffer.from(shot.data,'base64'));
+console.log('captura lista');
+ws.close();

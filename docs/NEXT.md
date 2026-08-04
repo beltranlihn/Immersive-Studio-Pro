@@ -8,6 +8,7 @@
 - [x] **Flotar**: ↔ + ↕ + giro en vaivén, desfasados y a velocidades no múltiplos entre sí. Primer preset de Motion
       que estampa un ACORDE (`parts`), no un solo modificador. Arreglado de paso: los presets se buscaban en el
       juego de domo primero, así que en 2D el chip Pulsar animaba un parámetro que ese camino ni lee.
+- [x] **[R252b] Mando de intensidad** del acorde (0-300 %), que respeta los retoques por eje y sobrevive al 0.
 
 ## ✅ Dos arreglos de edición diaria · CERRADOS [R251]
 - [x] **Copiar/pegar VARIOS clips.** El portapapeles guardaba uno solo; ahora guarda la selección entera y la pega
