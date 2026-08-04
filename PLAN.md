@@ -1,5 +1,66 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 241 — Prueba de estrés tipo show, con el material real
+
+La única cosa que quedaba en la cola y que no se podía simular. Beltrán prestó su sala (`Rito360.isp`, 7196×912,
+4 muros) y nueve clips **HEVC 7196×912 @60 fps de hasta 410 Mbps** — material de masterización, ~3 GB. Se corrió
+sobre el **`.exe` desplegado**, no en dev: comprobado por `WEBGL_debug_renderer_info` que estaba en la **RTX 4060**
+y no en la Intel, porque una prueba de estrés medida sobre la GPU equivocada no vale nada.
+
+### Lo que aguanta
+
+| | 4 capas de 7196×912 simultáneas |
+|---|---|
+| GPU por `render()` | **0,05–0,07 ms** |
+| Reproducción | **60,2 fps** sostenidos · mediana 16,6 ms · P95 19,7 ms · 2 tirones >33 ms en 5 s |
+| Composite (R237) | 25 MB a Full · 6,3 a ½ · 1,6 a ¼ |
+| Memoria JS | 10 MB, plana |
+
+Ni un contexto WebGL perdido. **La GPU no es el cuello ni de lejos** — el composite no cuadrado de R237 ayuda, pero
+es que cuatro quads de 6,5 Mpx no son nada para esta tarjeta.
+
+### Lo que no: el scrub sin proxy
+
+| | mediana | peor |
+|---|---|---|
+| Scrub, 4 capas, SIN proxy | **1148 ms** | 2256 ms |
+| Scrub, 4 capas, CON proxy | **8 ms** | 9 ms |
+
+**143× de diferencia.** Con este material, editar sin proxy es inviable y con proxy es instantáneo. El cuello es
+el reposicionamiento del decodificador HEVC, no el motor. Confirma que la decisión de proxies manuales (ADR-0003)
+necesita que el usuario SEPA cuándo hacen falta: aquí no son una optimización, son la diferencia entre poder
+montar y no.
+
+### Un aviso de método, porque casi reporto números falsos
+
+La primera pasada dio **0,07 ms/render y `texturasVideoMB: 0`** con cuatro capas 7196×912. Increíble, y por eso no
+lo reporté: paré a diagnosticar. Resultó que sí dibujaba —4 decodificadores vivos, composite al **99,6 %** de
+cobertura— y que los ceros eran la **granularidad reducida de `performance.now()`** en Electron. La medida buena
+promedia 400 renders de golpe para salir del ruido del reloj. Un número imposible casi siempre es el arnés, no la
+app.
+
+### Dos bugs reales, encontrados por el material y arreglados
+
+**1 · `detectFps` fallaba con material pesado: los NUEVE clips entraban a 30 fps siendo de 60.** Recogía diez
+fotogramas por `requestVideoFrameCallback` con un plazo de **2,5 s fijo** y, al vencer, **tiraba todas las
+muestras** (`fn(0)` → `if(f>0)` no asigna) y dejaba el 30 por defecto. Decodificar diez fotogramas de 6,5 Mpx a
+410 Mbps no entra en 2,5 s ni de lejos; el clip 1080p del mismo proyecto sí acertaba. No es cosmético: `m.fps`
+manda en la **tasa del proxy** (se generaban a 455 de 911 fotogramas, la mitad), en el índice del caché de
+scrub-ahead (`_raVidFrame`) y en toda cuenta de tiempo↔fotograma — un 60p editado como 30p miente sobre qué
+fotograma estás viendo. Ahora se calcula con las muestras que haya (tres intervalos bastan) y el plazo escala con
+los megapíxeles hasta un tope de 8 s. Medido con el material real: **0 de 9 aciertos → 9 de 9**. Los nueve proxies
+se regeneraron y pasan de 30 fps/455 fotogramas a **60/1 y 911**, idénticos al original.
+
+**2 · Un rechazo de promesa sin capturar por cada clip sin pista de audio.** `decodeAudioData` atiende los
+callbacks **y además devuelve una promesa**; el `rej` capturaba el error pero la promesa devuelta quedaba sin
+dueño → «Unable to decode audio data» en la consola por cada clip, para un caso que el `catch` ya trataba como
+normal. El export tenía este mismo remedio puesto desde R240 (línea 7419) y `armMediaAudio` se quedó sin él.
+Verificado ejercitando el camino de verdad (109 MB, dentro del tope de 1,2 GB, marca `_noAudio`): **cero rechazos
+sueltos**.
+
+Sondas: `scratchpad/r241-stress.mjs`, `r241-carga.mjs`, `r241-diag.mjs`, `r241-medir.mjs`, `r241-fps2.mjs`,
+`r241-reproxy.mjs`, `r241-audio2.mjs`.
+
 ## ROUND 240 — La segunda pasada de QA que quedó pendiente de la auditoría
 
 `AUDITORIA-2026-07.md` cerró sus cuatro etapas pero dejó anotada una **«segunda pasada de QA»** que nunca se

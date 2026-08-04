@@ -2464,11 +2464,26 @@ function addVideo(file,path){ const url=URL.createObjectURL(file); const folder=
     if(m.path)attachExistingProxy(m,true).then(ok=>{ if(ok)flashStatus(T('Existing proxy found for ','Proxy existente encontrado para ')+m.name); }).catch(()=>{});
     detectFps(v,m,()=>{ seekMedia(m,0,true).then(()=>{makeThumb(m);render();}); }); },{once:true}); } // proxies are MANUAL now (right-click media → Generate proxy)
 function makeThumb(m){const c=document.createElement('canvas');c.width=108;c.height=64;try{c.getContext('2d').drawImage(m.originalEl||m.el,0,0,108,64);m.thumb=c.toDataURL();renderMedia();}catch(e){}}
-function detectFps(v,m,done){let fin=false;const fn=f=>{if(fin)return;fin=true;if(f>0)m.fps=f;if(done)done();};
+/* [R241] Detección de la tasa de fotogramas. Dos cosas cambiaron tras la prueba de estrés con el material real
+   de Beltrán (HEVC 7196×912 @60fps, hasta 410 Mbps), donde los NUEVE clips se quedaban en el 30 por defecto:
+   1. Al vencer el plazo se TIRABAN todas las muestras recogidas (`fn(0)` → `if(f>0)` no asigna). Ahora se calcula
+      con lo que haya: tres intervalos ya dan una mediana utilizable, y es infinitamente mejor que un 30 inventado.
+   2. El plazo era de 2,5 s fijo, y decodificar diez fotogramas de 6,5 Mpx a 410 Mbps no entra ahí ni de lejos.
+      Ahora escala con los megapíxeles, con tope de 8 s para no colgar una importación.
+   Por qué importaba: `m.fps` manda en la tasa del PROXY (se generaban a 30 → la mitad de los fotogramas), en el
+   índice del caché de scrub-ahead (`_raVidFrame`) y en cualquier cuenta de tiempo↔fotograma. Un 60p editado como
+   30p miente sobre qué fotograma se está viendo. Se añade 120 a las tasas canónicas. */
+function detectFps(v,m,done){let fin=false;
+  const canon=f=>{ for(const cc of[24,25,30,48,50,60,120])if(Math.abs(f-cc)<=1.2)return cc; return f; };
+  const calc=arr=>{ if(arr.length<3)return 0; const e=arr.slice().sort((a,b)=>a-b); const md=e[Math.floor(e.length/2)]||0;
+    return md>0?canon(Math.round(1/md)):0; };
+  const fn=f=>{if(fin)return;fin=true;if(f>0)m.fps=f;if(done)done();};
   if(!v.requestVideoFrameCallback){fn(0);return;} let last=null,d=[],n=0;
   const onf=(now,meta)=>{if(last!=null&&meta.mediaTime>last)d.push(meta.mediaTime-last);last=meta.mediaTime;n++;
-   if(n<10)v.requestVideoFrameCallback(onf);else{v.pause();v.currentTime=0;d.sort((a,b)=>a-b);const md=d[Math.floor(d.length/2)]||0;let f=md>0?Math.round(1/md):0;for(const cc of[24,25,30,48,50,60])if(Math.abs(f-cc)<=1.2){f=cc;break;}fn(f);}};
-  setTimeout(()=>fn(0),2500); v.muted=true; v.play().then(()=>v.requestVideoFrameCallback(onf)).catch(()=>fn(0)); }
+   if(n<10)v.requestVideoFrameCallback(onf);else{v.pause();v.currentTime=0;fn(calc(d));}};
+  const mpx=Math.max(1,(v.videoWidth*v.videoHeight)/1e6), plazo=Math.min(8000,Math.round(2500+mpx*800));
+  setTimeout(()=>{ try{v.pause();}catch(_){ } fn(calc(d)); },plazo); // al vencer, se usa lo medido hasta ahora
+  v.muted=true; v.play().then(()=>v.requestVideoFrameCallback(onf)).catch(()=>fn(0)); }
 /* proxies — persistent DISK cache (R78): the proxy MP4 streams to userData/proxies while encoding
    (RAM stays flat regardless of clip length — the old in-memory target held ~12Mbps × duration, multi-GB
    for long clips) and is REUSED across sessions/projects (keyed by source path+size → reopening a project
@@ -2920,7 +2935,11 @@ async function armMediaAudio(m){
   try{
     const st=await DSP.stat(m.path); if(!st||!st.size||st.size>LINK_MAX_BYTES){ m._audioBusy=false; return false; }
     const ab=await (await fetch(DSP.toFileURL(m.path))).arrayBuffer();
-    const buf=await new Promise((res,rej)=>ACTX().decodeAudioData(ab,res,rej));
+    /* [R241] `decodeAudioData` atiende los callbacks Y ADEMÁS devuelve una promesa: el `rej` de aquí abajo captura
+       el error, pero la promesa que devuelve queda sin dueño y sale como rechazo NO CAPTURADO. Con un clip sin
+       pista de audio —los nueve de la prueba de estrés lo son— eso es un «Unable to decode audio data» por clip en
+       la consola, para un caso que el `catch` de abajo ya trata como normal. Mismo remedio que el export en R240·7419. */
+    const buf=await new Promise((res,rej)=>{ const pr=ACTX().decodeAudioData(ab,res,rej); if(pr&&pr.catch)pr.catch(()=>{}); });
     if(!buf||!buf.length){ m._noAudio=true; m._audioBusy=false; return false; }
     m.buffer=buf; const wv=await computeWave(buf); m.peaks=wv.peak; m.rms=wv.rms;
     m._audioBusy=false; return true;

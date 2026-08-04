@@ -23,8 +23,14 @@
       las 33 tienen función detrás**; dispararlos todos no produce ni un error. ⌘D duplica, `0` alterna
       desactivado y ⌘C llena el portapapeles. Se buscaba la clase de fallo que ya se dio una vez aquí ([R92-T5]:
       la paleta prometía `+`/`−` de zoom que no existían) — **no hay ninguno vivo**.
-- [ ] **Lo único que no se puede simular: la prueba de estrés tipo show** (8-10 clips 4K/8K + sala completa) para
-      ejercer de verdad calidad de preview, render-ahead y VRAM. Necesita medios reales y la máquina con la RTX.
+- [x] ~~**Lo único que no se puede simular: la prueba de estrés tipo show.**~~ **CORRIDA en R241** con la sala real de
+      Beltrán (7196×912) y nueve clips HEVC 7196×912 @60fps de hasta 410 Mbps, sobre el **`.exe`** y verificando por
+      `WEBGL_debug_renderer_info` que estaba en la **RTX 4060**. Aguanta de sobra: 4 capas simultáneas a **60,2 fps
+      sostenidos**, 0,05 ms de GPU por render, 25 MB de composite, memoria plana, sin perder el contexto.
+      **El cuello es el scrub sin proxy: 1148 ms de mediana frente a 8 ms con proxy (143×).** Y aparecieron dos
+      bugs reales que sólo salen con material así: `detectFps` dejaba los NUEVE clips a 30 fps siendo de 60 (y con
+      ello los proxies a media tasa), y cada clip sin pista de audio dejaba un rechazo de promesa sin capturar.
+      Los dos arreglados y verificados; los nueve proxies regenerados a 60/1.
 
 ## 🔧 Tanda de Beltrán — 2026-08-04 (cuatro ajustes de uso diario) · CERRADA EN CÓDIGO ✅ [R239 + R239b]
 > Verificada por CDP en dev (`scratchpad/r239-diag.mjs` para el estado ANTES, `r239-verify.mjs` y
