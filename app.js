@@ -759,7 +759,15 @@ function clearKf(c,p){ if(c.kf)delete c.kf[p]; }
    into the editable value. Driven by absolute timeline time → deterministic and correct in export; a live-preview clock
    advances it in the paused editor so the composition visibly "breathes". Applies to clips, stills, comps (spin rotates
    the whole dome disc), and tiles. */
-const ANIM_PARAMS=[['spin','Rotate','Girar'],['az','Orbit (azimuth)','Orbitar (azimut)'],['el','Elevation','Elevación'],['size','Size','Tamaño'],['rot','Roll','Balanceo'],['opacity','Opacity','Opacidad']];
+const ANIM_PARAMS=[['spin','Rotate','Girar'],['az','Orbit (azimuth)','Orbitar (azimut)'],['el','Elevation','Elevación'],['size','Size','Tamaño'],['rot','Roll','Balanceo'],['opacity','Opacity','Opacidad'],['fx','Slide ↔ (dome plane)','Deslizar ↔ (plano del domo)'],['fy','Slide ↕ (dome plane)','Deslizar ↕ (plano del domo)']];
+/* [R246] DIENTE DE SIERRA — la forma de onda que le faltaba al motor. `linear` es una rampa que crece sin fin y
+   `wave` va y vuelve; ninguna sirve para un ciclo que se REPITE (nacer en 0, crecer hasta el objetivo, volver a
+   nacer). Con él, N clips desfasados 1/N del ciclo dan un chorro continuo — es lo que sostiene el túnel.
+   `curve` (0-100) dobla la subida: 0 = lineal · 100 = marcadamente exponencial. La exponencial es la que da
+   PERSPECTIVA de verdad: a velocidad constante hacia el ojo, el radio aparente se multiplica con el tiempo, no
+   se suma, así que los elementos se ven juntos al fondo y se separan al acercarse. */
+const _frac=x=>x-Math.floor(x);
+function sawShape(f,curve){ const K=1+Math.max(0,Math.min(100,curve||0))*0.19; return (K<=1.0001)?f:((Math.pow(K,f)-1)/(K-1)); }
 const ANIM_PRESETS=[
   {key:'spin',   param:'spin', mode:'linear', speed:30,  amp:0,  label:['Spin','Girar']},
   {key:'orbit',  param:'az',   mode:'linear', speed:24,  amp:0,  label:['Orbit','Orbitar']},
@@ -806,10 +814,12 @@ function evalWet(c,a,t){ const key=motKeyFor(a); const cl=v=>Math.max(0,Math.min
   const lt=t-c.start; if(lt<=ks[0].t)return ks[0].v; const last=ks[ks.length-1]; if(lt>=last.t)return last.v;
   for(let i=0;i<ks.length-1;i++) if(lt>=ks[i].t&&lt<=ks[i+1].t){ const f=easeF((lt-ks[i].t)/((ks[i+1].t-ks[i].t)||1),ks[i].e||'linear'); return ks[i].v+(ks[i+1].v-ks[i].v)*f; }
   return base; }
-function animOffset(c,p,t){ let o=0; const at=animTime(t);
+function animOffset(c,p,t){ if(!c||!c.anim||!c.anim.length)return 0; let o=0; const at=animTime(t);
   for(const a of c.anim){ if(!a.on||a.param!==p)continue;
     const w=Math.max(0,Math.min(1,evalWet(c,a,t))); if(w<=0)continue;
-    const v=(a.mode==='wave') ? (a.amp||0)*Math.sin(6.283185307*((a.speed||0)*at+(a.phase||0))) : (a.speed||0)*at;
+    const v=(a.mode==='wave') ? (a.amp||0)*Math.sin(6.283185307*((a.speed||0)*at+(a.phase||0)))
+          : (a.mode==='saw')  ? (a.amp||0)*sawShape(_frac((a.speed||0)*at+(a.phase||0)),a.curve) // [R246] ciclo que se repite solo
+          : (a.speed||0)*at;
     o+=v*w; }
   return o; }
 /* render-time evaluator = base (keyframe/props) + procedural offset. Used ONLY by the renderer so editing/keyframing stays on the base value. */
@@ -1028,6 +1038,17 @@ function drawClip(c,m,t,xf){
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, c.maskTex||m.tex); gl.uniform1i(LFD.maskTex,1);
     const bm0=c.props.blend||'normal'; setBlend(bm0); gl.uniform1f(LFD.premul,(bm0==='screen'||bm0==='multiply')?1:0); gl.uniform1f(LFD.blend,BLEND_ID[bm0]||0); gl.drawArrays(gl.TRIANGLES,0,6); if(bm0!=='normal')NORMAL_BLEND(); gl.bindVertexArray(null); return; }
   { const p=((el%180)+180)%180; el=(p<=90)?p:(180-p); if(p>90)az+=180; } // diameter wrap: a linear 'el' scroll rises over the zenith and descends the far side, reappearing at the opposite dome edge (infinite strip). Identity for normal el∈[0,90].
+  /* [R246] DESPLAZAMIENTO EN EL PLANO DEL OJO DE PEZ (`fx`/`fy`), con ENVOLTURA. Azimut y elevación mueven en
+     coordenadas de la esfera: recorrer una banda RECTA que no pase por el cenit cambia las dos a la vez y de
+     forma no lineal, así que con los parámetros de siempre no se puede expresar. Aquí el clip se lleva al plano
+     del disco (el mismo que ve el espectador), se desplaza y se envuelve en [-1,1] por cada eje: sale por un
+     borde y entra por el opuesto, que es la «textura infinita» de una rejilla. Los dos ejes envuelven POR
+     SEPARADO, lo cual es exacto para bandas horizontales y verticales (el caso del tejido) — en diagonal la
+     envoltura sería un salto feo, y por eso las bandas van a 0° y 90°.
+     Fuera de esos dos parámetros esto no cuesta nada: `animOffset` sale por la puerta con `c.anim` vacío. */
+  if(c.anim&&c.anim.length){ const fdx=animOffset(c,'fx',t), fdy=animOffset(c,'fy',t);
+    if(fdx||fdy){ const P=azel2f(az,el); const w=x=>{ let v=(x+1)%2; if(v<0)v+=2; return v-1; };
+      const q=f2azel(w(P[0]+fdx), w(P[1]+fdy)); az=q.az; el=q.el; } }
   const fr=frame(az,el); const ax=(size*0.5)*D2R, ay=ax*(m.h/m.w);
   const rot=(evalR(c,'rot',t)||0)*D2R, cr=Math.cos(rot), sr=Math.sin(rot);
   const U=[fr.u[0]*cr+fr.v[0]*sr,fr.u[1]*cr+fr.v[1]*sr,fr.u[2]*cr+fr.v[2]*sr];
@@ -1073,11 +1094,21 @@ function compositeClips(t){ const anySolo=state.lanes.some(l=>l.kind==='video'&&
    `gl.clear` IGNORA el viewport (respeta la tijera, que aquí está apagada), así que el borrado sigue cubriendo
    la textura completa en los dos casos. */
 let _compTgtW=COMP,_compTgtH=COMP,_compFill=false; // dimensiones REALES del destino del composite en curso (las lee drawAdjustment)
+/* [R246] Orden de dibujo POR PROFUNDIDAD, sólo mientras se compone un túnel. El orden de pistas es fijo y aquí no
+   sirve: los anillos CICLAN — el que ahora es el más viejo vuelve a nacer y pasa a ser el más nuevo—, así que el
+   ranking por cercanía rota con el tiempo y ninguna asignación fija de pistas lo puede expresar. Se ordena por el
+   `size` evaluado en ESE instante (que en una fuente fulldome es la distancia: más grande = más cerca) y se dibuja
+   de menor a mayor, de modo que el más viejo queda SIEMPRE delante y los que nacen aparecen por detrás. Es lo que
+   hace que un anillo con alfa se superponga a los del fondo en vez de ser tapado por ellos.
+   Fuera del túnel la bandera está apagada y esto no cuesta ni una comparación. */
+let _zsortSize=false;
 function composite(t,size,opaque,fill){
   const w=fill?compW:size, h=fill?compH:size; _compTgtW=w; _compTgtH=h; _compFill=!!fill;
   if(fill){ const V=compFillVp(); gl.viewport(V.x,V.y,V.w,V.h); } else gl.viewport(0,0,w,h);
   gl.clearColor(0,0,0,opaque?1:0); gl.clear(gl.COLOR_BUFFER_BIT);
-  for(const x of compositeClips(t)){ if(x.c.adjust) drawAdjustment(x.c,t,x.xf); else drawClip(x.c,mediaById(x.c.mediaId),t,x.xf); }
+  let lista=compositeClips(t);
+  if(_zsortSize&&lista.length>1) lista=lista.slice().sort((a,b)=>(evalR(a.c,'size',t)||0)-(evalR(b.c,'size',t)||0));
+  for(const x of lista){ if(x.c.adjust) drawAdjustment(x.c,t,x.xf); else drawClip(x.c,mediaById(x.c.mediaId),t,x.xf); }
 }
 
 /* ===================== RENDER ===================== */
@@ -1196,7 +1227,7 @@ function prepNests(clips,t,depth){ if(!depth)_nestN=0; if((depth||0)>5||!clips)r
         (vi.loadP||Promise.resolve()).then(()=>vinstSeek(c,m,lt)).then(()=>{ if(!state.playing&&!exporting)render(); },()=>{}); }
       continue; }
     prepNests(m.nestClips,lt,(depth||0)+1);
-    const e=nestSlot(); const oc=state.clips,ol=state.lanes,odf=_drawFlat,oca=_compAspect,orw=_roomWrap; state.clips=m.nestClips||[]; state.lanes=(m.nestLanes&&m.nestLanes.length?m.nestLanes:ol); _drawFlat=flatLikeMode(m.mode); _roomWrap=false; _compAspect=(m.w||1)/(m.h||1); gl.bindFramebuffer(gl.FRAMEBUFFER,e.fbo); composite(lt,nestSize,false); gl.bindFramebuffer(gl.FRAMEBUFFER,null); state.clips=oc; state.lanes=ol; _drawFlat=odf; _roomWrap=orw; _compAspect=oca; c._ntex=e.tex; } }
+    const e=nestSlot(); const oc=state.clips,ol=state.lanes,odf=_drawFlat,oca=_compAspect,orw=_roomWrap,ozs=_zsortSize; state.clips=m.nestClips||[]; state.lanes=(m.nestLanes&&m.nestLanes.length?m.nestLanes:ol); _drawFlat=flatLikeMode(m.mode); _roomWrap=false; _compAspect=(m.w||1)/(m.h||1); _zsortSize=!!(m.comp&&m.comp.kind==='tunnel'); /* [R246] el túnel se dibuja de lejos a cerca (ver composite) */ gl.bindFramebuffer(gl.FRAMEBUFFER,e.fbo); composite(lt,nestSize,false); gl.bindFramebuffer(gl.FRAMEBUFFER,null); state.clips=oc; state.lanes=ol; _drawFlat=odf; _roomWrap=orw; _compAspect=oca; _zsortSize=ozs; c._ntex=e.tex; } }
 /* active video media at time t, descending into active nests (local-time-adjusted), deduped by media — so playback/scrub drive videos INSIDE nests, not just top-level clips. */
 function collectActiveVideos(clips,lanes,t,depth,out,seen){ out=out||[]; seen=seen||new Set(); if((depth||0)>5||!clips||!lanes)return out;
   for(let li=0;li<lanes.length;li++){ let best=null; for(const c of clips){ if(c.lane===li && t>=c.start && t<c.start+c.dur && !isNestAudioClip(c)) best=c; } if(!best)continue; // [R225·9] el derivado no aporta imagen: no hace falta pilotar los vídeos de dentro por él (su mitad de vídeo ya lo hace)
@@ -10931,7 +10962,7 @@ function openPrefs(){ closeMenu(); const ov=document.createElement('div'); ov.cl
   $('#prefClose').onclick=()=>ov.remove(); ov.addEventListener('pointerdown',e=>{if(e.target===ov)ov.remove();}); }
 
 /* ===================== COMPOSITION GROUPS (ring / grid / random) ===================== */
-const kindES=k=>T({ring:'ring',grid:'grid',random:'random',spiral:'spiral',phyllo:'sunflower',wave:'wave',fib:'dome scatter',line:'line',domegrid:'dome fill',row:'row',col:'column'}[k]||k,{ring:'anillo',grid:'cuadrícula',random:'aleatorio',spiral:'espiral',phyllo:'girasol',wave:'onda',fib:'esparcido',line:'línea',domegrid:'relleno',row:'fila',col:'columna'}[k]||k);
+const kindES=k=>T({ring:'ring',grid:'grid',random:'random',spiral:'spiral',phyllo:'sunflower',wave:'wave',fib:'dome scatter',line:'line',domegrid:'dome fill',row:'row',col:'column',tunnel:'tunnel'}[k]||k,{ring:'anillo',grid:'cuadrícula',random:'aleatorio',spiral:'espiral',phyllo:'girasol',wave:'onda',fib:'esparcido',line:'línea',domegrid:'relleno',row:'fila',col:'columna',tunnel:'túnel'}[k]||k);
 const FLAT_COMP_KINDS=['grid','row','col','random']; // flat/room compositions use x/y/scale, not dome az/el
 /* flat/room composition layout → {x,y,scale} in % (x/y −100..100). g.infinite (room) spreads across the FULL strip so it tiles seamlessly. */
 function compLayoutFlat(g){ const out=[],n=Math.max(1,g.count); const inf=!!g.infinite; const xSpan=inf?200:150, xL=-xSpan/2, sc=g.size;
@@ -10967,6 +10998,16 @@ function compLayout(g){ const out=[],n=g.count;
       for(let s=0;s<segs;s++){ out.push({az:((g.spin||0)+azOff+s*360/segs)%360, el:elC, size:g.size, _secAz:secAz, _secEl:secEl}); } } }
   else if(g.kind==='line'){ for(let i=0;i<n;i++){ const f=n>1?i/(n-1):0.5; const s=f*2-1; // -1..+1 across the FULL dome diameter (edge → zenith → opposite edge) — always full width
       out.push({az:((g.spin||0)+(s<0?180:0)+360)%360, el:Math.max(0.5,Math.min(90, 90*(1-Math.abs(s)))), size:g.size}); } }
+  /* [R246] TÚNEL. Cada elemento es una fuente FULLDOME —una imagen 1:1 CON ALFA, que Beltrán dibuja aparte—, así
+     que az/el NO lo colocan: el clip ocupa el disco entero y `Size` actúa de zoom cenital (`size/55` = 1:1).
+     Nacer pequeño y crecer hasta salirse por la periferia es el elemento acercándose al espectador.
+     **La forma no importa y aquí no se asume ninguna:** un anillo da un túnel legible, pero cualquier repartición
+     de alfa (huecos, tramas, siluetas) sirve y da resultados muy distintos — es el material de Beltrán el que
+     decide, no esta función.
+     La posición en el CICLO la lleva `_phase` = i/n, que se traduce a un diente de sierra desfasado — de ahí el
+     chorro continuo. `twist` reparte además un giro por elemento, para que uno no se vea calcado del anterior. */
+  else if(g.kind==='tunnel'){ const twist=(g.twist||0); for(let i=0;i<n;i++){ const f=n>1?i/n:0;
+      out.push({az:(((g.spin||0)+f*twist)%360+360)%360, el:90, size:Math.max(1,g.sizeFrom||1), _phase:f}); } }
   else { ensureRand(g); for(let i=0;i<n;i++){ const a=g.rand[i]; out.push({az:(a.a*360+g.spin)%360, el:g.elMin+(g.elMax-g.elMin)*a.e, size:g.size*(0.7+0.6*a.s)}); } }
   // R88: RANDOMIZE overlay — works on ANY structured mode (not the seamless dome-grid/tiled sectors, not the already-random scatter): jitter each element's az/el/size by g.jitter%
   if(g.jitter>0 && g.kind!=='domegrid' && g.kind!=='random' && !g.tile){ ensureRand(g); const J=g.jitter/100; // !g.tile: jittering seamless mosaic sectors would open seams (R88 audit)
@@ -10975,8 +11016,24 @@ function compLayout(g){ const out=[],n=g.count;
       out[i].el=Math.max(0,Math.min(90,out[i].el+(a.e*2-1)*30*J));
       out[i].size=Math.max(3,out[i].size*(1+(a.s*2-1)*0.6*J)); } }
   return out; }
+/* [R246] El movimiento del TÚNEL, estampado en cada elemento. Dos modificadores:
+   · `size` en diente de sierra — de `sizeFrom` a `sizeTo`, con la curva de perspectiva, desfasado `phase`=i/n
+     para que el chorro sea continuo en vez de que todos los anillos crezcan a la vez.
+   · `opacity` en seno a la MISMA velocidad y desfase −¼ de ciclo — que es exactamente un fundido de entrada en la
+     primera mitad del viaje y de salida en la segunda (0 al nacer, 100 a mitad, 0 al salir). Por eso la opacidad
+     BASE del anillo es 50 cuando el fundido está activo: 50 ± 50 recorre el rango entero.
+   Las dos comparten reloj, así que no hay forma de que se desincronicen. */
+function compTunnelAnim(g,phase){
+  const spd=Math.max(0.001,(g.speed!=null?g.speed:0.12));                    // ciclos por segundo
+  const from=Math.max(1,g.sizeFrom||1), to=Math.max(from+1,(g.sizeTo!=null?g.sizeTo:200));
+  const an=[{id:uid(),param:'size',mode:'saw',speed:spd,amp:(to-from),phase,curve:(g.curve!=null?g.curve:60),on:true}];
+  if(g.fade!==false) an.push({id:uid(),param:'opacity',mode:'wave',speed:spd,amp:50,phase:phase-0.25,on:true});
+  return an; }
 /* props for one composed element. With g.tile, the element is an annular SECTOR (dome-tile) sized to seamlessly tile its ring/grid cell — perfect rings, no diagonal overlap. */
 function compElProps(g,p){ if(p.x!=null){ return { x:Math.round(p.x*10)/10, y:Math.round(p.y*10)/10, scale:Math.round(p.scale), rot:0, mask:g.mask||'none' }; } // flat/room element: x/y/scale
+  /* [R246] El túnel marca la fuente como FULLDOME: la imagen 1:1 del anillo se dibuja en el disco entero (sin el
+     parche gnomónico) y `Size` pasa a ser el zoom cenital que la hace crecer desde el centro. */
+  if(p._phase!=null) return { az:Math.round(p.az), el:90, size:Math.round(p.size), fulldome:true, mask:'none', opacity:(g.fade!==false)?50:100 }; // opacidad base 50 = centro del seno del fundido (ver compTunnelAnim)
   const noWarp=!!g.noWarp; // [N5] Dome Fill "flat tiles": place undeformed patches at the ring/segment centres instead of warped annular sectors
   const dome=(!noWarp&&p._secAz!=null)||(!noWarp&&g.tile&&(g.kind==='ring'||g.kind==='grid'));
   const pr={az:dome?p.az:Math.round(p.az), el:dome?p.el:Math.round(p.el), size:Math.round(p.size), mask:g.mask||'none'}; // keep centers EXACT in dome mode so adjacent sectors tile with no seam
@@ -11034,6 +11091,7 @@ function createComposition(opts){ pushUndo();
   ensureCompOrder(g,lay.length,srcs.length);
   const nestClips=lay.map((p,i)=>{ const src=srcs[compMediaIndex(g,i,srcs.length)]; const layP=compElProps(g,p); const c=makeClip(src,i,0,layP,{name:src.name+' ['+(i+1)+']',color:CLIP_COLORS[i%CLIP_COLORS.length]}); c.dur=dur; c.slot=i; c._layBase={...layP}; if(scope){ c.inP=scope.inP||0; if(scope.speed&&scope.speed!==1)c.speed=scope.speed; } return c; }); // [N4] _layBase = the layout baseline so later recomposes preserve the user's manual delta
   if(!flat && g.kind==='line'&&g.scroll) for(const cc of nestClips) cc.anim=[{id:uid(),param:'el',mode:'linear',speed:(g.scrollSpeed!=null?g.scrollSpeed:20),amp:0,phase:0,on:true}]; // dome infinite strip: scroll along the diameter (wrap makes it reappear)
+  if(!flat && g.kind==='tunnel') nestClips.forEach((cc,i)=>{ cc.anim=compTunnelAnim(g,(lay[i]&&lay[i]._phase)||0); }); // [R246] cada anillo con su desfase en el ciclo
   if(flat && g.infinite) for(const cc of nestClips) cc.anim=[{id:uid(),param:'x',mode:'linear',speed:(g.scrollSpeed!=null?g.scrollSpeed:12),amp:0,phase:0,on:true}]; // 360 infinite extension: scroll horizontally (room wrap makes it seamless)
   const ncount=state.media.filter(m=>m.kind==='nest').length;
   const nest=newSeqMedia(cap(kindES(g.kind))+(ncount?' '+(ncount+1):''), state.fps, state.seqW, state.seqH, nestClips, nestLanes, compMode); nest.dur=dur; nest.comp=g;
@@ -11060,6 +11118,7 @@ function regenComposeNest(m){ if(!m||!m.comp)return false; const g=m.comp; const
       ex._layBase={...layP}; ex.lane=i; ex.slot=i; ex.dur=dur; if(g.scopeInP!=null)ex.inP=g.scopeInP; if(g.scopeSpeed)ex.speed=g.scopeSpeed; return ex; }
     const c=makeClip(src,i,0,layP,{name:src.name+' ['+(i+1)+']',color:CLIP_COLORS[i%CLIP_COLORS.length]}); c.dur=dur; c.slot=i; c._layBase={...layP}; if(g.scopeInP!=null)c.inP=g.scopeInP; if(g.scopeSpeed)c.speed=g.scopeSpeed; return c; }); // R88: re-apply the persisted cut in-point (don't revert to the source's frame 0)
   if(!flat && g.kind==='line'&&g.scroll) for(const cc of m.nestClips) cc.anim=[{id:uid(),param:'el',mode:'linear',speed:(g.scrollSpeed!=null?g.scrollSpeed:20),amp:0,phase:0,on:true}]; // dome infinite strip scroll
+  if(!flat && g.kind==='tunnel') m.nestClips.forEach((cc,i)=>{ cc.anim=compTunnelAnim(g,(lay[i]&&lay[i]._phase)||0); }); // [R246] al recomponer, el desfase se rehace: es geometría del túnel, no un retoque del usuario
   if(flat && g.infinite) for(const cc of m.nestClips) cc.anim=[{id:uid(),param:'x',mode:'linear',speed:(g.scrollSpeed!=null?g.scrollSpeed:12),amp:0,phase:0,on:true}]; // 360 infinite extension scroll
   m.dur=dur; if(m.id===state.activeSeqId)loadSeqIntoState(m); raInvalidate(); return true; }
 /* dome schematic: plot the composition's elements on a fisheye disc (front=bottom, right=right) so you can see what the layout will do */
@@ -11089,6 +11148,20 @@ function drawComposePreview(g,canvas){ if(!canvas)return; const x=canvas.getCont
       x.globalAlpha=0.9; x.fillStyle=CLIP_COLORS[i%CLIP_COLORS.length]; x.fill(); x.globalAlpha=1; x.lineWidth=0.6; x.strokeStyle='rgba(0,0,0,0.55)'; x.stroke();
       const am=(a0+a1)/2, rm=(rIn+rOut)/2; if(rOut-rIn>11){ x.fillStyle=textOn(CLIP_COLORS[i%CLIP_COLORS.length]); x.font='700 11px Inter'; x.textAlign='center'; x.textBaseline='middle'; x.fillText(String(i+1), cx+rm*Math.sin(am), cy+rm*Math.cos(am)); } });
     x.globalAlpha=1; return; }
+  /* [R246] TÚNEL: los elementos no se reparten por el disco —todos ocupan el disco entero— así que dibujar puntos
+     por az/el no diría nada. Se dibuja lo que de verdad se va a ver: un anillo por elemento, con el radio que le
+     toca en SU instante del ciclo (la misma curva de perspectiva que usa el motor), y la opacidad del fundido.
+     Así la vista previa enseña el reparto en profundidad, que es lo que se está ajustando. */
+  if(g.kind==='tunnel'){ const from=Math.max(1,g.sizeFrom||1), to=Math.max(from+1,(g.sizeTo!=null?g.sizeTo:200));
+    const fade=(g.fade!==false), curve=(g.curve!=null?g.curve:60);
+    const ord=lay.map((p,i)=>({p,i})).sort((a,b)=>(a.p._phase||0)-(b.p._phase||0)); // de lejos a cerca, como en el render
+    ord.forEach(({p,i})=>{ const f=p._phase||0; const sz=from+(to-from)*sawShape(f,curve);
+      const r=R*(sz/55)*0.5; if(r<1.5)return;                       // size/55 = 1:1 en el shader; 55 llena el disco
+      x.globalAlpha=fade?Math.max(0.06,Math.sin(Math.PI*f)):0.92;   // seno del fundido: 0 al nacer, 1 a mitad, 0 al salir
+      x.strokeStyle=CLIP_COLORS[i%CLIP_COLORS.length]; x.lineWidth=Math.max(1.5,R*0.055);
+      x.beginPath(); x.arc(cx,cy,Math.min(r,R*1.25),0,7); x.stroke();
+      if(r<R*0.98&&r>R*0.16){ x.globalAlpha=1; x.fillStyle=CLIP_COLORS[i%CLIP_COLORS.length]; x.font='700 10px Inter'; x.textAlign='center'; x.textBaseline='middle'; x.fillText(String(i+1),cx,cy-r); } });
+    x.globalAlpha=1; return; }
   lay.forEach((p,i)=>{ const r=R*Math.max(0,Math.min(1,(90-p.el)/90)), a=p.az*D2R; const px=cx+r*Math.sin(a), py=cy+r*Math.cos(a); const sz=Math.max(5,Math.min(R*0.9,R*(p.size/170)));
     x.globalAlpha=0.92; x.fillStyle=CLIP_COLORS[i%CLIP_COLORS.length]; x.strokeStyle='rgba(0,0,0,0.55)'; x.lineWidth=1; x.beginPath(); x.arc(px,py,sz/2,0,7); x.fill(); x.stroke();
     x.globalAlpha=1; x.fillStyle=textOn(CLIP_COLORS[i%CLIP_COLORS.length]); x.font='700 11px Inter'; x.textAlign='center'; x.textBaseline='middle'; if(sz>=11)x.fillText(String(i+1),px,py); });
@@ -11108,7 +11181,7 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){ const
   let kind=(pre&&pre.kind)||initialKind||(_flatComp?'grid':'ring'); if(_flatComp&&!FLAT_COMP_KINDS.includes(kind))kind='grid';
   let _infinite=(pre&&pre.infinite)||false; const ov=document.createElement('div'); ov.className='overlay'; ov.id='compOv';
   const cap=s=>s.charAt(0).toUpperCase()+s.slice(1);
-  const seg=()=>(_flatComp?FLAT_COMP_KINDS:['ring','domegrid','grid','spiral','phyllo','wave','fib','line','random']).map(k=>`<button data-k="${k}" class="${k===kind?'on':''}">${cap(kindES(k))}</button>`).join('');
+  const seg=()=>(_flatComp?FLAT_COMP_KINDS:['ring','domegrid','grid','spiral','phyllo','wave','fib','line','tunnel','random']).map(k=>`<button data-k="${k}" class="${k===kind?'on':''}">${cap(kindES(k))}</button>`).join('');
   ov.innerHTML=`<div class="modal" style="width:648px;"><div class="mh"><span style="color:var(--ink-2);display:flex;">${ICO('ring',16)}</span><span class="t">${T('Create composition','Crear composición')}</span></div><div class="mb">
    <div style="display:flex;gap:16px;align-items:stretch;">
     <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;height:420px;overflow-y:auto;">
@@ -11135,6 +11208,14 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){ const
     <div class="frow"><label>${T('Mask','Máscara')}</label><select id="cMask"><option value="none">${T('None','Ninguna')}</option><option value="circle">${T('Circle (alpha)','Círculo (alfa)')}</option><option value="rounded">${T('Rounded','Redondeada')}</option><option value="diamond">${T('Diamond','Rombo')}</option><option value="vignette">${T('Vignette','Viñeta')}</option></select></div>
     <div class="frow" data-only="tile"><label>${T('Tile','Mosaico')}</label><label style="display:flex;align-items:center;gap:6px;flex:1;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="cTile"> ${T('Seamless dome tiling (perfect ring)','Mosaico continuo del domo (anillo perfecto)')}</label></div>
     <div class="frow" data-only="tileband"><label>${T('Band','Banda')}</label><input type="number" class="tnum" id="cBand" value="30" min="4" max="90"><span class="tnum" style="color:var(--ink-dim);">°</span></div>
+    <!-- [R246] TÚNEL: las fuentes son imágenes 1:1 (anillos con alfa) tratadas como máster de domo; crecen desde el
+         centro hasta salirse por la periferia, desfasadas para que el chorro no tenga huecos. -->
+    <div class="frow" data-only="tunnel"><label>${T('From → to','De → a')}</label><input type="number" class="tnum" id="cTFrom" value="1" min="1" max="300" style="width:64px;"><span class="tnum" style="color:var(--ink-dim);">→</span><input type="number" class="tnum" id="cTTo" value="200" min="10" max="400" style="width:64px;"><span class="tnum" style="color:var(--ink-dim);">${T('size','tamaño')}</span></div>
+    <div class="frow" data-only="tunnel"><label>${T('Speed','Velocidad')}</label><input type="range" id="cTSpeed" min="1" max="120" value="12" style="flex:1;height:20px;"><span class="tnum" id="cTSpeedV" style="width:52px;text-align:right;color:var(--ink-2);">0.12/s</span></div>
+    <div class="frow" data-only="tunnel"><label>${T('Depth','Profundidad')}</label><input type="range" id="cTCurve" min="0" max="100" value="60" style="flex:1;height:20px;"><span class="tnum" id="cTCurveV" style="width:52px;text-align:right;color:var(--ink-2);">60%</span></div>
+    <div class="frow" data-only="tunnel"><label></label><span class="tnum" style="color:var(--ink-dim);font-size:10px;line-height:1.4;">${T('0 = constant speed · 100 = strong perspective (elements bunch up in the distance)','0 = velocidad constante · 100 = perspectiva marcada (los elementos se agolpan al fondo)')}</span></div>
+    <div class="frow" data-only="tunnel"><label>${T('Twist','Giro')}</label><input type="number" class="tnum" id="cTTwist" value="0" min="0" max="360"><span class="tnum" style="color:var(--ink-dim);">°</span></div>
+    <div class="frow" data-only="tunnel"><label>${T('Fade','Fundido')}</label><label style="display:flex;align-items:center;gap:6px;flex:1;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="cTFade" checked> ${T('Fade in as it appears, out as it passes','Entra fundiendo y sale fundiendo')}</label></div>
     </div>
     <div style="width:236px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:8px;border-left:.5px solid rgba(255,255,255,0.09);padding-left:14px;">
       <span class="lab" style="width:auto;align-self:flex-start;color:var(--ink-2);font-size:11px;">${T('Preview','Vista previa')}</span>
@@ -11146,7 +11227,10 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){ const
   const checkedIds=()=>{ const ids=[...$('#cMedia').querySelectorAll('input:checked')].map(i=>+i.value); if(!ids.length){ const f=$('#cMedia').querySelector('input'); if(f)ids.push(+f.value); } return ids; };
   let _jit=(pre&&pre.jitter)||0, _rand=(pre&&pre.rand)?pre.rand.slice():[]; // R88: element-position randomize (jitter% + persisted seeds)
   const readForm=()=>{ const ids=checkedIds(); const rings=+($('#cRings')?$('#cRings').value:3)||3, segs=+($('#cSegs')?$('#cSegs').value:8)||8;
-    return { id:(pre&&pre.id)||0, kind, mediaIds:ids, mediaId:ids[0], count:kind==='domegrid'?Math.min(160,rings*segs):Math.max(2,Math.min(32,+$('#cN').value||6)), cols:+$('#cCols').value||3, arc:+$('#cArc').value||140, el:+$('#cEl').value||30, elMin:+$('#cElMin').value||10, elMax:+$('#cElMax').value||60, size:+$('#cSize').value||40, turns:+($('#cTurns')?$('#cTurns').value:3)||3, lineRot:$('#cLineRot')?$('#cLineRot').checked:true, tile:$('#cTile')?$('#cTile').checked:false, band:+($('#cBand')?$('#cBand').value:30)||30, rings, segs, gapEl:+($('#cGapEl')?$('#cGapEl').value:0)||0, gapAz:+($('#cGapAz')?$('#cGapAz').value:0)||0, brick:$('#cBrick')?$('#cBrick').checked:false, shuffle:$('#cShuffle')?$('#cShuffle').checked:false, mask:$('#cMask').value, spin:(pre&&pre.spin)||0, rand:_rand, jitter:_jit, noWarp:$('#cNoWarp')?$('#cNoWarp').checked:false, infinite:($('#cInfinite')?$('#cInfinite').checked:_infinite) }; };
+    return { id:(pre&&pre.id)||0, kind, mediaIds:ids, mediaId:ids[0], count:kind==='domegrid'?Math.min(160,rings*segs):Math.max(2,Math.min(32,+$('#cN').value||6)), cols:+$('#cCols').value||3, arc:+$('#cArc').value||140, el:+$('#cEl').value||30, elMin:+$('#cElMin').value||10, elMax:+$('#cElMax').value||60, size:+$('#cSize').value||40, turns:+($('#cTurns')?$('#cTurns').value:3)||3, lineRot:$('#cLineRot')?$('#cLineRot').checked:true, tile:$('#cTile')?$('#cTile').checked:false, band:+($('#cBand')?$('#cBand').value:30)||30, rings, segs, gapEl:+($('#cGapEl')?$('#cGapEl').value:0)||0, gapAz:+($('#cGapAz')?$('#cGapAz').value:0)||0, brick:$('#cBrick')?$('#cBrick').checked:false, shuffle:$('#cShuffle')?$('#cShuffle').checked:false, mask:$('#cMask').value, spin:(pre&&pre.spin)||0, rand:_rand, jitter:_jit, noWarp:$('#cNoWarp')?$('#cNoWarp').checked:false, infinite:($('#cInfinite')?$('#cInfinite').checked:_infinite),
+      /* [R246] túnel */ sizeFrom:+($('#cTFrom')?$('#cTFrom').value:1)||1, sizeTo:+($('#cTTo')?$('#cTTo').value:200)||200,
+      speed:(+($('#cTSpeed')?$('#cTSpeed').value:12)||12)/100, curve:+($('#cTCurve')?$('#cTCurve').value:60), twist:+($('#cTTwist')?$('#cTTwist').value:0)||0,
+      fade:($('#cTFade')?$('#cTFade').checked:true) }; };
   let reshuf=false; // "reshuffle" clicked → force a fresh media order on Create/Apply
   { // R88: Randomize row (jitter positions in ANY mode) — injected above the footer
     const jr=document.createElement('div'); jr.className='frow'; jr.style.marginTop='2px';
@@ -11165,13 +11249,26 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){ const
       if(mm==='ring')show=(kind==='ring'); else if(mm==='grid')show=(kind==='grid'); else if(mm==='spiralwave')show=(kind==='spiral'||kind==='wave'); else if(mm==='line')show=(kind==='line');
       else if(mm==='domegrid')show=(kind==='domegrid'); else if(mm==='count')show=(kind!=='domegrid');
       else if(mm==='tile')show=(kind==='ring'||kind==='grid'); else if(mm==='tileband')show=(kind==='ring'&&tile);
-      else if(mm==='gridrand'){ show = (kind!=='ring'&&kind!=='line'); } else if(mm==='flatinf'){ show=false; } else show=false; // elev range = grid/spiral/.../domegrid coverage (line is full-diameter, no range)
-      el.style.display=show?'flex':'none'; }); preview(); };
+      else if(mm==='tunnel')show=(kind==='tunnel'); // [R246]
+      else if(mm==='gridrand'){ show = (kind!=='ring'&&kind!=='line'&&kind!=='tunnel'); } else if(mm==='flatinf'){ show=false; } else show=false; // elev range = grid/spiral/.../domegrid coverage (line is full-diameter, no range)
+      el.style.display=show?'flex':'none'; });
+    /* [R246] En el túnel, el tamaño lo mandan «De → a», así que la fila Size sobra y confundiría; el mosaico y el
+       aleatorizado tampoco aplican a una fuente que ocupa el disco entero. */
+    { const t=(kind==='tunnel'); const sr=$('#cSize')&&$('#cSize').closest('.frow'); if(sr)sr.style.display=t?'none':'flex';
+      const mr=$('#cMask')&&$('#cMask').closest('.frow'); if(mr)mr.style.display=t?'none':'flex';
+      const jr=$('#cJit')&&$('#cJit').closest('.frow'); if(jr)jr.style.display=t?'none':'flex'; }
+    preview(); };
   const domegridDefaults=()=>{ if(kind==='domegrid'&&!pre){ if($('#cElMin'))$('#cElMin').value=0; if($('#cElMax'))$('#cElMax').value=90; } }; // dome fill = whole dome (horizon→zenith) by default → no central black hole
   $('#cKind').querySelectorAll('button').forEach(b=>b.onclick=()=>{ kind=b.dataset.k; domegridDefaults(); $('#cKind').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); sync(); });
   ['#cN','#cTurns','#cCols','#cArc','#cEl','#cElMin','#cElMax','#cSize','#cMask','#cBand','#cRings','#cSegs','#cGapEl','#cGapAz'].forEach(id=>{ const el=ov.querySelector(id); if(el){ el.oninput=preview; el.onchange=preview; } });
   $('#cMedia').addEventListener('change',preview); const lr=$('#cLineRot'); if(lr)lr.onchange=sync; const ct=$('#cTile'); if(ct)ct.onchange=sync; const cb=$('#cBrick'); if(cb)cb.onchange=preview; const cnw=$('#cNoWarp'); if(cnw)cnw.onchange=preview;
   { const csc=$('#cScroll'); if(csc)csc.onchange=preview; const cscs=$('#cScrollSpd'); if(cscs){ cscs.oninput=preview; cscs.onchange=preview; } }
+  /* [R246] mandos del túnel — los dos deslizadores muestran su valor y repintan la vista previa */
+  { const sp=$('#cTSpeed'), spv=$('#cTSpeedV'), cv=$('#cTCurve'), cvv=$('#cTCurveV');
+    if(sp)sp.oninput=()=>{ if(spv)spv.textContent=((+sp.value)/100).toFixed(2)+'/s'; preview(); };
+    if(cv)cv.oninput=()=>{ if(cvv)cvv.textContent=cv.value+'%'; preview(); };
+    ['#cTFrom','#cTTo','#cTTwist'].forEach(id=>{ const el=ov.querySelector(id); if(el){ el.oninput=preview; el.onchange=preview; } });
+    const fd=$('#cTFade'); if(fd)fd.onchange=preview; }
   { const ci=$('#cInfinite'); if(ci){ ci.checked=_infinite; ci.onchange=()=>{ _infinite=ci.checked; preview(); }; } }
   { const cs=$('#cShuffle'); if(cs)cs.onchange=()=>{ reshuf=true; preview(); }; const crs=$('#cReshuffle'); if(crs)crs.onclick=()=>{ reshuf=true; if(pre)pre._orderR=true; if($('#cShuffle'))$('#cShuffle').checked=true; flashStatus(T('Order reshuffled — Apply to see it','Orden rebarajado — Aplica para verlo')); }; }
   if(pre){ $('#cKind').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x.dataset.k===kind));

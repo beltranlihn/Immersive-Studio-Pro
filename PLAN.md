@@ -1,5 +1,85 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 246 — El motor gana dos piezas, y llega el compose TÚNEL
+
+Primera de dos rondas para las herramientas de relleno de domo que pidió Beltrán (la otra es el TEJIDO, R247).
+
+### Por qué compose y no efecto motion — la decisión de arquitectura
+
+Beltrán lo propuso como compose y luego lo dejó abierto: *«quizás no es un compose, sino un tipo de efecto
+motion»*. Lo que decide es su propia frase siguiente: **«quiero armarlo con varios clips en conjunto»**. Un efecto
+motion es *por clip* y no sabe que existen los demás; lo que define a estas dos herramientas no es cómo se mueve
+UN elemento, sino **la relación entre ellos** — que los elementos vayan desfasados 1/N del ciclo para que el
+chorro no tenga huecos. Esa repartición es exactamente lo que hace un compose, y de paso hereda la vista previa
+en vivo, el «Regenerar» que conserva los retoques manuales y el resultado como **un nido**: un solo clip en la
+línea de tiempo, con su fundido, su automatización y anidable dentro de otra composición.
+
+**Pero las piezas nuevas van al MOTOR, no dentro del compose**, así que quedan disponibles sueltas para cualquier
+clip a mano. El compose sólo las estampa — igual que el tipo `line` lleva estampando su scroll desde siempre.
+
+### Pieza 1 · Diente de sierra (`mode:'saw'`)
+
+Al motor le faltaba la forma de onda del ciclo que se repite: `linear` es una rampa que crece sin fin y `wave` va
+y vuelve. `saw` va de 0 al tope y **vuelve a nacer**, para siempre. Con N clips desfasados 1/N se obtiene un
+chorro continuo.
+
+Trae un mando de **curva** (0-100) que dobla la subida, y no es un adorno: a velocidad constante hacia el ojo, el
+radio aparente **se multiplica** con el tiempo, no se suma, así que sólo la subida exponencial se lee como
+profundidad real — los elementos se agolpan al fondo y se separan al acercarse. Medido con curva 100 y amplitud
+100: `0 → 5,9 → 18,3 → 44,5 → 100`, con cada tramo mayor que el anterior (frente al `0-25-50-75` lineal).
+
+### Pieza 2 · Deslizar en el plano del ojo de pez (`fx`/`fy`)
+
+Azimut y elevación mueven en coordenadas de la ESFERA: recorrer una banda recta que no pase por el cenit cambia
+las dos a la vez y de forma no lineal, así que con los parámetros de siempre **no se puede expresar**. Los dos
+nuevos llevan el clip al plano del disco —el mismo que ve el espectador—, lo desplazan y lo **envuelven** en
+[-1,1] por cada eje: sale por un borde y entra por el opuesto. Los ejes envuelven por separado, que es exacto
+para bandas horizontales y verticales (el caso del tejido) y por eso las bandas irán a 0° y 90°: en diagonal la
+envoltura sería un salto feo. Es la pieza que sostiene R247.
+
+### El compose TÚNEL
+
+Las fuentes son **imágenes 1:1 con alfa** que Beltrán dibuja aparte, marcadas como máster de domo: el clip ocupa
+el disco entero y `Size` pasa a ser el zoom cenital (`size/55` = 1:1). Nacer pequeño y crecer hasta salirse por la
+periferia **es** el elemento acercándose. **La forma no se asume en ninguna parte:** un anillo da un túnel
+legible, pero cualquier repartición de alfa —huecos, tramas, siluetas— sirve y da resultados muy distintos; lo
+decide el material, no el código.
+
+Mandos: **De → a** (tamaño inicial y objetivo), **Velocidad**, **Profundidad** (la curva), **Giro** por elemento
+—para que uno no se vea calcado del anterior— y **Fundido**, que entra y sale con un seno a la misma velocidad y
+desfase −¼ de ciclo. Ese seno ES un fundido de entrada en la primera mitad del viaje y de salida en la segunda
+(por eso la opacidad base es 50: 50 ± 50 recorre el rango entero), y comparte reloj con el tamaño, así que no hay
+forma de que se desincronicen.
+
+### El orden de dibujo, que lo pidió Beltrán y no era cosmético
+
+*«La textura más antigua que aparece es la que tiene que ir siempre por el frente, y las nuevas por detrás.»*
+Tiene razón y **no se puede resolver con el orden de pistas**: los elementos CICLAN, así que el que ahora es el
+más viejo vuelve a nacer y pasa a ser el más nuevo — el ranking por cercanía rota con el tiempo y ninguna
+asignación fija lo expresa. Se ordena **en cada fotograma** por el `size` evaluado en ese instante (que en una
+fuente fulldome es la distancia) y se dibuja de menor a mayor, así que el más viejo queda siempre delante y los
+que nacen aparecen por detrás — que es lo que hace que un alfa se superponga a los del fondo en vez de ser tapado
+por ellos. La bandera sólo se enciende mientras se compone un túnel; fuera de él no cuesta ni una comparación.
+
+### Real time
+
+Lo pidió explícitamente y sale por construcción: el movimiento es **procedural**, no horneado en keyframes. Con el
+editor en pausa, `motionTick` adelanta un reloj de previsualización y repinta (y `anyAnim()` desciende a los
+nidos, así que un túnel dentro de un nido mantiene la vista viva); en reproducción y export manda el tiempo real
+del fotograma, con lo que el resultado es determinista. Medido: sin tocar el cabezal, el tamaño de un elemento
+pasa de 1 a 6,21 solo.
+
+### Verificado (`scratchpad/r246-tunel.mjs`)
+
+Sierra que vuelve a 0 y acelera hacia el final · envoltura del plano del ojo de pez al borde opuesto · los 6
+elementos como fulldome, con sierra, fundido y desfases repartidos (0 · 0,167 · 0,333 · 0,5 · 0,667 · 0,833) ·
+real time sin mover el cabezal · **profundidad correcta en los 12 instantes probados, 0 fallos** · el diálogo
+ofrece el tipo con sus cinco mandos y esconde los que no aplican. `__errs` vacío.
+
+*Nota de método:* la primera corrida marcó en rojo la curva exponencial, y **la equivocada era mi comprobación**
+—pedía «más de 50 al 75 % del ciclo», que es lo que hace una curva que se FRENA al final—. El motor estaba bien.
+Ahora la sonda comprueba lo que de verdad significa acelerar: que cada tramo sea mayor que el anterior.
+
 ## ROUND 245 — Dos del panel de Medios que salieron usándolo
 
 Los dos reportados por Beltrán mientras trabajaba, y los dos con la misma forma: un camino cubierto y su gemelo

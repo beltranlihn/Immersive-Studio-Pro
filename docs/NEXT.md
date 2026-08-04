@@ -4,6 +4,19 @@
 > en `COMPONENTS.md` + una entrada en `PLAN.md` en el mismo commit, como manda el ritual de `/commit`).
 > Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: 2026-08-04.
 
+## 🔭 En curso — dos herramientas de relleno de domo (petición de Beltrán)
+- [x] **[R246] Motor + compose TÚNEL.** Diente de sierra con curva de perspectiva y deslizamiento en el plano del
+      ojo de pez (las dos, piezas del MOTOR, disponibles sueltas). El túnel toma imágenes 1:1 con alfa como máster
+      de domo y las hace crecer desfasadas; orden de dibujo por profundidad en cada fotograma; real time.
+- [ ] **[R247] Compose TEJIDO.** Bandas de clips que cruzan de lado a lado, en rejilla recta (decisión de Beltrán
+      frente a la red polar), apoyado en `fx`/`fy` de R246. Entrelazado **alternando tiras enteras** (su elección:
+      el entrelazado real por cruce exigiría partir cada tira o recortarla con máscara de damero, y a escala de
+      domo y en movimiento no compensa). Opciones de composición: tejido, tiras en un solo sentido, densidad,
+      velocidad y sentido alterno por tira.
+> Decidido con Beltrán: **son composes, no efectos motion** — lo que las define es la relación entre varios clips
+> (el desfase, el reparto en bandas), y eso un efecto por-clip no lo puede expresar. Las piezas nuevas sí van al
+> motor, para poder usarlas a mano fuera de estas herramientas. **Sólo domo por ahora.**
+
 ## ✅ Petición de Beltrán — el contenedor del timeline · CERRADA [R244]
 - [x] **El panel ya no queda preso de la altura máxima de las pistas.** Con dos pistas al máximo de entonces (120)
       topaba en 281 px aunque la ventana diera para 828. Ahora el arrastre llega hasta el 92 % de la ventana y las
