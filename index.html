@@ -670,6 +670,27 @@
   .cmediaitem:hover{background:rgba(255,255,255,0.05);}
   .cmediaitem input{flex-shrink:0;margin:0;} .cmediaitem .mdot{width:8px;height:8px;border-radius:50%;}
   .cmediaitem .cmname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
+  /* [R248] CESTA del compose: enseña lo que la composición YA tiene (miniatura + nombre, como en Medios), con una
+     × para quitarlo. Para añadir se arrastra desde el panel de Medios — buscar entre 500 clips por el nombre en una
+     lista de casillas era la parte insufrible. El número de orden importa: en el tejido cada tira toma una fuente. */
+  .cbasket{flex:1;min-width:0;max-height:132px;overflow-y:auto;background:var(--s0);border:.5px solid rgba(255,255,255,0.12);border-radius:2px;padding:3px;display:flex;flex-direction:column;gap:2px;transition:border-color .12s,background .12s;}
+  .cbasket::-webkit-scrollbar{width:7px;} .cbasket::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.14);border-radius:2px;}
+  .cbasket.over{border-color:var(--state-on);background:rgba(155,184,255,0.07);}
+  .cbitem{display:flex;align-items:center;gap:7px;padding:3px 4px;border-radius:2px;font-size:11px;color:var(--ink-2);min-width:0;}
+  .cbitem:hover{background:rgba(255,255,255,0.05);}
+  .cbnum{flex-shrink:0;width:14px;text-align:right;color:var(--ink-dim);font:400 10px ui-monospace,monospace;font-variant-numeric:tabular-nums;}
+  .cbthumb{flex-shrink:0;width:34px;height:20px;border-radius:2px;background-size:cover;background-position:center;box-shadow:inset 0 0 0 .5px rgba(255,255,255,0.14);}
+  .cbname{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
+  .cbx{flex-shrink:0;width:17px;height:17px;line-height:15px;text-align:center;border:none;border-radius:2px;background:transparent;color:var(--ink-dim);font-size:14px;cursor:pointer;padding:0;}
+  .cbx:hover{background:rgba(224,106,106,0.18);color:#E06A6A;}
+  .cbhint{padding:14px 8px;text-align:center;color:var(--ink-dim);font-size:11px;line-height:1.5;}
+  /* [R248] Con la composición abierta, el panel de Medios SÍ se puede tocar (es de donde se arrastra), así que no
+     puede quedar bajo el velo: el gris apagado estaría diciendo lo contrario de lo que pasa. Sube por encima del
+     velo —a plena luz y con un filo encendido— mientras el cuadro sube aún más, para que si la ventana es estrecha
+     y llegan a solaparse mande el diálogo. Es la lectura correcta de la escena: se apaga TODO menos las dos cosas
+     con las que se está trabajando. */
+  body.composing #mediaPane{position:relative;z-index:9650;box-shadow:0 0 0 1px var(--state-on);}
+  body.composing #compOv > .modal{position:relative;z-index:9700;}
 
   /* status bar */
   /* [AUDITORÍA Rev1 · §7] 24→22px, superficie de panel (#1B1B1B) y borde superior claro, como el prototipo.

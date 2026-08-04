@@ -4,6 +4,11 @@
 > en `COMPONENTS.md` + una entrada en `PLAN.md` en el mismo commit, como manda el ritual de `/commit`).
 > Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: 2026-08-04.
 
+## ✅ El selector de medios del compose · CERRADO [R248]
+- [x] **Cesta en vez de catálogo.** El diálogo enseña lo que la composición YA tiene (miniatura + nombre + orden),
+      con × para quitar y arrastre desde Medios para añadir. **Compatibilidad comprobada con píxeles**: abrir un
+      proyecto y reaplicar una composición sin tocarla no cambia ni un píxel (sonda ).
+
 ## 🔭 En curso — dos herramientas de relleno de domo (petición de Beltrán)
 - [x] **[R246] Motor + compose TÚNEL.** Diente de sierra con curva de perspectiva y deslizamiento en el plano del
       ojo de pez (las dos, piezas del MOTOR, disponibles sueltas). El túnel toma imágenes 1:1 con alfa como máster

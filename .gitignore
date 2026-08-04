@@ -29,3 +29,6 @@ Thumbs.db
 scratchpad/**/*.png
 scratchpad/**/*.mp4
 scratchpad/**/*.jpg
+scratchpad/autosave/
+scratchpad/*.isp
+scratchpad/*.json

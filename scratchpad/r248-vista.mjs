@@ -1,0 +1,34 @@
+/* [R248] Como se ve el dialogo con un proyecto de verdad: material real de Descargas, una composicion en la
+   linea de tiempo y el domo pintado detras. Es lo que Beltran va a ver. */
+import http from 'http'; import fs from 'fs'; import path from 'path';
+const DL=path.join(process.env.USERPROFILE,'Downloads');
+const t=await new Promise((res,rej)=>{http.get({host:'127.0.0.1',port:9222,path:'/json/list'},r=>{let b='';r.on('data',c=>b+=c);r.on('end',()=>res(JSON.parse(b)));}).on('error',rej);});
+const page=t.find(x=>x.type==='page'&&x.webSocketDebuggerUrl&&/index\.html/.test(x.url));
+const ws=new WebSocket(page.webSocketDebuggerUrl); await new Promise(r=>ws.onopen=r);
+let id=0;const p=new Map();ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id&&p.has(m.id)){p.get(m.id)(m);p.delete(m.id);}};
+const cmd=(m,q={})=>new Promise((res,rej)=>{const i=++id;p.set(i,x=>x.error?rej(new Error(JSON.stringify(x.error))):res(x.result));ws.send(JSON.stringify({id:i,method:m,params:q}));});
+const ev=async x=>{const r=await cmd('Runtime.evaluate',{expression:x,awaitPromise:true,returnByValue:true,timeout:90000});if(r.exceptionDetails)throw new Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);return r.result.value;};
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+await cmd('Page.enable'); await cmd('Page.reload',{ignoreCache:true}); await wait(3500);
+await ev(`state.dirty=false;1`);
+await ev(`(function(){ if(typeof hideLanding==='function')hideLanding(); return 1; })()`);
+ await ev(`(async()=>{ await newProject('dome',2048,2048,60,180,true); })()`); await wait(1200);
+ await ev(`(function(){ if(typeof hideLanding==='function')hideLanding(); resize(); render(); return 1; })()`); await wait(400);
+await ev(`window.__addImg=function(ruta,nombre){ return new Promise(res=>{ const url=DSP.toFileURL(ruta); const img=new Image();
+  img.onload=()=>{ const cv=document.createElement('canvas'); cv.width=img.naturalWidth; cv.height=img.naturalHeight;
+    cv.getContext('2d').drawImage(img,0,0);
+    const m={id:uid(),kind:'image',name:nombre,el:cv,originalEl:cv,tex:newTex(),w:cv.width,h:cv.height,dur:10,fps:0,color:clipColorFor('image'),path:ruta,missing:false,_loading:false};
+    upTex(m.tex,cv); try{m.thumb=cv.toDataURL();}catch(e){} state.media.push(m); res(1); }; img.onerror=()=>res(0); img.src=url; }); };1`);
+const files=fs.readdirSync(DL).filter(f=>/\.(png|jpe?g)$/i.test(f)).slice(0,9);
+for(const f of files) await ev(`__addImg(${JSON.stringify(path.join(DL,f))},${JSON.stringify(f)})`);
+await ev(`renderMedia();1`);
+await ev(`(function(){ const ids=state.media.filter(m=>m.kind==='image').map(m=>m.id).slice(0,5);
+  createComposition({kind:'weave',mediaIds:ids,bands:5,weaveMode:'weave',bandW:100,fit:'across',density:1,speed:0.1,speedV:0.1,motion:'alternate',interlace:true});
+  state.playhead=1; _previewClock=1.2; renderTimeline(); render(); return 1; })()`);
+await wait(700);
+await ev(`(function(){ const n=state.media.find(m=>m.kind==='nest'); openCompose(null,null,n,null,null); render(); return 1; })()`);
+await wait(500);
+const shot=await cmd('Page.captureScreenshot',{format:'png'});
+fs.writeFileSync('scratchpad/r248-vista.png', Buffer.from(shot.data,'base64'));
+console.log('captura: scratchpad/r248-vista.png');
+ws.close();

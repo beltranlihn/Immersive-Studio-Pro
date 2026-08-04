@@ -1,5 +1,76 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 248 — El compose deja de ser un catálogo y pasa a ser una cesta
+
+Beltrán: *«el sistema nos muestra en un cuadradito todos los clips que hay en el archivo, con casillas… considera
+que en un solo archivo podemos tener quinientos clips, buscarlos ahí y reconocerlos sólo por un nombre es una
+locura»*. Y el requisito que mandaba sobre todo lo demás: *«ya tengo muchos proyectos andando que usan compose…
+si abro mi proyecto en esta versión nueva, mis composes se siguen manteniendo tal y como estaban, simplemente
+cambia el visor y el formato de interacción»*.
+
+### Qué cambia
+
+El campo Medios del diálogo ya no lista **todo el proyecto** con casillas, sino **lo que esta composición
+contiene**: miniatura, nombre y número de orden, como en el panel de Medios. Se quita con la **×** de cada fila y
+se añade **arrastrando desde el panel de Medios** a la cesta, que se resalta al pasar por encima.
+
+El número de orden no es decoración: **manda**. El tejido reparte una fuente por tira y `compMediaIndex` cicla
+por esa lista, así que ver el orden —y que se conserve— es parte de la herramienta.
+
+### Lo que NO cambia (y cómo se comprobó)
+
+`_pick` **es** `g.mediaIds`: mismos identificadores, mismo orden. No hay conversión, ni formato nuevo, ni migración.
+Un `.isp` de julio se abre y se guarda exactamente igual.
+
+De hecho la cesta es **más fiel que la lista de casillas**: `checkedIds()` leía las casillas en el orden del DOM,
+que es el del PANEL de medios, no el guardado. Reaplicar una composición vieja cuyo `mediaIds` estuviera en otro
+orden **rebarajaba qué fuente iba a cada tira**. La cesta devuelve lo que había, tal cual.
+
+Verificado sobre el `.exe` con tres composiciones de tipos distintos (anillo, tejido, túnel) y fuentes puestas a
+propósito fuera del orden del panel (`F,E,D,C,B,A` y `C,A,E,B`):
+
+| Prueba | Resultado |
+|---|---|
+| Guardar a `.isp` → abrir | **idéntico** (geometría de los 87 clips de los tres nidos) |
+| Abrir el diálogo y Aplicar sin tocar nada | **idéntico** |
+| **Render real, antes vs después** | **ni un píxel cambia** en los 3 nidos × 2 instantes |
+| La cesta refleja `g.mediaIds` | sí, en su orden guardado |
+| × quita · arrastre añade · `g.mediaIds` resultante | `C,A,E,B` → `A,E,B` → `A,E,B,C` ✓ |
+| Arrastre real con eventos de ratón | entra, resalta al pasar, limpia al soltar |
+
+La comparación de **píxeles** es la que zanja el asunto: comparar la forma del objeto daba un falso positivo,
+porque `regenComposeNest` limpia `warp`/`secAz`/`secEl` al recomponer (línea `[N5]`, anterior a esta ronda) y esas
+props no las lee nadie salvo `const sector=(c.props.warp==='dome')`, donde `'patch'` y `undefined` dan las dos
+`false`. Se anotó en la sonda en vez de silenciarlo.
+
+### Tres cosas que hubo que resolver para que el arrastre fuera posible
+
+1. **El velo del modal tapaba el panel de Medios.** Sin ratón en el panel no hay nada que arrastrar. El velo pasa a
+   `pointer-events:none` y el cuadro se lo devuelve. Como el velo ya no recibe clics, **se pierde el cerrar
+   pinchando fuera** → entra **Escape**, que además es lo que espera cualquiera.
+2. **El fantasma del arrastre iba por detrás del velo** (z-index 80 contra 9600): se arrastraba a ciegas. Sube a
+   9700 sólo mientras el diálogo está abierto.
+3. **El velo decía lo contrario de lo que pasa.** Lo cazó Beltrán: *«toda la ventana queda medio opaca, lo que
+   incita a que no puedes interactuar con ella, pero si ahora vamos a poder arrastrar clips desde el media, debiera
+   estar disponible»*. El panel de Medios sale de debajo del velo (`body.composing`), a plena luz y con un filo
+   encendido, y el cuadro sube por encima de él para que mande el diálogo si la ventana es estrecha y se solapan.
+   **Primer intento fallido:** dejé el velo al 0,66 de siempre y el editor quedaba prácticamente negro —
+   *«así se ve terrible, me apagaste completo el editor»*. El velo baja a **0,22**. Es lo correcto por dos motivos:
+   ese gris oscuro significa «bloqueado» y aquí no lo está, y sobre todo **hay que ver la composición dibujada en
+   el domo mientras se ajusta**, que es de lo que va el diálogo. Apagarla era justo lo contrario de lo que hace falta.
+4. **Dos formas de tocar el proyecto por detrás del diálogo.** Con el velo transparente, soltar un medio sobre la
+   zona del timeline habría **añadido un clip al proyecto** con un modal delante, y el doble clic también. Con la
+   composición abierta, arrastrar y doble-clicar hacen **una sola cosa**: alimentar la cesta.
+
+Además: la cesta puede quedarse **vacía**, cosa que antes era imposible (la lista caía siempre a la primera
+casilla). Aplicar con ella vacía habría vaciado el `mediaIds` de una composición existente → Aplicar se para, avisa
+y parpadea la cesta.
+
+**Trampa del arnés, tercera vez en la sesión:** un acento grave dentro de una plantilla la cierra. Rompió `app.js`
+en R247c y dos sondas aquí. Va en mayúsculas en `docs/` y en la memoria.
+
+---
+
 ## ROUND 247d — El tejido se vuelve un instrumento (y el fallo del doble que escondía)
 
 Beltrán, viendo el R247c funcionando: *«hay que agregarle varias opciones de configuración… si quiero que sean dos

@@ -2919,7 +2919,7 @@ function makeMediaItem(m){
       ${m.kind==='video'?`<span class="pdot" data-mid="${m.id}" title="${m.proxyReady?T('Proxy ready','Proxy listo'):T('No proxy yet','Sin proxy aún')}" style="width:8px;height:8px;border-radius:50%;flex-shrink:0;background:${m.proxyReady?'#8A9199':'#5E646C'}"></span>`:''}
       ${isNdi?`<span class="pdot ndilive${m._ndiLive?' on':''}" title="${T('Live NDI','NDI en vivo')}" style="width:8px;height:8px;border-radius:50%;flex-shrink:0;background:${m._ndiLive?'#E8EAED':'#5E646C'}"></span>`:''}
       <span class="mdot" style="background:${m.color}"></span>`;
-    d.addEventListener('dblclick',()=>{ if(seq)openSeq(m.id); else addClip(m); });
+    d.addEventListener('dblclick',()=>{ if(_composeDrop){ _composeDrop([m.id]); return; } /* [R248] con la composición abierta el doble clic la alimenta a ELLA: si no, soltaría un clip en la línea de tiempo por detrás del diálogo */ if(seq)openSeq(m.id); else addClip(m); });
     d.addEventListener('pointerdown',e=>{ if(e.button===0){ const multi=e.shiftKey||e.ctrlKey||e.metaKey; if(multi||!selectedMediaIds().includes(m.id))selectMedia(m.id,e); if(!multi)startMediaDrag(e,m); } }); // plain press on an ALREADY-selected item keeps the multi-selection → you can drag the whole selection to a folder (R88 audit)
     d.addEventListener('contextmenu',e=>{ if(!selectedMediaIds().includes(m.id))selectMedia(m.id); openMediaCtx(e,m); }); // keep an existing multi-selection for the menu
     { const nmEl=d.querySelector('.mname'); if(nmEl)nmEl.addEventListener('dblclick',e=>{ e.stopPropagation(); renameMediaInline(m,nmEl); }); } // double-click the name → rename in place
@@ -2990,7 +2990,7 @@ function makeMediaTile(m){ const seq=isSeqMedia(m), isNdi=(m.kind==='ndi'||m.kin
   const px=(m.kind==='video'&&!m.proxyReady&&m.proxyPct>0)?`<div class="tpbar"><i style="width:${m.proxyPct}%"></i></div>`:'';
   const tbg=isAdj?'repeating-linear-gradient(45deg,rgba(180,186,193,0.30) 0 9px,rgba(180,186,193,0.10) 9px 18px)':(m.thumb?`url(${m.thumb})`:'none');
   d.innerHTML=`<div class="tthumb${seq?' mseq':''}" style="background-image:${tbg};"><span class="tdur">${dur}</span>${m.kind==='video'&&m.proxyReady?'<span class="tprox">⚡</span>':''}${px}</div><div class="tlbl" style="border-top:2px solid ${m.color};">${m.name}</div>`;
-  d.addEventListener('dblclick',()=>{ if(seq)openSeq(m.id); else addClip(m); });
+  d.addEventListener('dblclick',()=>{ if(_composeDrop){ _composeDrop([m.id]); return; } /* [R248] con la composición abierta el doble clic la alimenta a ELLA: si no, soltaría un clip en la línea de tiempo por detrás del diálogo */ if(seq)openSeq(m.id); else addClip(m); });
   d.addEventListener('pointerdown',e=>{ if(e.button===0){ const multi=e.shiftKey||e.ctrlKey||e.metaKey; if(multi||!selectedMediaIds().includes(m.id))selectMedia(m.id,e); if(!multi)startMediaDrag(e,m); } }); // press on an already-selected tile keeps the multi-selection (drag the whole set)
   d.addEventListener('contextmenu',e=>{ if(!selectedMediaIds().includes(m.id))selectMedia(m.id); openMediaCtx(e,m); });
   { const lblEl=d.querySelector('.tlbl'); if(lblEl)lblEl.addEventListener('dblclick',e=>{ e.stopPropagation(); renameMediaInline(m,lblEl); }); } // double-click the label → rename in place
@@ -5200,7 +5200,23 @@ function applyToolCursor(){ const cur={select:'default',trackselect:'e-resize',h
   const sel=(state.tl.tool==='select'); $$('.clip').forEach(c=>c.style.cursor=sel?'grab':cur); } // [R155] el clip siempre se agarra // select: body = arrow (the .tt headband keeps grab via CSS → hand only on the title bar) · [R94c] simple-clip view: the whole block grabs (inline style beats the CSS rule, so it must be set here)
 
 /* media drag to timeline */
-function startMediaDrag(e,m){ const ghost=e.currentTarget.cloneNode(true); ghost.style.cssText='position:fixed;pointer-events:none;z-index:80;opacity:.85;width:200px;left:'+e.clientX+'px;top:'+e.clientY+'px;background:var(--s1);border-radius:2px;padding:6px;';document.body.appendChild(ghost);
+let _composeDrop=null; // [R248] fijado mientras el dialogo de composicion esta abierto: recibe los medios que se le suelten
+function startMediaDrag(e,m){ const ghost=e.currentTarget.cloneNode(true);
+  /* [R248] con el diálogo de composición abierto el fantasma tiene que ir POR ENCIMA del velo (z 9600), o se
+     arrastra a ciegas por detrás. Fuera de ese caso se queda donde estaba. */
+  ghost.style.cssText='position:fixed;pointer-events:none;z-index:'+(_composeDrop?9700:80)+';opacity:.85;width:200px;left:'+e.clientX+'px;top:'+e.clientY+'px;background:var(--s1);border-radius:2px;padding:6px;';document.body.appendChild(ghost);
+  /* [R248] Con la composición abierta el arrastre hace UNA cosa: llenar la cesta. No se cae a la línea de tiempo
+     ni archiva en carpetas — el velo es transparente al ratón, así que sin esta bifurcación soltar sobre la zona
+     del timeline habría añadido un clip al proyecto a espaldas del usuario, con un diálogo modal delante. */
+  if(_composeDrop){ const cesta=()=>$('#cMedia');
+    const mv2=ev=>{ ghost.style.left=(ev.clientX+8)+'px'; ghost.style.top=(ev.clientY+8)+'px';
+      const el=document.elementFromPoint(ev.clientX,ev.clientY), c=cesta();
+      if(c)c.classList.toggle('over', !!(el&&el.closest('#cMedia'))); };
+    const up2=ev=>{ window.removeEventListener('pointermove',mv2); window.removeEventListener('pointerup',up2); ghost.remove();
+      const c=cesta(); if(c)c.classList.remove('over');
+      const el=document.elementFromPoint(ev.clientX,ev.clientY);
+      if(el&&el.closest('#cMedia')&&_composeDrop){ const ids=selectedMediaIds().includes(m.id)?selectedMediaIds():[m.id]; _composeDrop(ids); } };
+    window.addEventListener('pointermove',mv2); window.addEventListener('pointerup',up2); return; }
   const tracks=$('#tracks'); const wantKind=(m.kind==='audio')?'audio':'video'; const dur=m.dur||6; let tlg=null;
   const landing=ev=>{ const el=document.elementFromPoint(ev.clientX,ev.clientY); const laneEl=el&&el.closest('.lane'); if(!laneEl)return null; const li=+laneEl.dataset.lane; if(!state.lanes[li]||state.lanes[li].kind!==wantKind)return null;
     const rect=tracks.getBoundingClientRect(); let start=Math.max(0,(ev.clientX-rect.left)/state.tl.pxPerSec); const sn=applySnap(start,null); start=Math.max(0,sn.val); return {li,laneEl,start,snap:sn.snap}; };
@@ -11339,12 +11355,20 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){ const
   const pre=editGroup||(nestMedia&&nestMedia.comp)||null; const _flatComp=isFlat();
   let kind=(pre&&pre.kind)||initialKind||(_flatComp?'grid':'ring'); if(_flatComp&&!FLAT_COMP_KINDS.includes(kind))kind='grid';
   let _infinite=(pre&&pre.infinite)||false; const ov=document.createElement('div'); ov.className='overlay'; ov.id='compOv';
+  /* [R248] El velo deja pasar el ratón. Sin esto el panel de Medios queda tapado y no se puede arrastrar nada a la
+     cesta, que es la forma de añadir. El cuadro sí captura (se le devuelve `pointer-events` justo debajo), y el
+     diálogo se cierra sólo por sus botones — nunca se cerraba al pinchar el velo, así que no se pierde nada. */
+  ov.style.pointerEvents='none';
+  /* Y el velo se aclara mucho (0,66 → 0,22). El velo oscuro de un modal significa «esto está bloqueado», y aquí
+     no lo está: se sigue trabajando con el editor detrás. Además hay que SEGUIR VIENDO la composición sobre el
+     domo mientras se ajusta — apagarla del todo era justo lo contrario de lo que hace falta. */
+  ov.style.background='rgba(6,7,9,0.22)';
   const cap=s=>s.charAt(0).toUpperCase()+s.slice(1);
   const seg=()=>(_flatComp?FLAT_COMP_KINDS:['ring','domegrid','grid','spiral','phyllo','wave','fib','line','tunnel','weave','random']).map(k=>`<button data-k="${k}" class="${k===kind?'on':''}">${cap(kindES(k))}</button>`).join('');
   ov.innerHTML=`<div class="modal" style="width:648px;"><div class="mh"><span style="color:var(--ink-2);display:flex;">${ICO('ring',16)}</span><span class="t">${T('Create composition','Crear composición')}</span></div><div class="mb">
    <div style="display:flex;gap:16px;align-items:stretch;">
     <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;height:420px;overflow-y:auto;">
-    <div class="frow" style="align-items:flex-start;"><label style="padding-top:3px;">${T('Media','Medios')}</label><div id="cMedia" class="cmedialist">${vids.map(m=>`<label class="cmediaitem" title="${m.name}"><input type="checkbox" value="${m.id}"><span class="mdot" style="background:${m.color};flex-shrink:0;"></span><span class="cmname">${m.name}</span></label>`).join('')}</div></div>
+    <div class="frow" style="align-items:flex-start;"><label style="padding-top:3px;">${T('Media','Medios')}</label><div id="cMedia" class="cbasket"></div></div>
     <div class="frow"><label>${T('Layout','Disposición')}</label><div class="kindseg" id="cKind">${seg()}</div></div>
     <div class="frow" data-only="count"><label>${T('Count','Cantidad')}</label><input type="number" class="tnum" id="cN" value="6" min="2" max="32"></div>
     <div class="frow" data-only="domegrid"><label>${T('Rings','Anillos')}</label><input type="number" class="tnum" id="cRings" value="3" min="1" max="12"></div>
@@ -11399,8 +11423,38 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){ const
       <span class="tnum" style="font-size:11px;color:var(--ink-dim);text-align:center;line-height:1.4;" id="cPrevLbl"></span></div>
    </div>
    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:11px;"><button class="mbtn" id="cCancel">${T('Cancel','Cancelar')}</button><button class="mbtn pri" id="cGo">${ICO('ring')} ${T('Create','Crear')}</button></div></div></div>`;
-  document.body.appendChild(ov); $('#cCancel').onclick=()=>ov.remove(); ov.addEventListener('pointerdown',e=>{if(e.target===ov)ov.remove();});
-  const checkedIds=()=>{ const ids=[...$('#cMedia').querySelectorAll('input:checked')].map(i=>+i.value); if(!ids.length){ const f=$('#cMedia').querySelector('input'); if(f)ids.push(+f.value); } return ids; };
+  document.body.appendChild(ov);
+  { const box=ov.querySelector('.modal'); if(box)box.style.pointerEvents='auto'; } // el cuadro sí captura; el velo no (ver arriba)
+  document.body.classList.add('composing'); // saca el panel de Medios de debajo del velo: se puede tocar, así que tiene que PARECER que se puede
+  /* Antes se cerraba pinchando el velo. Con el velo transparente al ratón eso ya no puede ocurrir —el clic va al
+     panel de debajo—, así que la salida rápida pasa a ser Escape, que además es lo que espera cualquiera. */
+  const esc=e=>{ if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); cerrarComp(); } };
+  const cerrarComp=()=>{ _composeDrop=null; document.body.classList.remove('composing'); window.removeEventListener('keydown',esc,true); ov.remove(); };
+  window.addEventListener('keydown',esc,true);
+  $('#cCancel').onclick=cerrarComp;
+  _composeDrop=ids=>cestaAnadir(ids); // [R248] mientras el diálogo esté abierto, arrastrar un medio lo añade a la cesta
+  /* [R248] LA CESTA. `_pick` es, literalmente, el `mediaIds` de la composición: mismos identificadores y mismo
+     orden. El diálogo ya no es un catálogo de todo lo que hay en el proyecto —con 500 clips era impracticable—
+     sino el contenido de ESTA composición, con miniatura y nombre como en el panel de Medios.
+     El orden se conserva porque MANDA: el tejido reparte una fuente por tira, y `compMediaIndex` cicla por él.
+     Ojo: sólo se filtran los medios que ya no existen. Un id que siga vivo nunca se cae de la cesta, aunque el
+     panel lo tenga escondido en otra carpeta o el filtro no lo muestre. */
+  let _pick=[];
+  const checkedIds=()=>_pick.filter(id=>mediaById(id));
+  const pintarCesta=()=>{ const host=$('#cMedia'); if(!host)return;
+    _pick=_pick.filter(id=>mediaById(id));
+    if(!_pick.length){ host.innerHTML=`<div class="cbhint">${T('Empty. Drag clips here from the Media panel.','Vacío. Arrastra clips aquí desde el panel de Medios.')}</div>`; return; }
+    host.innerHTML=_pick.map((id,i)=>{ const m=mediaById(id);
+      const bg=m.thumb?`url(${m.thumb})`:'none';
+      return `<div class="cbitem" title="${m.name}"><span class="cbnum">${i+1}</span><span class="cbthumb" style="background-image:${bg};background-color:${m.color};"></span><span class="cbname">${m.name}</span><button class="cbx" type="button" data-id="${id}" title="${T('Remove from the composition','Quitar de la composición')}">×</button></div>`; }).join('');
+    host.querySelectorAll('.cbx').forEach(b=>b.onclick=e=>{ e.stopPropagation();
+      _pick=_pick.filter(x=>x!==+b.dataset.id); pintarCesta(); preview(); }); };
+  /* Recibe lo que se suelte desde el panel de Medios. Los repetidos no entran dos veces: una composición usa cada
+     fuente por turno, así que duplicar un id sólo desequilibraría el reparto sin añadir nada. */
+  const cestaAnadir=ids=>{ let n=0;
+    for(const id of ids){ const m=mediaById(id); if(!m||m.kind==='audio'||isSeqMedia(m))continue; if(_pick.includes(id))continue; _pick.push(id); n++; }
+    pintarCesta(); preview();
+    if(!n)flashStatus(T('Already in the composition','Ya estaba en la composición')); };
   let _jit=(pre&&pre.jitter)||0, _rand=(pre&&pre.rand)?pre.rand.slice():[]; // R88: element-position randomize (jitter% + persisted seeds)
   let _wMode=(pre&&pre.weaveMode)||'weave', _wFit=(pre&&pre.fit)||'across', _wMov=(pre&&pre.motion)||'alternate'; // [R247d]
   const readForm=()=>{ const ids=checkedIds(); const rings=+($('#cRings')?$('#cRings').value:3)||3, segs=+($('#cSegs')?$('#cSegs').value:8)||8;
@@ -11455,7 +11509,7 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){ const
   const domegridDefaults=()=>{ if(kind==='domegrid'&&!pre){ if($('#cElMin'))$('#cElMin').value=0; if($('#cElMax'))$('#cElMax').value=90; } }; // dome fill = whole dome (horizon→zenith) by default → no central black hole
   $('#cKind').querySelectorAll('button').forEach(b=>b.onclick=()=>{ kind=b.dataset.k; domegridDefaults(); $('#cKind').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); sync(); });
   ['#cN','#cTurns','#cCols','#cArc','#cEl','#cElMin','#cElMax','#cSize','#cMask','#cBand','#cRings','#cSegs','#cGapEl','#cGapAz'].forEach(id=>{ const el=ov.querySelector(id); if(el){ el.oninput=preview; el.onchange=preview; } });
-  $('#cMedia').addEventListener('change',preview); const lr=$('#cLineRot'); if(lr)lr.onchange=sync; const ct=$('#cTile'); if(ct)ct.onchange=sync; const cb=$('#cBrick'); if(cb)cb.onchange=preview; const cnw=$('#cNoWarp'); if(cnw)cnw.onchange=preview;
+  const lr=$('#cLineRot'); if(lr)lr.onchange=sync; const ct=$('#cTile'); if(ct)ct.onchange=sync; const cb=$('#cBrick'); if(cb)cb.onchange=preview; const cnw=$('#cNoWarp'); if(cnw)cnw.onchange=preview;
   { const csc=$('#cScroll'); if(csc)csc.onchange=preview; const cscs=$('#cScrollSpd'); if(cscs){ cscs.oninput=preview; cscs.onchange=preview; } }
   /* [R246] mandos del túnel — los dos deslizadores muestran su valor y repintan la vista previa */
   { const sp=$('#cTSpeed'), spv=$('#cTSpeedV'), cv=$('#cTCurve'), cvv=$('#cTCurveV');
@@ -11480,21 +11534,25 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){ const
   { const cs=$('#cShuffle'); if(cs)cs.onchange=()=>{ reshuf=true; preview(); }; const crs=$('#cReshuffle'); if(crs)crs.onclick=()=>{ reshuf=true; if(pre)pre._orderR=true; if($('#cShuffle'))$('#cShuffle').checked=true; flashStatus(T('Order reshuffled — Apply to see it','Orden rebarajado — Aplica para verlo')); }; }
   if(pre){ $('#cKind').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x.dataset.k===kind));
     const preIds=(pre.mediaIds&&pre.mediaIds.length)?pre.mediaIds:(pre.mediaId!=null?[pre.mediaId]:[]);
-    $('#cMedia').querySelectorAll('input').forEach(i=>{ i.checked=preIds.includes(+i.value); });
+    _pick=preIds.slice(); // [R248] EN SU ORDEN GUARDADO: es literalmente g.mediaIds. Antes las casillas devolvian el orden del PANEL, asi que reaplicar una composicion vieja podia rebarajar que fuente iba a cada tira; la cesta la deja tal cual estaba.
     $('#cN').value=pre.count; $('#cCols').value=pre.cols; $('#cArc').value=pre.arc; $('#cEl').value=pre.el; $('#cElMin').value=pre.elMin; $('#cElMax').value=pre.elMax; $('#cSize').value=pre.size; if($('#cTurns'))$('#cTurns').value=pre.turns||3; if(lr)lr.checked=(pre.lineRot!==false); if($('#cTile'))$('#cTile').checked=!!pre.tile; if($('#cBand'))$('#cBand').value=pre.band||30; if($('#cRings'))$('#cRings').value=pre.rings||3; if($('#cSegs'))$('#cSegs').value=pre.segs||8; if($('#cGapEl'))$('#cGapEl').value=pre.gapEl||0; if($('#cGapAz'))$('#cGapAz').value=pre.gapAz||0; if($('#cBrick'))$('#cBrick').checked=!!pre.brick; if($('#cNoWarp'))$('#cNoWarp').checked=!!pre.noWarp; if($('#cShuffle'))$('#cShuffle').checked=!!pre.shuffle; if($('#cScroll'))$('#cScroll').checked=!!pre.scroll; if($('#cScrollSpd'))$('#cScrollSpd').value=(pre.scrollSpeed!=null?pre.scrollSpeed:20); $('#cMask').value=pre.mask;
     const tt=ov.querySelector('.t'); if(tt)tt.textContent=nestMedia?T('Recompose','Recomponer'):T('Edit composition','Editar composición'); $('#cGo').innerHTML=ICO('ring')+' '+T('Apply','Aplicar'); }
-  else if(scopeClip){ const mid=scopeClip.mediaId; $('#cMedia').querySelectorAll('input').forEach(i=>{ i.checked=(+i.value===mid); }); const tt=ov.querySelector('.t'); if(tt)tt.textContent=T('Compose from clip','Componer desde el clip'); } // scope: only this clip's media
-  else if(preselIds&&preselIds.length){ const set=new Set(preselIds); $('#cMedia').querySelectorAll('input').forEach(i=>{ i.checked=set.has(+i.value); }); if(preselIds.length>1&&$('#cShuffle'))$('#cShuffle').checked=true; } // R88: compose from a media multi-selection
-  else { const f0=$('#cMedia').querySelector('input'); if(f0)f0.checked=true; } // default-select the first media for a new composition
+  else if(scopeClip){ _pick=[scopeClip.mediaId]; const tt=ov.querySelector(".t"); if(tt)tt.textContent=T("Compose from clip","Componer desde el clip"); } // scope: only this clip's media
+  else if(preselIds&&preselIds.length){ _pick=preselIds.slice(); if(preselIds.length>1&&$("#cShuffle"))$("#cShuffle").checked=true; } // R88: compose from a media multi-selection
+  else { _pick=vids.length?[vids[0].id]:[]; } // default: el primer medio, igual que antes
+  pintarCesta();
   domegridDefaults(); sync();
   $('#cGo').onclick=()=>{ const ids=checkedIds(); const first=mediaById(ids[0]);
+    /* [R248] La cesta puede quedarse vacía (antes era imposible: la lista caía a la primera casilla). Aplicar con
+       ella vacía habría vaciado el `mediaIds` de una composición que ya existe, así que se para aquí. */
+    if(!ids.length){ flashStatus(T('Drag at least one clip into the composition','Arrastra al menos un clip a la composición'),'err'); const c=$('#cMedia'); if(c){ c.classList.add('over'); setTimeout(()=>c.classList.remove('over'),700); } return; }
     const opts={ kind, mediaIds:ids, mediaId:ids[0], count:Math.max(2,Math.min(32,+$('#cN').value)), cols:+$('#cCols').value, arc:+$('#cArc').value,
       el:+$('#cEl').value, elMin:+$('#cElMin').value, elMax:+$('#cElMax').value, size:+$('#cSize').value, turns:+($('#cTurns')?$('#cTurns').value:3), lineRot:lr?lr.checked:true, tile:$('#cTile')?$('#cTile').checked:false, band:+($('#cBand')?$('#cBand').value:30)||30, rings:+($('#cRings')?$('#cRings').value:3)||3, segs:+($('#cSegs')?$('#cSegs').value:8)||8, gapEl:+($('#cGapEl')?$('#cGapEl').value:0)||0, gapAz:+($('#cGapAz')?$('#cGapAz').value:0)||0, brick:$('#cBrick')?$('#cBrick').checked:false, shuffle:$('#cShuffle')?$('#cShuffle').checked:false, scroll:$('#cScroll')?$('#cScroll').checked:false, scrollSpeed:+($('#cScrollSpd')?$('#cScrollSpd').value:20)||0, mask:$('#cMask').value, jitter:_jit, rand:_rand, noWarp:$('#cNoWarp')?$('#cNoWarp').checked:false, name:(pre&&pre.name)?pre.name:((first?first.name:'')+(ids.length>1?' +'+(ids.length-1):'')+' · '+kindES(kind)) };
     if(kind==='domegrid')opts.count=Math.min(160,(opts.rings||3)*(opts.segs||8));
     if(nestMedia){ pushUndo(); nestMedia.comp=Object.assign(nestMedia.comp||{id:uid(),spin:0,shuffle:false,rand:[]},opts); if(reshuf)nestMedia.comp._orderR=true; regenComposeNest(nestMedia); renderMedia(); renderTimeline(); renderInspector(); scrubRender(); updStatus(); markDirty(); flashStatus(T('Composition updated','Composición actualizada')); }
     else if(editGroup){ pushUndo(); Object.assign(editGroup,opts,{mediaId:ids[0]}); regenComp(editGroup); state.selGroupId=editGroup.id; state.selId=null; renderTimeline(); renderInspector(); render(); updStatus(); flashStatus(T('Composition updated','Composición actualizada')); }
     else { if(scopeClip)opts._scope={inP:scopeClip.inP||0, dur:scopeClip.dur, start:scopeClip.start, speed:scopeClip.speed||1}; createComposition(opts); }
-    ov.remove(); };
+    cerrarComp(); };
 }
 
 /* ===================== I18N (apply language to static chrome) ===================== */
