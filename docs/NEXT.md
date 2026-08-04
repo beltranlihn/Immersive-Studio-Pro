@@ -30,9 +30,26 @@
       dimensiona con el lienzo (`compBase()` = `max(w,h)`, tope `COMP_MAX=8192` por memoria). Medido: sala de
       7196×912 en Full → **submuestreo 1,00 en los dos ejes** (198 MB). El domo pasa de 2× a 1:1 y un 2D 1080p
       gasta menos que antes. Coste: a Full se sombrea el lienzo completo — para eso están ½ y ¼._
-- [ ] **Deuda menor:** el composite sigue siendo CUADRADO, así que una tira apaisada desperdicia VRAM (198 MB en
-      vez de 26). Cambiarlo a no cuadrado toca el caché de scrub-ahead (`blitFramebuffer` a `RA_SIZE²`), NDI, Spout
-      y el export. Beneficio sólo de memoria, no de calidad → baja prioridad.
+- [ ] 🟠 **Composite NO CUADRADO — plan listo para ejecutar en sesión fresca.** Hoy el máster es cuadrado de lado
+      `max(w,h)`, así que una tira apaisada desperdicia VRAM (198 MB en vez de 26 para 7196×912). **El motivo real
+      no es la memoria: es que con el tope `COMP_MAX=8192` una sala de 4 muros 4K (15360 de ancho) NO puede llegar
+      a 1:1** — se queda a 1,9× de submuestreo. No cuadrado sí llega, y con 133 MB.
+      **Dato que reduce el riesgo:** el caché de scrub-ahead está **apagado por defecto** (`_raOn=false`).
+      **La dificultad real** son DOS convenciones conviviendo: el máster pasa a *relleno* (u,v = 0..1 sobre el
+      lienzo) mientras **export, NDI, Spout y el caché de nests siguen en cuadrado con letterbox** (el `_ncSquare`
+      de R180 depende de ello). Pasos:
+      1. `compW`/`compH` en vez de `compSize`; `compBase()` devuelve el par; `setCompSize(w,h)`.
+      2. `composite(t,size,opaque,fill)`: con `fill`, viewport EXPANDIDO para que el NDC ±Fx/±Fy llene la textura →
+         `vw=compW/Fx, vx=-(vw-compW)/2` (ídem en Y). Sin `fill`, lo de siempre. Ojo: `gl.clear` ignora el
+         viewport, así que el borrado no cambia.
+      3. Blit del visor: rama FLAT de `render()` pasa a `u=px/seqW, v=1-py/seqH`. **La rama del DOMO no se toca**
+         (lienzo cuadrado → el viewport de relleno coincide con el cuadrado).
+      4. UV de `buildRoomGeo` (sala 3D): hoy salen de `Fy`; pasan a la convención de relleno.
+      5. `compContentLim()`/`compLimForRect()`: versión de relleno para el máster, **conservando la de letterbox**
+         para el export.
+      6. `raStore`: `blitFramebuffer(0,0,compW,compH → 0,0,raW,raH)` con la RA al mismo aspecto.
+      Verificar: submuestreo 1:1 en sala grande, export por-muro sin costuras, domo intacto, caché de nest con su
+      letterbox, y sala 3D sin franja en el borde alto.
 - [ ] ~~🔴 PRIORITARIO · composite no cuadrado.~~ Reportado por Beltrán en producción: un clip sin proxy en **Full**
       se ve muy pixelado. Medido: lienzo 7196×912 → banda de **2048×260 texels** = **3,51× de submuestreo en LOS DOS
       ejes** y **87,3 % de la textura desperdiciado**. «Full» no está enseñando la calidad original. El export no se
