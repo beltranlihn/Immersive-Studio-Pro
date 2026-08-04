@@ -4,6 +4,12 @@
 > en `COMPONENTS.md` + una entrada en `PLAN.md` en el mismo commit, como manda el ritual de `/commit`).
 > Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: 2026-08-04.
 
+## ✅ Dos arreglos de edición diaria · CERRADOS [R251]
+- [x] **Copiar/pegar VARIOS clips.** El portapapeles guardaba uno solo; ahora guarda la selección entera y la pega
+      conservando distancias y pistas.
+- [x] **Una composición ya no estrena pista cada vez.** Cae en la más cercana con hueco; sólo crea pista si no hay
+      ninguna libre donde va a caer.
+
 ## ✅ Tramo del bucle · CERRADO [R250]
 - [x] **El tramo loopeable ya se marcaba solo** (`loopLen` se captura de la duración del clip al encender Loop, así
       que recortar antes —o venir del monitor con marcas— ya daba un bucle corto). Lo que faltaba era **verlo** y

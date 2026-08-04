@@ -1,5 +1,66 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 251 — Copiar varios clips, y que una composición no estrene pista cada vez
+
+Dos cosas que salieron editando de verdad.
+
+### 1 · Copiar y pegar la selección entera
+
+*«Copiar varios clips y pegar varios clips no me está funcionando, sólo me copia uno.»* Y era literal:
+`copyClip()` guardaba `selClip()` —**un** clip— aunque la selección múltiple vive en `state.selIds` desde
+siempre. El portapapeles nunca vio a los demás.
+
+Ahora se guarda el conjunto junto con el instante del primero (`t0`), y al pegar cada clip se coloca en
+`cabezal + (su inicio − t0)`, **en su propia pista**. Es lo que hace que pegar un montaje de varias capas lo
+reproduzca tal cual en otro punto de la línea de tiempo, en vez de amontonarlo.
+
+Dos detalles que no son adorno:
+- **Los enlaces A/V se rehacen sólo si las dos mitades venían en lo copiado.** Con una sola, `linkPartner`
+  buscaría un fantasma al mover o recortar; lo pegado nace suelto, que es lo que ya hacía el pegado de un clip.
+  Es el mismo criterio que `nestSelection` aplica desde R225·8.
+- **Un medio que ya no existe no aborta el pegado**: se salta, se cuenta y se avisa. Si copiaste cinco clips y uno
+  perdió su archivo, los otros cuatro tienen que llegar igual. Antes, con un solo clip, no llegar era lo mismo que
+  no pegar nada; con cinco, ya no.
+
+Comprobado sobre el `.exe`: tres clips en V1 (2 s), V2 (4 s) y V1 (7 s), copiados con el cabezal en 20 → caen en
+20, 22 y 25, en V1, V2 y V1. Distancias y pistas intactas.
+
+### 2 · Dónde cae una composición
+
+*«Cada vez que creo una se crea una pista, otra pista, otra pista, y termino con veinte mil quinientas pistas, y
+se me agregan arriba, lejos.»*
+
+Venía de R88, y con buena intención: **cada composición estrenaba pista para no pisar nada**. La regla nueva, suya,
+conserva lo que aquello buscaba sin el coste: **la pista más cercana que tenga hueco donde va a caer, y sólo si no
+hay ninguna, una nueva.** Nunca encima de otro clip.
+
+«Más cercana» se mide desde la **pista elegida** (la cabecera marcada), que es la forma que tiene el usuario de
+decir «trabajo aquí». Sin ninguna elegida se empieza **por abajo**, que es donde está el montaje — amontonar
+arriba es justo la queja. A igual distancia gana la de abajo.
+
+**A propósito NO se mide desde el clip seleccionado**, aunque parecía lo natural: tras crear una composición el
+clip seleccionado es ella misma, así que cada nueva iría trepando una pista por encima de la anterior. Se vio en la
+primera pasada de la prueba (una composición en tiempo libre se iba a V5 en vez de a V1) y se corrigió.
+
+Comprobado sobre el `.exe`, con 4 pistas de vídeo, V1 ocupada de 0 a 30 s y el cabezal en 5:
+
+| Acción | Resultado |
+|---|---|
+| 1.ª composición | V2 · **ninguna pista nueva** |
+| 2.ª | V3 · ninguna nueva |
+| 3.ª | V4 · ninguna nueva |
+| 4.ª | agotadas las cuatro → **crea la quinta**, como debe |
+| Otra en el minuto 2 (tiempo libre) | **V1** · reutiliza, no crea |
+
+El caso «componer desde clips de la línea de tiempo» (`nestSelection`) ya estaba bien: quita los originales y pone
+el nido en la pista que ocupaban. No se ha tocado. El único camino que estrenaba pista era `createComposition`,
+que es por donde pasan las composiciones desde el panel de medios y desde un clip.
+
+De paso, el aviso al crear dice ahora **en qué pista cayó** (`Ring → V2 · 6 elementos`): con la regla nueva puede
+ser una existente, y conviene verlo sin buscarlo.
+
+---
+
 ## ROUND 250 — El tramo del bucle ya existía: lo que faltaba era verlo y poder cambiarlo
 
 Beltrán, tras usar el monitor de origen: *«me di cuenta de que el loopeo funciona superbién, pero sólo me permite

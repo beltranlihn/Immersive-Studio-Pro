@@ -10707,14 +10707,47 @@ window.addEventListener('keydown',e=>{ if(e.key==='Escape'){ const ovs=document.
 
 /* ===================== CLIPBOARD / EDIT COMMANDS ===================== */
 function duplicateClip(){ const c=selClip(); if(!c)return; pushUndo(); const n={...c,link:undefined,avRole:undefined,/* [R170] ver duplicateClipAt */id:uid(),start:c.start+c.dur,maskTex:null,_penCv:null,penMasks:c.penMasks?JSON.parse(JSON.stringify(c.penMasks)):undefined,groupId:undefined,slot:undefined,props:{...c.props},kf:JSON.parse(JSON.stringify(c.kf||{})),fx:JSON.parse(JSON.stringify(c.fx||[]))}; sepAuto(n,c); if(n.maskData||(n.penMasks&&n.penMasks.length))rebuildMaskTex(n); state.clips.push(n); state.selId=n.id; state.selIds=[n.id]; laneDesel(); renderTimeline();renderInspector();render(); reschedAudio(); }
-function copyClip(){ const c=selClip(); if(c)state.clipboard=JSON.parse(JSON.stringify(c)); }
-function pasteClip(){ if(!state.clipboard)return; const src=JSON.parse(JSON.stringify(state.clipboard)); delete src.link; delete src.avRole; /* [R170] lo pegado nace SUELTO (ver duplicateClipAt) */ const m=mediaById(src.mediaId);
-  if(!m){ flashStatus(T("Can't paste — the clip's media no longer exists",'No se puede pegar — el medio del clip ya no existe'),'err'); return; } // [R92-T1 F8] clipboard can outlive its media · [R94-UT3·U-21]
-  if(isSeqMedia(m)&&(m.id===state.activeSeqId||seqReaches(m.id,state.activeSeqId))){ flashStatus(T("Can't nest a sequence inside itself (would create a loop)",'No se puede anidar una secuencia que crearía un bucle'),'err'); return; } // [R92-T1 F8] same cycle guard as addClip — a pasted loop used to persist into the .isp · [R94-UT3·U-21]
-  pushUndo(); const n={...src,id:uid(),start:state.playhead,maskTex:null,groupId:undefined,slot:undefined};
-  { const kind=(m.kind==='audio')?'audio':'video'; const L=state.lanes[n.lane]; // [R92-T1 F8] clamp the lane: pasting into a sequence with fewer/other tracks left the clip invisible (and audio kept SOUNDING with no visible clip)
-    if(!L||L.kind!==kind){ let li=state.lanes.findIndex(l=>l.kind===kind); if(li<0){ const t=state.lanes.filter(l=>l.kind===kind).length+1; state.lanes.push({id:uid(),name:(kind==='audio'?'Audio ':'Video ')+t,tag:(kind==='audio'?'A':'V')+t,kind}); li=state.lanes.length-1; } n.lane=li; } }
-  if(n.maskData||(n.penMasks&&n.penMasks.length))rebuildMaskTex(n); state.clips.push(n); state.selId=n.id; state.selIds=[n.id]; renderTimeline();renderInspector();render(); reschedAudio(); }
+/* [R251] Copiar y pegar la SELECCIÓN ENTERA. `copyClip` guardaba `selClip()` —un solo clip— aunque la selección
+   múltiple lleva existiendo desde siempre en `state.selIds`, así que copiar cinco clips pegaba uno.
+   Se guarda el conjunto y el instante del PRIMERO (`t0`): al pegar, todo se coloca conservando sus distancias
+   relativas a partir del cabezal, y cada clip vuelve a SU pista. Eso es lo que hace que pegar un montaje de varias
+   capas lo reproduzca tal cual en otro punto de la línea de tiempo. */
+function selClipsAll(){ const ids=(state.selIds&&state.selIds.length)?state.selIds:(state.selId!=null?[state.selId]:[]);
+  return ids.map(clipById).filter(Boolean); }
+function copyClip(){ const cs=selClipsAll(); if(!cs.length)return;
+  state.clipboard={ items:cs.map(c=>JSON.parse(JSON.stringify(c))), t0:Math.min(...cs.map(c=>c.start||0)) };
+  if(cs.length>1)flashStatus(T('Copied ','Copiados ')+cs.length+T(' clips',' clips')); }
+/* [R251] Pega TODO lo copiado conservando sus distancias y sus pistas. Un medio que ya no existe (o un anidado que
+   crearía bucle) se salta y se avisa, en vez de abortar el pegado entero: si copiaste cinco clips y uno perdió su
+   archivo, los otros cuatro tienen que llegar igual. */
+function pasteClip(){ const cb=state.clipboard; if(!cb)return;
+  const src=Array.isArray(cb.items)?cb.items:[cb];                       // compat: el portapapeles viejo era UN clip suelto
+  if(!src.length)return;
+  const t0=(cb.t0!=null)?cb.t0:Math.min(...src.map(c=>c.start||0));
+  const buenos=[]; let sinMedio=0, bucle=0;
+  for(const s of src){ const m=mediaById(s.mediaId);
+    if(!m){ sinMedio++; continue; }                                      // [R92-T1 F8] el portapapeles sobrevive a su medio
+    if(isSeqMedia(m)&&(m.id===state.activeSeqId||seqReaches(m.id,state.activeSeqId))){ bucle++; continue; } // misma guarda que addClip
+    buenos.push(s); }
+  if(!buenos.length){ flashStatus(bucle?T("Can't nest a sequence inside itself (would create a loop)",'No se puede anidar una secuencia que crearía un bucle')
+      :T("Can't paste — the clip's media no longer exists",'No se puede pegar — el medio del clip ya no existe'),'err'); return; }
+  pushUndo();
+  /* Enlaces A/V: se rehacen SÓLO si las dos mitades venían en lo copiado. Con una sola, `linkPartner` buscaría un
+     fantasma al mover o recortar, así que lo pegado nace suelto — que es lo que ya hacía el pegado de un clip. */
+  const cuenta={}; for(const s of buenos) if(s.link)cuenta[s.link]=(cuenta[s.link]||0)+1;
+  const relink={}; for(const k in cuenta) if(cuenta[k]>1)relink[k]=uid();
+  const nuevos=[];
+  for(const s of buenos){ const m=mediaById(s.mediaId);
+    const n=Object.assign(JSON.parse(JSON.stringify(s)),{id:uid(),start:Math.max(0,state.playhead+((s.start||0)-t0)),maskTex:null,groupId:undefined,slot:undefined});
+    if(s.link&&relink[s.link])n.link=relink[s.link]; else { delete n.link; delete n.avRole; }
+    { const kind=(m.kind==='audio')?'audio':'video'; const L2=state.lanes[n.lane]; // [R92-T1 F8] acota la pista: pegar en una secuencia con otras pistas dejaba el clip invisible (y el audio SONANDO sin clip a la vista)
+      if(!L2||L2.kind!==kind){ let li=state.lanes.findIndex(l=>l.kind===kind); if(li<0){ const t=state.lanes.filter(l=>l.kind===kind).length+1; state.lanes.push({id:uid(),name:(kind==='audio'?'Audio ':'Video ')+t,tag:(kind==='audio'?'A':'V')+t,kind}); li=state.lanes.length-1; } n.lane=li; } }
+    if(n.maskData||(n.penMasks&&n.penMasks.length))rebuildMaskTex(n);
+    state.clips.push(n); nuevos.push(n); }
+  state.selId=nuevos[0].id; state.selIds=nuevos.map(x=>x.id); state.selGroupId=null;
+  renderTimeline(); renderInspector(); render(); reschedAudio(); markDirty();
+  if(sinMedio||bucle) flashStatus(nuevos.length+T(' pasted · ',' pegados · ')+((sinMedio?sinMedio+T(' without media',' sin medio'):'')+(sinMedio&&bucle?' · ':'')+(bucle?bucle+T(' would loop',' harían bucle'):'')),'err');
+  else if(nuevos.length>1) flashStatus(nuevos.length+T(' clips pasted',' clips pegados')); }
 function rippleDelete(){ const c=selClip(); if(!c)return; pushUndo(); const lane=c.lane,end=c.start+c.dur,gap=c.dur; state.clips=state.clips.filter(x=>x.id!==c.id);
   for(const x of state.clips) if(x.lane===lane&&x.start>=end) x.start-=gap; state.selId=null; state.selIds=[]; renderTimeline();renderInspector();render();updStatus(); reschedAudio(); }
 
@@ -11229,6 +11262,27 @@ function compElProps(g,p){ if(p.x!=null){
     if(g.kind==='grid'){ const cols=Math.max(1,g.cols||1), rows=Math.max(1,Math.ceil((g.count||1)/cols)); secAz=(cols>1?(g.arc||360)/(cols-1):(g.arc||60)); secEl=(rows>1?(g.elMax-g.elMin)/(rows-1):((g.elMax-g.elMin)||30)); }
     pr.warp='dome'; pr.secAz=secAz; pr.secEl=secEl; }
   return pr; }
+/* [R251] La pista MÁS CERCANA con hueco para [start, start+dur), y si no hay ninguna, una nueva.
+   «Más cercana» se mide desde donde se está trabajando —la pista del clip seleccionado, o la cabecera de pista
+   elegida—, no desde el techo del proyecto: es lo que evita que cada composición aparezca arriba del todo, lejos
+   del material. Sin nada elegido se empieza por la primera pista de su clase. A igual distancia gana la de abajo,
+   que es la que está más cerca del montaje. */
+function laneLibreCerca(kind,start,dur){
+  const idx=state.lanes.map((l,i)=>({l,i})).filter(o=>o.l&&o.l.kind===kind).map(o=>o.i);
+  if(idx.length){
+    const D=Math.max(0.001,dur||0), EPS=1e-4;
+    const libre=li=>!state.clips.some(c=>c.lane===li && c.start<start+D-EPS && c.start+c.dur>start+EPS);
+    /* El origen de la medida es la pista ELEGIDA por el usuario (la cabecera marcada), que es su forma de decir
+       «trabajo aquí». Si no ha elegido ninguna, se empieza por ABAJO: es donde está el montaje, y amontonar arriba
+       es justo la queja que trae esta ronda. A propósito NO se usa el clip seleccionado: tras crear una
+       composición el seleccionado es ella misma, así que cada nueva iría trepando una pista más arriba. */
+    let base=(state.selLane!=null&&state.lanes[state.selLane]&&state.lanes[state.selLane].kind===kind)?state.selLane:idx[0];
+    const orden=idx.slice().sort((a,b)=>(Math.abs(a-base)-Math.abs(b-base))||(a-b));
+    for(const li of orden) if(libre(li))return li;
+  }
+  const n=state.lanes.filter(l=>l.kind===kind).length+1;
+  state.lanes.push({id:uid(),name:(kind==='audio'?'Audio ':'Video ')+n,tag:(kind==='audio'?'A':'V')+n,kind});
+  return state.lanes.length-1; }
 /* ensure at least n video lanes exist; return their indices (top-down stable order) */
 function ensureVideoLanes(n){ let vids=state.lanes.map((l,i)=>({l,i})).filter(o=>o.l.kind==='video').map(o=>o.i);
   while(vids.length<n){ const k=state.lanes.filter(l=>l.kind==='video').length+1; state.lanes.push({id:uid(),name:'V'+k,tag:'V'+k,kind:'video'}); vids.push(state.lanes.length-1); } return vids; }
@@ -11290,15 +11344,18 @@ function createComposition(opts){ pushUndo();
   const ncount=state.media.filter(m=>m.kind==='nest').length;
   const nest=newSeqMedia(cap(kindES(g.kind))+(ncount?' '+(ncount+1):''), state.fps, nestW, nestH, nestClips, nestLanes, compMode); nest.dur=dur; nest.comp=g;
   state.media.push(nest);
-  // R88: EVERY composition lands on a BRAND-NEW top video lane (never reuses an existing track → no accidental overlap)
-  const vn=state.lanes.filter(l=>l.kind==='video').length+1; state.lanes.push({id:uid(),name:'V'+vn,tag:'V'+vn,kind:'video'}); const vlane=state.lanes.length-1;
+  /* [R251] Antes CADA composición estrenaba pista (R88, para no pisar nada). Con el uso real eso deja un proyecto
+     con una torre de pistas y la composición nueva siempre arriba del todo, lejos del material. La regla pasa a
+     ser la de Beltrán: la pista MÁS CERCANA que tenga hueco donde va a caer, y sólo si no hay ninguna, una nueva.
+     Se conserva lo que R88 buscaba —nunca encima de otro clip— pero sin el coste. */
   const start=scope?(scope.start!=null?scope.start:state.playhead):state.playhead;
+  const vlane=laneLibreCerca('video',start,dur);
   const nc=makeClip(nest,vlane,start); nc.dur=dur; nc.props.fulldome=true; nc.props.equirect=false;
   if(weave&&!isFlat()){ nc.props.fisheye=true; nc.props.fisheyeAmt=(g.fish!=null?g.fish:50); } // [R247c] el plano 1:1 entra al domo curvándose: es el «poco de fisheye» que pidió Beltrán
   state.clips.push(nc); // [R225·2] siempre máster de domo
   state.selId=nc.id; state.selIds=[nc.id]; state.selGroupId=null;
   renderMedia(); renderSeqBar(); renderTimeline(); renderInspector(); render(); markDirty();
-  flashStatus(cap(kindES(g.kind))+' → '+T('nest · ','nido · ')+lay.length+' '+T('items','elementos')); return nest; } // [R247c] el conteo real del reparto: el tejido y el relleno de domo no lo sacan de g.count
+  flashStatus(cap(kindES(g.kind))+' → '+((state.lanes[vlane]&&state.lanes[vlane].tag)||'V')+' · '+lay.length+' '+T('items','elementos')); return nest; } // [R251] decir EN QUÉ PISTA cayó: ahora puede ser una existente, y conviene verlo · [R247c] el conteo real del reparto: el tejido y el relleno de domo no lo sacan de g.count
 /* rebuild a compose-nest's inner clips/lanes from its stored comp params (live edit from the inspector / Recompose dialog) */
 function regenComposeNest(m){ if(!m||!m.comp)return false; const g=m.comp; const ids=(g.mediaIds&&g.mediaIds.length)?g.mediaIds:(g.mediaId!=null?[g.mediaId]:[]); const srcs=ids.map(mediaById).filter(Boolean); if(!srcs.length)return false; g.mediaIds=srcs.map(s=>s.id); g.mediaId=srcs[0].id; if(g.kind==='weave'){ g._aspect=compAspectOf(srcs); g._aspects=compAspectsOf(srcs); if(!flatLikeMode(m.mode))m.mode='flat'; /* [R247c] los tejidos de la versión esférica vivían en un nido de domo; al recomponerlos pasan al plano 1:1 */ } ensureRand(g); const flat=flatLikeMode(m.mode); const lay=flat?compLayoutFlat(g):compLayout(g);
   const dur=Math.max(0.1, m.dur||compSrcDur(srcs)); // [R225·7] misma regla al recomponer (sólo si el nest no tiene ya su duración)
