@@ -1,5 +1,75 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 237 — El composite máster deja de ser cuadrado
+
+R236 hizo que «Full» enseñara la calidad original dimensionando el composite con el lienzo, pero lo dejó CUADRADO
+de lado `max(w,h)`. Eso tenía dos costes. El obvio: una tira de 7196×912 reservaba 198 MB para usar 26. El que de
+verdad importaba: con el tope de **8192 por lado**, una sala de cuatro muros 4K —15360×2160— **no podía llegar a
+1:1**; se quedaba a 1,875× de submuestreo. Es decir, el caso grande, el de una instalación de verdad, seguía sin
+resolverse.
+
+Hacían falta **las dos cosas a la vez**, y ese es el hallazgo de la ronda: no basta con quitar el cuadrado. El
+tope tenía que dejar de medirse en LADO para medirse en **memoria** (`COMP_MAXTEXELS = 8192²`, los mismos 268 MB
+que R236 ya aceptaba). Con las dos, esa sala entra entera —33,2 M de texels, 127 MB— y llega a 1:1. Con sólo la
+primera se habría quedado exactamente igual de submuestreada, con mejor pinta en el código y ninguna mejora para
+Beltrán.
+
+### El truco: no se toca la matemática de colocación, se expande el viewport
+
+Los clips se siguen dibujando en el NDC de siempre, dentro de la banda `±Fx/±Fy`. Lo único que cambia es el
+viewport del composite, que se ensancha (`vw = compW/Fx`, `vx = -(vw-compW)/2`, ídem en Y) para que esa banda
+cubra la textura entera. Así ni `flatPlace`, ni el warp del domo, ni el wrap de costura, ni el recorte por
+superficie se enteran de nada. `gl.clear` ignora el viewport, así que el borrado tampoco cambia.
+
+El mapeo píxel-de-lienzo → uv (`mstrU`/`mstrV`) se calcula con los **mismos enteros del viewport**, no con el
+atajo `px/W`. Parece rebuscado y no lo es: el viewport es entero y `compH/Fy` no cae redondo, así que dar por
+hecho el relleno exacto dejaba hasta medio texel suelto en el borde — justo la fisura que costó R233 y R233b.
+Derivándolo del viewport real el mapeo es exacto por construcción. Medido: desviación **0 texels** en sala, domo
+y 2D; el peor caso (¼ de calidad, 1799×228) se queda en medio texel.
+
+### Dos convenciones conviviendo, a propósito
+
+**Decisión registrada:** [ADR-0010](docs/adr/adr-0010-composite-relleno-vs-letterbox.md) — la deuda real de la
+ronda es tener que llevar las dos convenciones en la cabeza, y eso hay que poder consultarlo dentro de un año.
+
+El máster pasa a **relleno** (`u,v = 0..1` sobre el lienzo). El **export, NDI, Spout y el caché de nests siguen en
+cuadrado con letterbox**: el `_ncSquare` de R180 depende de esa forma, y un nest 16:9 perdería su encuadre sin
+ella. Por eso hay dos parejas de límites de muestreo —`mstrContentLim`/`mstrLimForRect` para el máster,
+`compContentLim`/`compLimForRect` para el export— y **no se pueden mezclar**. Con un lienzo cuadrado (el domo) las
+dos coinciden, así que el domo queda intacto por construcción, no por cuidado.
+
+Tres sitios daban por hecho el cuadrado anclado en el origen y hubo que generalizarlos: los rects de tijera
+(`surfaceScissorRect` y `roomWallScissorRects`, ahora vía `_ndcToVp()`, que lee el ORIGEN del viewport), las UV de
+la sala 3D (`buildRoomGeo`, que las calculaba a mano descontando el letterbox) y el caché de scrub-ahead, cuya
+reducción ahora sigue la proporción del máster en vez de un cuadrado de 1024.
+
+### Dos cosas que sólo aparecieron al construirlo
+
+**La miniatura del launcher.** Renderiza una secuencia temporal —una tira 7:1— sin pasar por `resize()`, así que
+la textura conservaba la forma del proyecto de fondo. Con un domo de 4096² detrás, el viewport de relleno habría
+pedido **28 672 px de alto**, por encima del máximo de muchas GPU. Se resuelve sincronizando el tamaño del máster
+en cada `render()` (es un no-op si ya coincide), con un tope de 1024 de lado para las miniaturas.
+
+**La capa de ajuste.** `drawAdjustment` fotografía el composite y le pasa la cadena de FX. Su cuadrado se
+dimensionaba por el lado mayor del destino: en la sala 4K habrían sido 943 MB de instantánea más dos RT iguales,
+2,8 GB. Se topa en `ADJ_MAX=8192`, que es el techo que ya tenía de hecho antes de esta ronda. La cadena se queda
+CUADRADA y con su letterbox —así un desenfoque sigue siendo isótropo sobre el lienzo, en vez de ocho veces más
+ancho que alto— y `PMIX` estrena `u_uvsc`/`u_uvof` para muestrear esa banda al devolver el resultado.
+
+### Verificado por CDP en dev
+
+`scratchpad/r237-fill.mjs`, `r237-verify2.mjs`, `r237-verify3.mjs` y `r237-verify4.mjs`; `__errs` vacío en las
+cuatro. Sala 7196×912 → 1,00 en los dos ejes con 25 MB · sala de 4 muros 4K → 1,00 con 127 MB · domo 4096² y 2D
+1920×1080 a 1:1 con viewport identidad · relleno exacto · **export por-muro: los cuatro muros por separado
+reconstruyen la tira entera con difMax 0** (con tres transiciones duras en la tira, o sea con señal que comparar,
+y las cinco pasadas a la misma resolución de composite: si no, se estaría midiendo el remuestreo y no las
+costuras) · caché de nest con su letterbox · sala 3D con el borde alto en `v=1,000000` sin recortar · capa de
+ajuste con la misma cobertura al píxel y el color cambiado · visor partido muros|piso sin invasión · caché de
+scrub-ahead a 1024×400, la proporción del máster.
+
+**Lo que NO cambia:** el export sigue con su FBO propio a resolución de salida, y sus límites de muestreo dan los
+mismos números que midió R234b. La calidad de previsualización sigue encogiendo sólo esta textura.
+
 ## ROUND 234b/c — Revisión desde el Mac de R232→R234
 
 Cinco commits escritos en Windows (el solver de la planta, el reorden de muros, la línea negra del blit, el color
@@ -105,6 +175,10 @@ forma; cambiarla es una ronda aparte y el beneficio es sólo de VRAM, no de cali
 
 El tope, `COMP_MAX=8192`, es de MEMORIA y no de calidad: 268 MB en RGBA. Por encima —una sala de cuatro muros 4K
 son 15360 de ancho— se queda submuestreado, que es preferible a reservar 1 GB de VRAM.
+
+> **Superado por R237.** Las dos afirmaciones de arriba dejaron de valer: el máster ya no es cuadrado y el tope ya
+> no es por lado sino por memoria. La segunda frase resultó ser el problema de fondo, no un detalle — era lo que
+> dejaba la sala de cuatro muros 4K a 1,875× de submuestreo. Ver ROUND 237.
 
 **Coste honesto:** a Full ahora se sombrea el lienzo COMPLETO en vez de 1/12 de él. Para eso están ½ y ¼, que
 siguen dividiendo el lado (y por tanto el coste por cuatro). El export no se toca: siempre usó su propio FBO a

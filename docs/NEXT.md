@@ -30,33 +30,27 @@
       dimensiona con el lienzo (`compBase()` = `max(w,h)`, tope `COMP_MAX=8192` por memoria). Medido: sala de
       7196×912 en Full → **submuestreo 1,00 en los dos ejes** (198 MB). El domo pasa de 2× a 1:1 y un 2D 1080p
       gasta menos que antes. Coste: a Full se sombrea el lienzo completo — para eso están ½ y ¼._
-- [ ] 🟠 **Composite NO CUADRADO — plan listo para ejecutar en sesión fresca.** Hoy el máster es cuadrado de lado
-      `max(w,h)`, así que una tira apaisada desperdicia VRAM (198 MB en vez de 26 para 7196×912). **El motivo real
-      no es la memoria: es que con el tope `COMP_MAX=8192` una sala de 4 muros 4K (15360 de ancho) NO puede llegar
-      a 1:1** — se queda a 1,9× de submuestreo. No cuadrado sí llega, y con 133 MB.
-      **Dato que reduce el riesgo:** el caché de scrub-ahead está **apagado por defecto** (`_raOn=false`).
-      **La dificultad real** son DOS convenciones conviviendo: el máster pasa a *relleno* (u,v = 0..1 sobre el
-      lienzo) mientras **export, NDI, Spout y el caché de nests siguen en cuadrado con letterbox** (el `_ncSquare`
-      de R180 depende de ello). Pasos:
-      1. `compW`/`compH` en vez de `compSize`; `compBase()` devuelve el par; `setCompSize(w,h)`.
-      2. `composite(t,size,opaque,fill)`: con `fill`, viewport EXPANDIDO para que el NDC ±Fx/±Fy llene la textura →
-         `vw=compW/Fx, vx=-(vw-compW)/2` (ídem en Y). Sin `fill`, lo de siempre. Ojo: `gl.clear` ignora el
-         viewport, así que el borrado no cambia.
-      3. Blit del visor: rama FLAT de `render()` pasa a `u=px/seqW, v=1-py/seqH`. **La rama del DOMO no se toca**
-         (lienzo cuadrado → el viewport de relleno coincide con el cuadrado).
-      4. UV de `buildRoomGeo` (sala 3D): hoy salen de `Fy`; pasan a la convención de relleno.
-      5. `compContentLim()`/`compLimForRect()`: versión de relleno para el máster, **conservando la de letterbox**
-         para el export.
-      6. `raStore`: `blitFramebuffer(0,0,compW,compH → 0,0,raW,raH)` con la RA al mismo aspecto.
-      Verificar: submuestreo 1:1 en sala grande, export por-muro sin costuras, domo intacto, caché de nest con su
-      letterbox, y sala 3D sin franja en el borde alto.
-- [ ] ~~🔴 PRIORITARIO · composite no cuadrado.~~ Reportado por Beltrán en producción: un clip sin proxy en **Full**
-      se ve muy pixelado. Medido: lienzo 7196×912 → banda de **2048×260 texels** = **3,51× de submuestreo en LOS DOS
-      ejes** y **87,3 % de la textura desperdiciado**. «Full» no está enseñando la calidad original. El export no se
-      ve afectado (FBO propio). Arreglo: composite del tamaño del lienzo → 6,5 M texels (26 MB) frente a 0,53 M
-      útiles hoy = **13× más resolución con 8× menos memoria**. Toca `composite()`, `setCompSize`, el NDC del
-      dibujado de clips, el UV del blit (`compContentLim`/`compLimForRect` se simplificarían), el export y el caché
-      de nests. Ronda propia con verificación aparte.
+- [x] ~~🟠 **Composite NO CUADRADO** (y con él, el 🔴 PRIORITARIO de la línea de abajo).~~ _(R237: hecho y verificado
+      por CDP en dev — `scratchpad/r237-fill.mjs`, `r237-verify2.mjs`, `r237-verify3.mjs`, `r237-verify4.mjs`,
+      `__errs` vacío en las cuatro.)_ El máster pasa a `compW×compH`, con la forma del lienzo, **y el tope deja de
+      ser un lado para pasar a ser MEMORIA** (`COMP_MAXTEXELS=8192²`) — hacían falta las dos cosas: sólo con la
+      primera, el tope de 8192 por lado seguía dejando la sala 4K a 1,9×. Medido:
+      · sala **7196×912 → composite 7196×912, submuestreo 1,00 en los dos ejes, 25 MB** (antes 198)
+      · sala de 4 muros 4K, **15360×2160 → 1,00 en los dos ejes con 127 MB** (antes 1,875× y 268 MB)
+      · domo 4096² y 2D 1920×1080, 1:1 y viewport identidad — el domo queda intacto **por construcción**: con un
+        lienzo cuadrado relleno y letterbox coinciden
+      · relleno EXACTO (`u(0)=0, u(W)=1, v(H)=0, v(0)=1`, desviación **0 texels**; el peor caso, ¼ de calidad en
+        1799×228, se queda en medio texel)
+      · export por-muro: los cuatro muros exportados por separado reconstruyen la tira entera con **difMax 0**
+      · caché de nest (`_ncSquare`) con su letterbox intacto · sala 3D sin franja (`vTop=1,000000` sin recortar)
+      · capa de ajuste sobre el máster no cuadrado: misma cobertura al píxel y el color cambia
+      · visor partido muros|piso sin invasión · caché de scrub-ahead a la proporción del máster (1024×400).
+      **Dos convenciones conviviendo, a propósito:** el máster es de *relleno* (`mstrU`/`mstrV`,
+      `mstrContentLim`/`mstrLimForRect`) y export, NDI, Spout y el caché de nests siguen en *cuadrado con
+      letterbox* (`compContentLim`/`compLimForRect`). No mezclarlas. Detalle en la ficha de COMPONENTS.md.
+- [x] ~~🔴 PRIORITARIO · composite no cuadrado.~~ _(cerrado por R237, arriba)_ Reportado por Beltrán en producción:
+      un clip sin proxy en **Full** se ve muy pixelado. Medido entonces: lienzo 7196×912 → banda de **2048×260
+      texels** = **3,51× de submuestreo en LOS DOS ejes** y **87,3 % de la textura desperdiciado**.
 - [x] ~~**Revisión de R233 (R233b)**~~ — el acotado se hacía contra el RECORTE y no contra el contenido (comía un
       texel en las costuras interiores: export por-muro y panel de muros); la franja seguía viva en el 3D. Ambos
       corregidos con `u_uvlim` = banda del lienzo, salvando el caso `_ncSquare` (letterbox del caché de nest).

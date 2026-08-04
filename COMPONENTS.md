@@ -449,19 +449,19 @@ Constants (L3): `PI`, `HALF_PI=PI/2`, `D2R`, `R2D`, `COMP=2048` (dome composite 
 > flags the project dirty AND calls `raInvalidate()`. This is the single most fragile contract of the file.
 
 ## Composite FBO + master texture
-- **Purpose:** Single square master render target (`COMP`=2048²) into which every clip is composited. View-independent → the same texture feeds the 2D blit, the 3D dome mesh, and the room walls.
-- **Location:** app.js · `COMP` const (L3) · `compTex` (L430) · `compFBO` (L434) · `setCompSize()` (L439).
-- **State owned:** `compTex`, `compFBO`, `compSize` (module-level, not in `state`).
-- **Key symbols:** `COMP=2048`, `compSize` (live preview-quality res, 256..COMP), `setCompSize(s)` reallocs `compTex` only. Blend init at L428 (`blendFuncSeparate` premultiplied-alpha-safe).
-- **Invariants / gotchas:** Preview quality (`setCompSize`) shrinks ONLY this master texture — never the screen canvas, dome mesh, grid, or 2D overlays (comment L436). Texture is always square regardless of sequence aspect; flat/room fit inside via `_compAspect`.
-- **Status:** ✅
+- **Purpose:** Single master render target into which every clip is composited. View-independent → the same texture feeds the 2D blit, the 3D dome mesh, and the room walls. **[R237] `compW×compH`, con la FORMA del lienzo** (antes era cuadrado de lado `max(w,h)`).
+- **Location:** app.js · `COMP` const (L50) · `compTex`/`compFBO` (L634-639) · `compBase()`/`setCompSize(w,h)`/`syncCompSize()` (L685-707) · `composite(t,size,opaque,fill)` (L1049).
+- **State owned:** `compTex`, `compFBO`, `compW`, `compH`, `_compTgtW`/`_compTgtH`/`_compFill` (module-level, not in `state`).
+- **Key symbols:** `COMP_MAXTEXELS=8192²` (techo de MEMORIA, no de lado) · `GL_MAXSIDE` (mín. de MAX_TEXTURE_SIZE y MAX_VIEWPORT_DIMS) · `compBase()` → par `[w,h]` · `syncCompSize()` = lienzo × `previewQuality`, lo llaman `resize()`, el selector de calidad y **`render()` en cada fotograma**. Blend init en L632.
+- **Invariants / gotchas:** **DOS convenciones conviviendo.** (a) *Relleno* — el máster: el contenido llena la textura, `u,v = 0..1` sobre el lienzo, viewport EXPANDIDO por `compFillVp()` (`vw=compW/Fx`), UV por `mstrU`/`mstrV` y límites por `mstrContentLim`/`mstrLimForRect`. (b) *Cuadrado con letterbox* — export, caché de nests (`_ncSquare` de R180), NDI y Spout: `composite()` sin `fill`, límites por `compContentLim`/`compLimForRect`. **No mezclar las dos parejas.** La matemática de colocación de los clips (NDC, `Fx/Fy`) es la MISMA en los dos casos; sólo cambia el viewport. Los rects de tijera se traducen por `_ndcToVp()`, que lee el origen del viewport (no vale suponerlo en 0,0). Con un lienzo cuadrado (domo) relleno y letterbox COINCIDEN, así que el domo queda intacto por construcción. La calidad de previsualización encoge SÓLO esta textura — nunca el lienzo de pantalla, la malla del domo, la retícula ni los overlays 2D.
+- **Status:** ✅ _(R237: sala de 7196×912 a 1:1 con 25 MB — antes 198; sala de 4 muros 4K, 15360×2160, a 1:1 con 127 MB — antes 1,875× de submuestreo)_
 - **Roadmap:** [D4] wants this to become an interchangeable "output target" layer (dome fisheye / N-wall room / 3D grid) over the same composite.
 
 ## Master `render()`
 - **Purpose:** Top-level frame draw. Builds/reuses the master composite for `state.playhead`, then dispatches to one of three view paths (room-3D / dome-3D / 2D-blit) based on `state.view.mode` + sequence mode.
 - **Location:** app.js · `render()` (L921).
 - **State owned:** reads `state.view.mode` ('2d'/'3d'), `state.seqMode`, `state.playhead`, `state.seqW/seqH`, `state.view.three` ('orbit'/'spec'), grid/checker/hfade flags.
-- **Key symbols:** sets globals `_drawFlat=isFlat()`, `_roomWrap=isRoom()`, `_compAspect=seqW/seqH`, `_arTime`. Composite step: `raGet(playhead)` cache hit → reuse `_raHit`; else `prepNests()` + `composite()` into `compFBO` + `raStore()`. Branch: `mode==='3d'&&isRoom()`→`renderRoom3D()` (L930); `mode==='3d'&&!flat`→dome mesh program `P3`/`domeVAO`, `cameraMVP`, `buildDomeMesh(curCovHalf())` (L931); else→2D blit program `PB`/`quadVAO` + `drawGrid2D()` (L943). Pop-out viewer via `renderViewer(_srcTex)` (L955).
+- **Key symbols:** **[R237]** arranca llamando a `syncCompSize()` — el máster lleva la FORMA de lo que se va a dibujar, y de ahí depende el viewport de relleno. Luego fija los globales `_drawFlat=isFlat()`, `_roomWrap=isRoom()`, `_compAspect=seqW/seqH`, `_arTime`. Composite step: `raGet(playhead)` cache hit → reuse `_raHit`; else `prepNests()` + `composite(t,null,false,true)` (con RELLENO) into `compFBO` + `raStore()`. Branch: `mode==='3d'&&isRoom()`→`renderRoom3D()` (L930); `mode==='3d'&&!flat`→dome mesh program `P3`/`domeVAO`, `cameraMVP`, `buildDomeMesh(curCovHalf())` (L931); else→2D blit program `PB`/`quadVAO` + `drawGrid2D()` (L943). Pop-out viewer via `renderViewer(_srcTex)` (L955).
 - **Invariants / gotchas:** Early-returns on `glLost` and `exporting`. `u_flipx=-1` in the dome program (L938) is the ONE intentional 2D↔3D handedness inversion — do not "fix". Both 3D paths share the same `_srcTex` (composite is view-independent). Guard: if flat/non-room sequence but mode is '3d', `syncViewForSeq` (L4934) forces back to '2d'.
 - **Status:** ✅
 - **Roadmap:** [L7] evalP must feed render in real-time (Transform automation in Play); [R2] deformed-clips-on-export bug touches this dispatch.
@@ -535,11 +535,11 @@ Constants (L3): `PI`, `HALF_PI=PI/2`, `D2R`, `R2D`, `COMP=2048` (dome composite 
 - **Roadmap:** —
 
 ## Render-ahead cache (T4)
-- **Purpose:** Optional frame cache of the flattened master composite (downscaled 1024² via `blitFramebuffer`), so heavy playback replays one flat texture instead of recompositing N layers + decoding N videos. View-independent → serves both 2D and 3D.
+- **Purpose:** Optional frame cache of the flattened master composite (downscaled via `blitFramebuffer`), so heavy playback replays one flat texture instead of recompositing N layers + decoding N videos. View-independent → serves both 2D and 3D. **[R237]** La reducción sigue la PROPORCIÓN del máster (`_raW×_raH`, lado mayor = `RA_SIZE`), no un cuadrado: guardar una tira de 7,9:1 en 1024² la habría dejado a 1/8 de resolución horizontal.
 - **Location:** app.js · state block (L801) · `raInvalidate()` (L804) · `raGet()` (L806) · `raStore()` (L807) · `raReset()` (L803) · `raHas()`/`_raFrame()` (L805,818) · `raPrerenderRange()` (L823) · idle `raIdleTick`/`raStartIdle`/`raStopIdle` (L835,832,831) · `renderAheadWork`/`renderAheadOff` (L840,847) · `drawCacheMap()` (L817).
 - **State owned:** `_raOn` (flag, default off), `_ra` (Map frame→{tex,last,gen}), `_raPool` (tex pool), `_raGen` (generation counter), `_raClock` (LRU), `_raFBO`; mirrors `state.renderAhead`.
-- **Key symbols:** `RA_SIZE=1024`, `RA_MAX=120` (LRU cap). `raInvalidate()` just bumps `_raGen` (cheap invalidate, no tex delete). `raGet` returns tex only if `gen===_raGen`. `drawCacheMap` paints the Premiere-style cached-frame strip on `#rulerCv`.
-- **Invariants / gotchas:** `raStore` never caches when `anyFeedbackFx()` (Trails/feedback is path-dependent → scrubbing would bake temporally-wrong echoes, L807). Every edit path guards `if(_raOn)raInvalidate()` — the manual-binding invariant extends here. `markDirty()` calls `raInvalidate()`.
+- **Key symbols:** `RA_SIZE=1024` (lado MAYOR), `_raW`/`_raH` (dims reales), `raSyncDims()`, `RA_MAX=120` (LRU cap). `raInvalidate()` just bumps `_raGen` (cheap invalidate, no tex delete). `raGet` returns tex only if `gen===_raGen`. `drawCacheMap` paints the Premiere-style cached-frame strip on `#rulerCv`.
+- **Invariants / gotchas:** `raStore` never caches when `anyFeedbackFx()` (Trails/feedback is path-dependent → scrubbing would bake temporally-wrong echoes, L807). Every edit path guards `if(_raOn)raInvalidate()` — the manual-binding invariant extends here. `markDirty()` calls `raInvalidate()`. **[R237]** `setCompSize` llama a `raSyncDims()`: si cambia la forma del máster, el caché entero se TIRA (`raReset`) porque sus texturas ya no valen — no basta con invalidar la generación.
 - **Status:** ✅ (feature-flagged; off by default)
 - **Roadmap:** — (nota: la "[T4]" del ticket = faders del 3D-preview, ya rediseñada en R138; distinta del tag interno "[T4]" de este caché).
 
@@ -1485,8 +1485,8 @@ Reference map of `app.js` (single-file WebGL2 renderer). Line numbers verified a
 - **Purpose:** Builds the room's textured-quad vertex buffer (normalized + centered) into `roomVB`: one quad per wall sampling its own sub-rect of the strip, plus a triangulated floor fan sampling the SAME composite's dock rect. Caches per active-seq id.
 - **Location:** app.js · `buildRoomGeo(seq)` (~L1081); globals `_roomGeo`,`_roomGeoSeq`
 - **State/data:** `seq.room.walls`, `seq.w`/`seq.h` (stripW × walls+floor canvas height), `room.stripH` (walls-only height), `room.floor`, `room.floor.pxW/pxH`, `roomPlan(room.walls)`
-- **Key symbols:** vertex layout = pos(3)+uv(2)+shade(1)+inward-normal xy(2) = 8 floats/32 bytes (`LR.pos/uv/shade/nrm`). `_roomGeo={wallVerts,floorVerts,norm:{cx,cy,sc,midZ,standZ,radius}}`. `standZ=min(maxH*0.95,1.7)*sc` (eye at ~1.7 m). Strip UV: `uL=w.x1/stripW, uR=w.x0/stripW` (swapped so inside-view a→b runs right→left, matches 2D viewer, not mirrored).
-- **Invariants / gotchas:** Per-wall vBot/vTop derive from `pxH/seq.h` (now the FULL canvas — walls automatically occupy a smaller fraction once the floor grows `seq.h`, no separate math needed). **[R221]** Floor UV: same world→uv orientation as before (X flipped, Y direct — `fuv`), but the destination is the dock rect (Front wall's x-span, `[room.stripH, seq.h]` in y) of THIS composite, not a dedicated floor-texture letterbox. Floor vertex shade is a flat `1.0` (was `0.5`) — same clarity as the walls, per Beltrán. Normalization scale `sc=1/max(rad,maxH*0.6,0.5)`.
+- **Key symbols:** vertex layout = pos(3)+uv(2)+shade(1)+inward-normal xy(2) = 8 floats/32 bytes (`LR.pos/uv/shade/nrm`). `_roomGeo={wallVerts,floorVerts,norm:{cx,cy,sc,midZ,standZ,radius}}`. `standZ=min(maxH*0.95,1.7)*sc` (eye at ~1.7 m). **[R237]** Todas las UV (muros y piso) salen de `uOf=mstrU(px,stripW)` / `vOf=mstrV(py,stripH)` — la MISMA pareja que usa el blit 2D del máster de relleno; antes se calculaban a mano descontando el letterbox del cuadrado (`Fy`/`vMax`, ya retirados). Strip UV: `uL=uOf(w.x1), uR=uOf(w.x0)` (swapped so inside-view a→b runs right→left, matches 2D viewer, not mirrored).
+- **Invariants / gotchas:** Per-wall vBot/vTop derive from `pxH` sobre `seq.h` (now the FULL canvas — walls automatically occupy a smaller fraction once the floor grows `seq.h`, no separate math needed). **[R221]** Floor UV: same world→uv orientation as before (X flipped, Y direct — `fuv`), but the destination is the dock rect (Front wall's x-span, `[room.stripH, seq.h]` in y) of THIS composite, not a dedicated floor-texture letterbox. Floor vertex shade is a flat `1.0` (was `0.5`) — same clarity as the walls, per Beltrán. Normalization scale `sc=1/max(rad,maxH*0.6,0.5)`. **[R237]** Se construye desde `renderRoom3D`, o sea DESPUÉS de que `render()` fije `_compAspect` y sincronice `compW/compH`: `mstrU`/`mstrV` dependen de los dos. No llamarla fuera de esa ventana.
 - **Status:** ✅
 - **Roadmap:** —
 
@@ -1669,8 +1669,8 @@ Reference map of `app.js` (single-file WebGL2 renderer). Line numbers verified a
 - **Purpose:** Creates a media-less adjustment clip (`adjust:true`, no mediaId) that applies its `fx` to layers beneath it.
 - **Location:** app.js · `makeAdjustClip(lane,start,dur)` (~L6787); inserted at L6795 & L1809
 - **State/data:** `{adjust:true,mediaId:null,props:{opacity:100},kf:{},fx:[]}`
-- **Key symbols:** color `#B4BAC1`
-- **Invariants / gotchas:** —
+- **Key symbols:** color `#B4BAC1`. El dibujado es `drawAdjustment(c,t,xf)` (~L11340): fotografía el composite de debajo → `applyChain` → mezcla de vuelta con `PMIX`.
+- **Invariants / gotchas:** **[R237]** El destino es la TEXTURA (`_compTgtW/_compTgtH`), no el viewport — con el máster de relleno el viewport está expandido y desplazado. La cadena de FX se queda CUADRADA y con el letterbox de siempre (así un desenfoque sigue siendo isótropo sobre el lienzo; estirar una tira de 7,9:1 al cuadrado lo dejaría ocho veces más ancho que alto), y `PMIX` estrena `u_uvsc`/`u_uvof` para muestrear esa banda. Sin relleno (export, nest) los uniformes valen (1,1)/(0,0) y el camino es idéntico al anterior. Tope `ADJ_MAX=8192` en el lado del cuadrado: sin él, una sala de 4 muros 4K pediría 2,8 GB entre instantánea y RT de la cadena.
 - **Status:** ✅
 - **Roadmap:** —
 

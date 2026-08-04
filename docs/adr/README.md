@@ -15,6 +15,7 @@
 | [0007](adr-0007-archivar-no-borrar.md) | Código deprecado se archiva, no se borra | Accepted |
 | [0008](adr-0008-rediseno-rev1-regla-de-poda.md) | UI recreada calcada al diseño "Rev 1" + regla de poda | Accepted |
 | [0009](adr-0009-arranque-en-dos-ventanas.md) | Arranque en dos ventanas: splash propio + editor oculto hasta estar listo | Accepted |
+| [0010](adr-0010-composite-relleno-vs-letterbox.md) | Composite máster de RELLENO; export/NDI/Spout/caché de nests siguen en cuadrado con letterbox | Accepted |
 
 **Cuándo escribir una ADR:** cuando una decisión sea **importante, cara o riesgosa de revertir**. No para cada cambio —
 para las que un desarrollador (o Claude) futuro necesitaría entender el *porqué*.

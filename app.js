@@ -418,7 +418,10 @@ void main(){ float r=length(v_p); if(u_flat<0.5 && r>1.0) discard;
 const PB=prog(VSB,FSB);
 const LB={p:gl.getAttribLocation(PB,'a_p'),pan:gl.getUniformLocation(PB,'u_pan'),zoom:gl.getUniformLocation(PB,'u_zoom'),aspect:gl.getUniformLocation(PB,'u_aspect'),tex:gl.getUniformLocation(PB,'u_tex'),hfade:gl.getUniformLocation(PB,'u_hfade'),flat:gl.getUniformLocation(PB,'u_flat'),uvsc:gl.getUniformLocation(PB,'u_uvsc'),uvof:gl.getUniformLocation(PB,'u_uvof'),uvlim:gl.getUniformLocation(PB,'u_uvlim')};
 /* [R233b] La banda que ocupa el lienzo dentro del composite CUADRADO — el límite del muestreo, común a todos los
-   paneles. Con un lienzo cuadrado o el domo da (0,0,1,1), o sea la textura entera. */
+   paneles. Con un lienzo cuadrado o el domo da (0,0,1,1), o sea la textura entera.
+   [R237] Esta pareja (`compContentLim`/`compLimForRect`) es la del CUADRADO CON LETTERBOX, que desde R237 sólo
+   usa el export (FBO propio, `composite(t,SR,true)` sin relleno) y, dentro de él, el caché de nests (`_ncSquare`).
+   El MÁSTER de previsualización pasó a relleno y usa `mstrContentLim`/`mstrLimForRect`, más abajo. */
 function compContentLim(){ const A=_compAspect, s=Math.min(2/A,2), Fx=s*A/2, Fy=s/2;
   return [(1-Fx)/2,(1-Fy)/2,(1+Fx)/2,(1+Fy)/2]; }
 /* [R234b] El límite del muestreo es la frontera del CONTENIDO, y en una sala el contenido no llega hasta el borde
@@ -435,6 +438,31 @@ function compLimForRect(x0,y0,x1,y1){ const A=_compAspect, s=Math.min(2/A,2), Fx
   const u=px=>((K*px-Fx)*0.5+0.5), v=py=>((Fy-(2*Fy/H)*py)*0.5+0.5);
   const L=compContentLim(); // nunca fuera de la banda del lienzo
   return [Math.max(L[0],u(x0)), Math.max(L[1],v(y1)), Math.min(L[2],u(x1)), Math.min(L[3],v(y0))]; }
+/* ===== [R237] MÁSTER DE RELLENO — la segunda convención =====================================================
+   El composite máster dejó de ser cuadrado: es `compW×compH`, con la forma del lienzo, y el contenido lo llena
+   ENTERO (u,v = 0..1 sobre el lienzo). La matemática de colocación de los clips NO cambia — siguen dibujándose
+   en el NDC de siempre, dentro de la banda ±Fx/±Fy —; lo que cambia es el VIEWPORT, que se expande para que esa
+   banda cubra la textura completa. `compFillVp()` es ese viewport.
+   Por qué el mapeo px→uv se calcula con los MISMOS enteros del viewport en vez de con el atajo `px/W`: el
+   viewport es entero (GLint) y `compH/Fy` no cae redondo, así que dar por hecho el relleno exacto dejaba hasta
+   medio texel suelto en el borde — justo la fisura que R233 costó cerrar. Derivándolo del viewport real el
+   mapeo es exacto por construcción, sobre o falte lo que sobre o falte del redondeo.
+   El resto de la casa (export, NDI, Spout, caché de nests) sigue en CUADRADO CON LETTERBOX. Son dos convenciones
+   conviviendo a propósito: el `_ncSquare` de R180 depende de la vieja. */
+function compFillVp(){ const A=_compAspect||1, s=Math.min(2/A,2), Fx=s*A/2, Fy=s/2;
+  const vw=Math.max(1,Math.round(compW/Fx)), vh=Math.max(1,Math.round(compH/Fy));
+  return {x:Math.round(-(vw-compW)/2), y:Math.round(-(vh-compH)/2), w:vw, h:vh, Fx, Fy}; }
+function mstrU(px,W){ W=Math.max(1,W||state.seqW||1); const V=compFillVp();
+  return (V.x + V.w*0.5 + V.w*V.Fx*(px/W-0.5))/Math.max(1,compW); }
+function mstrV(py,H){ H=Math.max(1,H||state.seqH||1); const V=compFillVp();
+  return (V.y + V.h*0.5 + V.h*V.Fy*(0.5-py/H))/Math.max(1,compH); } // v hacia arriba: py=0 (borde alto del lienzo) → v≈1
+const _cl01=x=>Math.max(0,Math.min(1,x));
+/* Equivalentes de relleno de compContentLim/compLimForRect. El contenido llena la textura, así que el límite
+   global es prácticamente (0,0,1,1); se calcula igual por el viewport para no dar por supuesto el redondeo. */
+function mstrContentLim(){ const W=Math.max(1,state.seqW||1), H=Math.max(1,state.seqH||1);
+  return [_cl01(mstrU(0,W)),_cl01(mstrV(H,H)),_cl01(mstrU(W,W)),_cl01(mstrV(0,H))]; }
+function mstrLimForRect(x0,y0,x1,y1){ const L=mstrContentLim();
+  return [Math.max(L[0],_cl01(mstrU(x0))), Math.max(L[1],_cl01(mstrV(y1))), Math.min(L[2],_cl01(mstrU(x1))), Math.min(L[3],_cl01(mstrV(y0)))]; }
 const HFADE=0.14; // horizon-fade band (fraction of the dome radius) when enabled
 const quadVAO=gl.createVertexArray(); gl.bindVertexArray(quadVAO);
 (()=>{const vb=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,vb);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,-1,1,1,-1,1]),gl.STATIC_DRAW);gl.enableVertexAttribArray(LB.p);gl.vertexAttribPointer(LB.p,2,gl.FLOAT,false,0,0);})();
@@ -632,7 +660,7 @@ let _roomGeo=null, _roomGeoSeq=null;
 gl.enable(gl.BLEND); gl.blendFuncSeparate(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA,gl.ONE,gl.ONE_MINUS_SRC_ALPHA);
 
 const compTex=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,compTex);
-gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,COMP,COMP,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,COMP,COMP,0,gl.RGBA,gl.UNSIGNED_BYTE,null); // [R237] tamaño inicial; `setCompSize(w,h)` lo pone con la forma del lienzo
 gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
 gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
 const compFBO=gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER,compFBO);
@@ -648,10 +676,35 @@ gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,compTe
    El tope es de MEMORIA, no de calidad: 8192² en RGBA son 268 MB. Por encima de eso un lienzo enorme (una sala de
    4 muros 4K son 15360 de ancho) se queda submuestreado, que es preferible a reservar 1 GB de VRAM.
    Coste real: a Full se sombrea el lienzo COMPLETO en vez de 1/12 de él. Por eso están ½ y ¼. */
-const COMP_MAX=8192;
-function compBase(){ return Math.max(256,Math.min(COMP_MAX,Math.round(Math.max(state.seqW||COMP,state.seqH||COMP)))); }
-let compSize=COMP;
-function setCompSize(s){ s=Math.max(256,Math.min(COMP_MAX,Math.round(s))); if(s===compSize)return; compSize=s; gl.bindTexture(gl.TEXTURE_2D,compTex); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,compSize,compSize,0,gl.RGBA,gl.UNSIGNED_BYTE,null); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE); gl.bindTexture(gl.TEXTURE_2D,null); }
+/* [R237] …y desde R237 tampoco es CUADRADO: es `compW×compH`, con la forma del lienzo. Ahorra memoria (una tira
+   de 7196×912 pasa de 198 MB a 26), pero el motivo de fondo es otro: el TOPE deja de ser un lado para pasar a
+   ser MEMORIA, y sin esa pareja de cambios el caso que motivó la ronda seguía sin resolverse. Una sala de 4
+   muros 4K mide 15360×2160; con el tope de 8192 por lado se quedaba a 1,9× de submuestreo, aunque su textura
+   completa —33,2 M de texels, 133 MB— cabe de sobra bajo el mismo techo que R236 ya aceptaba para un cuadrado
+   de 8192 (67,1 M de texels, 268 MB). El lado sigue acotado por lo que admita la GPU. */
+const COMP_MAXTEXELS=8192*8192; // [R237] sustituye al COMP_MAX por lado de R236: el techo es de memoria (268 MB en RGBA)
+const GL_MAXSIDE=(()=>{ const vd=gl.getParameter(gl.MAX_VIEWPORT_DIMS)||[16384,16384]; // el viewport de relleno mide max(compW,compH) → acotar el lado también por él
+  return Math.max(2048,Math.min(16384, gl.getParameter(gl.MAX_TEXTURE_SIZE)||8192, vd[0]||16384, vd[1]||16384)); })();
+function compBase(){ const w=Math.max(1,Math.round(state.seqW||COMP)), h=Math.max(1,Math.round(state.seqH||COMP));
+  let k=Math.min(1,GL_MAXSIDE/Math.max(w,h));
+  const tex=(w*k)*(h*k); if(tex>COMP_MAXTEXELS)k*=Math.sqrt(COMP_MAXTEXELS/tex);
+  return [Math.round(w*k),Math.round(h*k)]; }
+let compW=COMP, compH=COMP;
+function setCompSize(w,h){ w=Math.max(64,Math.min(GL_MAXSIDE,Math.round(w))); h=Math.max(64,Math.min(GL_MAXSIDE,Math.round(h)));
+  if(w===compW&&h===compH)return; compW=w; compH=h;
+  gl.bindTexture(gl.TEXTURE_2D,compTex); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,compW,compH,0,gl.RGBA,gl.UNSIGNED_BYTE,null); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE); gl.bindTexture(gl.TEXTURE_2D,null);
+  try{ raSyncDims(); }catch(_){} } // el caché de scrub-ahead guarda una reducción del máster → tiene que seguir su proporción
+/* El tamaño que le toca al máster ahora mismo = lienzo × calidad de previsualización. Único sitio donde se
+   juntan las dos cosas (lo llaman `resize()`, el selector de calidad y el propio `render()`).
+   [R237] Que lo llame `render()` no es adorno: el viewport de relleno mide `compH/Fy`, así que si la textura
+   tuviera una forma MUY distinta a la del lienzo el viewport se dispararía (una tira 7:1 dibujada en la textura
+   cuadrada de 4096 de un proyecto de domo pediría 28 672 px de alto, por encima del máximo de la GPU). El único
+   sitio donde eso pasaba es la miniatura del launcher, que renderiza una secuencia temporal sin tocar `resize()`.
+   Sincronizando en cada `render()` la textura siempre tiene la forma de lo que se está dibujando. La miniatura,
+   además, se conforma con 1024 de lado: no necesita el máster entero. */
+function syncCompSize(){ const B=compBase(), q=state.previewQuality||1; let w=B[0]*q, h=B[1]*q;
+  if(_lchShot){ const k=Math.min(1,1024/Math.max(1,w,h)); w*=k; h*=k; }
+  setCompSize(w,h); }
 
 /* math */
 const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
@@ -884,11 +937,16 @@ function clipSurfRect(c){ if(!c)return null; const lane=state.lanes[c.lane]; if(
 function clipSurfaceRect(c){ return _roomWrap?clipSurfRect(c):null; }
 /* Aspecto del marco de colocación de un clip: el de su superficie si la lleva, o null = lienzo entero. [R230] */
 function clipSurfA(c){ const SR=clipSurfRect(c); return SR?((SR.x1-SR.x0)/Math.max(1,(SR.y1-SR.y0))):null; }
-/* SR (px del lienzo) → rect de scissor del FBO composite (viewport CUADRADO, y hacia arriba), generalizando
+/* [R237] NDC → píxeles del viewport EN CURSO. Antes se daba por hecho un viewport cuadrado anclado en el origen
+   (`(X*0.5+0.5)*vp[2]`); con el máster de relleno el viewport está expandido y DESPLAZADO, así que hay que leer
+   también su origen. La fórmula general vale igual para el cuadrado del export (vp = 0,0,size,size). */
+function _ndcToVp(){ const vp=gl.getParameter(gl.VIEWPORT);
+  return { X:X=>Math.round(vp[0]+(X*0.5+0.5)*vp[2]), Y:Y=>Math.round(vp[1]+(Y*0.5+0.5)*vp[3]) }; }
+/* SR (px del lienzo) → rect de scissor del FBO composite (y hacia arriba), generalizando
    roomWallScissorRects: un clip ligado a superficie se recorta a su muro/piso y no invade la otra superficie. */
-function surfaceScissorRect(SR){ const as=activeSeq(); const vp=gl.getParameter(gl.VIEWPORT); const size=vp[2]||1; const W=as.w||1,H=as.h||1;
+function surfaceScissorRect(SR){ const as=activeSeq(); const W=as.w||1,H=as.h||1;
   const A=W/H, sC=Math.min(2/A,2), FxC=sC*A/2, FyC=sC/2, K=2*FxC/W; const nx=px=>K*px-FxC, ny=py=>FyC-K*py;
-  const vX=X=>Math.round((X*0.5+0.5)*size), vY=Y=>Math.round((Y*0.5+0.5)*size);
+  const V=_ndcToVp(), vX=V.X, vY=V.Y;
   const x0=vX(nx(SR.x0)), x1=vX(nx(SR.x1)), yA=vY(ny(SR.y0)), yB=vY(ny(SR.y1));
   return {x:Math.min(x0,x1), y:Math.min(yA,yB), w:Math.max(1,Math.abs(x1-x0)), h:Math.max(1,Math.abs(yA-yB))}; }
 function drawClipFlat(c,m,t,xf,ntex,op){ const SR=clipSurfaceRect(c); let P;
@@ -996,8 +1054,16 @@ function compositeClips(t){ const anySolo=state.lanes.some(l=>l.kind==='video'&&
       let aXf=1,bXf=f; if(b.trans==='dipBlack'){aXf=Math.max(0,1-2*f);bXf=Math.max(0,2*f-1);} out.push({c:a,xf:aXf});out.push({c:b,xf:bXf});}
     else {out.push({c:a,xf:1});out.push({c:b,xf:1});}
   } return out; }
-function composite(t,size,opaque){
-  gl.viewport(0,0,size,size); gl.clearColor(0,0,0,opaque?1:0); gl.clear(gl.COLOR_BUFFER_BIT);
+/* [R237] `fill` = destino el MÁSTER `compW×compH`, con el viewport EXPANDIDO para que la banda del lienzo cubra
+   la textura entera (ver compFillVp). Sin `fill` es el cuadrado de siempre con su letterbox: export, caché de
+   nests, NDI y Spout entran por ahí y no cambian ni un píxel.
+   `gl.clear` IGNORA el viewport (respeta la tijera, que aquí está apagada), así que el borrado sigue cubriendo
+   la textura completa en los dos casos. */
+let _compTgtW=COMP,_compTgtH=COMP,_compFill=false; // dimensiones REALES del destino del composite en curso (las lee drawAdjustment)
+function composite(t,size,opaque,fill){
+  const w=fill?compW:size, h=fill?compH:size; _compTgtW=w; _compTgtH=h; _compFill=!!fill;
+  if(fill){ const V=compFillVp(); gl.viewport(V.x,V.y,V.w,V.h); } else gl.viewport(0,0,w,h);
+  gl.clearColor(0,0,0,opaque?1:0); gl.clear(gl.COLOR_BUFFER_BIT);
   for(const x of compositeClips(t)){ if(x.c.adjust) drawAdjustment(x.c,t,x.xf); else drawClip(x.c,mediaById(x.c.mediaId),t,x.xf); }
 }
 
@@ -1169,7 +1235,15 @@ function nestSelection(){ const ids=(state.selIds&&state.selIds.length)?state.se
    The master composite is view-independent → serves both 2D and 3D. Flag-gated (_raOn, default off);
    a generation counter (bumped on edit) cheaply invalidates without deleting textures. */
 let _raOn=false; const _ra=new Map(), _raPool=[]; let _raClock=0,_raGen=0,_raFBO=null; const RA_SIZE=1024,RA_MAX=120;
-function raMakeTex(){ const t=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,t); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,RA_SIZE,RA_SIZE,0,gl.RGBA,gl.UNSIGNED_BYTE,null); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE); return t; }
+/* [R237] La reducción del caché sigue la PROPORCIÓN del máster (antes era cuadrada porque el máster lo era).
+   Guardar una tira de 7,9:1 en un cuadrado la habría dejado igual de correcta en uv pero aplastada a 1/8 de
+   resolución horizontal. `raSyncDims` lo llama `setCompSize`: si cambia la forma, el caché entero se tira
+   (las texturas viejas ya no valen) y se reserva con la nueva. */
+let _raW=RA_SIZE,_raH=RA_SIZE;
+function raSyncDims(){ const k=RA_SIZE/Math.max(1,compW,compH);
+  const w=Math.max(1,Math.round(compW*k)), h=Math.max(1,Math.round(compH*k));
+  if(w===_raW&&h===_raH)return; _raW=w; _raH=h; raReset(); }
+function raMakeTex(){ const t=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,t); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,_raW,_raH,0,gl.RGBA,gl.UNSIGNED_BYTE,null); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE); return t; }
 function raReset(){ for(const [,v] of _ra){try{gl.deleteTexture(v.tex);}catch(e){}} _ra.clear(); while(_raPool.length){try{gl.deleteTexture(_raPool.pop());}catch(e){}} }
 function raInvalidate(){ _raGen++; }
 function _raFrame(t){ return Math.round(t*(state.fps||30)); }
@@ -1179,7 +1253,7 @@ function raStore(t){ if(!_raOn)return; if(anyFeedbackFx())return; const F=_raFra
   const tex=ex?ex.tex:(_raPool.length?_raPool.pop():raMakeTex());
   gl.bindFramebuffer(gl.FRAMEBUFFER,_raFBO); gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,tex,0);
   gl.bindFramebuffer(gl.READ_FRAMEBUFFER,compFBO); gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER,_raFBO);
-  gl.blitFramebuffer(0,0,compSize,compSize, 0,0,RA_SIZE,RA_SIZE, gl.COLOR_BUFFER_BIT, gl.LINEAR);
+  gl.blitFramebuffer(0,0,compW,compH, 0,0,_raW,_raH, gl.COLOR_BUFFER_BIT, gl.LINEAR); // [R237] el máster ya no es cuadrado
   gl.bindFramebuffer(gl.READ_FRAMEBUFFER,null); gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER,null); gl.bindFramebuffer(gl.FRAMEBUFFER,null);
   _ra.set(F,{tex,last:++_raClock,gen:_raGen});
   if(_ra.size>RA_MAX){ let ok=null,ot=Infinity; for(const [k,v] of _ra){ if(v.last<ot){ot=v.last;ok=k;} } if(ok!=null){ const ev=_ra.get(ok); _ra.delete(ok); _raPool.push(ev.tex); } } }
@@ -1194,7 +1268,7 @@ async function raPrerenderRange(t0,t1,onProg){ _raOn=true; try{fxResetHistory();
   for(let F=F0;F<=F1;F++){ const t=F/fps;
     if(!raHas(t)){ _arTime=t; await Promise.all(collectDrawnVideoClips(state.clips,state.lanes,t,0,[]).map(({c,m,local})=>vinstSeek(c,m,local))); // per-CLIP decode so nested/duplicated videos cache at their OWN local time
       prepNests(state.clips,t,0); // render active nests into their FBOs (now sampling the decoded frame for t)
-      gl.bindFramebuffer(gl.FRAMEBUFFER,compFBO); composite(t,compSize,false); gl.bindFramebuffer(gl.FRAMEBUFFER,null); raStore(t); }
+      gl.bindFramebuffer(gl.FRAMEBUFFER,compFBO); composite(t,null,false,true); gl.bindFramebuffer(gl.FRAMEBUFFER,null); raStore(t); }
     done++; if(onProg&&(done%8===0||done===total))onProg(done,total); }
   return total; }
 let _raIdleOn=false,_raIdleT=0;
@@ -1223,9 +1297,11 @@ function buildRoomGeo(seq){ const room=seq.room; const plan=roomPlan(room.walls)
   let rad=0.5,maxH=0.5; for(const s of plan.seg){ for(const p of [s.a,s.b])rad=Math.max(rad,Math.hypot(p[0]-cx,p[1]-cy)); maxH=Math.max(maxH,s.h); }
   const sc=1/Math.max(rad,maxH*0.6,0.5); const N=(x,y,z)=>[(x-cx)*sc,(y-cy)*sc,z*sc];
   const V=[]; const push=(P,u,v,sh,nx,ny)=>{ V.push(P[0],P[1],P[2],u,v,sh,nx||0,ny||0); }; // pos(3) uv(2) shade(1) inward-normal xy(2) = 8 floats
-  const As=stripW/stripH, Fy=Math.min(1,1/As), vMax=(1+Fy)/2; const L=[0.32,-0.55]; // strip UV consts + light dir (xy) for shading
+  /* [R237] Las UV salían del letterbox del máster cuadrado (`Fy`/`vMax`); ahora el máster es de RELLENO y el
+     mapeo px-del-lienzo → uv lo da la pareja mstrU/mstrV, la MISMA que usa el blit 2D. */
+  const uOf=px=>mstrU(px,stripW), vOf=py=>mstrV(py,stripH); const L=[0.32,-0.55]; // strip UV + light dir (xy) for shading
   const byRole={}; for(const w of room.walls)byRole[w.role]=w;
-  for(const s of plan.seg){ const w=byRole[s.role]; const uL=w?(w.x1||stripW)/stripW:1, uR=w?(w.x0||0)/stripW:0; const pxH=w?w.pxH:stripH; const vBot=vMax-(pxH/stripH)*Fy, vTop=vMax; // uL/uR swapped: from INSIDE the room the wall's a→b runs right→left, so the strip content matches the 2D viewer (not mirrored)
+  for(const s of plan.seg){ const w=byRole[s.role]; const uL=uOf(w?(w.x1||stripW):stripW), uR=uOf(w?(w.x0||0):0); const pxH=w?w.pxH:stripH; const vBot=vOf(pxH), vTop=vOf(0); // uL/uR swapped: from INSIDE the room the wall's a→b runs right→left, so the strip content matches the 2D viewer (not mirrored)
     const A0=N(s.a[0],s.a[1],0),B0=N(s.b[0],s.b[1],0),Bt=N(s.b[0],s.b[1],s.h),At=N(s.a[0],s.a[1],s.h);
     let nx=-(s.b[1]-s.a[1]), ny=(s.b[0]-s.a[0]); const nl=Math.hypot(nx,ny)||1; nx/=nl; ny/=nl; const sh=0.62+0.38*Math.max(0,0.5+0.5*(nx*L[0]+ny*L[1])); // nx,ny = inward normal (CCW loop → left of travel = interior)
     push(A0,uL,vBot,sh,nx,ny); push(B0,uR,vBot,sh,nx,ny); push(Bt,uR,vTop,sh,nx,ny); push(A0,uL,vBot,sh,nx,ny); push(Bt,uR,vTop,sh,nx,ny); push(At,uL,vTop,sh,nx,ny); }
@@ -1239,7 +1315,7 @@ function buildRoomGeo(seq){ const room=seq.room; const plan=roomPlan(room.walls)
     if(fw){ const fx0=fw.x0,fx1=fw.x1, floorH=Math.max(1,stripH-wallsH);
       const fuv=(x,y)=>{ const u=(mxx-x)/((mxx-mnx)||1), v=(y-mny)/((mxy-mny)||1); // U flipped to match the walls' inside-view handedness (2D floor editor orientation) — same fuv as before, only the target rect changed
         const px=fx0+u*(fx1-fx0), py=wallsH+v*floorH;
-        return [px/stripW, vMax-(py/stripH)*Fy]; };
+        return [uOf(px), vOf(py)]; };
       for(let i=1;i<poly.length-1;i++){ const q=[poly[0],poly[i],poly[i+1]]; for(const p of q){ const P=N(p[0],p[1],0),u=fuv(p[0],p[1]); push(P,u[0],u[1],1.0,0,0); } } // [R221] shade=1.0 — same clarity as the walls (was a flat 0.5)
       floorVerts=(V.length/8)-wallVerts; } }
   gl.bindVertexArray(roomVAO); gl.bindBuffer(gl.ARRAY_BUFFER,roomVB); gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(V),gl.DYNAMIC_DRAW);
@@ -1328,7 +1404,7 @@ function renderRoom3D(wallsTex){ const seq=activeSeq(); const room=seq&&seq.room
   // [R221] the floor samples the SAME composite as the walls now — no separate compositeFloorTex/FBO to build or restore
   const cam=roomCameraMVP(state.view.three==='spec',W/H);
   gl.useProgram(PR); gl.uniformMatrix4fv(LR.mvp,false,(_mvpScratch.set(cam.mvp),_mvpScratch)); gl.uniform3f(LR.base,0,0,0); gl.uniform1i(LR.tex,0); // wall bg = black (matches the 2D strip); content shows over it, grid overlay gives structure
-  { const L=compContentLim(); gl.uniform4f(LR.uvlim,L[0],L[1],L[2],L[3]); } // [R233b] mismo acotado que el blit 2D: sin él, el borde alto de los muros se funde a negro
+  { const L=mstrContentLim(); gl.uniform4f(LR.uvlim,L[0],L[1],L[2],L[3]); } // [R233b] mismo acotado que el blit 2D: sin él, el borde alto de los muros se funde a negro · [R237] versión de relleno
   gl.uniform3f(LR.cam,cam.eye[0],cam.eye[1],cam.eye[2]); gl.uniform1f(LR.outTex,state.view.roomOutTex?1:0); gl.uniform1f(LR.backA,0.17);
   gl.bindVertexArray(roomVAO); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,wallsTex);
   if(_roomGeo.wallVerts>0){ // pass 1: inside surfaces opaque (depth write) · pass 2: outside surfaces translucent (no depth write) → single composite, see-through from outside
@@ -1339,6 +1415,7 @@ function renderRoom3D(wallsTex){ const seq=activeSeq(); const room=seq&&seq.room
 // [archivado 20260729 · R221] drawRoomFloorDock2D (+ _dockVAO/_dockVB) — el suelo dejó de ser una tira dockeada aparte, ahora es parte del mismo composite → _backup/deprecated/20260729-room-floor-dock-2d.js
 function render(){ if(glLost)return;
   if(exporting)return;
+  try{ syncCompSize(); }catch(_){} // [R237] el máster lleva la FORMA de lo que se va a dibujar (ver syncCompSize)
   const _flat=isFlat(); _drawFlat=_flat; _roomWrap=isRoom(); _compAspect=(state.seqW||1)/(state.seqH||1); _arTime=state.playhead;
   let _srcTex=compTex;
   /* [R226·V1] `_reuseComp`: la ventana solo-visor repinta por este MISMO render(), sólo con otro modo de vista y
@@ -1349,7 +1426,7 @@ function render(){ if(glLost)return;
   else { const _raHit=raGet(state.playhead);
     if(_raHit){ _srcTex=_raHit; }
     else { prepNests(state.clips,state.playhead,0);
-      gl.bindFramebuffer(gl.FRAMEBUFFER,compFBO); composite(state.playhead,compSize,false); gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+      gl.bindFramebuffer(gl.FRAMEBUFFER,compFBO); composite(state.playhead,null,false,true); gl.bindFramebuffer(gl.FRAMEBUFFER,null);
       raStore(state.playhead); } }
   _lastSrcTex=_srcTex;
   // [archivado 20260725] acá iba el grade máster del composite final → _backup/deprecated/20260725-master-grade-engine.js
@@ -1376,8 +1453,7 @@ function render(){ if(glLost)return;
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,_srcTex); gl.uniform1i(LB.tex,0);
     if(_flat){ /* [R230] un blit POR PANEL: cada uno muestrea su región del MISMO composite. Con el panel único
         (domo/2D/salas legacy) el bucle da una sola vuelta con exactamente los uniformes de siempre. */
-      const A=_compAspect, s=Math.min(2/A,2), Fx=s*A/2, Fy=s/2, K=2*Fx/Math.max(1,(state.seqW||1));
-      const uOf=px=>((K*px-Fx)*0.5+0.5), vOf=py=>((Fy-K*py)*0.5+0.5); // px del lienzo → uv del composite (v hacia arriba)
+      const uOf=px=>mstrU(px), vOf=py=>mstrV(py); // [R237] px del lienzo → uv del máster de RELLENO (v hacia arriba); antes había que descontar el letterbox del cuadrado
       const dpr=glc.width/Math.max(1,view.cw);
       for(const P of vpPanels()){ const st=vpState(P.surf);
         const vx=Math.round(P.x*dpr), vw=Math.max(1,Math.round(P.w*dpr));
@@ -1389,7 +1465,7 @@ function render(){ if(glLost)return;
         gl.uniform2f(LB.uvsc,uOf(P.rx1)-uOf(P.rx0),vOf(P.ry0)-vOf(P.ry1)); gl.uniform2f(LB.uvof,uOf(P.rx0),vOf(P.ry1));
         /* [R234b] Con panel de SUPERFICIE (muros o piso) el límite es esa superficie — es donde acaba su
            contenido. Con el panel único histórico (domo, 2D plano, sala legacy) sigue siendo la banda del lienzo. */
-        { const L=P.surf?compLimForRect(P.rx0,P.ry0,P.rx1,P.ry1):compContentLim(); gl.uniform4f(LB.uvlim,L[0],L[1],L[2],L[3]); }
+        { const L=P.surf?mstrLimForRect(P.rx0,P.ry0,P.rx1,P.ry1):mstrContentLim(); gl.uniform4f(LB.uvlim,L[0],L[1],L[2],L[3]); }
         gl.drawArrays(gl.TRIANGLES,0,6); }
       gl.disable(gl.SCISSOR_TEST); gl.viewport(0,0,W,H); }
     else { gl.uniform2f(LB.pan,state.view.pan[0],state.view.pan[1]); gl.uniform1f(LB.zoom,state.view.zoom);
@@ -2154,7 +2230,7 @@ function resize(){if(exporting)return;const r=$('#stage').getBoundingClientRect(
   /* [R236] El composite se redimensiona con el LIENZO, y `resize()` es por donde pasan todos los caminos que lo
      cambian (crear, abrir, cambiar de secuencia, editar la geometría de la sala). `setCompSize` sale sola si el
      tamaño no cambia, así que llamarla aquí es gratis. */
-  try{ setCompSize(compBase()*(state.previewQuality||1)); }catch(_){}
+  try{ syncCompSize(); }catch(_){}
   if(state.view.mode==='3d'){ const W=Math.max(80,r.width),H=Math.max(80,r.height); view.cw=W; view.ch=H; VSIZE=Math.min(W,H);
     glc.style.width=W+'px';glc.style.height=H+'px';glc.style.left='0px';glc.style.top='0px';glc.width=Math.max(1,Math.round(W*dpr));glc.height=Math.max(1,Math.round(H*dpr));
     gridc.style.width=W+'px';gridc.style.height=H+'px';gridc.style.left='0px';gridc.style.top='0px';gridc.width=Math.round(W*dpr);gridc.height=Math.round(H*dpr);
@@ -4983,11 +5059,15 @@ function roomSeamY(SR){ const as=activeSeq(),room=as&&as.room; const out=[-1,0,1
     for(const w of room.walls){ out.push(f(w.pxH), f(w.pxH/2)); }
     if(!SR&&room.floor)out.push(f(room.stripH||(as.h||1))); } // la costura muros/piso sólo existe en el marco entero
   return out; } // strip edges + v-center + each wall's bottom AND vertical centre (pxH/2 from top) + [R221] the walls/floor seam itself
-/* "Mask to wall": GL scissor rects (in the current square FBO) for the selected wall roles → the clip only paints inside those walls' strip regions. */
-function roomWallScissorRects(roles){ const as=activeSeq(),room=as&&as.room; if(!room)return []; const vp=gl.getParameter(gl.VIEWPORT); const size=vp[2]||1; const sw=as.w||1, Fy=Math.min(1,(as.h||1)/sw); const out=[];
-  for(const w of room.walls){ if(!roles.includes(w.role))continue; const x0=Math.round(w.x0/sw*size), x1=Math.round(w.x1/sw*size);
-    const yTop=Math.round((Fy*0.5+0.5)*size), yBot=Math.round(((Fy-2*w.pxH/sw)*0.5+0.5)*size);
-    out.push({x:x0,y:yBot,w:Math.max(1,x1-x0),h:Math.max(1,yTop-yBot)}); }
+/* "Mask to wall": GL scissor rects (in the current composite FBO) for the selected wall roles → the clip only paints inside those walls' strip regions.
+   [R237] Mismo cambio que en surfaceScissorRect: el NDC se traduce por el viewport REAL, que con el máster de
+   relleno ya no es el cuadrado anclado en el origen. */
+function roomWallScissorRects(roles){ const as=activeSeq(),room=as&&as.room; if(!room)return []; const sw=as.w||1, sh=as.h||1; const out=[];
+  const A=sw/Math.max(1,sh), sC=Math.min(2/A,2), FxC=sC*A/2, FyC=sC/2, K=2*FxC/sw; const nx=px=>K*px-FxC, ny=py=>FyC-K*py;
+  const V=_ndcToVp();
+  for(const w of room.walls){ if(!roles.includes(w.role))continue; const x0=V.X(nx(w.x0)), x1=V.X(nx(w.x1));
+    const yTop=V.Y(ny(0)), yBot=V.Y(ny(w.pxH));
+    out.push({x:Math.min(x0,x1),y:Math.min(yTop,yBot),w:Math.max(1,Math.abs(x1-x0)),h:Math.max(1,Math.abs(yTop-yBot))}); }
   return out; }
 /* [R231] El umbral del imán se mide en PÍXELES DE PANTALLA, no en unidades de marco. Las unidades de marco valen
    distinto en cada eje: en la tira de una sala (7680×1080 dentro de un panel apaisado) el mismo 0.018 daba una
@@ -9834,7 +9914,7 @@ $('#dispSeg').querySelectorAll('button').forEach(b=>b.onclick=()=>{ const d=b.da
    es que no sobrevivía al reinicio y volvía a Full. Se guarda en localStorage, como el último export. */
 function applyPreviewQuality(q){ q=parseFloat(q)||1; state.previewQuality=q;
   $('#qualitySeg').querySelectorAll('button').forEach(x=>x.classList.toggle('on',parseFloat(x.dataset.q)===q));
-  setCompSize(compBase()*q); } // [R236] la base la manda el LIENZO, no una constante
+  syncCompSize(); } // [R236] la base la manda el LIENZO, no una constante · [R237] y con SU forma, no un cuadrado
 $('#qualitySeg').querySelectorAll('button').forEach(b=>b.onclick=()=>{ applyPreviewQuality(b.dataset.q); render();
   try{ localStorage.setItem('dspPreviewQuality',String(state.previewQuality)); }catch(_){}
   flashStatus(b.dataset.q==='1'?T('Preview: full quality','Previsualización: calidad completa'):(T('Preview at ','Previsualización a ')+(b.textContent.trim())+T(' quality',' de calidad'))); });
@@ -11260,19 +11340,38 @@ function freeFxHistFor(hostId){ const pre=hostId+':'; for(const k of [..._fxHist
 function freeFxResources(){ for(const [,h] of _fxHist){ try{gl.deleteTexture(h.tex);}catch(e){} try{gl.deleteFramebuffer(h.fbo);}catch(e){} } _fxHist.clear(); for(const e of _fxRT){ if(e){ try{gl.deleteTexture(e.tex);}catch(x){} try{gl.deleteFramebuffer(e.fbo);}catch(x){} } } _fxRT=[null,null]; for(const e of _bloomRT){ if(e){ try{gl.deleteTexture(e.tex);}catch(x){} try{gl.deleteFramebuffer(e.fbo);}catch(x){} } } _bloomRT=[null,null]; if(_fishRT){ try{gl.deleteTexture(_fishRT.tex);}catch(x){} try{gl.deleteFramebuffer(_fishRT.fbo);}catch(x){} _fishRT=null; } if(_keyRT){ try{gl.deleteTexture(_keyRT.tex);}catch(x){} try{gl.deleteFramebuffer(_keyRT.fbo);}catch(x){} _keyRT=null; } if(_fxSnap){ try{gl.deleteTexture(_fxSnap.tex);}catch(e){} try{gl.deleteFramebuffer(_fxSnap.fbo);}catch(e){} _fxSnap=null; } }
 
 /* ---- Adjustment layer: applies its FX chain to the composite of EVERYTHING BELOW it (Premiere-style) ---- */
+/* [R237] u_uvsc/u_uvof: con el máster de RELLENO el destino ya no es el cuadrado en el que corre la cadena de FX,
+   así que la vuelta muestrea la BANDA del cuadrado (con letterbox) mientras cubre la textura entera. Con el
+   composite cuadrado (export, nest) valen (1,1)/(0,0) y esto es exactamente lo de siempre. */
 const PMIX=ppCompile(`#version 300 es
-precision highp float; in vec2 v_uv; uniform sampler2D u_a,u_b; uniform float u_wet; out vec4 o;
-void main(){ vec4 a=texture(u_a,v_uv), b=texture(u_b,v_uv); o=mix(a,b,clamp(u_wet,0.0,1.0)); }`);
-const LMIX={a:gl.getUniformLocation(PMIX,'u_a'),b:gl.getUniformLocation(PMIX,'u_b'),wet:gl.getUniformLocation(PMIX,'u_wet')};
+precision highp float; in vec2 v_uv; uniform sampler2D u_a,u_b; uniform float u_wet; uniform vec2 u_uvsc,u_uvof; out vec4 o;
+void main(){ vec2 uv=v_uv*u_uvsc+u_uvof; vec4 a=texture(u_a,uv), b=texture(u_b,uv); o=mix(a,b,clamp(u_wet,0.0,1.0)); }`);
+const LMIX={a:gl.getUniformLocation(PMIX,'u_a'),b:gl.getUniformLocation(PMIX,'u_b'),wet:gl.getUniformLocation(PMIX,'u_wet'),uvsc:gl.getUniformLocation(PMIX,'u_uvsc'),uvof:gl.getUniformLocation(PMIX,'u_uvof')};
 let _fxSnap=null;
 function _fxSnapRT(size){ if(!_fxSnap)_fxSnap={tex:gl.createTexture(),fbo:gl.createFramebuffer(),size:0}; if(_fxSnap.size!==size){ _ppTex(_fxSnap.tex,size); gl.bindFramebuffer(gl.FRAMEBUFFER,_fxSnap.fbo); gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,_fxSnap.tex,0); gl.bindFramebuffer(gl.FRAMEBUFFER,null); _fxSnap.size=size; } return _fxSnap; }
 function drawAdjustment(c,t,xf){ if(!hasFx(c))return; const op=Math.max(0,Math.min(1,evalR(c,'opacity',t)/100))*fadeFactor(c,t)*(xf==null?1:xf); if(op<=0.001)return;
-  const prevFBO=gl.getParameter(gl.FRAMEBUFFER_BINDING), pv=gl.getParameter(gl.VIEWPORT), size=pv[2]||compSize;
+  const prevFBO=gl.getParameter(gl.FRAMEBUFFER_BINDING), pv=gl.getParameter(gl.VIEWPORT);
+  /* [R237] El destino es la TEXTURA, no el viewport: con el máster de relleno el viewport está expandido y
+     desplazado, y la capa de ajuste tiene que cubrir el composite entero. La cadena de FX, en cambio, se queda
+     CUADRADA y con el letterbox de siempre — así un desenfoque sigue siendo isótropo en el lienzo, que es lo que
+     hacía antes de R237 (en una tira de 7,9:1 estirarla al cuadrado lo habría vuelto ocho veces más ancho que
+     alto). Copia = lienzo → banda del cuadrado · vuelta = banda del cuadrado → lienzo. */
+  const tw=_compTgtW||pv[2]||compW, th=_compTgtH||pv[3]||compH, fill=_compFill;
+  /* ADJ_MAX = el mismo techo que tenía de hecho antes de R237, cuando el composite topaba en 8192 por lado.
+     Sin él, una sala de 4 muros 4K (15360 de ancho) pediría un cuadrado de 15360² para la instantánea MÁS dos
+     iguales para la cadena: 2,8 GB. Con el tope son 268 MB por buffer, exactamente lo que ya se aceptaba. */
+  const ADJ_MAX=8192;
+  const size=Math.min(ADJ_MAX, fill?Math.max(tw,th):tw); // sin relleno tw===th: el cuadrado de siempre
+  const A=_compAspect||1, sB=Math.min(2/A,2), Fx=fill?sB*A/2:1, Fy=fill?sB/2:1;
+  const bw=Math.max(1,Math.round(Fx*size)), bh=Math.max(1,Math.round(Fy*size));
+  const bx=Math.round((size-bw)/2), by=Math.round((size-bh)/2);
   const snap=_fxSnapRT(size); // 1) copy the current composite (everything drawn below) into snap
-  gl.bindFramebuffer(gl.READ_FRAMEBUFFER,prevFBO); gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER,snap.fbo); gl.blitFramebuffer(0,0,size,size,0,0,size,size,gl.COLOR_BUFFER_BIT,gl.NEAREST); gl.bindFramebuffer(gl.READ_FRAMEBUFFER,null); gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER,null); gl.bindFramebuffer(gl.FRAMEBUFFER,prevFBO);
+  if(fill){ gl.bindFramebuffer(gl.FRAMEBUFFER,snap.fbo); gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT); } // el letterbox tiene que nacer limpio, no con restos del fotograma anterior
+  gl.bindFramebuffer(gl.READ_FRAMEBUFFER,prevFBO); gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER,snap.fbo); gl.blitFramebuffer(0,0,tw,th,bx,by,bx+bw,by+bh,gl.COLOR_BUFFER_BIT,fill?gl.LINEAR:gl.NEAREST); gl.bindFramebuffer(gl.READ_FRAMEBUFFER,null); gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER,null); gl.bindFramebuffer(gl.FRAMEBUFFER,prevFBO);
   const outTex=applyChain(snap.tex,size,c,t); // 2) run the chain on the snapshot (restores prevFBO on exit)
-  gl.bindFramebuffer(gl.FRAMEBUFFER,prevFBO); gl.viewport(0,0,size,size); gl.disable(gl.BLEND); gl.bindVertexArray(_ppVAO); // 3) write back = mix(original, processed, opacity)
+  gl.bindFramebuffer(gl.FRAMEBUFFER,prevFBO); gl.viewport(0,0,tw,th); gl.disable(gl.BLEND); gl.bindVertexArray(_ppVAO); // 3) write back = mix(original, processed, opacity)
   gl.useProgram(PMIX); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,snap.tex); gl.uniform1i(LMIX.a,0); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D,outTex); gl.uniform1i(LMIX.b,1); gl.uniform1f(LMIX.wet,op);
+  gl.uniform2f(LMIX.uvsc,bw/size,bh/size); gl.uniform2f(LMIX.uvof,bx/size,by/size);
   gl.drawArrays(gl.TRIANGLES,0,6); gl.bindVertexArray(null); gl.enable(gl.BLEND); NORMAL_BLEND(); gl.viewport(pv[0],pv[1],pv[2],pv[3]); }
 function makeAdjustClip(lane,start,dur){ return {id:uid(),adjust:true,mediaId:null,lane,start:Math.max(0,start),dur:dur||6,inP:0,name:T('Adjustment','Ajuste'),color:'#B4BAC1',fadeIn:0,fadeOut:0,props:{opacity:100},kf:{},fx:[]}; }
 /* an adjustment layer as a reusable MEDIA item (R87): the sidebar "Adjust" creates it in the Media panel; drag it onto a track to stamp an adjustment clip. Its FX chain (colour + audio-reactive) affects everything below. */
