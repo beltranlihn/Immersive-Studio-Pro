@@ -4,6 +4,13 @@
 > en `COMPONENTS.md` + una entrada en `PLAN.md` en el mismo commit, como manda el ritual de `/commit`).
 > Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: 2026-08-04.
 
+## ✅ Petición de Beltrán — el contenedor del timeline · CERRADA [R244]
+- [x] **El panel ya no queda preso de la altura máxima de las pistas.** Con dos pistas al máximo de entonces (120)
+      topaba en 281 px aunque la ventana diera para 828. Ahora el arrastre llega hasta el 92 % de la ventana y las
+      pistas lo acompañan en los DOS sentidos; con muchas pistas (el contenido ya desborda) no se toca nada y
+      manda el scroll de siempre. `LANE_MAX_H` 120 → 480 (un solo techo para todos los caminos, si no Alt+rueda
+      hacía saltar hacia abajo una pista estirada por el divisor). Detalle en `PLAN.md › ROUND 244`.
+
 ## ✅ El scrub sin proxy — CERRADO [R243]
 > Era «lo de más valor práctico que queda». Hecho y medido sobre el `.exe` con el material real: **4 capas de
 > 7196×912 pasan de 1137 a 128 ms de mediana (8,9×); una capa, de 178 a 16 ms (11,1×)**. Detalle, guardas y la

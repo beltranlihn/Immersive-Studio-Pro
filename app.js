@@ -160,7 +160,13 @@ const view=state.view;   // alias (cw/ch/cam/zoom/pan etc.)
 const lanesTopDown = ()=>state.lanes.map((l,i)=>i).reverse();
 /* Alturas de pista — valores del prototipo (RevDomo: trackH 57 por defecto, audio 44, clamp 26..120, colapsada 24).
    Antes eran 82/41 con clamp 34..260, de cuando la timeline tenía otra caja. */
-const LANE_DEF_H=57, LANE_MIN_H=26, LANE_MAX_H=120, LANE_COLLAPSED_H=24;
+/* [R244] El techo pasa de 120 a 480. El 120 venía del prototipo y era el que BLOQUEABA el contenedor: con pocas
+   pistas, el divisor topaba en `regla + suma de alturas` y no había forma de dar más aire a la línea de tiempo.
+   Ahora el divisor puede estirar y las pistas lo acompañan (ver `fillLanesToViewport`), así que el techo tiene que
+   dar sitio a ese gesto. Es UN techo para TODOS los caminos (divisor, Alt+rueda, tirador por pista, casquetes) a
+   propósito: con dos techos distintos, escalar una pista que el divisor hubiera dejado en 300 la habría hecho
+   SALTAR a 120 al primer Alt+rueda hacia arriba — encoger cuando se pide crecer. */
+const LANE_DEF_H=57, LANE_MIN_H=26, LANE_MAX_H=480, LANE_COLLAPSED_H=24;
 /* [R163] Suelo de altura EN MODO AUTOMATIZACIÓN para las pistas de vídeo: por debajo, los dos desplegables de
    identidad pierden su margen arriba y abajo y acaban tapando el nombre. Es el mismo 52 que la cabecera exige
    para dibujarlos (`LH>=AUTO_LANE_MIN_H`); antes eran dos números sueltos que podían desincronizarse.
@@ -10317,26 +10323,87 @@ gutter($('#gutterL'),$('#mediaPane'),'L'); gutter($('#gutterR'),$('#inspPane'),'
 /* horizontal resize: drag the top edge of the timeline / curve panels */
 // [R156] `maxH` puede ser un NÚMERO o una FUNCIÓN: el tope de la timeline depende de cuántas pistas haya, así que
 // se evalúa en cada movimiento en vez de congelarse al registrar el handler.
-function hResize(handle,target,minH,maxH,after){ const hEl=$(handle); if(!hEl)return; hEl.addEventListener('pointerdown',e=>{ e.preventDefault(); const t=$(target); const h0=t.offsetHeight,y0=e.clientY;
+/* [R244] `before` se ejecuta en el pointerdown, ANTES de mover nada: es donde el arrastre de la línea de tiempo
+   decide, UNA sola vez por gesto, si las pistas lo van a acompañar. Decidirlo en cada movimiento no vale: al
+   achicar, el contenido pasa a desbordar en el primer píxel y el acoplamiento se apagaría solo a mitad del gesto. */
+function hResize(handle,target,minH,maxH,after,before){ const hEl=$(handle); if(!hEl)return; hEl.addEventListener('pointerdown',e=>{ e.preventDefault(); const t=$(target); const h0=t.offsetHeight,y0=e.clientY; if(before)before();
   const mv=ev=>{ const mx=(typeof maxH==='function')?maxH():maxH; let h=Math.max(minH,Math.min(mx,h0-(ev.clientY-y0))); t.style.height=h+'px'; if(after)after(); };
   const up=()=>{window.removeEventListener('pointermove',mv);window.removeEventListener('pointerup',up);}; window.addEventListener('pointermove',mv);window.addEventListener('pointerup',up); }); }
 /* [R156] La timeline no crece más allá de lo que ocupan sus pistas: estirarla dejaba un vacío debajo de la última
    y no aportaba nada. El tope es regla + suma de alturas + barra de zoom, y se recalcula en cada arrastre porque
-   cambia al añadir/quitar/colapsar pistas o al escalarlas con Alt+rueda. Se deja un mínimo por si no hay ninguna. */
-function tlMaxH(){ const tracks=state.lanes.reduce((s,l,i)=>s+laneH(i),0);
-  return Math.max(170, Math.min(Math.round(innerHeight*0.78), RULER_H+tracks+15+2)); } // 15 = barra de zoom horizontal
-hResize('#tlResize','.timeline',170,tlMaxH,()=>{_tlAltoManual=true;resize();renderTimeline();}); // [R171] arrastrar el divisor marca la altura como manual (ver clampTimelineH)
+   cambia al añadir/quitar/colapsar pistas o al escalarlas con Alt+rueda. Se deja un mínimo por si no hay ninguna.
+   [R244] Este tope sigue mandando en el AJUSTE AUTOMÁTICO (`clampTimelineH`), que es donde tiene sentido: sin
+   altura manual, el panel mide lo que miden las pistas. Lo que ya NO hace es limitar el ARRASTRE — ver `tlDragMaxH`. */
+function tlContentH(){ const tracks=state.lanes.reduce((s,l,i)=>s+laneH(i),0); return RULER_H+tracks+15+2; } // 15 = barra de zoom horizontal
+function tlMaxH(){ return Math.max(170, Math.min(Math.round(innerHeight*0.78), tlContentH())); }
+/* [R244] Tope del ARRASTRE del divisor. Antes era `tlMaxH()`, es decir el contenido: con pocas pistas —y sobre
+   todo con las pistas ya en su altura máxima— el divisor se quedaba clavado y no había manera de dar más aire a
+   la línea de tiempo. Ahora el límite es la VENTANA; lo que evita el vacío bajo la última pista no es prohibir el
+   gesto, es que las pistas acompañen (`fillLanesToViewport`). */
+function tlDragMaxH(){ return Math.max(170, Math.round(innerHeight*0.92)); }
+/* [R244] ¿CABEN las pistas en el hueco visible? Es la pregunta que decide, al empezar a arrastrar el divisor, si
+   las pistas van a acompañar al contenedor. Si caben —pocas pistas, o muchas pero bajitas— el gesto las lleva
+   consigo en los dos sentidos. Si NO caben, ya hay scroll y el divisor nunca estuvo bloqueado: subir y bajar es
+   sólo enseñar más o menos pistas, que es lo que Beltrán describe como el caso sin problema. */
+function tlLanesFit(){ const sc=$('#tlscroll'); if(!sc||!state.lanes.length)return false;
+  const hueco=sc.clientHeight; if(hueco<40)return false;
+  let total=0; state.lanes.forEach((l,i)=>total+=laneH(i));
+  return total<=hueco+2; }
+/* [R244] Las pistas acompañan al contenedor: se reparten el hueco visible, en los DOS sentidos. Se llama en cada
+   movimiento del divisor y DESPUÉS de aplicar la altura nueva, así `#tlscroll.clientHeight` ya es el hueco real y
+   no hay que recomponer a mano regla + barra de zoom.
+   Escala PROPORCIONAL sobre las alturas del inicio del gesto, así que la relación entre pistas de distinto alto se
+   conserva y el reparto no deriva por el redondeo de cada paso. Las plegadas no entran (miden lo que miden), pero
+   su alto sí se descuenta del hueco. Los topes de siempre mandan: `laneFloorH` abajo y `LANE_MAX_H` arriba — al
+   llegar a ellos el gesto deja de estirar y aparece el scroll (o una banda), que es el final honesto. */
+function fillLanesToViewport(base){ const sc=$('#tlscroll'); if(!sc)return false;
+  const hueco=sc.clientHeight; if(hueco<40||!state.lanes.length)return false;
+  let fijo=0, elastico=0;
+  state.lanes.forEach((l,i)=>{ const h=(base&&base[i]!=null)?base[i]:laneH(i); if(l.collapsed)fijo+=laneH(i); else elastico+=h; });
+  if(elastico<=0)return false;                    // todas plegadas: no hay nada que repartir
+  const f=(hueco-fijo)/elastico; if(!(f>0))return false;
+  let cambio=false; const nuevas=new Map(); let suma=0, ultima=-1;
+  state.lanes.forEach((l,i)=>{ if(l.collapsed)return; const suelo=laneFloorH(l);
+    const b=(base&&base[i]!=null)?base[i]:laneH(i);
+    const nh=Math.max(suelo,Math.min(LANE_MAX_H,Math.round(b*f)));
+    nuevas.set(i,nh); suma+=nh; ultima=i; });
+  /* Redondear pista a pista deja una deriva de uno o dos píxeles, y basta ese píxel para que aparezca una barra
+     de scroll fantasma en un panel que SÍ cabe. El sobrante se le da a la última pista elástica, siempre que su
+     propio tope lo admita. */
+  if(ultima>=0){ const drift=(hueco-fijo)-suma;
+    if(drift){ const l=state.lanes[ultima]; const ajust=Math.max(laneFloorH(l),Math.min(LANE_MAX_H,nuevas.get(ultima)+drift)); nuevas.set(ultima,ajust); } }
+  for(const [i,nh] of nuevas){ if(state.lanes[i].h!==nh){ state.lanes[i].h=nh; cambio=true; } }
+  if(cambio)markDirty();                          // el alto de pista viaja en el `.isp` (lanes[].h)
+  return cambio; }
+let _tlFillDrag=false, _tlFillBase=null; // ¿este arrastre lleva las pistas consigo? + sus alturas al empezar
+let _tlResizing=false;                   // [R244] mientras dura el arrastre manda el ratón, no el ajuste automático
+hResize('#tlResize','.timeline',170,tlDragMaxH,
+  ()=>{ _tlAltoManual=true; resize(); if(_tlFillDrag)fillLanesToViewport(_tlFillBase); renderTimeline(); try{renderVZoom();}catch(e){} }, // [R171] arrastrar el divisor marca la altura como manual (ver clampTimelineH) · [R244] y las pistas lo acompañan
+  ()=>{ _tlFillDrag=tlLanesFit(); _tlFillBase=_tlFillDrag?state.lanes.map((l,i)=>laneH(i)):null;
+    /* [R244] `renderTimeline` llama a `clampTimelineH`, que recorta el panel al alto del contenido. Durante el
+       arrastre eso PELEA con el ratón: el reparto deja el contenido a un par de píxeles del hueco (redondeo por
+       pista) y el recorte devolvía esa diferencia en cada movimiento, con el temblor correspondiente. Se aparta
+       mientras dura el gesto y se suelta al levantar el dedo, donde un único ajuste ya no se nota. */
+    _tlResizing=true;
+    const fin=()=>{ _tlResizing=false; window.removeEventListener('pointerup',fin); try{ clampTimelineH(); renderVZoom(); }catch(e){} };
+    window.addEventListener('pointerup',fin); });
 /* [R171] `tlMaxH` sólo limitaba el ARRASTRE. La altura de partida está cableada en el CSS (402px) y no se
    recalcula al colapsar, quitar o escalar pistas, así que sobraba banda vacía debajo de la última. Esto la
    recorta al alto real de las pistas. Sólo hacia ABAJO: si el usuario la ha dejado más pequeña, se respeta. */
 let _tlAltoManual=false; // el usuario arrastró el divisor → su altura manda y sólo se recorta, nunca se estira
-function clampTimelineH(){ const el=document.querySelector('.timeline'); if(!el)return;
+function clampTimelineH(){ if(_tlResizing)return; // [R244] durante el arrastre del divisor manda el ratón (ver la nota del gesto)
+  const el=document.querySelector('.timeline'); if(!el)return;
   const max=tlMaxH(), cur=el.getBoundingClientRect().height;
   /* Mientras nadie haya arrastrado el divisor, el panel MIDE lo que miden las pistas: se recorta cuando sobran y
      CRECE cuando aparece una nueva. Sólo recortar escondía pistas — al enlazar audio se crea A2 y quedaba fuera
      de vista, que es peor que la banda vacía que se quería quitar. Si el usuario lo ha ajustado a mano se
      respeta su altura, y entonces sí sólo se recorta al tope. */
-  const objetivo=_tlAltoManual?Math.min(cur,max):max;
+  /* [R244] Con altura MANUAL el tope es el del propio gesto (92 % de la ventana), no el 78 % del ajuste
+     automático: si no, el divisor dejaba llegar al 92 % y al soltar el recorte lo devolvía al 78 % — dos topes
+     peleando por la misma altura. Se sigue recortando al CONTENIDO, que es lo que evita la banda vacía bajo la
+     última pista (el motivo de R171): cuando las pistas ya no pueden crecer más, sobra panel y se quita. */
+  const maxManual=Math.min(tlDragMaxH(), tlContentH());
+  const objetivo=_tlAltoManual?Math.min(cur,maxManual):max;
   if(Math.abs(cur-objetivo)>0.5){ el.style.height=objetivo+'px'; try{ resize(); }catch(e){} } }
 function saveWorkspace(){ try{ const prev=JSON.parse(localStorage.getItem('domeProWs')||'{}'); const mc=state.prefs.mediaCollapsed, ic=state.prefs.inspCollapsed;
   localStorage.setItem('domeProWs', JSON.stringify({ mediaW: mc?(prev.mediaW||292):$('#mediaPane').offsetWidth, inspW: ic?(prev.inspW||300):$('#inspPane').offsetWidth, mediaCollapsed:mc, inspCollapsed:ic, tallInsp:!!state.prefs.tallInsp })); }catch(e){} }

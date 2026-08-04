@@ -1,5 +1,64 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 244 — El contenedor de la línea de tiempo deja de estar preso de las pistas
+
+Pedido de Beltrán: *«El contenedor del timeline queda bloqueado por el tamaño máximo de las pistas. Cambiemos a
+que si llegamos al máximo de las pistas, podamos seguir agrandando el contenedor y las pistas se agranden junto a
+eso. Lo mismo al achicar. Esto sólo sucede cuando llegamos a los límites altos o bajos de cada una, ya que si
+dentro hay infinitas pistas, no debiera haber problema con subir y bajar ese contenedor.»*
+
+**El bloqueo, medido:** el arrastre del divisor topaba en `tlMaxH()` = regla + suma de alturas. Con **dos pistas en
+su altura máxima de entonces (120)** el panel no pasaba de **281 px**, aunque la ventana diera para 828. R156 lo
+había puesto así con una buena razón —estirar dejaba una banda vacía bajo la última pista y no aportaba nada—,
+pero la conclusión era la equivocada: lo que sobra no es el gesto, es el vacío. **Ahora el gesto llega y las
+pistas lo acompañan**, así que no hay vacío que evitar.
+
+### La regla, que es literalmente la que pidió
+
+El acoplamiento **se decide una sola vez por gesto**, en el `pointerdown`, con `tlLanesFit()`: ¿caben las pistas en
+el hueco visible?
+
+- **Caben** (pocas pistas, o muchas pero bajas) → el arrastre las lleva consigo en los **dos sentidos**, repartiendo
+  el hueco proporcionalmente sobre las alturas del inicio del gesto.
+- **No caben** (el contenido ya desborda: las «infinitas pistas» de Beltrán) → no se toca **nada**. Ahí el divisor
+  nunca estuvo bloqueado; subir y bajar sólo enseña más o menos pistas, con su scroll de siempre.
+
+Decidirlo una vez y no en cada movimiento no es un detalle: al **achicar**, el contenido pasa a desbordar en el
+primer píxel, así que un acoplamiento re-evaluado paso a paso se habría apagado solo a mitad del gesto — y
+«lo mismo al achicar» es justo lo que se pedía.
+
+### Dos cosas que hubo que resolver para que no peleara consigo mismo
+
+- **Un solo techo para todos los caminos.** `LANE_MAX_H` pasa de 120 a **480**. Tener dos techos (uno para el
+  divisor y otro para Alt+rueda) parecía más prudente y era peor: una pista que el divisor hubiera dejado en 300
+  habría **saltado a 120** al primer Alt+rueda *hacia arriba* — encoger cuando se pide crecer. Verificado que
+  ahora 300 → 330 al agrandar y vuelve a 300 al encoger.
+- **Dos topes peleando por la misma altura.** El arrastre permite el 92 % de la ventana y el recorte automático
+  usaba el 78 %: el divisor dejaba llegar y al soltar el panel volvía atrás. Con altura manual el recorte usa
+  ahora el mismo tope del gesto, y **sigue recortando al contenido**, que es lo que evita la banda vacía cuando
+  las pistas ya no pueden crecer más (el motivo de R171, intacto). Y `clampTimelineH` se aparta mientras dura el
+  arrastre: el reparto deja el contenido a un par de píxeles del hueco por redondeo, y devolver esa diferencia en
+  cada movimiento producía temblor.
+
+El sobrante del redondeo se le da a la última pista elástica, así que el contenido cae **exacto** sobre el hueco
+(medido: 435 = 435) y no aparece una barra de scroll fantasma por un píxel.
+
+### Verificado (`scratchpad/r244-contenedor.mjs`, con PointerEvents reales sobre el divisor)
+
+| Caso | Resultado |
+|---|---|
+| El bloqueo reportado | con el techo viejo, 2 pistas topaban el panel en **281 px**; ahora llega a **828** |
+| Pocas pistas, agrandar | panel 170 → 430 · pistas 57 → 207 · llenan el hueco, sin banda vacía |
+| **Achicar** | panel 430 → 230 · pistas 207 → 106 · siguen llenando |
+| 14 pistas (desborda) | panel 230 → 390 · **alturas intactas**, sólo scroll |
+| Achicar a tope | ninguna pista por debajo de su suelo · panel en su mínimo de 170 |
+| Alt+rueda tras un llenado | 300 → 330 al crecer, 330 → 300 al encoger (no salta) |
+
+*Nota de método:* la primera corrida dio dos «fallos» que eran del arnés, no del programa —tres pistas a 480 ya
+desbordan, así que ese caso no probaba lo que yo creía, y a `wheelResizeLanes` le pasé un número cuando espera un
+**evento** (`e.deltaY` salía `undefined` y encogía siempre). La misma trampa nº 3 que el encargo de la auditoría
+avisaba. Corregidos los dos casos, todo verde.
+
 ## ROUND 243 — El scrub sin proxy deja de ser inviable
 
 Lo último que quedaba en la cola, y lo de más valor práctico para Beltrán según la auditoría de agosto (§3.3).
