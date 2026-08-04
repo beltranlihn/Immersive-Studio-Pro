@@ -1,0 +1,20 @@
+import http from 'http';
+const t = await new Promise((res, rej) => { http.get({ host: '127.0.0.1', port: 9222, path: '/json/list' }, r => { let b = ''; r.on('data', c => b += c); r.on('end', () => res(JSON.parse(b))); }).on('error', rej); });
+const page = t.find(x => x.type === 'page' && x.webSocketDebuggerUrl && /index\.html/.test(x.url));
+const ws = new WebSocket(page.webSocketDebuggerUrl); await new Promise(r => ws.onopen = r);
+let id = 0; const pend = new Map(); ws.onmessage = e => { const m = JSON.parse(e.data); if (m.id && pend.has(m.id)) { pend.get(m.id)(m); pend.delete(m.id); } };
+const cmd = (m, q = {}) => new Promise((res, rej) => { const i = ++id; pend.set(i, x => x.error ? rej(new Error(JSON.stringify(x.error))) : res(x.result)); ws.send(JSON.stringify({ id: i, method: m, params: q })); });
+const ev = async x => { const r = await cmd('Runtime.evaluate', { expression: x, awaitPromise: true, returnByValue: true, timeout: 60000 }); if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text); return r.result.value; };
+const wait = ms => new Promise(r => setTimeout(r, ms));
+const raton = (type, x, y, extra = {}) => cmd('Input.dispatchMouseEvent', Object.assign({ type, x, y, button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1, pointerType: 'mouse' }, extra));
+
+const g = await ev(`(function(){ if(_srcMon)closeSourceMonitor(); const m=state.media.find(x=>x.name==='vidC.mp4'); openSourceMonitor(m);
+  _srcMonX=520;_srcMonY=80; _srcMon.el.style.left='520px'; _srcMon.el.style.top='80px';
+  window.__spy=[]; _srcMon.bar.addEventListener('pointerdown',e=>__spy.push('bar-pd@'+Math.round(e.clientX)));
+  document.addEventListener('pointerdown',e=>__spy.push('doc-pd:'+(e.target.className||e.target.id||e.target.tagName)),{capture:true,once:false});
+  const bar=_srcMon.bar.getBoundingClientRect();
+  return {x:bar.left+bar.width*0.2, y:bar.top+bar.height/2, d:_srcMon.m.dur}; })()`);
+console.log('clic en', Math.round(g.x), Math.round(g.y));
+await raton('mousePressed', g.x, g.y); await wait(60); await raton('mouseReleased', g.x, g.y); await wait(200);
+console.log(JSON.stringify(await ev(`({t:_srcMon&&+_srcMon.t.toFixed(2), spy:__spy.slice(0,6)})`)));
+ws.close();

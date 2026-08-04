@@ -1,0 +1,10 @@
+import { evalInApp } from './cdp.mjs';
+const DIR = String.raw`C:\Users\beltr\Desktop\Alma Digital Studio\Projects\Immersive Studio Pro\scratchpad`;
+const ISP = (DIR + '\\aud8b-viejo.isp').replace(/\\/g, '\\\\');
+const ev = (x, t) => evalInApp(x, { port: 9223, timeout: t || 120000 });
+const open = `(async function(){ state.dirty=false; await openProjectPath('${ISP}',true);
+  const t0=Date.now(); while(Date.now()-t0<25000){ await new Promise(r=>setTimeout(r,250)); if(state.media.filter(m=>!isSeqMedia(m)).every(m=>!m._loading&&!m.missing))break; } return 1; })()`;
+await ev(open, 60000); await ev(open, 60000);
+console.log('tras DOS opens seguidos:', JSON.stringify(await ev(`__pix([101.3])`)));
+await ev(`(async function(){ const f=state.media.find(m=>m.name==='Flat2D'); openSeq(f.id); await new Promise(r=>setTimeout(r,250)); const mn=state.media.find(m=>m.name==='Sequence 1'); openSeq(mn.id); await new Promise(r=>setTimeout(r,250)); return 1; })()`);
+console.log('tras rebote openSeq:', JSON.stringify(await ev(`__pix([101.3])`)));
