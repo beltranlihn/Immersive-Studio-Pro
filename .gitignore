@@ -24,3 +24,8 @@ Thumbs.db
 !.claude/settings.json
 .claude/settings.local.json
 .claude/*.local.json
+
+# volcados de fotogramas y videos de las sondas CDP (regenerables con scratchpad/*.mjs, pesan cientos de MB)
+scratchpad/**/*.png
+scratchpad/**/*.mp4
+scratchpad/**/*.jpg

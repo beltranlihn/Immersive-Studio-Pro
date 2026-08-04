@@ -8,11 +8,15 @@
 - [x] **[R246] Motor + compose TÚNEL.** Diente de sierra con curva de perspectiva y deslizamiento en el plano del
       ojo de pez (las dos, piezas del MOTOR, disponibles sueltas). El túnel toma imágenes 1:1 con alfa como máster
       de domo y las hace crecer desfasadas; orden de dibujo por profundidad en cada fotograma; real time.
-- [ ] **[R247] Compose TEJIDO.** Bandas de clips que cruzan de lado a lado, en rejilla recta (decisión de Beltrán
-      frente a la red polar), apoyado en `fx`/`fy` de R246. Entrelazado **alternando tiras enteras** (su elección:
-      el entrelazado real por cruce exigiría partir cada tira o recortarla con máscara de damero, y a escala de
-      domo y en movimiento no compensa). Opciones de composición: tejido, tiras en un solo sentido, densidad,
-      velocidad y sentido alterno por tira.
+- [x] **[R247c] Compose TEJIDO.** Rehecho sobre **plano 1:1** (idea de Beltrán) y metido en el domo como fuente
+      fulldome con ojo de pez: en el plano los vecinos se juntan a **90° exactos** y la deformación se aplica una
+      sola vez, al conjunto. Los dos intentos anteriores colocaban clip a clip sobre la esfera y salían en diente
+      de sierra — sólo la banda que cruza por el centro del disco es un círculo máximo, el resto se curva.
+      **Entrelazado real por cruce**, que dábamos por descartado: sale de una rejilla en píxeles del lienzo
+      (`u_weave`, 5 líneas de shader), no de partir tiras. Infinito por diente de sierra de un paso.
+      **[R247d]** juego de mandos completo: ancho de tira (llena el domo o deja hueco transparente), tiras 1-24,
+      empaque acotado a 100 (los clips nunca se cortan dentro de una tira), movimiento alterno/a la vez/quieto,
+      una velocidad por familia, invertir. El ojo de pez sale del compose y vive en el inspector.
 > Decidido con Beltrán: **son composes, no efectos motion** — lo que las define es la relación entre varios clips
 > (el desfase, el reparto en bandas), y eso un efecto por-clip no lo puede expresar. Las piezas nuevas sí van al
 > motor, para poder usarlas a mano fuera de estas herramientas. **Sólo domo por ahora.**

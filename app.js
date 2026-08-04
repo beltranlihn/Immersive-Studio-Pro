@@ -243,9 +243,16 @@ uniform sampler2D u_tex; uniform sampler2D u_maskTex; uniform vec2 u_half; unifo
 uniform highp sampler3D u_lut; uniform float u_hasLut,u_lutMix; // R116: creative 3D LUT (.cube) — trilinear via a 3D texture
 uniform vec3 u_lift,u_gamma,u_gain; // R130: lift/gamma/gain color wheels (primary grade). Neutral: lift=0, gain=1, gamma=1 → identity
 uniform sampler2D u_curve; uniform float u_hasCurve; // R132: tone curves — 256×1 LUT, RGBA = R/G/B/luma curves (identity when u_hasCurve=0)
+uniform vec4 u_weave; // [R247c] rejilla de cruces del TEJIDO: (ancho, alto de celda en píxeles del lienzo, origen x, origen y). x=0 → apagada
 out vec4 o;
 void main(){
   if(u_cull>0.5 && v_below<-0.0015) discard;
+  /* [R247c] El "por encima / por debajo" de una cestería. La decisión de quién pasa delante NO es del clip —que
+     viaja— sino del CRUCE, que está quieto en el lienzo. Por eso la rejilla se evalúa en gl_FragCoord, píxeles del
+     lienzo compuesto: la tira fluye a través de una ventana fija y el entrelazado se queda donde está en vez de
+     resbalar con ella. Se dibuja tres veces: familia A, familia B encima, y otra vez A recortada a las celdas de la
+     otra paridad. Sale un tejido de verdad, con las dos familias alternándose casilla a casilla. */
+  if(u_weave.x>0.5){ vec2 wg=floor((gl_FragCoord.xy-u_weave.zw)/u_weave.xy); if(mod(wg.x+wg.y,2.0)<1.0) discard; }
   vec2 uv=(v_uv-0.5)/max(1.0-u_crop,0.02)+0.5;
   if(uv.x<0.0||uv.x>1.0||uv.y<0.0||uv.y>1.0){ discard; } // out-of-crop: discard (neutral for every blend; was o=vec4(0) which blackened darken/MIN)
   vec4 c;
@@ -292,7 +299,7 @@ const LW={flat:gl.getAttribLocation(PW,'a_flat'),uv:gl.getAttribLocation(PW,'a_u
   half:gl.getUniformLocation(PW,'u_half'),mir:gl.getUniformLocation(PW,'u_mir'),tex:gl.getUniformLocation(PW,'u_tex'),op:gl.getUniformLocation(PW,'u_op'),cull:gl.getUniformLocation(PW,'u_cull'),
   sector:gl.getUniformLocation(PW,'u_sector'),azC:gl.getUniformLocation(PW,'u_azC'),azSpan:gl.getUniformLocation(PW,'u_azSpan'),elC:gl.getUniformLocation(PW,'u_elC'),elSpan:gl.getUniformLocation(PW,'u_elSpan'),covHalf:gl.getUniformLocation(PW,'u_covHalf'),
   fmode:gl.getUniformLocation(PW,'u_flat'),fc:gl.getUniformLocation(PW,'u_fc'),fx:gl.getUniformLocation(PW,'u_fx'),fy:gl.getUniformLocation(PW,'u_fy'),
-  blur:gl.getUniformLocation(PW,'u_blur'),feather:gl.getUniformLocation(PW,'u_feather'),crop:gl.getUniformLocation(PW,'u_crop'),mask:gl.getUniformLocation(PW,'u_mask'),exp:gl.getUniformLocation(PW,'u_exp'),con:gl.getUniformLocation(PW,'u_con'),sat:gl.getUniformLocation(PW,'u_sat'),tmp:gl.getUniformLocation(PW,'u_tmp'),tnt:gl.getUniformLocation(PW,'u_tnt'),glow:gl.getUniformLocation(PW,'u_glow'),ca:gl.getUniformLocation(PW,'u_ca'),premul:gl.getUniformLocation(PW,'u_premul'),blend:gl.getUniformLocation(PW,'u_blend'),maskTex:gl.getUniformLocation(PW,'u_maskTex'),tile:gl.getUniformLocation(PW,'u_tile'),maskScale:gl.getUniformLocation(PW,'u_maskScale'),lut:gl.getUniformLocation(PW,'u_lut'),hasLut:gl.getUniformLocation(PW,'u_hasLut'),lutMix:gl.getUniformLocation(PW,'u_lutMix'),
+  blur:gl.getUniformLocation(PW,'u_blur'),feather:gl.getUniformLocation(PW,'u_feather'),crop:gl.getUniformLocation(PW,'u_crop'),mask:gl.getUniformLocation(PW,'u_mask'),exp:gl.getUniformLocation(PW,'u_exp'),con:gl.getUniformLocation(PW,'u_con'),sat:gl.getUniformLocation(PW,'u_sat'),tmp:gl.getUniformLocation(PW,'u_tmp'),tnt:gl.getUniformLocation(PW,'u_tnt'),glow:gl.getUniformLocation(PW,'u_glow'),ca:gl.getUniformLocation(PW,'u_ca'),premul:gl.getUniformLocation(PW,'u_premul'),blend:gl.getUniformLocation(PW,'u_blend'),maskTex:gl.getUniformLocation(PW,'u_maskTex'),tile:gl.getUniformLocation(PW,'u_tile'),maskScale:gl.getUniformLocation(PW,'u_maskScale'),weave:gl.getUniformLocation(PW,'u_weave'),lut:gl.getUniformLocation(PW,'u_lut'),hasLut:gl.getUniformLocation(PW,'u_hasLut'),lutMix:gl.getUniformLocation(PW,'u_lutMix'),
   lift:gl.getUniformLocation(PW,'u_lift'),gamma:gl.getUniformLocation(PW,'u_gamma'),gain:gl.getUniformLocation(PW,'u_gain'),
   curve:gl.getUniformLocation(PW,'u_curve'),hasCurve:gl.getUniformLocation(PW,'u_hasCurve')};
 const BLEND_ID={normal:0,add:0,screen:0,multiply:0,darken:1,lighten:2}; // u_blend: 0=premul path, 1=darken(MIN-neutral white), 2=lighten(MAX-neutral black)
@@ -759,7 +766,7 @@ function clearKf(c,p){ if(c.kf)delete c.kf[p]; }
    into the editable value. Driven by absolute timeline time → deterministic and correct in export; a live-preview clock
    advances it in the paused editor so the composition visibly "breathes". Applies to clips, stills, comps (spin rotates
    the whole dome disc), and tiles. */
-const ANIM_PARAMS=[['spin','Rotate','Girar'],['az','Orbit (azimuth)','Orbitar (azimut)'],['el','Elevation','Elevación'],['size','Size','Tamaño'],['rot','Roll','Balanceo'],['opacity','Opacity','Opacidad'],['fx','Slide ↔ (dome plane)','Deslizar ↔ (plano del domo)'],['fy','Slide ↕ (dome plane)','Deslizar ↕ (plano del domo)']];
+const ANIM_PARAMS=[['spin','Rotate','Girar'],['az','Orbit (azimuth)','Orbitar (azimut)'],['el','Elevation','Elevación'],['size','Size','Tamaño'],['rot','Roll','Balanceo'],['opacity','Opacity','Opacidad'],['fx','Slide ↔ (dome plane)','Deslizar ↔ (plano del domo)'],['fy','Slide ↕ (dome plane)','Deslizar ↕ (plano del domo)'],['x','Slide ↔ (flat)','Deslizar ↔ (plano)'],['y','Slide ↕ (flat)','Deslizar ↕ (plano)']];
 /* [R246] DIENTE DE SIERRA — la forma de onda que le faltaba al motor. `linear` es una rampa que crece sin fin y
    `wave` va y vuelve; ninguna sirve para un ciclo que se REPITE (nacer en 0, crecer hasta el objetivo, volver a
    nacer). Con él, N clips desfasados 1/N del ciclo dan un chorro continuo — es lo que sostiene el túnel.
@@ -983,6 +990,7 @@ function drawClipFlat(c,m,t,xf,ntex,op){ const SR=clipSurfaceRect(c); let P;
   gl.uniform1f(LW.fmode,1); gl.uniform2f(LW.fx,P.fx[0],P.fx[1]); gl.uniform2f(LW.fy,P.fy[0],P.fy[1]);
   gl.uniform2f(LW.half,P.hw,P.hh); gl.uniform1f(LW.mir,c.props.mirror?-1:1); gl.uniform1f(LW.op,op);
   gl.uniform1f(LW.cull,0); gl.uniform1f(LW.sector,0); gl.uniform1f(LW.tile,0); gl.uniform1f(LW.maskScale,c.props.maskScale||1);
+  setWeaveGrid(c);
   gl.uniform1f(LW.blur,(evalP(c,'blur',t)||0)*0.0016); gl.uniform1f(LW.feather,(evalP(c,'feather',t)||0)/100); gl.uniform1f(LW.crop,(evalP(c,'crop',t)||0)/100*0.9);
   gl.uniform1f(LW.mask,MASK_IDX[c.props.mask||'none']||0);
   gl.uniform1f(LW.exp,(evalP(c,'exposure',t)||0)/100); gl.uniform1f(LW.con,(evalP(c,'contrast',t)||0)/100); gl.uniform1f(LW.sat,(evalP(c,'saturation',t)||0)/100);
@@ -1047,9 +1055,10 @@ function drawClip(c,m,t,xf){
      envoltura sería un salto feo, y por eso las bandas van a 0° y 90°.
      Fuera de esos dos parámetros esto no cuesta nada: `animOffset` sale por la puerta con `c.anim` vacío. */
   if(c.anim&&c.anim.length){ const fdx=animOffset(c,'fx',t), fdy=animOffset(c,'fy',t);
-    if(fdx||fdy){ const P=azel2f(az,el); const w=x=>{ let v=(x+1)%2; if(v<0)v+=2; return v-1; };
-      const q=f2azel(w(P[0]+fdx), w(P[1]+fdy)); az=q.az; el=q.el; } }
-  const fr=frame(az,el); const ax=(size*0.5)*D2R, ay=ax*(m.h/m.w);
+    if(fdx||fdy){ const P=azel2f(az,el);
+      const w=x=>{ let v=(x+1)%2; if(v<0)v+=2; return v-1; };            // envuelve en el cuadrado que rodea al disco
+      const q=f2azelUnclamped(w(P[0]+fdx),w(P[1]+fdy)); az=q.az; el=q.el; } } // sin acotar: lo que sale del disco se va bajo el horizonte, no se apelotona en el borde
+  const fr=frame(az,el); const ax=(size*0.5)*D2R, ay=ax*(m.h/m.w); // la proporción del medio manda: `ay` sale de `ax` por h/w, así que un clip NUNCA se estira ni se achata
   const rot=(evalR(c,'rot',t)||0)*D2R, cr=Math.cos(rot), sr=Math.sin(rot);
   const U=[fr.u[0]*cr+fr.v[0]*sr,fr.u[1]*cr+fr.v[1]*sr,fr.u[2]*cr+fr.v[2]*sr];
   const V=[-fr.u[0]*sr+fr.v[0]*cr,-fr.u[1]*sr+fr.v[1]*cr,-fr.u[2]*sr+fr.v[2]*cr];
@@ -1058,7 +1067,7 @@ function drawClip(c,m,t,xf){
   gl.uniform2f(LW.half,ax,ay); gl.uniform1f(LW.mir,c.props.mirror?-1:1); gl.uniform1f(LW.op,op);
   gl.uniform1f(LW.cull, state.view.cull?1:0);
   const sector=(c.props.warp==='dome'); gl.uniform1f(LW.sector, sector?1:0); gl.uniform1f(LW.tile, sector?1:0); // dome-tile (annular sector) → seamless rings/grids that follow the dome's az/el grid (tiles skip edge feather/aspect → no seams)
-  gl.uniform1f(LW.maskScale, c.props.maskScale||1);
+  gl.uniform1f(LW.maskScale, c.props.maskScale||1); gl.uniform4f(LW.weave,0,1,0,0); // la rejilla del tejido es cosa del plano; en el domo siempre apagada
   if(sector){ gl.uniform1f(LW.azC, az*D2R); gl.uniform1f(LW.azSpan, (c.props.secAz||60)*D2R); gl.uniform1f(LW.elC, el*D2R); gl.uniform1f(LW.elSpan, (c.props.secEl||30)*D2R); }
   gl.uniform1f(LW.blur, (evalP(c,'blur',t)||0)*0.0016);
   gl.uniform1f(LW.feather, (evalP(c,'feather',t)||0)/100);
@@ -1102,6 +1111,18 @@ let _compTgtW=COMP,_compTgtH=COMP,_compFill=false; // dimensiones REALES del des
    hace que un anillo con alfa se superponga a los del fondo en vez de ser tapado por ellos.
    Fuera del túnel la bandera está apagada y esto no cuesta ni una comparación. */
 let _zsortSize=false;
+/* [R247c] Traduce la rejilla de cruces del tejido a PÍXELES del lienzo que se está componiendo ahora mismo.
+   El clip guarda cuántas celdas hay a lo ancho y a lo alto (`weaveCells`), no su tamaño: así el mismo nido vale
+   igual compuesto a 1024 que a 4096, y el entrelazado no se descuadra al exportar a otra resolución.
+   `_compFill` desplaza el viewport dentro del framebuffer y `gl_FragCoord` cuenta desde el framebuffer, no desde
+   el viewport → hay que restar el origen o la rejilla saldría corrida. `weavePar` cambia la paridad (qué familia
+   pasa por delante en cada casilla) desplazando el origen una celda. */
+function setWeaveGrid(c){ const wv=c.props&&c.props.weaveCells;
+  if(!wv||!(wv[0]>0)||!(wv[1]>0)){ gl.uniform4f(LW.weave,0,1,0,0); return; }
+  let ox=0,oy=0,W=_compTgtW||1,H=_compTgtH||1;
+  if(_compFill){ const V=compFillVp(); ox=V.x; oy=V.y; W=V.w; H=V.h; }
+  const cw=Math.max(1,W/wv[0]), ch=Math.max(1,H/wv[1]);
+  gl.uniform4f(LW.weave, cw, ch, ox+(c.props.weavePar?cw:0), oy); }
 function composite(t,size,opaque,fill){
   const w=fill?compW:size, h=fill?compH:size; _compTgtW=w; _compTgtH=h; _compFill=!!fill;
   if(fill){ const V=compFillVp(); gl.viewport(V.x,V.y,V.w,V.h); } else gl.viewport(0,0,w,h);
@@ -1120,6 +1141,15 @@ function f2azel(nx,ny){const r=Math.hypot(nx,ny); if(r<1e-6)return{az:0,el:90};
   const zen=Math.min(r,1)*curCovHalf(); const h=Math.atan2(nx,-ny); // rho→zenith scaled by coverage (edge = covHalf, which can dip below the horizon for >180°)
   const el=(HALF_PI-zen)*R2D; let az=h*R2D; az=((az%360)+360)%360; return{az,el};}
 function azel2f(az,el){const zen=(90-el)*D2R; const rho=zen/curCovHalf(); const h=az*D2R; return[rho*Math.sin(h), -rho*Math.cos(h)];}
+/* [R247] Gemela de `f2azel` SIN el `Math.min(r,1)`. La versión acotada existe para que un puntero fuera del disco
+   siga dando un punto legal del domo; aquí hace justo lo contrario de lo que se necesita. Una tira recta que cruza
+   el disco tiene sus extremos FUERA del círculo —esas partes están bajo el horizonte y no deben verse—, y con el
+   acotado se apelotonarían contra el borde en vez de desaparecer. Sin acotar, `el` sale negativo, el parche cae
+   fuera del casquete y el propio recorte del disco lo descarta: el trozo de tira que se sale, sencillamente, no
+   está. */
+function f2azelUnclamped(nx,ny){ const r=Math.hypot(nx,ny); if(r<1e-6)return{az:0,el:90};
+  const zen=r*curCovHalf(); const h=Math.atan2(nx,-ny);
+  return { az:((h*R2D)%360+360)%360, el:(HALF_PI-zen)*R2D }; }
 
 let exporting=false;
 let _scopesCv=null,_scopesT=0,_scopesBuf=null,_scopesBufW=0,_scopesBufH=0,_scopesKey=null; // [R213] _scopesBuf persiste entre llamadas; _scopesKey evita el readPixels si el frame no cambió
@@ -10962,7 +10992,7 @@ function openPrefs(){ closeMenu(); const ov=document.createElement('div'); ov.cl
   $('#prefClose').onclick=()=>ov.remove(); ov.addEventListener('pointerdown',e=>{if(e.target===ov)ov.remove();}); }
 
 /* ===================== COMPOSITION GROUPS (ring / grid / random) ===================== */
-const kindES=k=>T({ring:'ring',grid:'grid',random:'random',spiral:'spiral',phyllo:'sunflower',wave:'wave',fib:'dome scatter',line:'line',domegrid:'dome fill',row:'row',col:'column',tunnel:'tunnel'}[k]||k,{ring:'anillo',grid:'cuadrícula',random:'aleatorio',spiral:'espiral',phyllo:'girasol',wave:'onda',fib:'esparcido',line:'línea',domegrid:'relleno',row:'fila',col:'columna',tunnel:'túnel'}[k]||k);
+const kindES=k=>T({ring:'ring',grid:'grid',random:'random',spiral:'spiral',phyllo:'sunflower',wave:'wave',fib:'dome scatter',line:'line',domegrid:'dome fill',row:'row',col:'column',tunnel:'tunnel',weave:'weave'}[k]||k,{ring:'anillo',grid:'cuadrícula',random:'aleatorio',spiral:'espiral',phyllo:'girasol',wave:'onda',fib:'esparcido',line:'línea',domegrid:'relleno',row:'fila',col:'columna',tunnel:'túnel',weave:'tejido'}[k]||k);
 const FLAT_COMP_KINDS=['grid','row','col','random']; // flat/room compositions use x/y/scale, not dome az/el
 /* flat/room composition layout → {x,y,scale} in % (x/y −100..100). g.infinite (room) spreads across the FULL strip so it tiles seamlessly. */
 function compLayoutFlat(g){ const out=[],n=Math.max(1,g.count); const inf=!!g.infinite; const xSpan=inf?200:150, xL=-xSpan/2, sc=g.size;
@@ -10970,8 +11000,79 @@ function compLayoutFlat(g){ const out=[],n=Math.max(1,g.count); const inf=!!g.in
     for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){ if(i>=n)break; const x=cols>1?(xL+c*xSpan/(inf?cols:(cols-1))):0; const y=rows>1?(70-r*140/(rows-1)):0; out.push({x,y,scale:sc}); i++; } }
   else if(g.kind==='row'){ for(let i=0;i<n;i++){ const x=inf?(xL+i*xSpan/n):(n>1?xL+i*xSpan/(n-1):0); out.push({x,y:0,scale:sc}); } }
   else if(g.kind==='col'){ for(let i=0;i<n;i++){ const f=n>1?i/(n-1):0.5; out.push({x:0,y:70-f*140,scale:sc}); } }
+  else if(g.kind==='weave'){ return weaveLayout(g); } // [R247c] el tejido tiene su propia geometría — ver weaveLayout
   else { ensureRand(g); for(let i=0;i<n;i++){ const a=g.rand[i]; out.push({x:(a.a*2-1)*(xSpan/2),y:(a.e*2-1)*70,scale:sc*(0.7+0.6*a.s)}); } }
   if(g.jitter>0){ ensureRand(g); const J=g.jitter/100; for(let i=0;i<out.length;i++){ const a=g.rand[i]||{a:.5,e:.5,s:.5}; out[i].x+=(a.a*2-1)*40*J; out[i].y+=(a.e*2-1)*40*J; out[i].scale=Math.max(3,out[i].scale*(1+(a.s*2-1)*0.6*J)); } }
+  return out; }
+/* [R247c] TEJIDO — la cestería, montada en un PLANO 1:1 y sólo después metida en el domo.
+   Idea de Beltrán, y es la buena: «armáramos toda esta grilla en un plano uno a uno, y después ese plano se
+   convierte a un SRC fulldome y se le da un poco de fisheye, así se adapta a la deformación». La versión anterior
+   colocaba clip a clip sobre la esfera y salía en diente de sierra, porque en una azimutal-equidistante la única
+   banda recta que es un círculo máximo es la que cruza por el centro. En un plano el problema no existe: los
+   vecinos se juntan a 90° EXACTOS por construcción, y la curvatura se aplica una sola vez, al conjunto.
+
+   Coordenadas: el nido es cuadrado, así que el lienzo va de −100 a +100 en las dos direcciones (200 de lado) y en
+   esas unidades el LADO LARGO de un clip mide exactamente `scale` — que es lo que hace que todo lo de abajo salga
+   en una línea. `AR` = lado largo / lado corto, siempre ≥ 1.
+
+   LA PROPORCIÓN NO SE TOCA NUNCA (petición explícita: el material vendrá en 1:1, 16:9 y lo que sea). Sólo se elige
+   CÓMO ENCAJA el clip en la tira, con `fit`:
+     · 'across' → el lado largo CRUZA la tira y ocupa todo su ancho;
+     · 'along'  → el lado largo va tumbado en la dirección de avance.
+   El otro lado sale solo, por la proporción del propio medio. `rot` es un giro de 90° cuando el clip nace mirando
+   al revés — girar no deforma, y es justo el mando que pidió Beltrán para decidir hacia dónde se ve.
+
+   Una fuente POR TIRA: dentro de una tira todos los clips miden lo mismo, encajan borde con borde y el salto de la
+   envoltura (un paso justo) es invisible. Repartir las fuentes clip a clip mezcla proporciones en la misma tira y
+   deja hueco tras uno y solape tras el otro — parecía un collage.
+
+   ENTRELAZADO: las tiras verticales se dibujan DOS veces, la segunda recortada a las celdas de la otra paridad
+   (`weaveCells`/`weavePar`, ver setWeaveGrid). Así cada cruce tiene su dueño y el tejido pasa por encima y por
+   debajo alternándose, como una cestería de verdad. */
+function weaveLayout(g){ const out=[];
+  const B=Math.max(1,Math.min(24,Math.round(g.bands||5)));            // tiras por familia
+  const modo=g.weaveMode||'weave';
+  const fams=(modo==='h')?['h']:(modo==='v')?['v']:['h','v'];
+  const across=(g.fit||'across')==='across';
+  const dens=Math.max(0.25,Math.min(1,(g.density!=null?g.density:1))); // [R247d] tope en 1: dentro de una tira un clip empieza donde acaba el anterior, NUNCA se cortan (petición de Beltrán)
+  const asp=(g._aspects&&g._aspects.length)?g._aspects:[Math.max(0.01,g._aspect||1)];
+  const p=200/B;                                                      // paso entre tiras (centro a centro)
+  const entrelazar=(modo==='weave'&&g.interlace!==false);
+  /* [R247d] GROSOR de la tira, en % del paso. Es el mando que abre el abanico entero: al 100 las tiras van
+     contiguas y el tejido llena el domo; por debajo dejan hueco transparente entre ellas, y con pocas tiras y poco
+     grosor salen dos líneas sueltas cruzando el domo. Separación y ancho son la misma cosa vista al derecho y al
+     revés (hueco = paso − grosor), así que un solo mando los da los dos sin que puedan contradecirse. */
+  const th=p*Math.max(0.05,Math.min(1,(g.bandW!=null?g.bandW:100)/100));
+  /* [R247d] MOVIMIENTO: alterno (tiras contiguas en contra) · a la vez (todas al mismo lado) · quieto.
+     `flip` invierte el conjunto. Cada familia lleva su propia velocidad. */
+  const mov=g.motion||'alternate', flip=g.flip?-1:1;
+  const spdH=(g.speed!=null?g.speed:0.12), spdV=(g.speedV!=null?g.speedV:spdH);
+  let kGlobal=0;
+  for(const fam of fams){
+    const famH=(fam==='h');                                           // 'h' = la tira corre en x, apiladas en y
+    for(let k=0;k<B;k++,kGlobal++){
+      const ca=Math.max(0.01,asp[kGlobal%asp.length]);                // proporción de ESTA tira
+      const AR=Math.max(ca,1/ca);                                     // largo/corto, siempre ≥1
+      /* [R247d] `scale` es un PORCENTAJE del marco, y en flatPlace el lado dibujado mide 2×scale unidades de
+         lienzo (scale 100 % = 200 = el lienzo entero). De ahí el /2: sin él las tiras salían al doble de ancho y
+         «100 % de ancho» ya solapaba con la vecina, así que no aparecía hueco hasta bajar del 50 %. */
+      const largo=across?th:(th*AR);                                  // el lado que CRUZA la tira mide su grosor
+      const scale=largo/2;
+      const along=across?(th/AR):(th*AR);                             // lo que ocupa en la dirección de avance
+      const wantVert=famH?across:!across;                             // ¿el lado largo debe quedar vertical?
+      const rot=((wantVert!==(ca<1))?90:0);                           // girar 90° no deforma: sólo cambia hacia dónde mira
+      const q=Math.max(1,along/dens);                                 // paso entre clips de la tira
+      const P=Math.max(2,Math.min(64,Math.ceil(200/q)+2));            // que cubran el lienzo más un paso, para la envoltura
+      const c0=-100+p*(k+0.5);                                        // centro de la tira
+      const dir=(mov==='still')?0:(flip*((mov==='alternate'&&(k%2))?-1:1)); // alterna dentro de SU familia, así las dos empiezan igual
+      for(let j=0;j<P;j++){ const a0=-100-q+q*j;
+        out.push({ x:famH?a0:c0, y:famH?c0:a0, scale, rot,
+                   _weave:1, _axis:famH?'x':'y', _step:q, _dir:dir, _spd:(famH?spdH:spdV), _src:kGlobal, _ar:AR }); } } }
+  /* El entrelazado: basta con recortar UNA de las dos familias a la mitad de los cruces —la rejilla de celdas,
+     quieta en el lienzo— para que en cada casilla mande una u otra. Cada tira se ve entonces a trozos, apareciendo
+     y desapareciendo bajo la que la cruza: es exactamente el aspecto de una cestería, y como la rejilla no viaja
+     con el clip, el entrelazado se queda donde está mientras el material fluye por debajo. */
+  if(entrelazar) for(const o of out) if(o._axis==='y'){ o._over=1; o._cells=[B,B]; }
   return out; }
 const maskES=k=>({none:T('None','Ninguna'),circle:T('Circle (alpha)','Círculo (alfa)'),rounded:T('Rounded','Redondeada'),diamond:T('Diamond','Rombo'),vignette:T('Vignette','Viñeta'),custom:T('Custom (PNG)','Personalizada (PNG)')}[k]||k);
 function groupById(id){ return state.groups.find(g=>g.id===id); }
@@ -11029,8 +11130,30 @@ function compTunnelAnim(g,phase){
   const an=[{id:uid(),param:'size',mode:'saw',speed:spd,amp:(to-from),phase,curve:(g.curve!=null?g.curve:60),on:true}];
   if(g.fade!==false) an.push({id:uid(),param:'opacity',mode:'wave',speed:spd,amp:50,phase:phase-0.25,on:true});
   return an; }
+/* [R247c] El movimiento del TEJIDO, y de paso la razón de que sea INFINITO sin envoltura ninguna.
+   Cada clip recorre en diente de sierra EXACTAMENTE un paso de su tira y vuelve a empezar. Como la tira está
+   rellena con esa misma fuente cada `_step`, cuando uno salta hacia atrás ya hay otro ocupando su sitio: el salto
+   no se puede ver. Es el truco clásico del desplazamiento sin fin, y aquí sale gratis porque el diente de sierra
+   ya estaba en el motor desde el túnel (R246). Nadie desaparece nunca, que era la queja.
+   El sentido se alterna por tira — las flechas del boceto de Beltrán: tiras contiguas viajando en contra.
+   Velocidad en unidades de lienzo por segundo; el lienzo son 200, así que 0,12 avanza un 6% cada segundo. */
+function compWeaveAnim(g,p){ const v=Math.max(0,(p._spd!=null?p._spd:0.12))*100*(p._dir||0);
+  if(!v)return [];                                                   // [R247d] quieto (o velocidad 0): sin modificador, y así el preview no gasta reloj
+  const step=Math.max(0.01,p._step||1);
+  return [{id:uid(),param:(p._axis||'x'),mode:'saw',speed:v/step,amp:step,phase:0,curve:0,on:true}]; }
+/* [R247] La proporción del material entra en el CÁLCULO del tejido (decide el tamaño y hacia dónde mira el clip),
+   así que hay que conocerla antes de repartir. Se toma la del primer medio con dimensiones reales; con fuentes de
+   proporciones distintas conviven todas sin estirarse —cada parche deriva su alto de su propio `h/w`—, y esto sólo
+   fija contra qué proporción se calibra el ancho de la tira. */
+function compAspectOf(srcs){ for(const s of (srcs||[])){ if(s&&s.w>0&&s.h>0)return s.w/s.h; } return 1; }
+function compAspectsOf(srcs){ const a=(srcs||[]).map(s=>(s&&s.w>0&&s.h>0)?(s.w/s.h):1); return a.length?a:[1]; } // [R247] una por fuente: cada TIRA se calibra con la suya
 /* props for one composed element. With g.tile, the element is an annular SECTOR (dome-tile) sized to seamlessly tile its ring/grid cell — perfect rings, no diagonal overlap. */
-function compElProps(g,p){ if(p.x!=null){ return { x:Math.round(p.x*10)/10, y:Math.round(p.y*10)/10, scale:Math.round(p.scale), rot:0, mask:g.mask||'none' }; } // flat/room element: x/y/scale
+function compElProps(g,p){ if(p.x!=null){
+    /* [R247c] Tejido: NI x/y NI scale se redondean. El encaje borde con borde depende de que el paso y el tamaño
+       salgan exactos — con 6 tiras el grosor es 33,33, y redondear a 33 abre una rendija en cada junta. */
+    if(p._weave!=null){ const pr={ x:p.x, y:p.y, scale:p.scale, rot:p.rot||0, mask:g.mask||'none' };
+      if(p._over){ pr.weaveCells=p._cells; pr.weavePar=0; } return pr; }
+    return { x:Math.round(p.x*10)/10, y:Math.round(p.y*10)/10, scale:Math.round(p.scale), rot:0, mask:g.mask||'none' }; } // flat/room element: x/y/scale
   /* [R246] El túnel marca la fuente como FULLDOME: la imagen 1:1 del anillo se dibuja en el disco entero (sin el
      parche gnomónico) y `Size` pasa a ser el zoom cenital que la hace crecer desde el centro. */
   if(p._phase!=null) return { az:Math.round(p.az), el:90, size:Math.round(p.size), fulldome:true, mask:'none', opacity:(g.fade!==false)?50:100 }; // opacidad base 50 = centro del seno del fundido (ver compTunnelAnim)
@@ -11084,41 +11207,51 @@ function createComposition(opts){ pushUndo();
   if(!srcs.length){ flashStatus(T('Pick a media for the composition','Elige un medio para la composición')); return; }
   g.mediaIds=srcs.map(s=>s.id); g.mediaId=srcs[0].id;
   const scope=opts._scope||null; delete g._scope; if(scope){ g.scopeInP=scope.inP||0; if(scope.speed&&scope.speed!==1)g.scopeSpeed=scope.speed; } // R88: PERSIST the cut in-point on the comp group so re-generating (edit params) keeps the trim, not frame 0
-  const flat=isFlat(); const compMode=flat?state.seqMode:'dome'; // flat/room compositions place elements with x/y/scale in their own format
+  /* [R247c] El TEJIDO se monta SIEMPRE en un nido plano 1:1, aunque la secuencia sea un domo: ahí los clips se
+     juntan a 90° exactos y la deformación se aplica una sola vez, al conjunto, al entrar en el domo como fuente
+     fulldome con ojo de pez. Es lo que quita el escalonado de la versión que colocaba clip a clip sobre la esfera. */
+  const weave=(g.kind==='weave');
+  const flat=weave||isFlat(); const compMode=weave?'flat':(flat?state.seqMode:'dome'); // flat/room compositions place elements with x/y/scale in their own format
+  const nestW=weave?Math.max(state.seqW,state.seqH):state.seqW, nestH=weave?nestW:state.seqH; // el tejido necesita el lienzo CUADRADO (si no, las celdas del entrelazado salen rectangulares)
+  if(g.kind==='weave'){ g._aspect=compAspectOf(srcs); g._aspects=compAspectsOf(srcs); } // [R247] el tejido calibra el ancho de tira contra la proporción real del material
   ensureRand(g); const lay=flat?compLayoutFlat(g):compLayout(g); const dur=scope?Math.max(0.1,scope.dur):compSrcDur(srcs);
   // build the nest: one composed element per nest-lane (no same-lane overlap → no spurious crossfade), geometry from compLayout; media cycle across elements
   const nestLanes=lay.map((p,i)=>({id:uid(),name:'V'+(i+1),tag:'V'+(i+1),kind:'video'}));
   ensureCompOrder(g,lay.length,srcs.length);
-  const nestClips=lay.map((p,i)=>{ const src=srcs[compMediaIndex(g,i,srcs.length)]; const layP=compElProps(g,p); const c=makeClip(src,i,0,layP,{name:src.name+' ['+(i+1)+']',color:CLIP_COLORS[i%CLIP_COLORS.length]}); c.dur=dur; c.slot=i; c._layBase={...layP}; if(scope){ c.inP=scope.inP||0; if(scope.speed&&scope.speed!==1)c.speed=scope.speed; } return c; }); // [N4] _layBase = the layout baseline so later recomposes preserve the user's manual delta
+  const nestClips=lay.map((p,i)=>{ const src=srcs[(p._src!=null)?(p._src%srcs.length):compMediaIndex(g,i,srcs.length)]; /* [R247] el tejido asigna la fuente POR TIRA, no clip a clip */ const layP=compElProps(g,p); const c=makeClip(src,i,0,layP,{name:src.name+' ['+(i+1)+']',color:CLIP_COLORS[i%CLIP_COLORS.length]}); c.dur=dur; c.slot=i; c._layBase={...layP}; if(scope){ c.inP=scope.inP||0; if(scope.speed&&scope.speed!==1)c.speed=scope.speed; } return c; }); // [N4] _layBase = the layout baseline so later recomposes preserve the user's manual delta
   if(!flat && g.kind==='line'&&g.scroll) for(const cc of nestClips) cc.anim=[{id:uid(),param:'el',mode:'linear',speed:(g.scrollSpeed!=null?g.scrollSpeed:20),amp:0,phase:0,on:true}]; // dome infinite strip: scroll along the diameter (wrap makes it reappear)
   if(!flat && g.kind==='tunnel') nestClips.forEach((cc,i)=>{ cc.anim=compTunnelAnim(g,(lay[i]&&lay[i]._phase)||0); }); // [R246] cada anillo con su desfase en el ciclo
+  if(g.kind==='weave') nestClips.forEach((cc,i)=>{ if(lay[i])cc.anim=compWeaveAnim(g,lay[i]); }); // [R247c] cada clip por su eje, con el sentido de su tira
   if(flat && g.infinite) for(const cc of nestClips) cc.anim=[{id:uid(),param:'x',mode:'linear',speed:(g.scrollSpeed!=null?g.scrollSpeed:12),amp:0,phase:0,on:true}]; // 360 infinite extension: scroll horizontally (room wrap makes it seamless)
   const ncount=state.media.filter(m=>m.kind==='nest').length;
-  const nest=newSeqMedia(cap(kindES(g.kind))+(ncount?' '+(ncount+1):''), state.fps, state.seqW, state.seqH, nestClips, nestLanes, compMode); nest.dur=dur; nest.comp=g;
+  const nest=newSeqMedia(cap(kindES(g.kind))+(ncount?' '+(ncount+1):''), state.fps, nestW, nestH, nestClips, nestLanes, compMode); nest.dur=dur; nest.comp=g;
   state.media.push(nest);
   // R88: EVERY composition lands on a BRAND-NEW top video lane (never reuses an existing track → no accidental overlap)
   const vn=state.lanes.filter(l=>l.kind==='video').length+1; state.lanes.push({id:uid(),name:'V'+vn,tag:'V'+vn,kind:'video'}); const vlane=state.lanes.length-1;
   const start=scope?(scope.start!=null?scope.start:state.playhead):state.playhead;
-  const nc=makeClip(nest,vlane,start); nc.dur=dur; nc.props.fulldome=true; nc.props.equirect=false; state.clips.push(nc); // [R225·2] siempre máster de domo
+  const nc=makeClip(nest,vlane,start); nc.dur=dur; nc.props.fulldome=true; nc.props.equirect=false;
+  if(weave&&!isFlat()){ nc.props.fisheye=true; nc.props.fisheyeAmt=(g.fish!=null?g.fish:50); } // [R247c] el plano 1:1 entra al domo curvándose: es el «poco de fisheye» que pidió Beltrán
+  state.clips.push(nc); // [R225·2] siempre máster de domo
   state.selId=nc.id; state.selIds=[nc.id]; state.selGroupId=null;
   renderMedia(); renderSeqBar(); renderTimeline(); renderInspector(); render(); markDirty();
-  flashStatus(cap(kindES(g.kind))+' → '+T('nest · ','nido · ')+g.count+' '+T('items','elementos')); return nest; }
+  flashStatus(cap(kindES(g.kind))+' → '+T('nest · ','nido · ')+lay.length+' '+T('items','elementos')); return nest; } // [R247c] el conteo real del reparto: el tejido y el relleno de domo no lo sacan de g.count
 /* rebuild a compose-nest's inner clips/lanes from its stored comp params (live edit from the inspector / Recompose dialog) */
-function regenComposeNest(m){ if(!m||!m.comp)return false; const g=m.comp; const ids=(g.mediaIds&&g.mediaIds.length)?g.mediaIds:(g.mediaId!=null?[g.mediaId]:[]); const srcs=ids.map(mediaById).filter(Boolean); if(!srcs.length)return false; g.mediaIds=srcs.map(s=>s.id); g.mediaId=srcs[0].id; ensureRand(g); const flat=flatLikeMode(m.mode); const lay=flat?compLayoutFlat(g):compLayout(g);
+function regenComposeNest(m){ if(!m||!m.comp)return false; const g=m.comp; const ids=(g.mediaIds&&g.mediaIds.length)?g.mediaIds:(g.mediaId!=null?[g.mediaId]:[]); const srcs=ids.map(mediaById).filter(Boolean); if(!srcs.length)return false; g.mediaIds=srcs.map(s=>s.id); g.mediaId=srcs[0].id; if(g.kind==='weave'){ g._aspect=compAspectOf(srcs); g._aspects=compAspectsOf(srcs); if(!flatLikeMode(m.mode))m.mode='flat'; /* [R247c] los tejidos de la versión esférica vivían en un nido de domo; al recomponerlos pasan al plano 1:1 */ } ensureRand(g); const flat=flatLikeMode(m.mode); const lay=flat?compLayoutFlat(g):compLayout(g);
   const dur=Math.max(0.1, m.dur||compSrcDur(srcs)); // [R225·7] misma regla al recomponer (sólo si el nest no tiene ya su duración)
   const prev=Array.isArray(m.nestClips)?m.nestClips:[]; // [N4] reuse the existing inner clips so per-element tweaks survive a recompose
   for(const c of prev)if(c.slot>=lay.length&&c.maskTex){try{gl.deleteTexture(c.maskTex);}catch(e){}} // free dropped slots' masks
   m.nestLanes=lay.map((p,i)=>({id:uid(),name:'V'+(i+1),tag:'V'+(i+1),kind:'video'}));
   ensureCompOrder(g,lay.length,srcs.length);
-  m.nestClips=lay.map((p,i)=>{ const src=srcs[compMediaIndex(g,i,srcs.length)]; const layP=compElProps(g,p); const ex=prev[i];
+  m.nestClips=lay.map((p,i)=>{ const src=srcs[(p._src!=null)?(p._src%srcs.length):compMediaIndex(g,i,srcs.length)]; const layP=compElProps(g,p); const ex=prev[i]; // [R247] ídem al recomponer
     if(ex && ex.mediaId===src.id){ // [N4] keep this element's manual tweaks (opacity/mask/fades/keyframes/fx) AND apply the new layout RELATIVE to the user's delta, so a hand-scaled item doesn't snap back to 0
       const base=ex._layBase||{};
       for(const k in layP){ if(typeof layP[k]==='number'){ const d=(typeof ex.props[k]==='number'&&typeof base[k]==='number')?(ex.props[k]-base[k]):0; ex.props[k]=layP[k]+d; } } // numeric positional props carry the user's offset; mask (string) is left as the user set it
-      for(const k of ['warp','secAz','secEl']){ if(layP[k]!=null)ex.props[k]=layP[k]; else delete ex.props[k]; } // [N5] warp/sector props are layout-controlled (not user tweaks) → follow the layout (e.g. Flat tiles removes them)
+      for(const k of ['warp','secAz','secEl','weaveCells','weavePar']){ if(layP[k]!=null)ex.props[k]=layP[k]; else delete ex.props[k]; } // [N5] warp/sector props are layout-controlled (not user tweaks) → follow the layout (e.g. Flat tiles removes them) · [R247c] la rejilla del entrelazado tampoco es un retoque: es geometría, y además no es un número (el bucle de arriba sólo copia números)
       ex._layBase={...layP}; ex.lane=i; ex.slot=i; ex.dur=dur; if(g.scopeInP!=null)ex.inP=g.scopeInP; if(g.scopeSpeed)ex.speed=g.scopeSpeed; return ex; }
     const c=makeClip(src,i,0,layP,{name:src.name+' ['+(i+1)+']',color:CLIP_COLORS[i%CLIP_COLORS.length]}); c.dur=dur; c.slot=i; c._layBase={...layP}; if(g.scopeInP!=null)c.inP=g.scopeInP; if(g.scopeSpeed)c.speed=g.scopeSpeed; return c; }); // R88: re-apply the persisted cut in-point (don't revert to the source's frame 0)
   if(!flat && g.kind==='line'&&g.scroll) for(const cc of m.nestClips) cc.anim=[{id:uid(),param:'el',mode:'linear',speed:(g.scrollSpeed!=null?g.scrollSpeed:20),amp:0,phase:0,on:true}]; // dome infinite strip scroll
   if(!flat && g.kind==='tunnel') m.nestClips.forEach((cc,i)=>{ cc.anim=compTunnelAnim(g,(lay[i]&&lay[i]._phase)||0); }); // [R246] al recomponer, el desfase se rehace: es geometría del túnel, no un retoque del usuario
+  if(g.kind==='weave') m.nestClips.forEach((cc,i)=>{ if(lay[i])cc.anim=compWeaveAnim(g,lay[i]); }); // [R247c] ídem: el eje y el sentido son de la tira
   if(flat && g.infinite) for(const cc of m.nestClips) cc.anim=[{id:uid(),param:'x',mode:'linear',speed:(g.scrollSpeed!=null?g.scrollSpeed:12),amp:0,phase:0,on:true}]; // 360 infinite extension scroll
   m.dur=dur; if(m.id===state.activeSeqId)loadSeqIntoState(m); raInvalidate(); return true; }
 /* dome schematic: plot the composition's elements on a fisheye disc (front=bottom, right=right) so you can see what the layout will do */
@@ -11162,6 +11295,32 @@ function drawComposePreview(g,canvas){ if(!canvas)return; const x=canvas.getCont
       x.beginPath(); x.arc(cx,cy,Math.min(r,R*1.25),0,7); x.stroke();
       if(r<R*0.98&&r>R*0.16){ x.globalAlpha=1; x.fillStyle=CLIP_COLORS[i%CLIP_COLORS.length]; x.font='700 10px Inter'; x.textAlign='center'; x.textBaseline='middle'; x.fillText(String(i+1),cx,cy-r); } });
     x.globalAlpha=1; return; }
+  /* [R247c] TEJIDO: el esquema es del PLANO 1:1 donde se monta, no del disco — que es la idea entera. Se dibuja
+     cada clip como el rectángulo que va a ocupar, con su proporción real, y encima el círculo del domo para que se
+     vea qué parte del plano quedará dentro. Un punto no diría si el clip cruza la tira o va tumbado en ella, que es
+     precisamente la diferencia entre las dos opciones de «Lado largo». */
+  if(g.kind==='weave'){ const S=R;                                   // el plano (200 de lado) ocupa el cuadrado que circunscribe al disco
+    try{ lay=weaveLayout(g); }catch(e){ lay=[]; }                    // el tejido vive en el plano: su reparto no sale de compLayout
+    const u=v=>v/200*2*S;                                            // unidades de lienzo → píxeles del esquema
+    x.save(); x.beginPath(); x.rect(cx-S,cy-S,2*S,2*S); x.clip();
+    lay.forEach((p,i)=>{
+      const long=u(2*p.scale), short=long/Math.max(1,p._ar||1);      // el lado dibujado mide 2×scale (ver weaveLayout); el corto sale de la proporción
+      const w=(p.rot===90)?short:long, h=(p.rot===90)?long:short;
+      const px=cx+u(p.x), py=cy-u(p.y);                              // y hacia arriba en el lienzo, hacia abajo en el canvas
+      x.globalAlpha=0.9; x.fillStyle=CLIP_COLORS[i%CLIP_COLORS.length]; x.strokeStyle='rgba(0,0,0,0.5)'; x.lineWidth=0.8;
+      if(p._over&&p._cells){ /* recortado a las casillas de su paridad: el esquema enseña el entrelazado, no un tapado */
+        const cw=2*S/p._cells[0], ch=2*S/p._cells[1], x0=cx-S, y0=cy-S;
+        const i0=Math.floor((px-w/2-x0)/cw), i1=Math.floor((px+w/2-x0)/cw);
+        const j0=Math.floor((py-h/2-y0)/ch), j1=Math.floor((py+h/2-y0)/ch);
+        for(let ci=i0;ci<=i1;ci++)for(let cj=j0;cj<=j1;cj++){ if(((ci+cj)%2+2)%2===0)continue; // misma paridad que el shader (origen abajo: da igual, alterna)
+          const rx=Math.max(px-w/2,x0+ci*cw), rx2=Math.min(px+w/2,x0+(ci+1)*cw);
+          const ry=Math.max(py-h/2,y0+cj*ch), ry2=Math.min(py+h/2,y0+(cj+1)*ch);
+          if(rx2>rx&&ry2>ry){ x.fillRect(rx,ry,rx2-rx,ry2-ry); x.strokeRect(rx,ry,rx2-rx,ry2-ry); } } }
+      else { x.fillRect(px-w/2,py-h/2,w,h); x.strokeRect(px-w/2,py-h/2,w,h); } });
+    x.restore();
+    x.globalAlpha=0.85; x.strokeStyle='rgba(255,255,255,0.55)'; x.setLineDash([4,4]); x.lineWidth=1.2;
+    x.beginPath(); x.arc(cx,cy,S,0,7); x.stroke(); x.setLineDash([]);  // lo de fuera del círculo no llega al domo
+    x.globalAlpha=1; return; }
   lay.forEach((p,i)=>{ const r=R*Math.max(0,Math.min(1,(90-p.el)/90)), a=p.az*D2R; const px=cx+r*Math.sin(a), py=cy+r*Math.cos(a); const sz=Math.max(5,Math.min(R*0.9,R*(p.size/170)));
     x.globalAlpha=0.92; x.fillStyle=CLIP_COLORS[i%CLIP_COLORS.length]; x.strokeStyle='rgba(0,0,0,0.55)'; x.lineWidth=1; x.beginPath(); x.arc(px,py,sz/2,0,7); x.fill(); x.stroke();
     x.globalAlpha=1; x.fillStyle=textOn(CLIP_COLORS[i%CLIP_COLORS.length]); x.font='700 11px Inter'; x.textAlign='center'; x.textBaseline='middle'; if(sz>=11)x.fillText(String(i+1),px,py); });
@@ -11181,7 +11340,7 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){ const
   let kind=(pre&&pre.kind)||initialKind||(_flatComp?'grid':'ring'); if(_flatComp&&!FLAT_COMP_KINDS.includes(kind))kind='grid';
   let _infinite=(pre&&pre.infinite)||false; const ov=document.createElement('div'); ov.className='overlay'; ov.id='compOv';
   const cap=s=>s.charAt(0).toUpperCase()+s.slice(1);
-  const seg=()=>(_flatComp?FLAT_COMP_KINDS:['ring','domegrid','grid','spiral','phyllo','wave','fib','line','tunnel','random']).map(k=>`<button data-k="${k}" class="${k===kind?'on':''}">${cap(kindES(k))}</button>`).join('');
+  const seg=()=>(_flatComp?FLAT_COMP_KINDS:['ring','domegrid','grid','spiral','phyllo','wave','fib','line','tunnel','weave','random']).map(k=>`<button data-k="${k}" class="${k===kind?'on':''}">${cap(kindES(k))}</button>`).join('');
   ov.innerHTML=`<div class="modal" style="width:648px;"><div class="mh"><span style="color:var(--ink-2);display:flex;">${ICO('ring',16)}</span><span class="t">${T('Create composition','Crear composición')}</span></div><div class="mb">
    <div style="display:flex;gap:16px;align-items:stretch;">
     <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;height:420px;overflow-y:auto;">
@@ -11216,6 +11375,23 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){ const
     <div class="frow" data-only="tunnel"><label></label><span class="tnum" style="color:var(--ink-dim);font-size:10px;line-height:1.4;">${T('0 = constant speed · 100 = strong perspective (elements bunch up in the distance)','0 = velocidad constante · 100 = perspectiva marcada (los elementos se agolpan al fondo)')}</span></div>
     <div class="frow" data-only="tunnel"><label>${T('Twist','Giro')}</label><input type="number" class="tnum" id="cTTwist" value="0" min="0" max="360"><span class="tnum" style="color:var(--ink-dim);">°</span></div>
     <div class="frow" data-only="tunnel"><label>${T('Fade','Fundido')}</label><label style="display:flex;align-items:center;gap:6px;flex:1;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="cTFade" checked> ${T('Fade in as it appears, out as it passes','Entra fundiendo y sale fundiendo')}</label></div>
+    <!-- [R247] TEJIDO: tiras rectas que cruzan el disco. "Lado largo" es el mando que garantiza que NINGUN clip se
+         estire: elige por que lado entra en la tira, y el tamano se calcula desde su propia proporcion.
+         (Sin acentos graves en este comentario: vive dentro de una plantilla y la cerrarian.) -->
+    <div class="frow" data-only="weave"><label>${T('Layout','Disposición')}</label><div class="kindseg" id="cWMode" style="flex:1;"><button data-w="weave" class="on">${T('Woven','Tejido')}</button><button data-w="h">${T('Lines ↔','Líneas ↔')}</button><button data-w="v">${T('Lines ↕','Líneas ↕')}</button></div></div>
+    <div class="frow" data-only="weave"><label>${T('Strips','Tiras')}</label><input type="number" class="tnum" id="cWBands" value="5" min="1" max="24" style="width:64px;"><span class="tnum" style="color:var(--ink-dim);">${T('per direction · one source each','por sentido · una fuente cada una')}</span></div>
+    <div class="frow" data-only="weave"><label>${T('Strip width','Ancho de tira')}</label><input type="range" id="cWBandW" min="5" max="100" value="100" style="flex:1;height:20px;"><span class="tnum" id="cWBandWV" style="width:52px;text-align:right;color:var(--ink-2);">100%</span></div>
+    <div class="frow" data-only="weave"><label></label><span class="tnum" style="color:var(--ink-dim);font-size:10px;line-height:1.4;">${T('Share of the spacing each strip takes. 100% = they touch and fill the dome; lower leaves transparent gaps between them.','Parte del espacio que ocupa cada tira. 100% = se tocan y llenan el domo; por debajo dejan hueco transparente entre ellas.')}</span></div>
+    <div class="frow" data-only="weave"><label>${T('Packing','Empaque')}</label><input type="range" id="cWDens" min="40" max="100" value="100" style="flex:1;height:20px;"><span class="tnum" id="cWDensV" style="width:52px;text-align:right;color:var(--ink-2);">100%</span></div>
+    <div class="frow" data-only="weave"><label></label><span class="tnum" style="color:var(--ink-dim);font-size:10px;line-height:1.4;">${T('100% = each clip starts where the previous one ends. Below, they leave air between them. They never overlap.','100% = cada clip empieza donde acaba el anterior. Por debajo dejan aire entre ellos. Nunca se solapan.')}</span></div>
+    <div class="frow" data-only="weave"><label>${T('Long side','Lado largo')}</label><div class="kindseg" id="cWFit" style="flex:1;"><button data-f="across" class="on">${T('Across the strip','Cruzando la tira')}</button><button data-f="along">${T('Along the strip','A lo largo')}</button></div></div>
+    <div class="frow" data-only="weave"><label></label><span class="tnum" style="color:var(--ink-dim);font-size:10px;line-height:1.4;">${T('The clip keeps its own proportions either way — this only picks which side fills the strip width.','El clip conserva su proporción en los dos casos: esto sólo elige qué lado ocupa el ancho de la tira.')}</span></div>
+    <div class="frow" data-only="weave"><label>${T('Motion','Movimiento')}</label><div class="kindseg" id="cWMov" style="flex:1;"><button data-m="alternate" class="on">${T('Alternate','Alterno')}</button><button data-m="same">${T('All one way','A la vez')}</button><button data-m="still">${T('Still','Quieto')}</button></div></div>
+    <div class="frow" data-only="weavh"><label>${T('Speed ↔','Velocidad ↔')}</label><input type="range" id="cWSpeed" min="0" max="60" value="12" style="flex:1;height:20px;"><span class="tnum" id="cWSpeedV" style="width:52px;text-align:right;color:var(--ink-2);">0.12/s</span></div>
+    <div class="frow" data-only="weavv"><label>${T('Speed ↕','Velocidad ↕')}</label><input type="range" id="cWSpeedV2" min="0" max="60" value="12" style="flex:1;height:20px;"><span class="tnum" id="cWSpeedV2V" style="width:52px;text-align:right;color:var(--ink-2);">0.12/s</span></div>
+    <div class="frow" data-only="weave"><label>${T('Flip','Invertir')}</label><label style="display:flex;align-items:center;gap:6px;flex:1;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="cWFlip"> ${T('Reverse every direction','Invertir todos los sentidos')}</label></div>
+    <div class="frow" data-only="weaveW"><label>${T('Interlace','Entrelazar')}</label><label style="display:flex;align-items:center;gap:6px;flex:1;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="cWInter" checked> ${T('Over and under at each crossing (basketry)','Por encima y por debajo en cada cruce (cestería)')}</label></div>
+    <div class="frow" data-only="weave"><label></label><span class="tnum" style="color:var(--ink-dim);font-size:10px;line-height:1.4;">${T('Built flat, then curved into the dome as one piece. The Fisheye amount lives in the Inspector, like any other clip.','Se monta en plano y se curva al domo de una pieza. La cantidad de ojo de pez se ajusta en el inspector, como en cualquier otro clip.')}</span></div>
     </div>
     <div style="width:236px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:8px;border-left:.5px solid rgba(255,255,255,0.09);padding-left:14px;">
       <span class="lab" style="width:auto;align-self:flex-start;color:var(--ink-2);font-size:11px;">${T('Preview','Vista previa')}</span>
@@ -11226,10 +11402,20 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){ const
   document.body.appendChild(ov); $('#cCancel').onclick=()=>ov.remove(); ov.addEventListener('pointerdown',e=>{if(e.target===ov)ov.remove();});
   const checkedIds=()=>{ const ids=[...$('#cMedia').querySelectorAll('input:checked')].map(i=>+i.value); if(!ids.length){ const f=$('#cMedia').querySelector('input'); if(f)ids.push(+f.value); } return ids; };
   let _jit=(pre&&pre.jitter)||0, _rand=(pre&&pre.rand)?pre.rand.slice():[]; // R88: element-position randomize (jitter% + persisted seeds)
+  let _wMode=(pre&&pre.weaveMode)||'weave', _wFit=(pre&&pre.fit)||'across', _wMov=(pre&&pre.motion)||'alternate'; // [R247d]
   const readForm=()=>{ const ids=checkedIds(); const rings=+($('#cRings')?$('#cRings').value:3)||3, segs=+($('#cSegs')?$('#cSegs').value:8)||8;
-    return { id:(pre&&pre.id)||0, kind, mediaIds:ids, mediaId:ids[0], count:kind==='domegrid'?Math.min(160,rings*segs):Math.max(2,Math.min(32,+$('#cN').value||6)), cols:+$('#cCols').value||3, arc:+$('#cArc').value||140, el:+$('#cEl').value||30, elMin:+$('#cElMin').value||10, elMax:+$('#cElMax').value||60, size:+$('#cSize').value||40, turns:+($('#cTurns')?$('#cTurns').value:3)||3, lineRot:$('#cLineRot')?$('#cLineRot').checked:true, tile:$('#cTile')?$('#cTile').checked:false, band:+($('#cBand')?$('#cBand').value:30)||30, rings, segs, gapEl:+($('#cGapEl')?$('#cGapEl').value:0)||0, gapAz:+($('#cGapAz')?$('#cGapAz').value:0)||0, brick:$('#cBrick')?$('#cBrick').checked:false, shuffle:$('#cShuffle')?$('#cShuffle').checked:false, mask:$('#cMask').value, spin:(pre&&pre.spin)||0, rand:_rand, jitter:_jit, noWarp:$('#cNoWarp')?$('#cNoWarp').checked:false, infinite:($('#cInfinite')?$('#cInfinite').checked:_infinite),
+    const wB=Math.max(1,Math.min(24,+($('#cWBands')?$('#cWBands').value:5)||5));
+    const wD=(+($('#cWDens')?$('#cWDens').value:100)||100)/100;
+    const _srcs=ids.map(mediaById).filter(Boolean);
+    return { id:(pre&&pre.id)||0, kind, mediaIds:ids, mediaId:ids[0], count:kind==='domegrid'?Math.min(160,rings*segs):Math.max(2,Math.min(32,+$('#cN').value||6)), // [R247] el tejido no usa `count`: lo calcula el encaje, tira por tira
+      bands:wB, density:wD, weaveMode:_wMode, fit:_wFit, motion:_wMov, // [R247d]
+      bandW:(+($('#cWBandW')?$('#cWBandW').value:100)||100), flip:($('#cWFlip')?$('#cWFlip').checked:false),
+      speedV:((+($('#cWSpeedV2')?$('#cWSpeedV2').value:12)||0)/100),
+      interlace:($('#cWInter')?$('#cWInter').checked:true),
+      _aspect:compAspectOf(_srcs), _aspects:compAspectsOf(_srcs), cols:+$('#cCols').value||3, arc:+$('#cArc').value||140, el:+$('#cEl').value||30, elMin:+$('#cElMin').value||10, elMax:+$('#cElMax').value||60, size:+$('#cSize').value||40, turns:+($('#cTurns')?$('#cTurns').value:3)||3, lineRot:$('#cLineRot')?$('#cLineRot').checked:true, tile:$('#cTile')?$('#cTile').checked:false, band:+($('#cBand')?$('#cBand').value:30)||30, rings, segs, gapEl:+($('#cGapEl')?$('#cGapEl').value:0)||0, gapAz:+($('#cGapAz')?$('#cGapAz').value:0)||0, brick:$('#cBrick')?$('#cBrick').checked:false, shuffle:$('#cShuffle')?$('#cShuffle').checked:false, mask:$('#cMask').value, spin:(pre&&pre.spin)||0, rand:_rand, jitter:_jit, noWarp:$('#cNoWarp')?$('#cNoWarp').checked:false, infinite:($('#cInfinite')?$('#cInfinite').checked:_infinite),
       /* [R246] túnel */ sizeFrom:+($('#cTFrom')?$('#cTFrom').value:1)||1, sizeTo:+($('#cTTo')?$('#cTTo').value:200)||200,
-      speed:(+($('#cTSpeed')?$('#cTSpeed').value:12)||12)/100, curve:+($('#cTCurve')?$('#cTCurve').value:60), twist:+($('#cTTwist')?$('#cTTwist').value:0)||0,
+      speed:(kind==='weave')?((+($('#cWSpeed')?$('#cWSpeed').value:12)||0)/100):((+($('#cTSpeed')?$('#cTSpeed').value:12)||12)/100), // [R247d] 0 es un valor válido: quieto
+      curve:+($('#cTCurve')?$('#cTCurve').value:60), twist:+($('#cTTwist')?$('#cTTwist').value:0)||0,
       fade:($('#cTFade')?$('#cTFade').checked:true) }; };
   let reshuf=false; // "reshuffle" clicked → force a fresh media order on Create/Apply
   { // R88: Randomize row (jitter positions in ANY mode) — injected above the footer
@@ -11247,16 +11433,24 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){ const
       preview(); return; }
     ov.querySelectorAll('[data-only]').forEach(el=>{ const mm=el.dataset.only; let show;
       if(mm==='ring')show=(kind==='ring'); else if(mm==='grid')show=(kind==='grid'); else if(mm==='spiralwave')show=(kind==='spiral'||kind==='wave'); else if(mm==='line')show=(kind==='line');
-      else if(mm==='domegrid')show=(kind==='domegrid'); else if(mm==='count')show=(kind!=='domegrid');
+      else if(mm==='domegrid')show=(kind==='domegrid'); else if(mm==='count')show=(kind!=='domegrid'&&kind!=='weave'); // [R247] el tejido deriva su conteo de tiras × clips × familias
       else if(mm==='tile')show=(kind==='ring'||kind==='grid'); else if(mm==='tileband')show=(kind==='ring'&&tile);
       else if(mm==='tunnel')show=(kind==='tunnel'); // [R246]
-      else if(mm==='gridrand'){ show = (kind!=='ring'&&kind!=='line'&&kind!=='tunnel'); } else if(mm==='flatinf'){ show=false; } else show=false; // elev range = grid/spiral/.../domegrid coverage (line is full-diameter, no range)
+      else if(mm==='weave')show=(kind==='weave');   // [R247]
+      /* [R247d] filas del tejido que dependen de la disposición: cada velocidad sólo cuando SU familia existe, y
+         el entrelazado sólo cuando hay dos familias que entrelazar (con líneas paralelas no hay cruces). */
+      else if(mm==='weavh')show=(kind==='weave'&&_wMode!=='v');
+      else if(mm==='weavv')show=(kind==='weave'&&_wMode!=='h');
+      else if(mm==='weaveW')show=(kind==='weave'&&_wMode==='weave');
+      else if(mm==='gridrand'){ show = (kind!=='ring'&&kind!=='line'&&kind!=='tunnel'&&kind!=='weave'); } else if(mm==='flatinf'){ show=false; } else show=false; // elev range = grid/spiral/.../domegrid coverage (line is full-diameter, no range)
       el.style.display=show?'flex':'none'; });
-    /* [R246] En el túnel, el tamaño lo mandan «De → a», así que la fila Size sobra y confundiría; el mosaico y el
-       aleatorizado tampoco aplican a una fuente que ocupa el disco entero. */
-    { const t=(kind==='tunnel'); const sr=$('#cSize')&&$('#cSize').closest('.frow'); if(sr)sr.style.display=t?'none':'flex';
+    /* [R246/R247] Mandos que no aplican: en el TÚNEL el tamaño lo mandan «De → a» y la fuente ocupa el disco
+       entero (ni máscara ni aleatorizado); en el TEJIDO el tamaño sale de la PROPORCIÓN del clip y del ancho de la
+       tira — dejar un campo Size sería invitar justo a lo que Beltrán pidió que no pasara, estirarlo. */
+    { const t=(kind==='tunnel'), w=(kind==='weave');
+      const sr=$('#cSize')&&$('#cSize').closest('.frow'); if(sr)sr.style.display=(t||w)?'none':'flex';
       const mr=$('#cMask')&&$('#cMask').closest('.frow'); if(mr)mr.style.display=t?'none':'flex';
-      const jr=$('#cJit')&&$('#cJit').closest('.frow'); if(jr)jr.style.display=t?'none':'flex'; }
+      const jr=$('#cJit')&&$('#cJit').closest('.frow'); if(jr)jr.style.display=(t||w)?'none':'flex'; }
     preview(); };
   const domegridDefaults=()=>{ if(kind==='domegrid'&&!pre){ if($('#cElMin'))$('#cElMin').value=0; if($('#cElMax'))$('#cElMax').value=90; } }; // dome fill = whole dome (horizon→zenith) by default → no central black hole
   $('#cKind').querySelectorAll('button').forEach(b=>b.onclick=()=>{ kind=b.dataset.k; domegridDefaults(); $('#cKind').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); sync(); });
@@ -11269,6 +11463,19 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){ const
     if(cv)cv.oninput=()=>{ if(cvv)cvv.textContent=cv.value+'%'; preview(); };
     ['#cTFrom','#cTTo','#cTTwist'].forEach(id=>{ const el=ov.querySelector(id); if(el){ el.oninput=preview; el.onchange=preview; } });
     const fd=$('#cTFade'); if(fd)fd.onchange=preview; }
+  /* [R247d] mandos del tejido. Los tres segmentados llaman a `sync()`, no a `preview()`: además de redibujar el
+     esquema tienen que MOSTRAR U OCULTAR filas (cada velocidad con su familia, el entrelazado sólo si hay cruces),
+     y de eso se encarga sync. */
+  { const pctSeg=(el,out)=>{ if(el)el.oninput=()=>{ if(out)out.textContent=((+el.value)/100).toFixed(2)+'/s'; preview(); }; };
+    pctSeg($('#cWSpeed'),$('#cWSpeedV')); pctSeg($('#cWSpeedV2'),$('#cWSpeedV2V'));
+    const pct=(el,out)=>{ if(el)el.oninput=()=>{ if(out)out.textContent=el.value+'%'; preview(); }; };
+    pct($('#cWDens'),$('#cWDensV')); pct($('#cWBandW'),$('#cWBandWV'));
+    ['#cWBands'].forEach(id=>{ const el=ov.querySelector(id); if(el){ el.oninput=preview; el.onchange=preview; } });
+    const seg=(host,attr,set)=>{ const h=$(host); if(!h)return; h.querySelectorAll('button').forEach(b=>b.onclick=()=>{
+      set(b.dataset[attr]); h.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); sync(); }); };
+    seg('#cWMode','w',v=>_wMode=v); seg('#cWFit','f',v=>_wFit=v); seg('#cWMov','m',v=>_wMov=v);
+    const wi=$('#cWInter'); if(wi)wi.onchange=preview;
+    const wfl=$('#cWFlip'); if(wfl)wfl.onchange=preview; }
   { const ci=$('#cInfinite'); if(ci){ ci.checked=_infinite; ci.onchange=()=>{ _infinite=ci.checked; preview(); }; } }
   { const cs=$('#cShuffle'); if(cs)cs.onchange=()=>{ reshuf=true; preview(); }; const crs=$('#cReshuffle'); if(crs)crs.onclick=()=>{ reshuf=true; if(pre)pre._orderR=true; if($('#cShuffle'))$('#cShuffle').checked=true; flashStatus(T('Order reshuffled — Apply to see it','Orden rebarajado — Aplica para verlo')); }; }
   if(pre){ $('#cKind').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x.dataset.k===kind));

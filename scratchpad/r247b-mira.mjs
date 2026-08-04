@@ -1,0 +1,40 @@
+/* [R247b] Un vistazo rapido: una sola toma de tiras en un sentido, con la envoltura por cuerda ya arreglada. */
+import http from 'http';
+import fs from 'fs';
+import path from 'path';
+const PORT=process.argv[2]||9222; const DENS=+(process.argv[3]||100);
+const DL=path.join(process.env.USERPROFILE,'Downloads');
+const t=await new Promise((res,rej)=>{http.get({host:'127.0.0.1',port:PORT,path:'/json/list'},r=>{let b='';r.on('data',c=>b+=c);r.on('end',()=>res(JSON.parse(b)));}).on('error',rej);});
+const page=t.find(x=>x.type==='page'&&x.webSocketDebuggerUrl&&/index\.html/.test(x.url));
+const ws=new WebSocket(page.webSocketDebuggerUrl); await new Promise(r=>ws.onopen=r);
+let id=0;const p=new Map();ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id&&p.has(m.id)){p.get(m.id)(m);p.delete(m.id);}};
+const cmd=(m,q={})=>new Promise((res,rej)=>{const i=++id;p.set(i,x=>x.error?rej(new Error(JSON.stringify(x.error))):res(x.result));ws.send(JSON.stringify({id:i,method:m,params:q}));});
+const ev=async x=>{const r=await cmd('Runtime.evaluate',{expression:x,awaitPromise:true,returnByValue:true,timeout:120000});if(r.exceptionDetails)throw new Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);return r.result.value;};
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+await ev(`state.dirty=false;1`);
+await ev(`(async()=>{ await newProject('dome',2048,2048,60,180,true); })()`); await wait(700);
+await ev(`(function(){ const b=document.querySelector('#viewModeSeg button[data-v="2d"]'); if(b)b.click();
+  state.view.showGrid=false; state.view.showOutline=false; resize(); render(); return 1; })()`); await wait(300);
+await ev(`window.__addImg=function(ruta,nombre){ return new Promise(res=>{ const url=DSP.toFileURL(ruta); const img=new Image();
+  img.onload=()=>{ const cv=document.createElement('canvas'); cv.width=img.naturalWidth; cv.height=img.naturalHeight;
+    cv.getContext('2d').drawImage(img,0,0);
+    const m={id:uid(),kind:'image',name:nombre,el:cv,originalEl:cv,tex:newTex(),w:cv.width,h:cv.height,dur:10,fps:0,color:clipColorFor('image'),path:ruta,missing:false,_loading:false};
+    upTex(m.tex,cv); try{m.thumb=cv.toDataURL();}catch(e){} state.media.push(m); res(1); }; img.onerror=()=>res(0); img.src=url; }); };1`);
+const files=fs.readdirSync(DL).filter(f=>/\.(png|jpe?g)$/i.test(f)).slice(0,6);
+for(const f of files) await ev(`__addImg(${JSON.stringify(path.join(DL,f))},${JSON.stringify(f)})`);
+await ev(`renderMedia();1`);
+const info=await ev(`(function(){ const ids=state.media.filter(m=>m.kind==='image').map(m=>m.id);
+  const nest=createComposition({kind:'weave',mediaIds:ids,bands:7,weaveMode:'h',fit:'across',density:${DENS/100},speed:0.1,alternate:true});
+  state.playhead=1; render(); return { n:nest?nest.nestClips.length:0 }; })()`);
+await wait(600);
+const OUT=path.join(process.cwd(),'scratchpad','r247b');
+fs.mkdirSync(OUT,{recursive:true});
+for(const [nm,ck] of [['a',0],['b',1.3],['c',2.6]]){
+  const url=await ev(`(function(){ _previewClock=${ck}; render();
+    const S=Math.min(glc.width,glc.height), sx=Math.round((glc.width-S)/2), sy=Math.round((glc.height-S)/2);
+    const cv=document.createElement('canvas'); cv.width=cv.height=520; const g=cv.getContext('2d');
+    g.fillStyle='#000'; g.fillRect(0,0,520,520); g.drawImage(glc, sx,sy,S,S, 0,0,520,520); return cv.toDataURL('image/png'); })()`);
+  fs.writeFileSync(path.join(OUT,'d'+DENS+'-'+nm+'.png'), Buffer.from(url.split(',')[1],'base64'));
+}
+console.log('clips: '+info.n+'  ·  densidad '+DENS+'%');
+ws.close();

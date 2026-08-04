@@ -1,5 +1,153 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 247d — El tejido se vuelve un instrumento (y el fallo del doble que escondía)
+
+Beltrán, viendo el R247c funcionando: *«hay que agregarle varias opciones de configuración… si quiero que sean dos
+líneas separadas, debo poder hacerlo; si quiero que sea un tejido que llene todo el domo, debo poder hacerlo; si
+quiero un tejido pero no con tantas y que queden espacios transparentes, debo poder hacerlo»*. Y después: *«en una
+misma fila los clips no tienen que cortarse unos con otros, tienen que partir una vez que termina el borde del
+otro»*.
+
+### El fallo que sólo apareció al medir
+
+Al añadir el mando de **ancho de tira** salió a la luz un error de escala del R247c: en el lienzo plano el lado
+dibujado de un clip mide **2×`scale`** unidades (`scale` es un porcentaje del marco, y 100 % = el lienzo entero,
+200 unidades). El reparto usaba `scale = grosor`, así que **todas las tiras salían al doble de ancho**.
+
+Se manifestaba de dos formas, y ninguna se veía a simple vista:
+
+- **El ancho de tira mentía.** Al 100 % las tiras solapaban entera a la vecina, y el hueco transparente no empezaba
+  a aparecer hasta bajar del 50 %. Medido: 100 %→0 · 80 %→0 · 60 %→0 · 40 %→8,6 % de hueco. Ahora: 100 %→0 ·
+  80 %→8,6 % · 60 %→23,8 % · 40 %→44,9 %, que es una respuesta monótona y legible.
+- **Los clips se cortaban dentro de la tira** — justo lo que reportó Beltrán. El paso entre clips se calculaba con
+  la medida correcta pero se dibujaban al doble, así que cada uno se montaba sobre el siguiente.
+
+Un solo `/2` arregla las dos cosas. Verificado midiendo **borde contra borde** de clips consecutivos en cada tira:
+peor solape **0,000** en las cuatro configuraciones probadas, quieto y en marcha.
+
+De paso, el **empaque se acota al 100 %**: dentro de una tira un clip empieza donde acaba el anterior y nunca se
+solapan. Por debajo dejan aire a propósito; por encima ya no hay nada que ofrecer.
+
+### Los mandos
+
+| Mando | Qué hace |
+|---|---|
+| **Disposición** | tejido · líneas ↔ · líneas ↕ |
+| **Tiras** | 1–24 por sentido (era 1–12) |
+| **Ancho de tira** | 5–100 % del espacio entre tiras. **Es el que abre el abanico entero**: al 100 % se tocan y llenan el domo; por debajo dejan hueco transparente. Con pocas tiras y poco ancho salen dos líneas sueltas cruzando el domo |
+| **Empaque** | 40–100 % a lo largo de la tira. 100 % = borde con borde |
+| **Lado largo** | cruzando la tira · a lo largo (el mando que impide deformar) |
+| **Movimiento** | alterno · a la vez · quieto |
+| **Velocidad ↔ / ↕** | una por familia; cada fila aparece sólo si su familia existe |
+| **Invertir** | da la vuelta a todos los sentidos |
+| **Entrelazar** | sólo con las dos familias: sin cruces no hay nada que entrelazar |
+
+Separación y ancho son **un solo mando**, no dos: hueco = paso − grosor, así que con dos controles podrían
+contradecirse. Y **el ojo de pez sale del compose** — decisión de Beltrán: *«la deformación fisheye no se hace
+directo del compose, sino desde el inspector, tal como sería con cualquier otro clip»*. El nido nace con el
+interruptor puesto para que se vea como lo aprobó, y la cantidad se ajusta donde vive esa clase de parámetro.
+
+### Verificado en el .exe (RTX 4060)
+
+| Qué | Resultado |
+|---|---|
+| Solape entre clips de una misma tira | **0,000** en 4 configuraciones, quieto y en marcha |
+| Tiras al 50 % de ancho, 4 líneas | −87,5…−62,5 · −37,5…−12,5 · 12,5…37,5 · 62,5…87,5 — exacto |
+| «Quieto» | 0 de 97 clips con modificador (ni gasta reloj de preview) |
+| «A la vez» / «Invertir» | 93 de 93 en un sentido / 93 de 93 en el contrario |
+| Sólo líneas ↔ | un único eje de movimiento, 0 entrelazados |
+| Hueco transparente vs ancho | 0 · 8,6 · 23,8 · 44,9 · 61,4 % — monótono |
+
+**Trampa del arnés anotada:** medir el semieje `fy` de `flatPlace` da la respuesta equivocada cuando el clip va
+girado 90° — `fy` apunta entonces en horizontal. Hay que componer la **caja envolvente** (`|fx.y| + |fy.y|`). Con
+la medida mala las tiras parecían correctas y el fallo del doble habría pasado otra ronda sin verse.
+
+---
+
+## ROUND 247c — El TEJIDO, rehecho en plano (y el entrelazado que dábamos por imposible)
+
+Segunda herramienta de relleno de domo. Llega después de dos intentos fallidos, y lo que la arregla no es más
+matemática sino **cambiar de sitio el problema**, idea de Beltrán:
+
+> «armáramos toda esta grilla, tejido en un plano uno a uno, y después ese plano uno a uno se convierte a un SRC
+> fulldome y se le da un poco de fisheye, y así se adapta a la deformación. Entonces, cada clip con el otro
+> siempre se juntan en noventa grados.»
+
+### El diagnóstico del escalonado
+
+Los dos primeros intentos colocaban cada clip **directamente sobre la esfera**, trazando las tiras en el plano del
+ojo de pez. Conservaban la proporción y viajaban sin fin, pero se veían *«escalonados, como diente de sierra»*. La
+causa es geométrica y no tiene arreglo por ese camino: en una proyección azimutal-equidistante **la única banda
+recta que es un círculo máximo es la que cruza por el centro del disco**. Cualquier otra se curva, así que dos
+clips vecinos de la misma tira no llegan a alinearse nunca y la junta se quiebra. La prueba estaba a la vista en
+los renders: la banda central salía limpia y las demás no.
+
+Montarlo en un plano lo disuelve. Ahí los vecinos se juntan a **90° exactos por construcción**, y la curvatura se
+aplica **una sola vez, al conjunto**, al entrar en el domo. Además reutiliza el mecanismo que ya había demostrado
+el túnel: `props.fulldome` + `props.fisheye`.
+
+### Cómo queda montado
+
+- `weaveLayout(g)` reparte en el lienzo del nido (−100..100 en los dos ejes; ahí el **lado largo de un clip mide
+  exactamente `scale`**, que es lo que deja toda la geometría en una línea).
+- **La proporción no se toca nunca.** El lado que CRUZA la tira mide su grosor; el otro sale de `AR` = largo/corto
+  del propio medio. `fit` elige cuál cruza y un `rot` de 0 o 90° decide hacia dónde mira — girar no deforma.
+- **Una fuente por tira.** Dentro de una tira todos los clips miden igual, encajan borde con borde y el salto de la
+  envoltura es invisible. Repartir las fuentes clip a clip mezclaba un 16:9 con un cuadrado en la misma tira y el
+  paso uniforme dejaba hueco tras uno y solape tras el otro: parecía un collage.
+- **Infinito sin envoltura ninguna**: diente de sierra (R246) con amplitud **un paso justo** de la tira. Cuando un
+  clip salta hacia atrás ya hay otro ocupando su sitio. Nadie desaparece — la otra queja de Beltrán.
+- `createComposition` fuerza el nido a **plano y cuadrado** aunque la secuencia sea un domo, y le pone al clip
+  anfitrión `fisheye` con la cantidad elegida.
+
+### El entrelazado: lo que dimos por descartado y costó cinco líneas
+
+En R247 se anotó que el entrelazado real por cruce *«exigiría partir cada tira o recortarla con una máscara de
+damero»* y no compensaba. **Era un mal juicio**, y la pregunta de Beltrán —*«¿podemos lograr el efecto donde se van
+superponiendo unas con otras? se va a ver mucho más pro»*— obligó a mirarlo otra vez.
+
+La clave es que **el «pasa por delante» no es una propiedad del clip, que viaja, sino del CRUCE, que está quieto**.
+Si el patrón viajara con el clip, el tejido resbalaría con él y parpadearía. Así que se evalúa en **píxeles del
+lienzo** (`gl_FragCoord`), no en coordenadas del clip: `u_weave` lleva el tamaño de celda y el origen, y descarta
+la mitad de las casillas. Cinco líneas de shader, ninguna pasada extra.
+
+Y con las tiras contiguas ni siquiera hace falta redibujar nada: **cada familia cubre el lienzo entero, y basta con
+recortar una de las dos a la mitad de los cruces**. Cada tira se ve entonces a trozos, apareciendo y desapareciendo
+bajo la que la cruza — que es literalmente lo que hace una fibra en una cesta. Sin entrelazar, las tiras se
+adelgazan al 62 % para que la familia de debajo asome; si no, la de arriba la tapaba entera, fallo real que salió
+en la primera prueba y que el primer montaje (tres pasadas: H, V, V recortada) escondía sin resolver.
+
+El tamaño de celda se guarda en **celdas, no en píxeles** (`weaveCells`) y se convierte contra el lienzo real en
+`setWeaveGrid` — así el mismo nido vale compuesto a 1024 o a 4096 y el entrelazado no se descuadra al exportar.
+
+### Verificado en el .exe (RTX 4060)
+
+| Qué | Resultado |
+|---|---|
+| Clips deformados | **0 de 87** (peor error 0,000 %) |
+| Ángulos entre vecinos | **sólo 0° y 90°** |
+| Clips dentro del lienzo en 10 instantes | 84–87 — constante, nadie desaparece |
+| Negro sin cubrir (fuentes opacas) | **0 %** del disco, a cualquier ojo de pez |
+| Nido | `flat` 2048×2048, anfitrión `fulldome` + `fisheye` |
+
+Los huecos negros que se ven con el material real de Descargas son **el alfa de los propios PNG**: con fuentes
+opacas generadas no queda un píxel vacío. Se comprobó a propósito, para no dar por bueno un fallo de geometría ni
+por malo un rasgo del contenido.
+
+**Dos trampas del arnés** que volvieron a morder y quedan anotadas: los acentos graves dentro de la plantilla del
+shader la cierran (rompió `app.js` una vez más), y el visor está al **92 % de zoom** por defecto — medir un anillo
+en el borde del disco sin poner el zoom a 1 devuelve un 60 % de negro que es el fondo del visor, no el render.
+
+### Retirado (archivado, ADR-0007)
+
+`_backup/deprecated/20260804-tejido-esfera.js`: la rama `weave` de `compLayout`, y en `drawClip` el andamiaje que
+sólo servía a ese tejido (`alignBand`, `bandHalf`, `bandAxis`). El deslizamiento `fx`/`fy` del motor se queda, con
+su envoltura simple de antes. También se retiró el `orb` de `ANIM_PARAMS`, principio de un rediseño por círculos
+máximos que esta ronda deja sin sentido; en su lugar entran `x`/`y`, que sí faltaban para animar a mano un clip
+plano.
+
+---
+
 ## ROUND 246 — El motor gana dos piezas, y llega el compose TÚNEL
 
 Primera de dos rondas para las herramientas de relleno de domo que pidió Beltrán (la otra es el TEJIDO, R247).
