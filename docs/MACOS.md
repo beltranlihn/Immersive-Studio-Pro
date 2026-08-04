@@ -102,6 +102,58 @@ carpeta entera, se abre y funciona sin tocar nada.
 - Si algo queda en rojo (porque no viajó), clic derecho sobre el medio → **«Localizar archivo…»**, o arrastra los
   archivos al panel de Medios: se reenganchan solos por nombre + tamaño.
 
+## ⚠️ Pendiente de verificar EN un Mac (2026-08-04)
+
+Tres cosas están razonadas sobre el código pero **nunca se han ejecutado en macOS**. Las dos primeras son
+correcciones de la auditoría de agosto escritas *a ciegas*: el razonamiento es inequívoco, pero hasta que alguien
+las vea funcionar no están verificadas. Ponerlas a prueba son diez minutos.
+
+### 1 · Reabrir desde el Dock ([R242], `main.js` · `app.on('activate')`)
+**El fallo que se corrigió:** en macOS cerrar la ventana no cierra la app. El clic del Dock llamaba a
+`createWindow()`, que nace con `show:false` y espera a `finishBoot()`… cuyo guard `bootDone` seguía en `true`
+desde el primer arranque. **La ventana no se mostraba nunca** y la única salida era Cmd+Q.
+
+```
+1. npm start
+2. Cmd+W  (cerrar la ventana; la app sigue viva, con su icono en el Dock)
+3. Clic en el icono del Dock
+```
+**Bien:** vuelve a aparecer la ventana del editor, con el proyecto en blanco y utilizable.
+**Mal:** no aparece nada (habría que salir con Cmd+Q) → el arreglo no funcionó, avisar.
+
+### 2 · Carpeta y archivo del proxy de composición ([R242], `app.js` · `ncBuild`)
+**El fallo que se corrigió:** dos rutas con la barra invertida de Windows cableada. En macOS eso NO falla: crea
+una carpeta llamada `…\nest proxies` —con la barra DENTRO del nombre— colgando un nivel por encima de donde
+debía. Eran los dos últimos supervivientes de la familia que arregló R204.
+
+```
+1. Guardar un proyecto en cualquier carpeta.
+2. Crear una composición CUADRADA (selecciona 2 clips → componer; el proxy sólo admite cuadradas).
+3. Clic-derecho sobre la composición en Medios → «Nest proxy…» → Generar.
+```
+**Bien:** aparece una carpeta `nest proxies` **dentro** de la carpeta del proyecto, con el `.mp4` dentro.
+**Mal:** aparece un archivo/carpeta con `\` en el nombre, o el `.mp4` cae un nivel más arriba.
+
+### 3 · El techo de H.264 en el export (nunca medido en ningún sistema)
+El tope conocido de ~4096² es un límite de **NVENC**, no del programa. En Apple Silicon el codificador es
+**VideoToolbox** y podría no aplicar — o aplicar en otro tamaño. Merece la pena saberlo antes de exportar un
+máster grande desde el Mac.
+
+```
+Export → domo 4096 → H.264.  Y luego 8192 si el de 4096 pasa.
+```
+**Apuntar** el tamaño donde deja de aceptar (el código sondea perfiles y niveles con
+`VideoEncoder.isConfigSupported`, así que degradará solo a otro códec en vez de fallar). Si aguanta más que en
+Windows, se puede subir el umbral que hoy empuja a PNG-seq / HEVC.
+
+### Y de paso, lo que conviene mirar por ser la primera vez
+- **Arranque en dos ventanas:** el splash cuadrado sale y la ventana 16:9 lo reemplaza (ADR-0009).
+- **Atajos con Cmd:** Cmd+Z, Cmd+S, Cmd+R (renombrar, NO recargar), Cmd+T. El menú propio de R206 es lo que
+  impide que Cmd+R recargue la app y se lleve por delante lo no guardado.
+- **NDI y Spout** deben anunciarse como *no disponibles* sin romper nada (son `optionalDependencies` de win32).
+- **Abrir un `.isp` hecho en Windows** llevándote la carpeta entera: el reenlace por nombre de R204 debería
+  encontrar los medios solo.
+
 ## Al tocar código
 
 `npm run dist` sigue siendo Windows (no cambia el ritual de despliegue de `CLAUDE.md`). Los específicos son

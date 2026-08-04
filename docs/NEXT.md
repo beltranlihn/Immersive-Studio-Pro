@@ -74,6 +74,8 @@
       mínima de R216 es suficiente: no hay cola que administrar en paralelo.
 - [ ] **Pendiente de Mac:** verificar allí el arreglo del Dock y las rutas de `ncBuild` (más el tope H.264 de
       VideoToolbox que `docs/MACOS.md` ya marca como sin medir). No hay máquina disponible.
+      **Lista de comprobación con pasos exactos y qué cuenta como «bien»: `docs/MACOS.md` › «Pendiente de
+      verificar EN un Mac».** Son ~10 minutos; los dos arreglos se escribieron a ciegas.
 
 ## 🧪 QA pendiente de la auditoría de julio — 2026-08-04 · CERRADA ✅ [R240]
 > La «segunda pasada de QA» que `AUDITORIA-2026-07.md` dejó anotada y nunca se corrió. Ejecutada por CDP
