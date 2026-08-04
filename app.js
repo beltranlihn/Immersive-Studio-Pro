@@ -2285,7 +2285,13 @@ let colorIdx=0;
 const DSP=window.dsp||null; const IS_ELEC=!!(DSP&&DSP.isElectron);
 function filePath(f){ try{ return IS_ELEC?DSP.getPathForFile(f):null; }catch(e){ return null; } }
 let _importFolder=null; // R88: media created by the add* functions below is filed into this folder path (set per-import; captured synchronously at each add* call)
-function importFiles(files,folder){ let arr=[...files]; const dropFolder=folder!==undefined?(folder||null):null; // audit fix: NEVER fall back to the previous import's folder (stale) — callers pass the target explicitly
+/* [R245] `opts.noSeq` = NO agrupar imágenes numeradas como secuencia. Lo pasa el ARRASTRE, y sólo él.
+   Arrastrar tres o más imágenes con nombre numerado —que es lo normal en un export de cualquier herramienta—
+   disparaba el diálogo de fotogramas por segundo y no dejaba soltar nada hasta configurarlo, aunque lo único que
+   se quisiera fuese meter tres clips sueltos. Beltrán: «si simplemente las arrastro, no es un sequence, son
+   clips nomás». La detección se conserva ENTERA en el camino del selector de archivos (Importar medios…), que es
+   donde el gesto es deliberado y hay ocasión de decir que no. */
+function importFiles(files,folder,opts){ let arr=[...files]; const dropFolder=folder!==undefined?(folder||null):null; const sinSecuencia=!!(opts&&opts.noSeq); // audit fix: NEVER fall back to the previous import's folder (stale) — callers pass the target explicitly
   // dedup: skip files already in Media (re-drops / double drop events). Key by absolute path (Electron) or name+byte-size. Missing media is skipped so re-importing one still relinks via adopt().
   { const seen=new Set(); for(const m of state.media){ if(m.missing)continue; if(m.path)seen.add('p:'+m.path); if(m.name!=null)seen.add('n:'+m.name+'|'+(m.fsize||0)); }
     let dups=0; const fresh=[]; for(const f of arr){ const p=filePath(f); const kp=p?'p:'+p:null; const kn='n:'+f.name+'|'+(f.size||0);
@@ -2293,16 +2299,18 @@ function importFiles(files,folder){ let arr=[...files]; const dropFolder=folder!
     if(dups)flashStatus(dups+T(' duplicate file(s) skipped (already in Media)',' archivo(s) duplicado(s) omitido(s) (ya en Medios)'),'err'); // [R94-UT3·U-21]
     arr=fresh; if(!arr.length)return; }
   const seqs={}, rest=[], seqGroups=[];
-  for(const f of arr){ if(f.type.startsWith('image')){ const mm=f.name.match(/^(.*?)(\d+)(\.[^.]+)$/); if(mm){ const k=mm[1]+'|'+mm[3]; (seqs[k]=seqs[k]||[]).push({f,n:+mm[2]}); continue; } } rest.push(f); }
+  for(const f of arr){ if(!sinSecuencia && f.type.startsWith('image')){ const mm=f.name.match(/^(.*?)(\d+)(\.[^.]+)$/); if(mm){ const k=mm[1]+'|'+mm[3]; (seqs[k]=seqs[k]||[]).push({f,n:+mm[2]}); continue; } } rest.push(f); } // [R245] con `noSeq` (arrastre) ninguna imagen entra al agrupador: van todas a `rest` como clips sueltos
   for(const k in seqs){ const g=seqs[k]; if(g.length>=3){ g.sort((a,b)=>a.n-b.n); seqGroups.push(g); } else rest.push(...g.map(x=>x.f)); }
   for(const f of rest){ const p=filePath(f); _importFolder=dropFolder; if(f.type.startsWith('video'))addVideo(f,p); else if(f.type.startsWith('image'))addImage(f,p); else if(f.type.startsWith('audio'))addAudio(f,p); } _importFolder=null; // reset so no later add* call inherits this import's folder
   // numbered PNG/JPG batches → timed video-like sequences; ask the frame rate once for the whole import
   if(seqGroups.length){ askSeqFps(seqGroups, fps=>{ for(const g of seqGroups){ _importFolder=dropFolder; addSequence(g.map(x=>x.f), g[0].f.name, fps); } _importFolder=null; }); } }
 /* R88: drop from Windows Explorer — a dropped FOLDER is imported whole, recreating its subfolder tree under `baseFolder`. Falls back to a flat import if the entry API is unavailable. */
-function importDropped(dt, baseFolder){ const items=(dt&&dt.items)?[...dt.items]:null;
-  if(!items || !items.length || !items[0].webkitGetAsEntry){ importFiles(dt.files, baseFolder||null); return; }
+/* [R245] Todo lo que entra POR AQUÍ es un arrastre, así que ninguna de sus tres llamadas agrupa secuencias
+   (`noSeq`). Para traer una secuencia de imágenes está el selector de archivos. */
+function importDropped(dt, baseFolder){ const items=(dt&&dt.items)?[...dt.items]:null; const OPT={noSeq:true};
+  if(!items || !items.length || !items[0].webkitGetAsEntry){ importFiles(dt.files, baseFolder||null, OPT); return; }
   const entries=items.map(it=>it.webkitGetAsEntry&&it.webkitGetAsEntry()).filter(Boolean);
-  if(!entries.length){ importFiles(dt.files, baseFolder||null); return; }
+  if(!entries.length){ importFiles(dt.files, baseFolder||null, OPT); return; }
   const collected=[]; // {file, folder}
   const readAll=dirEntry=>new Promise(res=>{ const rd=dirEntry.createReader(); const all=[]; const batch=()=>rd.readEntries(es=>{ if(!es.length){res(all);return;} all.push(...es); batch(); }, ()=>res(all)); batch(); });
   const walk=async(entry,folderPath)=>{ if(entry.isFile){ await new Promise(r=>entry.file(f=>{ collected.push({file:f,folder:folderPath}); r(); }, r)); }
@@ -2310,7 +2318,7 @@ function importDropped(dt, baseFolder){ const items=(dt&&dt.items)?[...dt.items]
   (async()=>{ for(const en of entries)await walk(en, baseFolder||null);
     if(!collected.length){ renderMedia(); return; }
     const byFolder={}; for(const c of collected){ const k=c.folder||''; (byFolder[k]=byFolder[k]||[]).push(c.file); }
-    for(const k in byFolder){ importFiles(byFolder[k], k||null); }
+    for(const k in byFolder){ importFiles(byFolder[k], k||null, OPT); } // [R245] carpeta arrastrada: sus imágenes también entran como clips
     markDirty(); renderMedia(); flashStatus(T('Imported dropped folder','Carpeta importada')); })(); }
 /* choose the frame rate for imported image sequences (PNG-sequence-as-video). Applies to every sequence in the batch. */
 function askSeqFps(groups,cb){ const total=groups.reduce((s,g)=>s+g.length,0); const def=state.fps||24;
@@ -10010,7 +10018,12 @@ $('#shapeBtn').onclick=()=>createShapeClip('rect');
 $('#fileInput').onchange=e=>{importFiles(e.target.files, state.mediaView==='grid'?state.mediaFolder:(state.selFolder||state.mediaFolder||null));e.target.value='';}; // Import button files into the folder you're in (browsed or selected)
 wireDrop($('#mediaList')); wireDrop($('#stage'));
 /* right-click the empty media area → Import / New folder (items and folder headers keep their own menus) */
-$('#mediaList').addEventListener('contextmenu',e=>{ if(e.target.closest('.mitem')||e.target.closest('.folderhdr')||e.target.closest('.folderdrop'))return; e.preventDefault();
+/* [R245] `.mtile` FALTABA en la lista de exclusiones. En vista de CUADRÍCULA el tile abría su propio menú y, acto
+   seguido, el evento burbujeaba hasta aquí y este menú lo REEMPLAZABA: clic-derecho sobre un clip enseñaba
+   «Importar medios / Nueva carpeta» en vez de «Crear composición / Añadir a la línea de tiempo / Renombrar…».
+   En LISTA no pasaba porque esas filas son `.mitem`, que sí estaba. Los tiles de CARPETA tampoco se veían
+   afectados porque llevan además la clase `folderhdr`. Se comprueban todas en un solo `closest`. */
+$('#mediaList').addEventListener('contextmenu',e=>{ if(e.target.closest('.mitem,.mtile,.folderhdr,.folderdrop'))return; e.preventDefault();
   const items=[{label:T('Import media…','Importar medios…'),ico:'plus',fn:()=>$('#fileInput').click()},{label:T('Import image sequence…','Importar secuencia de imágenes…'),ico:'video',fn:()=>$('#fileInput').click()}];
   if(IS_ELEC&&window.dsp&&window.dsp.ndi) items.push({label:T('Add NDI source…','Añadir fuente NDI…'),ico:'ndi',fn:()=>addNdiInput()});
   if(IS_ELEC&&window.dsp&&window.dsp.spout&&window.dsp.spout.inList) items.push({label:T('Add Spout source…','Añadir fuente Spout…'),ico:'ndi',fn:()=>addSpoutInput()}); // [V3] entrada Spout (local, misma máquina)

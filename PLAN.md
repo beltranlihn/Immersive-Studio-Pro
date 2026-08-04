@@ -1,5 +1,53 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 245 — Dos del panel de Medios que salieron usándolo
+
+Los dos reportados por Beltrán mientras trabajaba, y los dos con la misma forma: un camino cubierto y su gemelo
+olvidado.
+
+### 1 · En CUADRÍCULA el clic-derecho sobre un clip daba el menú del panel
+
+En vista de lista, el clic-derecho sobre un medio ofrece lo suyo (crear composición, añadir a la línea de tiempo,
+renombrar, propiedades, reemplazar, eliminar). En **cuadrícula** salía «Importar medios / Nueva carpeta», es decir
+el menú del **panel**.
+
+El tile sí engancha su propio `contextmenu` — eso estaba bien desde siempre. Lo que fallaba es que el menú del
+panel se abría **encima** por burbujeo: su guard excluía `.mitem` (las filas de la lista), `.folderhdr` y
+`.folderdrop`, pero **no `.mtile`**. Los tiles de CARPETA no se veían afectados porque llevan además la clase
+`folderhdr`, que sí estaba en la lista — por eso el fallo parecía caprichoso: en cuadrícula las carpetas
+respondían bien y los clips no. Las cuatro clases pasan a comprobarse en un solo `closest`.
+
+### 2 · Arrastrar varias imágenes las tomaba por una secuencia PNG
+
+`importFiles` agrupa imágenes con nombre numerado (tres o más con el mismo prefijo y extensión) y pregunta los
+fotogramas por segundo para toda la tanda. Eso está bien cuando la importación es deliberada — pero corría
+**también en el arrastre**, así que soltar tres capturas llamadas `frame001.png`… abría un diálogo que no dejaba
+seguir hasta configurar una secuencia que nadie había pedido. Beltrán: *«si simplemente las arrastro, no es un
+sequence, son clips nomás»*.
+
+`importFiles` acepta ahora `opts.noSeq`, y lo pasa **el arrastre y sólo él** (las tres llamadas de
+`importDropped`, incluida la de una carpeta soltada). El selector de archivos —«Importar medios…»— conserva la
+detección **entera**: es donde el gesto es deliberado y hay ocasión de decir que no.
+
+### Verificado (`scratchpad/r245-ctx-grid.mjs`, con eventos reales)
+
+Menú: en cuadrícula sale el del medio y no el del panel · en lista, igual que antes · el fondo del panel sigue
+dando «Importar medios / Nueva carpeta» · una carpeta en cuadrícula conserva el suyo.
+Importación: arrastrar cuatro `frame00N.png` crea **cuatro medios `image` y no pregunta nada**; los mismos cuatro
+por el selector **sí** abren el diálogo de fotogramas por segundo.
+
+*Dos notas de arnés, porque las dos dieron un verde falso antes de mirarlas:* el lector de menús de la sonda
+buscaba `.mi/.item/div` cuando `openMenu` construye `<button role="menuitem">` — devolvía texto vacío y por tanto
+«no hay menú del panel», que parecía un aprobado. Y la prueba del selector no pedía fps porque `importFiles`
+**deduplica por nombre+tamaño** y los archivos ya los había metido la prueba del arrastre: hubo que darles
+prefijos distintos. Las dos correcciones quedan anotadas en la propia sonda.
+
+### Observación, no tocada
+
+En el menú del panel, «Importar medios…» e «Importar secuencia de imágenes…» **hacen exactamente lo mismo**
+(`$('#fileInput').click()`). No es un fallo —la detección automática hace que la segunda funcione— pero son dos
+entradas para una sola acción. Se deja como está: cambiarlo es una decisión de interfaz, no una corrección.
+
 ## ROUND 244 — El contenedor de la línea de tiempo deja de estar preso de las pistas
 
 Pedido de Beltrán: *«El contenedor del timeline queda bloqueado por el tamaño máximo de las pistas. Cambiemos a
