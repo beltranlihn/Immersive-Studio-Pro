@@ -2,7 +2,34 @@
 
 > Tareas ordenadas de **más rápido de resolver → más complejo**. Marcá `[x]` a medida que se cierran (y actualizá la fila
 > en `COMPONENTS.md` + una entrada en `PLAN.md` en el mismo commit, como manda el ritual de `/commit`).
-> Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: 2026-07-30.
+> Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: 2026-08-04.
+
+## 🔧 Tanda de Beltrán — 2026-08-04 (cuatro ajustes de uso diario) · CERRADA EN CÓDIGO ✅ [R239 + R239b]
+> Verificada por CDP en dev (`scratchpad/r239-diag.mjs` para el estado ANTES, `r239-verify.mjs` y
+> `r239b-review.mjs`), `__errs` vacío en las tres. **Pendiente de build + deploy**, junto con R237 y R238.
+- [x] **Entrar a un nido enseña su principio.** El cabezal YA iba a 0 — lo que no se movía era el **scroll
+      horizontal**, que vive en el DOM y no viajaba con la secuencia (medido: cabezal 0 correcto, scroll 27 788 px,
+      primer clip fuera de pantalla). El encuadre pasa a ser de la secuencia (`nestScrollT`, en SEGUNDOS porque el
+      zoom es global). Volver al padre devuelve su sitio.
+- [x] **Soltar un archivo sobre un clip lo archiva en la carpeta de ese clip.** La lógica ya estaba escrita
+      (`folderAt`) y **no la llamaba nadie**; subida a `_dropTargetAt`, que es la única puerta, arregla también el
+      arrastre interno. Con resalte de la carpeta de destino, que al arrastrar desde el explorador no existía.
+- [x] **«Create composition» con UN solo medio**, en lista y en cuadrícula. El mínimo de dos era del camino de
+      multi-selección de [R88], no del compositor.
+- [x] **Pestañas de secuencia sin barra de scroll**, se recorren con la rueda. No era un descuido de CSS: Chromium
+      desactiva `::-webkit-scrollbar` en cuanto se usa `scrollbar-width`, y la barra se comía 12 de los 22 px de alto.
+- [x] ~~**Revisión del diff (R239b)**~~ — cinco hallazgos reales: el encuadre por secuencia se enganchó a cuatro
+      caminos y faltaban otros cuatro (crear secuencia, su variante de sala, borrar la activa, `newRoomProject`);
+      una CARPETA soltada sobre una fila de medio sin archivar se movía a la raíz en silencio; el realce de la fila
+      se quedaba pegado al entrar en una pista; y la pestaña activa podía quedar fuera de la vista porque
+      `renderSeqBar` reinicia el scroll en cada repintado.
+- [ ] **Dos decisiones tuyas, ninguna urgente:** (a) al RE-entrar a un nido ya visitado vuelve donde lo dejaste, no
+      al inicio — simétrico con el padre, pero tú dijiste «al inicio nomas»: dilo si lo quieres siempre al origen;
+      (b) el desvanecido en el borde de las pestañas es un añadido mío para avisar de que hay más (al quitar la
+      barra se fue el único indicio) — si prefieres el corte a hueso, se quita en una línea.
+- [ ] **Probar a mano lo que no se puede simular:** arrastrar de verdad un archivo desde el explorador a una carpeta
+      (por CDP se verificó `_dropTargetAt`, que es quien decide el destino, no el gesto completo) y la rueda con un
+      ratón físico sobre las pestañas.
 
 ## 🧭 Sala 360 · planta en lazo + orden del lienzo — 2026-07-30 · CERRADA ✅ [R232]
 - [x] **La planta ya no se cruza.** La causa NO era la tabla: `roomPlan` deriva la huella de los roles, y tres
@@ -505,9 +532,9 @@
       `band='none'`). Verificado por CDP (tarjeta sin banda, param con kf, se comparte con Reactive, regresión del panel
       Reactive intacta: add reactivo sigue `int=0/band=bass`). _(R146)_
 - [x] **[F7 fase 2]** — equirect en el **visor 3D** (esfera completa) + **auto-detección 2:1** al importar. _(R169)_ Y por el camino apareció que la fase 1 mostraba los panoramas **del revés** (el suelo sobre la cabeza): signo equivocado en la v de `FSEQ` frente al `UNPACK_FLIP_Y_WEBGL=true` de `upTex`.
-- [ ] **[D2]** — cola/encoder de export en **segundo plano** con **snapshot congelado** del proyecto al enviar (seguir
-      editando/borrando mientras exporta; encolar varios con progreso). **Grande** pero JS + verificable. (Beltrán lo tenía
-      "para el final"; sigue en pie, es el de mayor esfuerzo.)
+- [x] ~~**[D2]** — cola/encoder de export en segundo plano con snapshot congelado.~~ **FUERA DE LA COLA por decisión de
+      Beltrán (2026-08-04): «lo mejor es no seguir editando mientras exporta».** Ver la sección de abajo — no es un
+      pendiente aplazado, es una decisión que además cierra deuda.
 
 ## Necesitan el entorno de Beltrán para cerrarse
 - [x] **[V3] Spout In** — CERRADO en R167 con el emisor real de Beltrán encendido.
@@ -516,6 +543,17 @@
 - **[P1] Mac + [D5] instalador cerrado** — hasta que Beltrán lo pida.
 - **[D4] Grilla 3D infinita** — RETIRADA de la cola: idea que Beltrán quiere **reestructurar** antes de encararla (fase 2).
       Solo queda la nota de diseño (dejar el mapeo de salida como capa "output target" intercambiable cuando se toque el motor).
+- **[D2] Encoder en segundo plano** — RETIRADO de la cola (2026-08-04). Beltrán, tras repasar el coste: **«creo que lo
+      mejor es no seguir editando mientras exporta; quizás dejémoslo fuera. Para un futuro podría ser.»**
+      **Lo que ya funciona y NO hace falta tocar:** la cola de trabajos existe (`pumpExportQ`/`#exQueue`) y encola varios
+      con su progreso — un export «Each wall + floor» ya lanza N+1 trabajos seguidos.
+      **Lo que se descarta:** levantar el scrim para poder editar durante el export, y con ello el snapshot congelado y
+      el worker con OffscreenCanvas + contexto GL propio (el motor es WebGL2 + WebCodecs en el renderer; sacarlo fuera
+      son varias rondas, no una).
+      **Consecuencia que conviene no perder:** al decidir que NO se edita durante el export, **el scrim pasa a ser la
+      solución, no un parche**, y el snapshot congelado deja de ser deuda. Con eso se cierra el pendiente condicional
+      que dejó la auditoría de 2026-07 («se vuelve urgente si se permite editar con jobs en cola», `AUDITORIA-2026-07.md`
+      líneas 42 y 340): la condición ya no se va a dar. Si algún día se reabre, ese es el punto de partida.
 
 ---
 

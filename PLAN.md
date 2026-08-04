@@ -1,5 +1,84 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 239 — Cuatro ajustes de Beltrán
+
+Cuatro cosas pequeñas de uso diario. Dos resultaron no ser lo que parecían.
+
+### «Entro a un nido y sigo en el minuto 55» — no era el cabezal, era el encuadre
+
+El cabezal SÍ iba a 0 al entrar (medido: `playhead` 0, correcto). Lo que no se movía era el **scroll horizontal de la
+línea de tiempo**, que vive en el DOM (`#tlscroll.scrollLeft`) y no lo tocaba nadie al cambiar de secuencia: se
+quedaba en 27 788 px, o sea el minuto 10 de la prueba, con el primer clip del nido —que siempre empieza en 0— fuera
+de pantalla. De ahí el «tengo que volver atrás»: no era rebobinar, era desplazar la vista.
+
+El encuadre pasa a ser de la secuencia, como ya lo era el cabezal: `nestScrollT`, guardado en **segundos** y no en
+píxeles, porque `pxPerSec` es global a la app y un cambio de zoom habría movido el sitio guardado. Entrar a un nido
+recién creado da 0 (es lo que pidió Beltrán) y volver al padre devuelve su minuto 55 (también). Si ya habías estado
+dentro del nido, vuelve donde lo dejaste — la misma regla que el padre, que es lo que hace que el conjunto sea
+predecible en vez de una excepción.
+
+`setTlScrollT` tiene que correr **después** de `renderTimeline` y con el truco de `_scrollTarget` (ensanchar el
+contenido antes de fijar `scrollLeft`, si no se clampa contra el ancho viejo), el mismo patrón de `followPlayhead`.
+De paso se enganchó a `loadProject` y `newProject`: abrir un proyecto heredaba el encuadre del anterior por
+exactamente la misma razón.
+
+### Soltar un archivo sobre una carpeta: el código ya estaba, pero no lo llamaba nadie
+
+Beltrán pedía poder soltar sobre cualquier clip de una carpeta en vez de acertarle a la cabecera. Buscando dónde
+añadirlo apareció `folderAt`, dentro de `startMediaDrag`, con la lógica **exacta** («sobre un item → la carpeta de
+ese item»)… y sin un solo llamador. El flujo real de soltar, tanto interno como de archivos del sistema, siempre
+pasó por `_dropTargetAt`, que sólo miraba cabeceras y zonas vacías.
+
+Así que en vez de escribir una tercera versión, la lógica sube a `_dropTargetAt`, que es la única puerta. Con eso
+quedan arreglados a la vez el arrastre de archivos del SO (lo que se pedía) y el arrastre interno de medios (que
+tenía el mismo agujero). Dos añadidos que hacían falta para que el gesto sea legible: el resalte apunta a la
+**cabecera de la carpeta de destino**, no a la fila bajo el cursor —lo que hay que ver es dónde va a aterrizar—, y
+`wireDrop` estrena resalte en `dragover`, porque los archivos de fuera se soltaban literalmente a ciegas. `folderAt`
+se retira.
+
+### Componer desde un solo medio
+
+El menú de media exigía dos medios seleccionados. Era una condición del camino de multi-selección de [R88], no del
+compositor: `checkedIds()` siempre aceptó un solo id. Y con uno es el caso más común —un clip repetido por el domo
+en anillo o cuadrícula—, así que ahora la entrada sale también con uno. Lista y cuadrícula comparten este menú, de
+modo que el cambio cubre las dos vistas de un golpe.
+
+### La barra de scroll fea de las pestañas de secuencia
+
+No era un descuido de CSS: el `::-webkit-scrollbar{height:0}` del well **estaba escrito desde R148**. Lo que pasa es
+que Chromium moderno **desactiva los pseudo-elementos `::-webkit-scrollbar` en cuanto se usa la propiedad estándar
+`scrollbar-width`**, y `.seqtabs` la heredaba en `thin`. Medido: la barra se comía **12 de los 22 px** de alto del
+well. Con `scrollbar-width:none` la vista se corta donde manda `max-width` y el desplazamiento va con la **rueda**
+sobre las pestañas. El listener se engancha una sola vez (`bar._seqWheel`) y sólo se traga el evento cuando hay algo
+que desplazar, para no secuestrar la rueda de una barra que cabe entera.
+
+Verificado por CDP en dev: `scratchpad/r239-diag.mjs` (el estado ANTES, que es lo que separó «cabezal» de
+«encuadre») y `r239-verify.mjs`, `__errs` vacío.
+
+### [R239b] Lo que encontró la revisión del diff — cinco defectos, todos reales
+
+Verificados en `scratchpad/r239b-review.mjs`, `__errs` vacío, y la tanda de R239 vuelta a pasar sin regresión.
+
+- **El encuadre por secuencia se quedó a medias.** Se enganchó a `switchSeq`, `closeSeqTab`, `loadProject` y
+  `newProject`, pero NO a los cuatro caminos que también aterrizan en otra secuencia: `newSequenceDialog` (y su
+  variante de sala), `deleteSequenceMedia` y `newRoomProject`. Crear una secuencia estando en el minuto 55 la abría
+  **vacía y encuadrada en el minuto 55** — exactamente el defecto que la ronda venía a arreglar. Una secuencia nueva
+  va al origen; al borrar la activa manda el encuadre de la que queda.
+- **Una carpeta arrastrada sobre una fila de medio se movía a la raíz en silencio.** `_dropTargetAt` lo comparten el
+  arrastre de medios y el de CARPETAS; al hacer que las filas fueran destino, un resbalón sobre un medio **sin
+  archivar** devolvía `path:null` y `moveFolder` la sacaba al nivel superior, con una fila resaltada como único
+  aviso. Antes esas filas no eran destino de nada, así que el gesto era inocuo. `_dropTargetAt(ev,sinMedios)`: el
+  arrastre de carpetas pasa `true` y recupera su comportamiento exacto; el de medios, que es donde se pidió el
+  cambio, las sigue aceptando.
+- **El realce se quedaba pegado.** `startMediaDrag` limpiaba con `clearFH`, una copia recortada de `_clearDropFX`
+  que sólo conocía cabeceras y zonas vacías: al entrar el cursor en una pista, la fila de medio recién resaltada
+  seguía encendida el resto del arrastre, junto al fantasma del clip. `clearFH` pasa a ser `_clearDropFX`.
+- **La pestaña activa podía quedar fuera de la vista.** `renderSeqBar` empieza por `innerHTML=''`, que devuelve
+  `scrollLeft` a 0 en cada repintado; con la barra de scroll ya oculta, la rueda era la única salida y no había
+  ninguna pista de que hubiera más pestañas. Ahora el repintado conserva el desplazamiento, arrastra la activa a la
+  vista (`seqTabsReveal`) y `.ovf-l`/`.ovf-r` desvanecen el borde **sólo por el lado en el que queda algo por ver**
+  — que es lo que sustituye a la barra como aviso.
+
 ## ROUND 238 — La deuda que dejó la revisión de la sala 360
 
 Tres puntos anotados como «bajo impacto» en R234b/c. Dos eran arreglables sin ambigüedad; el tercero era una

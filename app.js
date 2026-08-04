@@ -2663,14 +2663,31 @@ function newFolderIn(parent){ let base=T('Folder ','Carpeta ')+(folderChildren(p
   if(state.mediaView!=='grid')showFolders(); renderMedia(); markDirty();
   setTimeout(()=>{ renameFolderInline(path); },0); } // inline-edit the fresh label once it's in the DOM
 /* drag a folder TILE onto another folder / the back tile / the grid background → re-parent it (R88) */
-const _clearDropFX=()=>{ $$('#mediaList .folderhdr.dragover,#mediaList .folderdrop.dragover,#mediaList .mediagrid.dragover').forEach(x=>x.classList.remove('dragover')); };
-function _dropTargetAt(ev){ const el=document.elementFromPoint(ev.clientX,ev.clientY); if(!el)return null; const fe=el.closest&&el.closest('.folderhdr,.folderdrop'); if(fe)return {el:fe,path:fe.dataset.fname||null}; const g=el.closest&&el.closest('.mediagrid'); if(g)return {el:g,path:g.dataset.fname||null}; return null; }
+const _clearDropFX=()=>{ $$('#mediaList .folderhdr.dragover,#mediaList .folderdrop.dragover,#mediaList .mediagrid.dragover,#mediaList .mitem.dragover').forEach(x=>x.classList.remove('dragover')); }; // [R239] `.mitem` entra en la lista: `_dropTargetAt` puede resaltar la propia fila cuando su carpeta no tiene cabecera a la vista
+/* [R239] Soltar sobre un MEDIO que vive en una carpeta cuenta como soltar en esa carpeta. Con el árbol desplegado,
+   la cabecera es una franja de 20 px entre decenas de filas de contenido: acertarle es un gesto de precisión que no
+   hacía falta pedir, y fallar mandaba el archivo a «Sin archivar» sin decir nada.
+   La lógica ya estaba escrita —`folderAt`, dentro de `startMediaDrag`— pero NO la llamaba nadie: el flujo real de
+   soltar (interno y de archivos del SO) siempre pasó por aquí. Se sube a esta función, que es la única puerta, así
+   que arregla los dos caminos de una vez. El resalte apunta a la CABECERA de la carpeta de destino, no a la fila
+   bajo el cursor: lo que hay que ver es dónde va a aterrizar. */
+/* `sinMedios` = no aceptar filas de medio como destino. Lo usa el arrastre de CARPETAS: mover una carpeta es una
+   reorganización del árbol y soltarla sobre una fila cualquiera no es un gesto que nadie pida. Antes esas filas no
+   eran destino de nada, así que sin esta puerta un resbalón sobre un medio SIN ARCHIVAR habría movido la carpeta a
+   la raíz —en silencio y con una fila resaltada como único aviso—. Los medios sí lo aceptan: ahí es lo pedido. */
+function _dropTargetAt(ev,sinMedios){ const el=document.elementFromPoint(ev.clientX,ev.clientY); if(!el||!el.closest)return null;
+  const fe=el.closest('.folderhdr,.folderdrop'); if(fe)return {el:fe,path:fe.dataset.fname||null};
+  const mi=sinMedios?null:el.closest('.mitem');
+  if(mi){ const om=mediaById(+mi.dataset.id); const f=(om&&om.folder&&folderExists(om.folder))?om.folder:null;
+    const hdr=f?document.querySelector('#mediaList .folderhdr[data-fname="'+CSS.escape(f)+'"]'):null;
+    return {el:hdr||mi, path:f}; }
+  const g=el.closest('.mediagrid'); if(g)return {el:g,path:g.dataset.fname||null}; return null; }
 let _folderJustDragged=false; // suppress the click that fires right after a folder drag ends (would toggle selection)
 function startFolderDrag(e,srcPath){ const sx=e.clientX,sy=e.clientY; let started=false,ghost=null; // no preventDefault on pointerdown — it can suppress the dblclick that OPENS the folder (R88 audit); the 5px threshold gates the drag
   const mv=ev=>{ if(!started){ if(Math.abs(ev.clientX-sx)<5&&Math.abs(ev.clientY-sy)<5)return; started=true; ghost=document.createElement('div'); ghost.style.cssText='position:fixed;pointer-events:none;z-index:80;opacity:.9;background:var(--s1);border:.5px solid rgba(255,255,255,0.25);border-radius:3px;padding:5px 9px;font:600 11px Geist;color:var(--ink);'; ghost.innerHTML=ICO('folder',12)+' '+folderName(srcPath); document.body.appendChild(ghost); }
-    ghost.style.left=(ev.clientX+8)+'px'; ghost.style.top=(ev.clientY+8)+'px'; _clearDropFX(); const t=_dropTargetAt(ev);
+    ghost.style.left=(ev.clientX+8)+'px'; ghost.style.top=(ev.clientY+8)+'px'; _clearDropFX(); const t=_dropTargetAt(ev,true); // [R239] `true` = las filas de medio NO son destino para una carpeta
     if(t && t.path!==srcPath && t.path!==folderParent(srcPath) && !(t.path&&(t.path===srcPath||t.path.indexOf(srcPath+FSEP)===0))) t.el.classList.add('dragover'); };
-  const up=ev=>{ window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up); if(ghost)ghost.remove(); _clearDropFX(); if(!started)return; _folderJustDragged=true; setTimeout(()=>{_folderJustDragged=false;},0); const t=_dropTargetAt(ev); if(t)moveFolder(srcPath, t.path||null); };
+  const up=ev=>{ window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up); if(ghost)ghost.remove(); _clearDropFX(); if(!started)return; _folderJustDragged=true; setTimeout(()=>{_folderJustDragged=false;},0); const t=_dropTargetAt(ev,true); if(t)moveFolder(srcPath, t.path||null); };
   window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); }
 function renderMedia(){
   try{updEnable();}catch(e){} // [R94-UT3·U-12] every media add/remove passes through here → keep Compose/Adjust availability in sync
@@ -2791,7 +2808,15 @@ function mediaProperties(m){ const rows=[]; const add=(k,v)=>{ if(v!=null&&v!=='
 /* shared media right-click menu (list rows + grid tiles) */
 function openMediaCtx(e,m){ e.preventDefault(); const seq=isSeqMedia(m); const items=[];
   const selIds=selectedMediaIds(); const composable=selIds.map(mediaById).filter(x=>x&&x.kind!=='audio'&&x.kind!=='adjust'&&!isSeqMedia(x)); // R88: compose from several media at once
-  if(composable.length>=2 && selIds.includes(m.id)){ items.push({label:T('Create composition from these ','Crear composición desde estos ')+composable.length,ico:'ring',fn:()=>openCompose('ring',null,null,null,composable.map(x=>x.id))}); items.push('sep'); }
+  /* [R239] También desde UN SOLO medio. Una composición en anillo/cuadrícula repite la MISMA fuente en N sitios,
+     así que con uno basta y es de hecho el caso más común (un clip multiplicado por el domo); el mínimo de dos era
+     del camino de multi-selección de R88, no del compositor. Vale igual en lista y en cuadrícula: las dos vistas
+     llaman a este mismo menú. Cuando hay varios seleccionados y el clic es sobre uno de ellos, manda la selección. */
+  { const multi=(composable.length>=2 && selIds.includes(m.id));
+    const uno=(!multi && m.kind!=='audio' && m.kind!=='adjust' && !seq);
+    if(multi||uno){ const ids=multi?composable.map(x=>x.id):[m.id];
+      items.push({label:multi?(T('Create composition from these ','Crear composición desde estos ')+composable.length):T('Create composition from this…','Crear composición desde este…'),ico:'ring',fn:()=>openCompose('ring',null,null,null,ids)});
+      items.push('sep'); } }
   if(seq) items.push({label:T('Open sequence','Abrir secuencia'),ico:'panel',fn:()=>openSeq(m.id)});
   items.push({label:seq?T('Add as nest','Añadir como nido'):T('Add to timeline','Añadir a la línea de tiempo'),ico:'plus',fn:()=>addClip(m)});
   items.push({label:T('Rename','Renombrar'),key:'⌘R',fn:()=>renameMediaInline(m,mediaNameEl(m.id))});
@@ -5022,8 +5047,9 @@ function startMediaDrag(e,m){ const ghost=e.currentTarget.cloneNode(true); ghost
   const tracks=$('#tracks'); const wantKind=(m.kind==='audio')?'audio':'video'; const dur=m.dur||6; let tlg=null;
   const landing=ev=>{ const el=document.elementFromPoint(ev.clientX,ev.clientY); const laneEl=el&&el.closest('.lane'); if(!laneEl)return null; const li=+laneEl.dataset.lane; if(!state.lanes[li]||state.lanes[li].kind!==wantKind)return null;
     const rect=tracks.getBoundingClientRect(); let start=Math.max(0,(ev.clientX-rect.left)/state.tl.pxPerSec); const sn=applySnap(start,null); start=Math.max(0,sn.val); return {li,laneEl,start,snap:sn.snap}; };
-  const folderAt=ev=>{ const el=document.elementFromPoint(ev.clientX,ev.clientY); if(!el)return null; const fe=el.closest&&el.closest('.folderhdr,.folderdrop,.mitem'); if(!fe)return null; if(fe.classList.contains('mitem')){ const om=mediaById(+fe.dataset.id); return (om&&om.folder)?om.folder:(om?null:undefined); } return fe.dataset.fname||null; }; // over a folder header/drop-zone → its name; over an item → that item's folder; '' means Unfiled area
-  const clearFH=()=>{ $$('#mediaList .folderhdr.dragover,#mediaList .folderdrop.dragover').forEach(x=>x.classList.remove('dragover')); };
+  // [R239] `folderAt` vivía aquí y no lo llamaba nadie; su lógica (soltar sobre un medio = su carpeta) subió a `_dropTargetAt`, que es por donde pasa el drop de verdad
+  // [R239] era una copia recortada de `_clearDropFX` (sólo cabeceras y zonas vacías): al entrar el cursor en una pista dejaba encendida la fila de medio que `_dropTargetAt` acababa de resaltar, y el realce se quedaba ahí el resto del arrastre. Se usa la de verdad, que es la que conoce todos los destinos.
+  const clearFH=_clearDropFX;
   const mv=ev=>{ ghost.style.left=(ev.clientX+8)+'px';ghost.style.top=(ev.clientY+8)+'px'; const L=landing(ev);
     if(L){ if(!tlg){ tlg=document.createElement('div'); tracks.appendChild(tlg); } tlg.className='moveghost';
       tlg.style.cssText='position:absolute;pointer-events:none;z-index:30;border:1px solid rgba(255,255,255,0.7);background:'+m.color+';opacity:.42;border-radius:2px;box-shadow:0 2px 8px rgba(0,0,0,0.4);overflow:hidden;';
@@ -8477,7 +8503,7 @@ function serMedia(m){ return {id:m.id,name:m.name,kind:m.kind,w:m.w,h:m.h,mode:m
   shape:m.shape,fill:m.fill,stroke:m.stroke,strokeW:m.strokeW,sw:m.sw,sh:m.sh,
   ncPath:(m.kind==='nest'?(m.ncPath||null):null), ncSig:(m.kind==='nest'?(m.ncSig||null):null), ncW:(m.kind==='nest'?(m.ncW||null):null), ncH:(m.kind==='nest'?(m.ncH||null):null), ncFps:(m.kind==='nest'?(m.ncFps||null):null), /* [R180] el caché sobrevive al cierre: al reabrir, ncReattach compara la firma y decide si sigue valiendo */
   nestClips:(m.kind==='nest'?(m.nestClips||[]).map(serClip):null), nestLanes:(m.kind==='nest'?m.nestLanes:null),
-  nestMarkers:(m.kind==='nest'?(m.nestMarkers||[]):null), nestGroups:(m.kind==='nest'?(m.nestGroups||[]):null), nestPlayhead:(m.kind==='nest'?(m.nestPlayhead||0):null), nestWorkIn:(m.kind==='nest'?(m.nestWorkIn??null):null), nestWorkOut:(m.kind==='nest'?(m.nestWorkOut??null):null), comp:(m.comp||null), /* [archivado 20260725] grade: del nest */
+  nestMarkers:(m.kind==='nest'?(m.nestMarkers||[]):null), nestGroups:(m.kind==='nest'?(m.nestGroups||[]):null), nestPlayhead:(m.kind==='nest'?(m.nestPlayhead||0):null), nestScrollT:(m.kind==='nest'?(m.nestScrollT||0):null), /* [R239] el encuadre horizontal de la secuencia, en segundos */ nestWorkIn:(m.kind==='nest'?(m.nestWorkIn??null):null), nestWorkOut:(m.kind==='nest'?(m.nestWorkOut??null):null), comp:(m.comp||null), /* [archivado 20260725] grade: del nest */
   thumb:(m.kind==='audio'?m.thumb:null)}; }
 let _serLight=false; // when true (autosave), drop heavy fields (maskData PNGs) to stay under the localStorage quota
 function serClip(c){ const o=JSON.parse(JSON.stringify(c)); delete o.maskTex; delete o._penCv; delete o._elB; delete o._szB; delete o._curveTex; delete o._curveDirty; if(_serLight)delete o.maskData; return o; } // R132: _curveTex is a live GL texture (rebuilt from props.curves), _curveDirty a transient flag // maskTex is a live GL texture; _penCv is the pen-mask raster canvas (rebuilt from penMasks); _elB/_szB are transient drag baselines; maskData (dataURL) kept except in the light autosave copy
@@ -8505,14 +8531,24 @@ function roomDefLanes(walls,hasFloor){ const lanes=[{id:uid(),name:'Audio 1',tag
   for(let n=1;n<=4;n++) lanes.push({id:uid(),name:'Wall '+n,tag:'W'+n,kind:'video',surf:'wall'});
   return lanes; }
 function newSeqMedia(name,fps,w,h,clips,lanes,mode,cov){ return {id:uid(),kind:'nest',name:name||'Sequence',fps:fps||60,w:w||4096,h:h||4096,mode:mode||'dome',cov:((mode||'dome')==='dome'?(cov||180):null),color:clipColorFor('nest'),thumb:null,
-  nestClips:clips||[], nestLanes:lanes||defLanes(), nestMarkers:[], nestGroups:[], nestPlayhead:0, nestWorkIn:null, nestWorkOut:null, dur:6 }; }
+  nestClips:clips||[], nestLanes:lanes||defLanes(), nestMarkers:[], nestGroups:[], nestPlayhead:0, nestScrollT:0, nestWorkIn:null, nestWorkOut:null, dur:6 }; }
 function ensureSequences(){ let seqs=state.media.filter(isSeqMedia);
   if(!seqs.length){ const m=newSeqMedia('Sequence 1',state.fps||60,state.seqW||4096,state.seqH||4096,(state.clips&&state.clips.length?state.clips:null),(state.lanes&&state.lanes.length?state.lanes:null),state.seqMode||'dome',state.seqCov||180);
     m.nestMarkers=state.markers||[]; m.nestGroups=state.groups||[]; m.nestPlayhead=state.playhead||0; m.nestWorkIn=state.workIn??null; m.nestWorkOut=state.workOut??null; state.media.push(m); seqs=[m]; }
   if(!state.openSeqs||!state.openSeqs.length || !state.openSeqs.some(id=>isSeqMedia(mediaById(id)))) state.openSeqs=[seqs[0].id];
   if(!activeSeq()) state.activeSeqId=state.openSeqs[0]||seqs[0].id;
   loadSeqIntoState(activeSeq()); }
-function saveActiveSeq(){ const s=activeSeq(); if(!s)return; s.nestClips=state.clips; s.nestLanes=state.lanes; s.nestMarkers=state.markers; s.nestGroups=state.groups; s.nestPlayhead=state.playhead; s.nestWorkIn=state.workIn; s.nestWorkOut=state.workOut; s.dur=seqDur(s);
+/* [R239] El ENCUADRE de la línea de tiempo también es de la secuencia. El cabezal ya viajaba (`nestPlayhead`),
+   pero el scroll horizontal vive en el DOM (`#tlscroll.scrollLeft`) y no lo tocaba nadie al cambiar de secuencia:
+   entrar a un nido creado en el minuto 55 dejaba la vista clavada en el minuto 55, con el contenido del nido —que
+   siempre empieza en 0— fuera de pantalla. Medido antes del arreglo: cabezal 0 (correcto) y scroll 27 788 px, con
+   el primer clip invisible. Se guarda en SEGUNDOS, no en píxeles, para que sobreviva a un cambio de zoom
+   (`pxPerSec` es global a la app, no de la secuencia). */
+function tlScrollT(){ const sc=$('#tlscroll'); return sc?((sc.scrollLeft||0)/Math.max(1e-6,state.tl.pxPerSec)):0; }
+function setTlScrollT(tt){ const sc=$('#tlscroll'); if(!sc)return; const px=Math.max(0,(tt||0)*state.tl.pxPerSec);
+  // primero se ENSANCHA el contenido (mismo truco que followPlayhead/tlZoomAt): fijar scrollLeft antes lo clamparía contra el ancho viejo
+  state.tl._scrollTarget=px; renderTimeline(); sc.scrollLeft=px; state.tl._scrollTarget=0; }
+function saveActiveSeq(){ const s=activeSeq(); if(!s)return; s.nestClips=state.clips; s.nestLanes=state.lanes; s.nestMarkers=state.markers; s.nestGroups=state.groups; s.nestPlayhead=state.playhead; s.nestWorkIn=state.workIn; s.nestWorkOut=state.workOut; s.nestScrollT=tlScrollT(); s.dur=seqDur(s);
   if(clampNestInstances(s.id))scheduleTimeline(); } /* [archivado 20260725] s.grade */ // nests render via the per-frame _nestPool (no per-media FBO); serMedia omits transient GL fields
 /* [R225·7] Si el contenido de un nest se ACORTA (se borra o se recorta lo último de dentro), sus instancias en las
    secuencias padre se acortan solas. Antes el límite `seqDur(m)` sólo se consultaba al intentar EXTENDER un clip de
@@ -8568,10 +8604,12 @@ function openSeq(id){ const m=mediaById(id); if(!isSeqMedia(m))return; if(!state
 function switchSeq(id){ const m=mediaById(id); if(!isSeqMedia(m))return; if(id===state.activeSeqId){ if(!state.openSeqs.includes(id))state.openSeqs.push(id); renderSeqBar(); return; }
   saveActiveSeq(); state.activeSeqId=id; if(!state.openSeqs.includes(id))state.openSeqs.push(id); loadSeqIntoState(m); // [R92-T1] per-sequence undo stacks survive the switch
   syncNestAudioClips(); // [R225·9] al ATERRIZAR en una secuencia: si alguno de sus nests estrenó (o perdió) audio dentro, su clip derivado se crea/retira aquí
-  renderSeqBar(); renderMedia(); renderTimeline(); renderInspector(); renderWork(); render(); updStatus(); updFmtChip(); projTitle(); flashStatus(T('Sequence: ','Secuencia: ')+m.name); } // [R212] the window/tab title shows the active sequence name — switching tabs left it stale until the next unrelated projTitle() call
+  renderSeqBar(); renderMedia(); renderTimeline(); renderInspector(); renderWork(); render(); updStatus(); updFmtChip(); projTitle();
+  setTlScrollT(m.nestScrollT||0); // [R239] el encuadre de ESA secuencia (0 la primera vez que se entra) — después de renderTimeline, que es quien fija el ancho del contenido
+  flashStatus(T('Sequence: ','Secuencia: ')+m.name); } // [R212] the window/tab title shows the active sequence name — switching tabs left it stale until the next unrelated projTitle() call
 function closeSeqTab(id){ if(!state.openSeqs)return; const wasActive=(id===state.activeSeqId); if(wasActive)saveActiveSeq();
   const next=state.openSeqs.filter(x=>x!==id); if(!next.length){ flashStatus(T('At least one sequence stays open','Al menos una secuencia queda abierta')); return; } state.openSeqs=next;
-  if(wasActive){ state.activeSeqId=state.openSeqs[state.openSeqs.length-1]; loadSeqIntoState(activeSeq()); syncNestAudioClips(); renderMedia(); renderTimeline(); renderInspector(); renderWork(); render(); updStatus(); updFmtChip(); } // [R225·9]
+  if(wasActive){ state.activeSeqId=state.openSeqs[state.openSeqs.length-1]; loadSeqIntoState(activeSeq()); syncNestAudioClips(); renderMedia(); renderTimeline(); renderInspector(); renderWork(); render(); updStatus(); updFmtChip(); setTlScrollT((activeSeq()||{}).nestScrollT||0); } // [R225·9] · [R239] cerrar la pestaña activa también aterriza en otra secuencia: mismo encuadre propio
   renderSeqBar(); }
 function renameSequence(id){ const m=mediaById(id); if(!isSeqMedia(m))return; const el=document.querySelector('#seqTabs .seqtab[data-seq="'+id+'"] .seqlab');
   if(!inlineEdit(el,m.name,v=>{ m.name=v; renderSeqBar(); renderMedia(); projTitle(); markDirty(); })) appPrompt(T('Sequence name:','Nombre de la secuencia:'),m.name,n=>{ if(n!=null){ m.name=n; renderSeqBar(); renderMedia(); projTitle(); markDirty(); } }); }
@@ -8584,7 +8622,7 @@ function deleteSequenceMedia(id){ const m=mediaById(id); if(!isSeqMedia(m))retur
     { const as=activeSeq(); if(as)as.nestClips=state.clips; } // re-heal the state.clips ⇄ activeSeq().nestClips alias broken by the filters above
     if(!state.openSeqs.length)state.openSeqs=[state.media.filter(isSeqMedia)[0].id];
     if(wasActive){ state.activeSeqId=state.openSeqs[state.openSeqs.length-1]; loadSeqIntoState(activeSeq()); }
-    clearAllUndo(); renderMedia(); renderSeqBar(); renderTimeline(); renderInspector(); renderWork(); render(); updStatus(); updFmtChip(); markDirty(); }, {ok:T('Delete','Eliminar'),danger:true}); } // clearAllUndo: other sequences' histories may reference the deleted sequence's media id — resurrecting those clips would orphan them
+    clearAllUndo(); renderMedia(); renderSeqBar(); renderTimeline(); renderInspector(); renderWork(); render(); updStatus(); updFmtChip(); setTlScrollT((activeSeq()||{}).nestScrollT||0); markDirty(); }, {ok:T('Delete','Eliminar'),danger:true}); } // [R239] eliminar la secuencia activa aterriza en otra: su encuadre, no el de la borrada // clearAllUndo: other sequences' histories may reference the deleted sequence's media id — resurrecting those clips would orphan them
 const DOME_COV=[180,200,210,220]; // fisheye coverage presets (deg). 180° = full hemisphere (fulldome standard)
 /* [R214] plain GCD reduction (1920×1080 → "16:9") capped at 40: odd custom sizes can have a huge coprime ratio
    (e.g. "1937:1080") that's useless as a label, so past the cap it falls back to a decimal "W/H:1" form instead. */
@@ -8653,12 +8691,12 @@ function newSequenceDialog(){ const n=state.media.filter(isSeqMedia).length+1; c
       state.openSeqs=state.openSeqs||[]; state.openSeqs.push(wseq.id);
       state.activeSeqId=wseq.id; loadSeqIntoState(wseq); // [R92-T1] fresh sequence starts with its own empty per-seq undo stack
       roomVpAutoFloor(!!floor); // [R231c] tercera vía: una secuencia de sala CON piso también entra con el visor partido abierto
-      renderMedia(); renderSeqBar(); renderTimeline(); renderInspector(); renderWork(); render(); updStatus(); updFmtChip(); markDirty(); close();
+      renderMedia(); renderSeqBar(); renderTimeline(); renderInspector(); renderWork(); render(); updStatus(); updFmtChip(); setTlScrollT(0); markDirty(); close(); // [R239] una secuencia recién creada está VACÍA: heredar el encuadre la abría mirando a un tramo sin nada
       flashStatus(T('New 360 room','Nueva sala 360')+' · '+walls.length+' '+T('walls','muros')+(floor?' + '+T('floor','piso'):'')); return; }
     const cov=+$('#nsCov').value||180;
     let w,h; if(mode==='flat'){ w=Math.max(16,Math.min(8192,+$('#nsW').value||1920)); h=Math.max(16,Math.min(8192,+$('#nsH').value||1080)); } else { w=h=+$('#nsRes').value; }
     saveActiveSeq(); const m=newSeqMedia(name,fps,w,h,null,null,mode,cov); state.media.push(m); state.openSeqs=state.openSeqs||[]; state.openSeqs.push(m.id); state.activeSeqId=m.id; loadSeqIntoState(m); // [R92-T1] fresh sequence starts with its own empty per-seq undo stack
-    renderMedia(); renderSeqBar(); renderTimeline(); renderInspector(); renderWork(); render(); updStatus(); updFmtChip(); markDirty(); close(); flashStatus(T('New sequence','Nueva secuencia')+': '+name); }; }
+    renderMedia(); renderSeqBar(); renderTimeline(); renderInspector(); renderWork(); render(); updStatus(); updFmtChip(); setTlScrollT(0); markDirty(); close(); flashStatus(T('New sequence','Nueva secuencia')+': '+name); }; } // [R239] ídem: secuencia nueva = encuadre al origen
 /* [R227] `flatResDialog` y `domeSetupDialog` (los diálogos «New 2D project…» / «New dome project…» del menú File)
    ARCHIVADOS en _backup/deprecated/20260730-creation-dialogs-file-menu.js: el menú File tiene ahora una sola
    entrada, `New project…`, que lleva a la pantalla de inicio — donde los tres formatos se configuran con vista
@@ -9092,7 +9130,21 @@ function startSeqTabDrag(e,id){ if(e.button!==0)return; if(e.target.closest('.se
     const rest=(state.openSeqs||[]).filter(x=>!isSeqMedia(mediaById(x))); state.openSeqs=cur.concat(rest); // keep any non-seq ids (defensive) at the end
     renderSeqBar(); markDirty(); flashStatus(T('Sequence moved','Secuencia movida')); };
   window.addEventListener('pointermove',move); window.addEventListener('pointerup',up); }
-function renderSeqBar(){ const bar=$('#seqTabs'); if(!bar)return; bar.innerHTML='';
+/* [R239] Con la barra de scroll oculta, la rueda es la ÚNICA forma de alcanzar las pestañas que se salen — y
+   `innerHTML=''` devolvía `scrollLeft` a 0 en cada repintado, así que con diez secuencias abiertas la de la derecha
+   quedaba fuera de la vista sin ninguna pista de que existiera. Se conserva el desplazamiento entre repintados, se
+   arrastra la pestaña ACTIVA a la vista, y `.ovf-l/.ovf-r` desvanecen el borde por el lado en el que queda algo por
+   ver: es lo que sustituye a la barra como aviso de que hay más. */
+function seqTabsOvf(){ const bar=$('#seqTabs'); if(!bar)return;
+  const max=bar.scrollWidth-bar.clientWidth;
+  bar.classList.toggle('ovf-l', max>1 && bar.scrollLeft>1);
+  bar.classList.toggle('ovf-r', max>1 && bar.scrollLeft<max-1); }
+function seqTabsReveal(){ const bar=$('#seqTabs'); if(!bar)return; const act=bar.querySelector('.seqtab.on'); if(!act)return;
+  const l=act.offsetLeft, r=l+act.offsetWidth;
+  if(l<bar.scrollLeft) bar.scrollLeft=Math.max(0,l-4);
+  else if(r>bar.scrollLeft+bar.clientWidth) bar.scrollLeft=r-bar.clientWidth+4;
+  seqTabsOvf(); }
+function renderSeqBar(){ const bar=$('#seqTabs'); if(!bar)return; const _sl=bar.scrollLeft; bar.innerHTML='';
   for(const id of (state.openSeqs||[])){ const m=mediaById(id); if(!isSeqMedia(m))continue; const on=(id===state.activeSeqId);
     const t=document.createElement('div'); t.className='seqtab'+(on?' on':''); t.dataset.seq=id; t.title=T('Click to switch · double-click rename · right-click options','Clic para cambiar · doble-clic renombrar · clic-derecho opciones');
     const lab=document.createElement('span'); lab.className='seqlab'; lab.textContent=m.name; t.appendChild(lab);
@@ -9101,7 +9153,17 @@ function renderSeqBar(){ const bar=$('#seqTabs'); if(!bar)return; bar.innerHTML=
     t.onclick=e=>{ if(e.target.isContentEditable||_seqDragged)return; switchSeq(id); }; t.ondblclick=()=>renameSequence(id);
     t.oncontextmenu=e=>{ e.preventDefault(); openMenu(e.clientX,e.clientY,[{label:T('Rename','Renombrar'),fn:()=>renameSequence(id)},{label:T('Settings…','Ajustes…'),ico:'gear',fn:()=>{ if(id!==state.activeSeqId)switchSeq(id); openSeqSettings(); }},{label:T('Close tab','Cerrar pestaña'),fn:()=>closeSeqTab(id)},'sep',{label:T('Delete sequence','Eliminar secuencia'),danger:true,fn:()=>deleteSequenceMedia(id)}]); };
     bar.appendChild(t); }
-  const add=document.createElement('button'); add.className='seqtab seqadd'; add.textContent='＋'; add.title=T('New sequence','Nueva secuencia'); add.onclick=newSequenceDialog; bar.appendChild(add); }
+  const add=document.createElement('button'); add.className='seqtab seqadd'; add.textContent='＋'; add.title=T('New sequence','Nueva secuencia'); add.onclick=newSequenceDialog; bar.appendChild(add);
+  /* [R239] La rueda del ratón sobre las pestañas desplaza en HORIZONTAL. Con muchas secuencias abiertas el well se
+     desbordaba y la única salida era una barra de scroll que se comía media altura; ahora la vista se corta y se
+     recorre con la rueda. Se engancha UNA vez (`_seqWheel`), no en cada repintado, y sólo se traga el evento
+     cuando de verdad hay algo que desplazar — si no, la rueda dejaría de funcionar sobre una barra que cabe entera. */
+  if(!bar._seqWheel){ bar._seqWheel=1;
+    bar.addEventListener('wheel',e=>{ if(bar.scrollWidth<=bar.clientWidth)return;
+      const d=(Math.abs(e.deltaX)>Math.abs(e.deltaY))?e.deltaX:e.deltaY; if(!d)return;
+      e.preventDefault(); bar.scrollLeft+=d; seqTabsOvf(); },{passive:false});
+    bar.addEventListener('scroll',seqTabsOvf); }
+  bar.scrollLeft=_sl; seqTabsReveal(); } // [R239] el repintado no mueve la vista… salvo lo justo para que la pestaña activa se vea
 function serProject(){ saveActiveSeq(); return { app:'DomeStudioPro', v:4, fps:state.fps, lanes:state.lanes, playhead:state.playhead, markers:[], groups:[], clips:[], media:state.media.map(serMedia), workIn:state.workIn, workOut:state.workOut, folders:state.folders, folderColors:state.folderColors||{}, tl:{bpm:state.tl.bpm,sig:state.tl.sig,tcMode:state.tl.tcMode,pxPerSec:state.tl.pxPerSec,inlineCurves:!!state.inlineCurves}, /* [R214] audioH removed — loadProject never read it back (vestige of R148) */ exportPresets:state.exportPresets||[], openSeqs:(state.openSeqs||[]).slice(), activeSeqId:state.activeSeqId, seqW:state.seqW, seqH:state.seqH, reactive:state.reactive||null, autoItems:state.autoItems||{} }; } // [R95·D2] the Automation Item library travels with the project (clips reference items by id via kfLink) // v4: the active sequence's clips/markers/groups live in its nest media (serMedia); top-level kept empty to avoid doubling the heaviest data (kf + maskData)
 async function saveProject(saveAs){ const json=JSON.stringify(serProject());
   if(IS_ELEC){ let p=currentPath; if(saveAs||!p){ p=await DSP.saveDialog(p||((currentTitle()==='Untitled project'?T('untitled','proyecto'):currentTitle())+'.isp')); if(!p)return; }
@@ -9155,7 +9217,9 @@ async function newProject(mode,w,h,fps,cov,skipConfirm){ if(!(await confirmDisca
   const _fl=(mode==='flat'); state.seqMode=_fl?'flat':'dome'; const _dres=Math.max(512,Math.round(w||4096)); state.seqW=_fl?(w||1920):_dres; state.seqH=_fl?(h||1080):_dres; state.seqCov=_fl?180:(cov||180); if(fps)state.fps=fps; // [R228] el domo respeta la resolución elegida en el launcher (antes forzaba 4096 y el selector Resolution no hacía nada); cuadrado siempre
   state.openSeqs=[]; state.activeSeqId=null; ensureSequences();
   clearAllUndo(); currentPath=null; state.dirty=false;
-  renderMedia(); renderSeqBar(); renderTimeline(); renderInspector(); render(); updStatus(); projTitle(); updFmtChip(); flashStatus(_fl?T('New 2D project','Nuevo proyecto 2D'):T('New project','Proyecto nuevo'));
+  renderMedia(); renderSeqBar(); renderTimeline(); renderInspector(); render(); updStatus(); projTitle(); updFmtChip();
+  setTlScrollT(0); // [R239] un proyecto nuevo empieza en el origen, no donde estuviera el anterior
+  flashStatus(_fl?T('New 2D project','Nuevo proyecto 2D'):T('New project','Proyecto nuevo'));
   return true; } // [R210→R227] aquí ya NO se lanza el recorrido guiado: crear un proyecto es empezar a trabajar, no una presentación. El recorrido vive con los DEMOS de la pantalla de inicio (startDemoProject), que es lo único que le da algo real que señalar
 /* R91: create a 360-room project — a 'room' sequence (walls unwrapped into a strip) + an optional 'flat' floor sequence, linked by room.floorSeqId. */
 /* [R165] Reconfigurar la sala NO es crear un proyecto nuevo. El menú Project llamaba a `newRoomProject`, que
@@ -9228,6 +9292,7 @@ async function newRoomProject(cfg,skipConfirm){ if(!(await confirmDiscard(skipCo
   state.openSeqs=state.media.filter(isSeqMedia).map(s=>s.id); state.activeSeqId=wseq.id; loadSeqIntoState(wseq);
   clearAllUndo(); currentPath=null; state.dirty=false;
   renderMedia(); renderSeqBar(); renderTimeline(); renderInspector(); render(); updStatus(); projTitle(); updFmtChip();
+  setTlScrollT(0); // [R239] igual que newProject: un proyecto nuevo no hereda el encuadre horizontal del anterior
   flashStatus(T('New 360 room','Nueva sala 360')+' · '+walls.length+' '+T('walls','muros')+(cfg.floor?' + '+T('floor','piso'):''));
   return true; } // [R210→R227] sin recorrido guiado al crear: ver la nota en newProject
 function rebuildMaskTex(c){ if(c&&c.penMasks&&c.penMasks.length){ rasterizePenMasks(c); return; } if(!c||!c.maskData)return; const im=new Image(); im.onload=()=>{ if(!c.maskTex)c.maskTex=newTex(); upTex(c.maskTex,im); render(); }; im.src=c.maskData; }
@@ -9382,7 +9447,9 @@ function loadProject(obj){ relinkReset(); // [R204] el índice de reenlace es de
   renderSeqBar(); updFmtChip();
   renderWork();
   if(IS_ELEC){ for(const m of state.media) reloadMedia(m); }
-  renderMedia(); renderTimeline(); renderInspector(); render(); updRelink(); updStatus(); projTitle(); try{preloadLUTs();}catch(e){} flashStatus(T('Project loaded','Proyecto cargado'));
+  renderMedia(); renderTimeline(); renderInspector(); render(); updRelink(); updStatus(); projTitle(); try{preloadLUTs();}catch(e){}
+  setTlScrollT((activeSeq()||{}).nestScrollT||0); // [R239] mismo defecto que al entrar a un nido: sin esto, abrir un proyecto hereda el encuadre horizontal del anterior
+  flashStatus(T('Project loaded','Proyecto cargado'));
   lchLeave(); if(currentPath)addRecent(currentPath, projThumb()); // [R228] la carga llegó a buen puerto: el proyecto de antes ya no existe → se cierra la sesión del launcher (fuera «Back to project» y fuera el consentimiento)
   try{ if(_bootEsperandoProyecto){ bootMark(88); esperarMediosArranque(Date.now()+30000); } else loadingWaitMedia(Date.now()+20000); }catch(e){ hideLoadingScreen(); bootProyectoListo(); } }
 /* [R175] Gemelo de loadingWaitMedia para el arranque: mismo criterio de "listo" (nada decodificando ni generando
@@ -9728,9 +9795,17 @@ setInterval(async ()=>{ if(_asBusy)return; if(!state.dirty)return; // nothing UN
 },15000);
 
 /* ===================== WIRE UI ===================== */
-function wireDrop(el){ el.addEventListener('dragover',e=>e.preventDefault()); el.addEventListener('drop',e=>{e.preventDefault();
-  let target=null; if(el.id==='mediaList'){ const fe=e.target&&e.target.closest&&e.target.closest('.folderhdr,.folderdrop'); if(fe&&fe.dataset.fname!==undefined)target=fe.dataset.fname||null; else target=(state.mediaView==='grid')?state.mediaFolder:(state.selFolder||state.mediaFolder||null); }
-  importDropped(e.dataTransfer, target); }); } // R89: OS files/folders dropped ONTO a folder header land in that folder; otherwise in the browsed (grid) or selected (tree) folder
+function wireDrop(el){ el.addEventListener('dragover',e=>{ e.preventDefault();
+  /* [R239] Resalte de la carpeta de destino mientras se arrastran archivos DEL SISTEMA. El arrastre interno de
+     medios ya lo tenía; el de fuera no, así que se soltaba a ciegas — que es justo cómo un archivo acababa en
+     «Sin archivar» sin que nadie se enterara. */
+  if(el.id==='mediaList'){ _clearDropFX(); const t=_dropTargetAt(e); if(t&&t.el&&t.el.classList)t.el.classList.add('dragover'); } });
+  el.addEventListener('dragleave',e=>{ if(el.id==='mediaList'&&!el.contains(e.relatedTarget))_clearDropFX(); });
+  el.addEventListener('drop',e=>{e.preventDefault();
+  let target=null;
+  if(el.id==='mediaList'){ const t=_dropTargetAt(e); // [R239] misma resolución que el arrastre interno: cabecera, zona vacía, MEDIO de la carpeta o fondo de la cuadrícula
+    target = t ? t.path : ((state.mediaView==='grid')?state.mediaFolder:(state.selFolder||state.mediaFolder||null)); }
+  _clearDropFX(); importDropped(e.dataTransfer, target); }); } // R89: OS files/folders dropped ONTO a folder header land in that folder; [R239] o sobre cualquier medio suyo; otherwise in the browsed (grid) or selected (tree) folder
 $('#importBtn').onclick=()=>$('#fileInput').click();
 /* [R92-T5 P1] media search — the state.mediaQuery filter existed in renderMedia; the input never did */
 /* [AUDITORÍA Rev1] El rediseño quitó el buscador VISIBLE del panel, no la búsqueda: Ctrl+F revela el campo en la

@@ -141,8 +141,8 @@
 Todas se implementan, salvo **[D4]**, que es fase 2: por ahora solo hay que dejar preparada la costura que describe.
 
 - **[D1] Modelo de automatización.** Modelo After Effects: editar un valor siempre crea keyframe, la automatización **nunca se rompe**, y **no hay botón de recuperar**. (Detalle en [A2].)
-- **[D2] Encoder separado (tipo Media Encoder).** Cola de exports en segundo plano: mando un export → sigo trabajando (incluso **borrar clips**) → el export usa un **snapshot del proyecto congelado al momento del envío**, así el resultado sale correcto aunque el proyecto cambie después. Corre en un proceso/worker aparte para no bloquear la edición.
-  *Aceptación:* puedo enviar un export a la cola y seguir editando/borrando; el archivo exportado refleja el estado del proyecto **al momento del envío**, no el actual; puedo encolar varios y ver su progreso.
+- ~~**[D2] Encoder separado (tipo Media Encoder).**~~ **RETIRADO por Beltrán (2026-08-04):** *«creo que lo mejor es no seguir editando mientras exporta; quizás dejémoslo fuera. Para un futuro podría ser.»* La premisa del ticket —seguir trabajando durante el export— es justo lo que se descarta, y sin ella el snapshot congelado y el worker aparte (OffscreenCanvas + contexto GL propio, varias rondas) no tienen para qué existir. Lo que el ticket pedía y **ya funciona** es encolar varios trabajos con progreso (`pumpExportQ`/`#exQueue`: un export «Each wall + floor» lanza N+1). Consecuencia: el scrim que bloquea la edición pasa a ser **la solución** y no un parche, y con eso se cierra el pendiente condicional de la auditoría de 2026-07. Si se reabre, hay que reponer el snapshot ANTES de levantar el scrim. Detalle en `docs/NEXT.md` › «En pausa por Beltrán».
+  <sub>*Aceptación original (ya no aplica):* puedo enviar un export a la cola y seguir editando/borrando; el archivo exportado refleja el estado del proyecto al momento del envío, no el actual; puedo encolar varios y ver su progreso.</sub>
 - **[D3] Menús de aplicación (File / Edit / Window).** Barra de menús estándar. En **File/Archive**: nuevo, abrir, guardar, guardar como, exportar. En **Edit**: deshacer/rehacer, cortar tiempo, duplicar tiempo, copiar/pegar, eliminar. En **Window**: mostrar/ocultar paneles (inspector, media, viewer-only). Reutiliza los comandos que ya existen; el menú es solo otra vía de acceso, no lógica nueva.
   *Aceptación:* los menús existen y sus acciones ejecutan los mismos comandos que los atajos.
 - **[D4] Grilla 3D infinita (fase 2 — no construir ahora).** Objetos dispuestos en rectángulo / cubo / cilindro **al infinito**; conecta con las salas 360. **No lo implementes todavía**, pero cuando toques el motor de salida, deja el mapeo final como una **capa de "output target" intercambiable** (domo fisheye / sala N-superficies / grilla 3D) sobre el mismo composite, para que agregarlo después sea abrir una puerta, no rehacer el motor.
@@ -173,7 +173,7 @@ Este documento es el mapa completo. **No lo ataques todo de una vez.** Avanza po
 
 **Etapa 7 — Viewer / NDI / Spout / Performance.** [V1]–[V3].
 
-**Etapa 8 — Render, export y encoder.** [R1][R3] + [D2] encoder en cola.
+**Etapa 8 — Render, export y encoder.** [R1][R3]. (~~[D2] encoder en cola~~ retirado por Beltrán el 2026-08-04.)
 
 **Etapa 9 — UI, limpieza y branding.** [U1]–[U9], [X1][X2].
 
