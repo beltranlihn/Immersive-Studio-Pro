@@ -4,6 +4,12 @@
 > en `COMPONENTS.md` + una entrada en `PLAN.md` en el mismo commit, como manda el ritual de `/commit`).
 > Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: 2026-08-04.
 
+## ✅ Monitor de origen · CERRADO [R249]
+- [x] **Reproductor de clip, como el de Premiere.** Doble clic en un medio (o el botón *Source* del inspector) abre
+      una ventana flotante con transporte y marcas de entrada/salida; se arrastra desde ella y cae **sólo el tramo
+      marcado**. Las marcas viven en el MEDIO y viajan en el `.isp`, así que el arrastre desde el panel las respeta
+      igual. **Ojo al retomar:** el doble clic ya no suelta el clip en la línea de tiempo.
+
 ## ✅ El selector de medios del compose · CERRADO [R248]
 - [x] **Cesta en vez de catálogo.** El diálogo enseña lo que la composición YA tiene (miniatura + nombre + orden),
       con × para quitar y arrastre desde Medios para añadir. **Compatibilidad comprobada con píxeles**: abrir un

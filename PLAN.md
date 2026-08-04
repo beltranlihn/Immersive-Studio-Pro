@@ -1,5 +1,68 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 249 — El monitor de origen: mirar el material antes de soltarlo
+
+Beltrán: *«me di cuenta de que me faltaba… un reproductor de clip para visualizar el clip antes de arrastrarlo al
+timeline. Quizás el clip que queremos arrastrar dura veinte minutos y no queremos arrastrar los veinte minutos,
+sino sólo un pedacito»*. Es el Source Monitor de Premiere, y faltaba de verdad: hasta ahora, para meter veinte
+segundos de un archivo largo había que soltar el archivo entero y recortarlo ya en la línea de tiempo.
+
+### Qué es
+
+Doble clic en un medio abre una **ventana flotante** con el material: transporte con reproducción, barra de
+recorrido, marcas de **entrada y salida**, y la imagen como asa — se agarra el fotograma y se suelta en una pista,
+y lo que cae es **sólo el tramo marcado**. También hay un botón **Insertar** (lo pone en el cabezal) y, en el
+inspector de cada clip, un botón **Source** que abre la fuente de ese clip con su entrada y salida ya puestas.
+
+**No es un modal, y es deliberado.** Se mira el material mientras se sigue trabajando con el editor, así que ni
+velo ni bloqueo: se mueve, se redimensiona por la esquina y se cierra por su × o con Escape. Con el foco dentro,
+**I** y **O** marcan y **Espacio** reproduce; el atajo global se aparta explícitamente (el monitor no es un
+`.overlay`, así que había que excluirlo a mano de la guarda de atajos, que era justo el sitio donde se habría
+colado un fallo silencioso).
+
+### Dónde viven las marcas, y por qué importa
+
+En el **MEDIO** (`m.srcIn` / `m.srcOut`), no en la ventana, y viajan en el `.isp`. Es el modelo de Premiere: la
+marca es del material. La consecuencia buena es que **arrastrar desde el panel de Medios respeta las mismas
+marcas** — una vez marcado un archivo, todo lo que salga de él sale ya recortado, se pase por la ventana o no.
+
+Y la consecuencia de diseño: `srcRange(m)` devuelve **null** cuando no hay marcas o cuando marcan el archivo
+entero. Por eso enchufarlo en el arrastre de siempre **no le cambia nada a quien no haya marcado nunca**: es
+exactamente el camino anterior. Un cambio de comportamiento que sólo existe si lo pides.
+
+### El doble clic cambia de significado
+
+Antes soltaba el clip en la línea de tiempo; ahora **abre el material en el monitor**, que es lo que hace Premiere.
+Para poner un clip en la línea de tiempo se arrastra, se usa Insertar, o se arrastra desde el monitor con marcas.
+Las secuencias/composiciones siguen abriéndose con doble clic (son pestañas, no material), y con el diálogo de
+composición abierto el doble clic sigue alimentando la cesta (R248).
+
+### Qué se comprobó, sobre el .exe y con un vídeo real de 50 s
+
+| Prueba | Resultado |
+|---|---|
+| Doble clic en el panel | abre el monitor y **no suelta ningún clip** (0 → 0 en la línea) |
+| Transporte | de 2,00 s a 3,06 s en 1,2 s de reloj; pausa correcta |
+| Marcar entrada 5 s / salida 9,5 s | rango 4,50 s, barra al 8,98 % del ancho |
+| Soltar en una pista | `inP` 20 s · **dura 6,50 s**, no los 50,13 del archivo |
+| Arrastre real con eventos de ratón | fantasma sobre la pista, clip correcto al soltar |
+| Clic sin mover ≠ arrastre | no lanza reproducción por accidente |
+| Guardar `.isp` y reabrir | las marcas se conservan (5 s / 9,5 s) |
+| Botón **Source** del inspector | abre con la entrada y salida **del clip** (12 s / 15 s) |
+| Cerrar | ventana y estado limpios, y el `<video>` suelta el decodificador |
+
+Cada tipo de medio pinta lo suyo: vídeo con un `<video>` propio (no el del motor — el de la línea de tiempo lo
+pilota el cabezal, y compartirlo habría hecho que recorrer el monitor moviera el render), secuencia de imágenes
+por índice de fotograma, audio con su onda y el tramo marcado encendido, y las fijas con su imagen. Las fuentes en
+vivo (NDI/Spout) no tienen nada que recorrer y lo dicen.
+
+**Detalle de oficio:** el primer diseño de la barra usaba un azul de acento que este programa no tiene — su paleta
+es de grises medidos por contraste. Ahora la marca de entrada/salida usa exactamente el mismo lenguaje que el área
+de trabajo del timeline (`rgba(180,186,193,…)` con filos `--ink-2`), que es lo que ya significa «tramo marcado»
+aquí. De paso se corrigieron dos azules que se me habían colado en R248.
+
+---
+
 ## ROUND 248 — El compose deja de ser un catálogo y pasa a ser una cesta
 
 Beltrán: *«el sistema nos muestra en un cuadradito todos los clips que hay en el archivo, con casillas… considera

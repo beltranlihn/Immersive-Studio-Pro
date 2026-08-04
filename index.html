@@ -675,7 +675,7 @@
      lista de casillas era la parte insufrible. El número de orden importa: en el tejido cada tira toma una fuente. */
   .cbasket{flex:1;min-width:0;max-height:132px;overflow-y:auto;background:var(--s0);border:.5px solid rgba(255,255,255,0.12);border-radius:2px;padding:3px;display:flex;flex-direction:column;gap:2px;transition:border-color .12s,background .12s;}
   .cbasket::-webkit-scrollbar{width:7px;} .cbasket::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.14);border-radius:2px;}
-  .cbasket.over{border-color:var(--state-on);background:rgba(155,184,255,0.07);}
+  .cbasket.over{border-color:rgba(180,186,193,0.6);background:rgba(180,186,193,0.07);}
   .cbitem{display:flex;align-items:center;gap:7px;padding:3px 4px;border-radius:2px;font-size:11px;color:var(--ink-2);min-width:0;}
   .cbitem:hover{background:rgba(255,255,255,0.05);}
   .cbnum{flex-shrink:0;width:14px;text-align:right;color:var(--ink-dim);font:400 10px ui-monospace,monospace;font-variant-numeric:tabular-nums;}
@@ -689,8 +689,39 @@
      velo —a plena luz y con un filo encendido— mientras el cuadro sube aún más, para que si la ventana es estrecha
      y llegan a solaparse mande el diálogo. Es la lectura correcta de la escena: se apaga TODO menos las dos cosas
      con las que se está trabajando. */
-  body.composing #mediaPane{position:relative;z-index:9650;box-shadow:0 0 0 1px var(--state-on);}
+  body.composing #mediaPane{position:relative;z-index:9650;box-shadow:0 0 0 1px rgba(180,186,193,0.45);}
   body.composing #compOv > .modal{position:relative;z-index:9700;}
+  /* [R249] MONITOR DE ORIGEN — el reproductor de clip de Premiere. Ventana FLOTANTE, no modal: se mira el material
+     mientras se sigue trabajando, y se arrastra desde ella a la línea de tiempo. Por eso no lleva velo. */
+  #srcMon{position:fixed;z-index:9400;background:var(--bg-2);border:.5px solid rgba(255,255,255,0.14);border-radius:3px;
+    box-shadow:0 26px 70px rgba(0,0,0,0.62);display:flex;flex-direction:column;user-select:none;}
+  #srcMon .smhead{display:flex;align-items:center;gap:8px;padding:6px 8px 6px 10px;border-bottom:.5px solid rgba(255,255,255,0.09);cursor:grab;}
+  #srcMon.smdrag .smhead{cursor:grabbing;}
+  #srcMon .smttl{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-dim);flex-shrink:0;}
+  #srcMon .smname{flex:1;min-width:0;font-size:11px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  #srcMon .smx{width:20px;height:20px;line-height:18px;text-align:center;border:none;border-radius:2px;background:transparent;color:var(--ink-dim);font-size:15px;cursor:pointer;padding:0;flex-shrink:0;}
+  #srcMon .smx:hover{background:rgba(255,255,255,0.08);color:var(--ink);}
+  /* la imagen ES el asa de arrastre: se agarra el fotograma y se suelta en la pista, como en Premiere */
+  #srcMon .smpic{position:relative;background:#000;overflow:hidden;cursor:grab;}
+  #srcMon .smpic video,#srcMon .smpic canvas,#srcMon .smpic img{width:100%;height:100%;display:block;object-fit:contain;}
+  #srcMon .smpic .smhint{position:absolute;left:0;right:0;bottom:0;padding:5px 8px;font-size:10px;color:rgba(255,255,255,0.62);
+    background:linear-gradient(transparent,rgba(0,0,0,0.72));pointer-events:none;opacity:0;transition:opacity .15s;}
+  #srcMon .smpic:hover .smhint{opacity:1;}
+  /* barra de recorrido: el tramo marcado se ve encendido y lo de fuera, apagado */
+  #srcMon .smbar{position:relative;height:22px;margin:7px 10px 0;background:var(--s0);border-radius:2px;cursor:pointer;}
+  #srcMon .smsel{position:absolute;top:0;bottom:0;background:rgba(180,186,193,0.13);border-left:1.5px solid var(--ink-2);border-right:1.5px solid var(--ink-2);}
+  #srcMon .smph{position:absolute;top:-2px;bottom:-2px;width:1px;background:var(--ink);pointer-events:none;}
+  #srcMon .smph::after{content:"";position:absolute;top:-3px;left:-4px;border-left:4.5px solid transparent;border-right:4.5px solid transparent;border-top:5px solid var(--ink);}
+  #srcMon .smh{position:absolute;top:0;bottom:0;width:9px;cursor:ew-resize;}
+  #srcMon .smh::before{content:"";position:absolute;top:0;bottom:0;left:3px;width:3px;background:rgba(180,186,193,0.55);border-radius:1px;}
+  #srcMon .smtrans{display:flex;align-items:center;gap:7px;padding:7px 10px 9px;}
+  #srcMon .smbtn{height:22px;min-width:24px;padding:0 7px;border:.5px solid rgba(255,255,255,0.14);border-radius:2px;background:var(--s1);color:var(--ink-2);font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:4px;}
+  #srcMon .smbtn:hover{background:var(--s2);color:var(--ink);}
+  #srcMon .smbtn.pri{background:var(--s2);color:var(--ink);}
+  #srcMon .smnum{font:400 11px ui-monospace,monospace;font-variant-numeric:tabular-nums;color:var(--ink-2);white-space:nowrap;}
+  #srcMon .smnum b{color:var(--ink);font-weight:400;}
+  #srcMon .smgrip{position:absolute;right:0;bottom:0;width:15px;height:15px;cursor:nwse-resize;}
+  #srcMon .smgrip::after{content:"";position:absolute;right:3px;bottom:3px;width:7px;height:7px;border-right:1.5px solid rgba(255,255,255,0.28);border-bottom:1.5px solid rgba(255,255,255,0.28);}
 
   /* status bar */
   /* [AUDITORÍA Rev1 · §7] 24→22px, superficie de panel (#1B1B1B) y borde superior claro, como el prototipo.
@@ -1233,7 +1264,7 @@
         <div id="insGroup" style="display:none;"></div>
         <div id="insCtl" style="display:none;">
           <div id="selColorBar" title="Clip / track color — click to change" style="height:4px;width:100%;flex-shrink:0;cursor:pointer;background:var(--s2);"></div>
-          <div class="selhead"><div class="selthumb" id="selThumb"></div><div style="flex:1;min-width:0;"><div class="selname" id="selName">—</div><div class="selmeta" id="selMeta">—</div></div></div>
+          <div class="selhead"><div class="selthumb" id="selThumb"></div><div style="flex:1;min-width:0;"><div class="selname" id="selName">—</div><div class="selmeta" id="selMeta">—</div></div><button class="mbtn" id="selSrcMon" type="button" style="height:22px;padding:0 8px;font-size:11px;flex-shrink:0;" title="Open this clip's source in the player">▶ Source</button></div>
           <div id="grpChipHost"></div>
           <button class="sechead" id="secTf" data-sec="tf"><span style="color:var(--ink-dim);display:flex;"><i class="ic" data-ico="chevDown"></i></span><span class="t">Transform</span><span class="ln"></span></button>
           <div id="tfRows"></div>

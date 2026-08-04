@@ -2919,7 +2919,7 @@ function makeMediaItem(m){
       ${m.kind==='video'?`<span class="pdot" data-mid="${m.id}" title="${m.proxyReady?T('Proxy ready','Proxy listo'):T('No proxy yet','Sin proxy aún')}" style="width:8px;height:8px;border-radius:50%;flex-shrink:0;background:${m.proxyReady?'#8A9199':'#5E646C'}"></span>`:''}
       ${isNdi?`<span class="pdot ndilive${m._ndiLive?' on':''}" title="${T('Live NDI','NDI en vivo')}" style="width:8px;height:8px;border-radius:50%;flex-shrink:0;background:${m._ndiLive?'#E8EAED':'#5E646C'}"></span>`:''}
       <span class="mdot" style="background:${m.color}"></span>`;
-    d.addEventListener('dblclick',()=>{ if(_composeDrop){ _composeDrop([m.id]); return; } /* [R248] con la composición abierta el doble clic la alimenta a ELLA: si no, soltaría un clip en la línea de tiempo por detrás del diálogo */ if(seq)openSeq(m.id); else addClip(m); });
+    d.addEventListener('dblclick',()=>{ if(_composeDrop){ _composeDrop([m.id]); return; } /* [R248] con la composición abierta el doble clic la alimenta a ELLA */ if(seq)openSeq(m.id); else openSourceMonitor(m); }); // [R249] modelo Premiere: el doble clic ABRE el material en el monitor de origen, no lo suelta en la línea de tiempo (para eso se arrastra)
     d.addEventListener('pointerdown',e=>{ if(e.button===0){ const multi=e.shiftKey||e.ctrlKey||e.metaKey; if(multi||!selectedMediaIds().includes(m.id))selectMedia(m.id,e); if(!multi)startMediaDrag(e,m); } }); // plain press on an ALREADY-selected item keeps the multi-selection → you can drag the whole selection to a folder (R88 audit)
     d.addEventListener('contextmenu',e=>{ if(!selectedMediaIds().includes(m.id))selectMedia(m.id); openMediaCtx(e,m); }); // keep an existing multi-selection for the menu
     { const nmEl=d.querySelector('.mname'); if(nmEl)nmEl.addEventListener('dblclick',e=>{ e.stopPropagation(); renameMediaInline(m,nmEl); }); } // double-click the name → rename in place
@@ -2990,7 +2990,7 @@ function makeMediaTile(m){ const seq=isSeqMedia(m), isNdi=(m.kind==='ndi'||m.kin
   const px=(m.kind==='video'&&!m.proxyReady&&m.proxyPct>0)?`<div class="tpbar"><i style="width:${m.proxyPct}%"></i></div>`:'';
   const tbg=isAdj?'repeating-linear-gradient(45deg,rgba(180,186,193,0.30) 0 9px,rgba(180,186,193,0.10) 9px 18px)':(m.thumb?`url(${m.thumb})`:'none');
   d.innerHTML=`<div class="tthumb${seq?' mseq':''}" style="background-image:${tbg};"><span class="tdur">${dur}</span>${m.kind==='video'&&m.proxyReady?'<span class="tprox">⚡</span>':''}${px}</div><div class="tlbl" style="border-top:2px solid ${m.color};">${m.name}</div>`;
-  d.addEventListener('dblclick',()=>{ if(_composeDrop){ _composeDrop([m.id]); return; } /* [R248] con la composición abierta el doble clic la alimenta a ELLA: si no, soltaría un clip en la línea de tiempo por detrás del diálogo */ if(seq)openSeq(m.id); else addClip(m); });
+  d.addEventListener('dblclick',()=>{ if(_composeDrop){ _composeDrop([m.id]); return; } /* [R248] con la composición abierta el doble clic la alimenta a ELLA */ if(seq)openSeq(m.id); else openSourceMonitor(m); }); // [R249] modelo Premiere: el doble clic ABRE el material en el monitor de origen, no lo suelta en la línea de tiempo (para eso se arrastra)
   d.addEventListener('pointerdown',e=>{ if(e.button===0){ const multi=e.shiftKey||e.ctrlKey||e.metaKey; if(multi||!selectedMediaIds().includes(m.id))selectMedia(m.id,e); if(!multi)startMediaDrag(e,m); } }); // press on an already-selected tile keeps the multi-selection (drag the whole set)
   d.addEventListener('contextmenu',e=>{ if(!selectedMediaIds().includes(m.id))selectMedia(m.id); openMediaCtx(e,m); });
   { const lblEl=d.querySelector('.tlbl'); if(lblEl)lblEl.addEventListener('dblclick',e=>{ e.stopPropagation(); renameMediaInline(m,lblEl); }); } // double-click the label → rename in place
@@ -3176,7 +3176,7 @@ function makeClip(m,lane,start,props,extra){
        propia secuencia, no un parche. Los demás tipos de medio no cambian. */
     fadeIn:0,fadeOut:0,props:Object.assign({az:0,el:35,size:55,rot:0,spin:0,mirror:false,opacity:100,blur:0,feather:0,crop:0,mask:'none',blend:'normal',exposure:0,contrast:0,saturation:0,temperature:0,tint:0,glow:0,chroma:0,react:'none',reactAmt:60,fulldome:isSeqMedia(m),fisheye:false,fisheyeAmt:60,equirect:(!isFlat()&&!isSeqMedia(m)&&pareceEquirect(m)),eqPitch:0,/* [F7 fase 2] un 2:1 grande arranca como panorama; sólo en secuencias de domo, donde equirect significa algo */blackKey:false,blackKeyAmt:15,blackKeySoft:30,warp:'patch',secAz:60,secEl:30,volume:100,x:0,y:0,scale:100,lut:null,lutMix:100},props||{}),kf:{},fx:[]}, extra||{});
 }
-function addClip(m,lane,start){
+function addClip(m,lane,start,rango){ // [R249] `rango` = {inP,dur} del monitor de origen; sin él, el clip entero, como siempre
   if(isSeqMedia(m)&&(m.id===state.activeSeqId||seqReaches(m.id,state.activeSeqId))){ flashStatus(T("Can't nest a sequence inside itself (would create a loop)",'No se puede anidar una secuencia que crearía un bucle'),'err'); return; } // [R94-UT3·U-21]
   if(m.kind==='adjust'){ pushUndo(); // adjustment media → an adjustment CLIP (its FX chain — colour AND audio-reactive — affects every layer below it)
     if(lane==null){ lane=state.lanes.findIndex(l=>l.kind==='video'); if(lane<0){ const n=state.lanes.filter(l=>l.kind==='video').length+1; state.lanes.push({id:uid(),name:'Video '+n,tag:'V'+n,kind:'video'}); lane=state.lanes.length-1; } }
@@ -3187,7 +3187,7 @@ function addClip(m,lane,start){
   if(lane==null){ const want=m.kind==='audio'?'audio':'video'; lane=state.lanes.findIndex(l=>l.kind===want);
     if(lane<0){ const n=state.lanes.filter(l=>l.kind===want).length+1; state.lanes.push({id:uid(),name:(want==='audio'?'Audio ':'Video ')+n,tag:(want==='audio'?'A':'V')+n,kind:want}); lane=state.lanes.length-1; } } // auto-create a track of the right kind (dragging audio in with no audio track makes one)
   start=(start!=null)?start:state.playhead;
-  const c=makeClip(m,lane,start);
+  const c=makeClip(m,lane,start,null,(rango&&rango.dur>0)?{inP:rango.inP||0,dur:rango.dur}:null); // [R249] el trozo marcado, no el archivo entero
   state.clips.push(c); state.selId=c.id; state.selIds=[c.id]; state.selGroupId=null; clearMediaSel();
   if(_demoBatch)return c; // [R228] lote de construcción del demo: el estado ya está mutado, el repintado (y el aviso 2:1 / el audio enlazado, que un demo de formas y texto no tiene) lo hace `_demoFinish` de una vez
   renderTimeline(); renderInspector(); render(); updStatus(); // adding to the timeline hands Delete-priority to the new clip (R86)
@@ -5201,7 +5201,11 @@ function applyToolCursor(){ const cur={select:'default',trackselect:'e-resize',h
 
 /* media drag to timeline */
 let _composeDrop=null; // [R248] fijado mientras el dialogo de composicion esta abierto: recibe los medios que se le suelten
-function startMediaDrag(e,m){ const ghost=e.currentTarget.cloneNode(true);
+/* [R249] `rango` llega desde el monitor de origen. Cuando no llega, se mira si el MEDIO tiene marcas: son suyas,
+   así que un archivo ya marcado entra recortado se arrastre desde donde se arrastre — que es como se porta
+   Premiere. Sin marcas, `srcRange` devuelve null y todo sigue exactamente igual que antes. */
+function startMediaDrag(e,m,rango){ const ghost=e.currentTarget.cloneNode(true);
+  if(rango===undefined)rango=srcRange(m);
   /* [R248] con el diálogo de composición abierto el fantasma tiene que ir POR ENCIMA del velo (z 9600), o se
      arrastra a ciegas por detrás. Fuera de ese caso se queda donde estaba. */
   ghost.style.cssText='position:fixed;pointer-events:none;z-index:'+(_composeDrop?9700:80)+';opacity:.85;width:200px;left:'+e.clientX+'px;top:'+e.clientY+'px;background:var(--s1);border-radius:2px;padding:6px;';document.body.appendChild(ghost);
@@ -5233,11 +5237,11 @@ function startMediaDrag(e,m){ const ghost=e.currentTarget.cloneNode(true);
       _clearDropFX(); const t=_dropTargetAt(ev); if(t)t.el.classList.add('dragover'); } };
   const up=ev=>{ window.removeEventListener('pointermove',mv);window.removeEventListener('pointerup',up); ghost.remove(); if(tlg)tlg.remove(); showSnap(null); _clearDropFX();
     const L=landing(ev); if(L){ // [M5] drop the whole selection: Ctrl = stack onto lanes below, default = side by side on the same lane
-      const ids=selectedMediaIds(); const sel=(ids.length>1&&ids.includes(m.id))?ids.map(mediaById).filter(x=>x&&(((x.kind==='audio')?'audio':'video')===wantKind)):null;
+      const ids=selectedMediaIds(); const sel=(ids.length>1&&ids.includes(m.id)&&!rango)?ids.map(mediaById).filter(x=>x&&(((x.kind==='audio')?'audio':'video')===wantKind)):null; // [R249] arrastrando DESDE el monitor se suelta ese medio y sólo ese, aunque el panel tenga varios elegidos
       const before=new Set(state.clips.map(x=>x.id)); // [R223] los clips recién soltados son los "movidos" del corte por solape (addClip no devuelve el clip)
-      if(sel&&sel.length>1){ if(ev.ctrlKey||ev.metaKey){ let li=L.li; for(const mm of sel){ while(li<state.lanes.length&&state.lanes[li]&&state.lanes[li].kind!==wantKind)li++; const target=(li<state.lanes.length)?li:null; addClip(mm,target,L.start); li=(target==null?state.lanes.length:li+1); } }
-        else { let start=L.start; for(const mm of sel){ addClip(mm,L.li,start); start+=(mm.dur||6); } } }
-      else addClip(m,L.li,L.start);
+      if(sel&&sel.length>1){ if(ev.ctrlKey||ev.metaKey){ let li=L.li; for(const mm of sel){ while(li<state.lanes.length&&state.lanes[li]&&state.lanes[li].kind!==wantKind)li++; const target=(li<state.lanes.length)?li:null; addClip(mm,target,L.start,srcRange(mm)); li=(target==null?state.lanes.length:li+1); } }
+        else { let start=L.start; for(const mm of sel){ const rr=srcRange(mm); addClip(mm,L.li,start,rr); start+=(rr?rr.dur:(mm.dur||6)); } } } // [R249] cada uno con SUS marcas, y el siguiente empieza donde acaba el anterior de verdad
+      else addClip(m,L.li,L.start,rango);
       cutOverlapsOnDrop(state.clips.filter(x=>!before.has(x.id)).map(x=>x.id)); // [R223] soltar sobre un clip existente = corte, igual que mover uno ya en la línea de tiempo
       renderTimeline(); render(); reschedAudio(); return; }
     { const t=_dropTargetAt(ev); if(t){ const ids=selectedMediaIds().includes(m.id)?selectedMediaIds():[m.id]; const dest=t.path||null; if(ids.some(id=>{const mm=mediaById(id);return mm&&(mm.folder||null)!==dest;}))moveMediaTo(ids,dest); return; } } // R88: dropped on a folder / back / grid bg → file the (multi-)selection there
@@ -5500,6 +5504,13 @@ function _renderInspectorMain(){
   const m=mediaById(c.mediaId);
   $('#selThumb').style.backgroundImage=m&&m.thumb?`url(${m.thumb})`:'none';
   $('#selName').textContent=c.name; $('#selMeta').textContent=(m?m.kind.toUpperCase():'')+' · '+fmtDur(c.dur);
+  /* [R249] Abrir la FUENTE de este clip en el monitor, con SU entrada y salida ya puestas: es el camino natural
+     para mirar qué más hay en el archivo del que salió este trozo. Sin fuente que recorrer (capa de ajuste, vivo)
+     el botón no aparece. */
+  { const sb=$('#selSrcMon');
+    if(sb){ const puede=!!m&&m.kind!=='adjust'&&m.kind!=='ndi'&&m.kind!=='spout';
+      sb.style.display=puede?'':'none'; sb.title=T("Open this clip's source in the player",'Abrir la fuente de este clip en el reproductor');
+      sb.onclick=puede?(()=>openSourceMonitor(m,{inP:c.inP||0,dur:c.dur})):null; } }
   { const cb=$('#selColorBar'); if(cb){ cb.style.background=clipTint(c,mediaById(c.mediaId)); cb.title=T('Click to set the clip color','Clic para elegir el color del clip'); cb.onclick=e=>openClipColorPopup(e.clientX,e.clientY); } } // the selected clip's OWN colour (click = per-clip colour picker)
   // group membership chip
   const chost=$('#grpChipHost'); if(chost){ const gg=c.groupId!=null?groupById(c.groupId):null;
@@ -8732,7 +8743,7 @@ let currentPath=null;
 function markDirty(){ state.dirty=true; projTitle(); raInvalidate(); ncTouch(); } // [R180] toda mutación pasa por aquí → es el único enganche que necesita la invalidación del caché de nests
 function currentTitle(){ return (currentPath&&IS_ELEC)?DSP.basename(currentPath).replace(/\.(isp|ise|rdome)$/i,''):T('Untitled project','Proyecto sin título'); }
 function projTitle(){ const md=(activeSeq()&&activeSeq().mode)||state.seqMode; const pre=md==='flat'?'2D':md==='room'?T('360 Room','Sala 360'):T('Immersive Dome','Domo inmersivo'); const t=$('#projTitle'); if(t)t.textContent=pre+' · '+currentTitle()+(state.dirty?' *':''); if(IS_ELEC){try{DSP.setTitle('Immersive Studio Pro — '+currentTitle()+(state.dirty?' *':''));}catch(e){} try{if(DSP.setUiState)DSP.setUiState({dirty:!!state.dirty,lang:state.lang});}catch(e){}} }
-function serMedia(m){ return {id:m.id,name:m.name,kind:m.kind,w:m.w,h:m.h,mode:m.mode||null,cov:m.cov||null,room:m.room||null,roomFloorOf:m.roomFloorOf||null,dur:m.dur,fps:m.fps,color:m.color,path:m.path||null,fsize:m.fsize||0,folder:m.folder||null,framePaths:m.framePaths||null,ndiSource:m.ndiSource||null,spoutSource:m.spoutSource||null,/* [V3] serMedia es una LISTA BLANCA: sin esta línea el .isp guardaba el medio Spout sin su emisor y al reabrir enganchaba al que estuviera activo — parecía funcionar por casualidad */
+function serMedia(m){ return {id:m.id,name:m.name,kind:m.kind,w:m.w,h:m.h,mode:m.mode||null,cov:m.cov||null,room:m.room||null,roomFloorOf:m.roomFloorOf||null,dur:m.dur,fps:m.fps,color:m.color,path:m.path||null,fsize:m.fsize||0,folder:m.folder||null,framePaths:m.framePaths||null,srcIn:(m.srcIn!=null?m.srcIn:null),srcOut:(m.srcOut!=null?m.srcOut:null),/* [R249] las marcas del monitor son del MATERIAL, no de la ventana: viajan con el proyecto */ndiSource:m.ndiSource||null,spoutSource:m.spoutSource||null,/* [V3] serMedia es una LISTA BLANCA: sin esta línea el .isp guardaba el medio Spout sin su emisor y al reabrir enganchaba al que estuviera activo — parecía funcionar por casualidad */
   text:m.text,tfontSize:m.tfontSize,tweight:m.tweight,tfont:m.tfont,talign:m.talign,tlineH:m.tlineH,titalic:m.titalic,tcolor:m.tcolor,tbg:m.tbg,tstroke:m.tstroke,tstrokeColor:m.tstrokeColor,
   shape:m.shape,fill:m.fill,stroke:m.stroke,strokeW:m.strokeW,sw:m.sw,sh:m.sh,
   ncPath:(m.kind==='nest'?(m.ncPath||null):null), ncSig:(m.kind==='nest'?(m.ncSig||null):null), ncW:(m.kind==='nest'?(m.ncW||null):null), ncH:(m.kind==='nest'?(m.ncH||null):null), ncFps:(m.kind==='nest'?(m.ncFps||null):null), /* [R180] el caché sobrevive al cierre: al reabrir, ncReattach compara la firma y decide si sigue valiendo */
@@ -10564,6 +10575,7 @@ window.addEventListener('keydown',e=>{ const tag=(e.target.tagName||'').toLowerC
   if(e.key==='Escape'&&document.body.classList.contains('perfmode')&&!document.querySelector('.overlay')){ e.preventDefault(); setPerfMode(false); return; } // [V2] Esc leaves Full Performance (unless a modal is open — that Esc closes the modal)
   if(e.key==='Escape'&&maskEditClip()&&!document.querySelector('.overlay')){ e.preventDefault(); endMaskEdit(); return; } // [R226·I3] Esc cierra la edición de máscara en el lienzo, antes de que Esc limpie la selección
   if(tag==='input'||tag==='textarea'||e.target.isContentEditable)return; // typing in a text field — leave the keys to the field
+  if(_srcMon&&_srcMon.el.contains(e.target))return; // [R249] el monitor de origen NO es un .overlay (es flotante y no bloquea), así que se excluye aquí: con el foco dentro, I/O/Espacio son suyos
   if(tag==='select'&&!mod&&e.code!=='Space')return; // a focused <select> keeps its own nav keys, but Ctrl/Cmd shortcuts + Space (play) still fire
   if(document.querySelector('.overlay')||document.getElementById('exOv'))return; // [R212] a modal (Export/Compose/Prefs/New-sequence/palette) is open — don't fire timeline shortcuts behind it (Escape still handled separately). The Export sheet uses class "exs-scrim" (not "overlay") and is fully removed from the DOM on close, so an id check alone is safe here — Ctrl+Z/Supr while exporting used to corrupt the render.
   if(e.key==='F1'||e.key==='?'){ e.preventDefault(); openPalette(); return; }
@@ -11554,6 +11566,205 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){ const
     else { if(scopeClip)opts._scope={inP:scopeClip.inP||0, dur:scopeClip.dur, start:scopeClip.start, speed:scopeClip.speed||1}; createComposition(opts); }
     cerrarComp(); };
 }
+
+/* ===================== [R249] MONITOR DE ORIGEN ==========================================================
+   El reproductor de clip de Premiere, que faltaba. Doble clic en un medio abre una ventana FLOTANTE donde se ve el
+   material de principio a fin, se marcan entrada y salida y se arrastra a la línea de tiempo SÓLO ese trozo. Sin
+   él, para meter veinte segundos de un archivo de veinte minutos había que soltar los veinte minutos y recortar.
+
+   NO es un modal, y eso es deliberado: se mira el material mientras se sigue trabajando con el editor, así que ni
+   velo ni bloqueo. Se cierra con su × o con Escape cuando tiene el foco.
+
+   Las marcas viven en el MEDIO (`srcIn`/`srcOut`) y viajan en el `.isp`, como en Premiere: son del material, no de
+   la ventana. De ahí que ARRASTRAR DESDE EL PANEL de Medios respete las mismas marcas — una vez marcado un
+   archivo, todo lo que salga de él sale ya recortado, se pase por la ventana o no. */
+let _srcMon=null;
+const SM_MIN_W=320, SM_MAX_W=980;
+function smAspect(m){ const w=(m&&m.w)||16, h=(m&&m.h)||9; return (w>1&&h>1)?(w/h):(16/9); }
+function smConTransporte(m){ return !!m&&(m.kind==='video'||m.kind==='audio'||m.kind==='sequence'); } // los que duran algo
+/* El rango marcado de un medio, saneado. SIN marcas devuelve null = «el archivo entero», que es exactamente lo que
+   se hacía antes de R249. Por eso enchufarlo en el arrastre del panel no le cambia nada a quien no haya marcado. */
+function srcRange(m){ if(!m)return null; const d=Math.max(0,m.dur||0); if(!(d>0))return null;
+  const a=Math.max(0,Math.min(d,(m.srcIn!=null?m.srcIn:0))), b=Math.max(0,Math.min(d,(m.srcOut!=null?m.srcOut:d)));
+  if(b-a<0.04)return null;                                    // marcas cruzadas o pegadas → como si no hubiera
+  if(a<=0.0005&&b>=d-0.0005)return null;                      // el archivo entero → nada que recortar
+  return {inP:a, dur:b-a}; }
+
+function closeSourceMonitor(){ const mon=_srcMon; if(!mon)return; smPause();
+  if(mon.raf)cancelAnimationFrame(mon.raf);
+  if(mon.vid){ try{ mon.vid.pause(); mon.vid.removeAttribute('src'); mon.vid.load(); }catch(e){} } // suelta el decodificador: si no, un 4K se queda ocupando memoria con la ventana cerrada
+  window.removeEventListener('keydown',mon.onKey,true);
+  mon.el.remove(); _srcMon=null; }
+
+/* `pre` = rango con el que abrir (el del clip, cuando se abre desde el inspector). Sin él manda lo que el medio ya
+   tenga marcado. Abrir dos veces reutiliza la ventana en vez de apilar copias. */
+function openSourceMonitor(m,pre){ if(!m)return;
+  if(m.kind==='ndi'||m.kind==='spout'){ flashStatus(T('Live sources have nothing to scrub','Las fuentes en vivo no tienen nada que recorrer')); return; }
+  if(_srcMon)closeSourceMonitor();
+  const d=Math.max(0.04,m.dur||0), conT=smConTransporte(m);
+  if(pre&&pre.dur>0){ m.srcIn=Math.max(0,pre.inP||0); m.srcOut=Math.min(d,(pre.inP||0)+pre.dur); }
+  if(m.srcIn==null)m.srcIn=0; if(m.srcOut==null)m.srcOut=d;
+  const el=document.createElement('div'); el.id='srcMon'; el.tabIndex=0;
+  const W=Math.max(SM_MIN_W,Math.min(SM_MAX_W,_srcMonW||480));
+  el.style.width=W+'px';
+  el.innerHTML=`<div class="smhead"><span class="smttl">${T('Source','Origen')}</span><span class="smname"></span><button class="smx" type="button" title="${T('Close','Cerrar')}">×</button></div>
+    <div class="smpic"><div class="smhint">${T('Drag the picture onto a track','Arrastra la imagen a una pista')}</div></div>
+    <div class="smbar"><div class="smsel"></div><div class="smph"></div><div class="smh smhi"></div><div class="smh smho"></div></div>
+    <div class="smtrans">
+      <button class="smbtn" data-a="in" title="${T('Go to In','Ir a la entrada')}">⇤</button>
+      <button class="smbtn pri" data-a="play" style="min-width:30px;">▶</button>
+      <span class="smnum" data-n="t"></span>
+      <span style="flex:1;"></span>
+      <button class="smbtn" data-a="mi" title="${T('Mark In','Marcar entrada')}">[</button>
+      <button class="smbtn" data-a="mo" title="${T('Mark Out','Marcar salida')}">]</button>
+      <button class="smbtn" data-a="clr" title="${T('Clear marks','Quitar marcas')}">⌫</button>
+      <span class="smnum" data-n="r"></span>
+      <button class="smbtn" data-a="ins" title="${T('Insert the marked range at the playhead','Insertar el tramo marcado en el cabezal')}">${T('Insert','Insertar')}</button>
+    </div><div class="smgrip"></div>`;
+  document.body.appendChild(el);
+  const mon=_srcMon={ m, el, t:(m.srcIn||0), playing:false,
+    pic:el.querySelector('.smpic'), bar:el.querySelector('.smbar'), sel:el.querySelector('.smsel'),
+    ph:el.querySelector('.smph'), hIn:el.querySelector('.smhi'), hOut:el.querySelector('.smho'),
+    tnum:el.querySelector('[data-n="t"]'), rnum:el.querySelector('[data-n="r"]'), conT };
+  el.querySelector('.smname').textContent=m.name;
+  if(!conT){ el.querySelector('.smbar').style.display='none'; el.querySelector('.smtrans').style.display='none'; } // una foto no tiene nada que recorrer: sólo se mira y se arrastra
+  /* posición: donde se dejó la última vez, y si no, arrimada al borde derecho sobre la línea de tiempo */
+  const H0=Math.round(W/smAspect(m));
+  el.style.left=(_srcMonX!=null?_srcMonX:Math.max(12,innerWidth-W-26))+'px';
+  el.style.top =(_srcMonY!=null?_srcMonY:Math.max(12,Math.round(innerHeight*0.16)))+'px';
+  smSizePic(W);
+  smMontaPic();
+  smPinta();
+  /* --- cabecera: mover la ventana --- */
+  el.querySelector('.smhead').addEventListener('pointerdown',e=>{ if(e.target.closest('.smx'))return; e.preventDefault();
+    const r=el.getBoundingClientRect(), dx=e.clientX-r.left, dy=e.clientY-r.top; el.classList.add('smdrag');
+    const mv=ev=>{ _srcMonX=Math.max(-40,Math.min(innerWidth-80,ev.clientX-dx)); _srcMonY=Math.max(0,Math.min(innerHeight-40,ev.clientY-dy));
+      el.style.left=_srcMonX+'px'; el.style.top=_srcMonY+'px'; };
+    const up=()=>{ window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up); el.classList.remove('smdrag'); };
+    window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); });
+  /* --- esquina: redimensionar (un clip de 20 minutos se agradece grande) --- */
+  el.querySelector('.smgrip').addEventListener('pointerdown',e=>{ e.preventDefault();
+    const x0=e.clientX, w0=el.getBoundingClientRect().width;
+    const mv=ev=>{ const w=Math.max(SM_MIN_W,Math.min(SM_MAX_W,w0+(ev.clientX-x0))); _srcMonW=w; el.style.width=w+'px'; smSizePic(w); smPinta(); };
+    const up=()=>{ window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up); };
+    window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); });
+  el.querySelector('.smx').onclick=closeSourceMonitor;
+  /* --- barra: recorrer, y las dos asas de marca --- */
+  const tAt=ev=>{ const r=mon.bar.getBoundingClientRect(); return Math.max(0,Math.min(1,(ev.clientX-r.left)/Math.max(1,r.width)))*Math.max(0.04,mon.m.dur||0); };
+  mon.bar.addEventListener('pointerdown',ev=>{ if(ev.target.classList.contains('smh'))return; ev.preventDefault();
+    smSeek(tAt(ev));
+    const mv=e2=>smSeek(tAt(e2)); const up=()=>{ window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up); };
+    window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); });
+  const asa=(nodo,cual)=>nodo.addEventListener('pointerdown',ev=>{ ev.preventDefault(); ev.stopPropagation();
+    const mv=e2=>{ const t=tAt(e2), d2=Math.max(0.04,mon.m.dur||0);
+      if(cual==='in') mon.m.srcIn=Math.max(0,Math.min(t,(mon.m.srcOut!=null?mon.m.srcOut:d2)-0.04));
+      else            mon.m.srcOut=Math.min(d2,Math.max(t,(mon.m.srcIn!=null?mon.m.srcIn:0)+0.04));
+      smSeek(cual==='in'?mon.m.srcIn:mon.m.srcOut); };
+    const up=()=>{ window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up); markDirty(); renderMedia(); };
+    window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); });
+  asa(mon.hIn,'in'); asa(mon.hOut,'out');
+  /* --- transporte --- */
+  el.querySelectorAll('.smbtn').forEach(b=>b.onclick=()=>smAccion(b.dataset.a));
+  /* --- la imagen es el asa de arrastre; un clic sin mover es play/pausa --- */
+  mon.pic.addEventListener('pointerdown',ev=>{ if(ev.button!==0)return; ev.preventDefault();
+    const x0=ev.clientX, y0=ev.clientY; let arrancado=false;
+    const mv=e2=>{ if(arrancado)return; if(Math.abs(e2.clientX-x0)+Math.abs(e2.clientY-y0)<5)return; arrancado=true;
+      window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up);
+      startMediaDrag({clientX:e2.clientX, clientY:e2.clientY, currentTarget:mon.pic}, mon.m, srcRange(mon.m)); };
+    const up=()=>{ window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up); if(!arrancado&&mon.conT)smAccion('play'); };
+    window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); });
+  /* --- teclas, sólo mientras la ventana tiene el foco (ver la guarda del atajo global) --- */
+  mon.onKey=e=>{ if(!el.contains(document.activeElement))return;
+    const k=e.key.toLowerCase();
+    if(k==='escape'){ e.preventDefault(); e.stopPropagation(); closeSourceMonitor(); return; }
+    if(!mon.conT)return;
+    if(k==='i'){ e.preventDefault(); e.stopPropagation(); smAccion('mi'); }
+    else if(k==='o'){ e.preventDefault(); e.stopPropagation(); smAccion('mo'); }
+    else if(e.code==='Space'){ e.preventDefault(); e.stopPropagation(); smAccion('play'); } };
+  window.addEventListener('keydown',mon.onKey,true);
+  el.focus();
+  return mon; }
+let _srcMonX=null,_srcMonY=null,_srcMonW=480; // la ventana recuerda dónde y de qué tamaño la dejaste (dentro de la sesión)
+
+function smSizePic(W){ const mon=_srcMon; if(!mon)return;
+  const a=(mon.m.kind==='audio')?(16/5):smAspect(mon.m);          // el audio no tiene imagen: una tira de onda basta
+  mon.pic.style.height=Math.round(Math.max(90,W/a))+'px'; }
+
+function smMontaPic(){ const mon=_srcMon, m=mon.m, pic=mon.pic;
+  const hint=pic.querySelector('.smhint');
+  if(m.kind==='video'){ const v=document.createElement('video'); v.preload='auto'; v.playsInline=true; v.src=_vinstUrl(m)||'';
+    v.addEventListener('loadedmetadata',()=>{ if(!(m.dur>0)&&v.duration){ m.dur=v.duration; if(m.srcOut==null)m.srcOut=v.duration; } smPinta(); });
+    v.addEventListener('ended',()=>smPause());
+    pic.insertBefore(v,hint); mon.vid=v; try{ v.currentTime=mon.t; }catch(e){} }
+  else { const cv=document.createElement('canvas'); cv.width=960; cv.height=Math.max(120,Math.round(960/((m.kind==='audio')?(16/5):smAspect(m))));
+    pic.insertBefore(cv,hint); mon.cv=cv; }
+  if(!smConTransporte(m)&&hint)hint.textContent=T('Drag onto a track','Arrastra a una pista'); }
+
+/* Pinta la imagen de los tipos que no lleva un <video>: secuencia de imágenes (por índice de fotograma), audio
+   (la onda, con el tramo marcado encendido) y las fijas (foto/texto/forma), que se dibujan una vez. */
+function smPintaLienzo(){ const mon=_srcMon, m=mon.m, cv=mon.cv; if(!cv)return; const x=cv.getContext('2d');
+  const W=cv.width, H=cv.height; x.clearRect(0,0,W,H);
+  if(m.kind==='sequence'&&m.frames&&m.frames.length){ const i=Math.max(0,Math.min(m.frames.length-1,Math.floor(mon.t*(m.fps||24))));
+    const f=m.frames[i]; if(f){ const a=(f.naturalWidth||f.width||16)/(f.naturalHeight||f.height||9); let w=W,h=W/a; if(h>H){h=H;w=H*a;} x.drawImage(f,(W-w)/2,(H-h)/2,w,h); } return; }
+  if(m.kind==='audio'){ const pk=m.peaks||[]; const d=Math.max(0.04,m.dur||0);
+    const a=(m.srcIn!=null?m.srcIn:0)/d*W, b=(m.srcOut!=null?m.srcOut:d)/d*W;
+    x.fillStyle='#0E1013'; x.fillRect(0,0,W,H);
+    x.fillStyle='rgba(155,184,255,0.10)'; x.fillRect(a,0,Math.max(0,b-a),H);
+    x.strokeStyle=UI.ink2; x.lineWidth=1; x.beginPath();
+    for(let i=0;i<W;i++){ const p=pk.length?pk[Math.floor(i/W*pk.length)]||0:0; const h=Math.max(1,p*H*0.46);
+      x.moveTo(i+0.5,H/2-h); x.lineTo(i+0.5,H/2+h); }
+    x.stroke(); return; }
+  const src=m.el||m.originalEl; if(src&&(src.width||src.naturalWidth)){ const a=smAspect(m); let w=W,h=W/a; if(h>H){h=H;w=H*a;}
+    try{ x.drawImage(src,(W-w)/2,(H-h)/2,w,h); }catch(e){} } }
+
+function smPinta(){ const mon=_srcMon; if(!mon)return; const m=mon.m, d=Math.max(0.04,m.dur||0);
+  const a=Math.max(0,Math.min(d,m.srcIn!=null?m.srcIn:0)), b=Math.max(0,Math.min(d,m.srcOut!=null?m.srcOut:d));
+  const pc=v=>(v/d*100)+'%';
+  mon.sel.style.left=pc(a); mon.sel.style.width=pc(Math.max(0,b-a));
+  mon.hIn.style.left='calc('+pc(a)+' - 4px)'; mon.hOut.style.left='calc('+pc(b)+' - 5px)';
+  mon.ph.style.left=pc(Math.max(0,Math.min(d,mon.t)));
+  if(mon.tnum)mon.tnum.innerHTML='<b>'+fmtTime(mon.t)+'</b> / '+fmtTime(d);
+  if(mon.rnum)mon.rnum.textContent=(b-a<d-0.001? T('Range ','Rango ')+fmtTime(b-a) : T('Full clip','Clip entero'));
+  smPintaLienzo(); }
+
+function smSeek(t){ const mon=_srcMon; if(!mon)return; const d=Math.max(0.04,mon.m.dur||0);
+  mon.t=Math.max(0,Math.min(d,t||0));
+  if(mon.vid){ try{ mon.vid.currentTime=mon.t; }catch(e){} }
+  if(mon.playing&&mon.m.kind==='audio'){ smPause(); smPlay(); }   // WebAudio no admite reposicionar una fuente en marcha: se relanza
+  smPinta(); }
+
+function smPlay(){ const mon=_srcMon; if(!mon||!mon.conT)return; const m=mon.m, d=Math.max(0.04,m.dur||0);
+  if(mon.t>=d-0.02)mon.t=(m.srcIn||0);                            // al final del todo, play vuelve a la entrada
+  if(m.kind==='video'&&mon.vid){ try{ mon.vid.currentTime=mon.t; }catch(e){} mon.vid.play().catch(()=>{}); }
+  else if(m.kind==='audio'&&m.buffer){ const ctx=ACTX(); const s=ctx.createBufferSource(); s.buffer=m.buffer;
+    s.connect(masterGain||ctx.destination); try{ s.start(0,mon.t); }catch(e){}
+    mon.asrc=s; mon.abase=ctx.currentTime; mon.at0=mon.t; }
+  mon.playing=true; mon.last=performance.now();
+  const btn=mon.el.querySelector('[data-a="play"]'); if(btn)btn.textContent='❚❚';
+  if(mon.raf)cancelAnimationFrame(mon.raf); mon.raf=requestAnimationFrame(smTick); }
+
+function smPause(){ const mon=_srcMon; if(!mon)return;
+  if(mon.vid){ try{ mon.vid.pause(); }catch(e){} }
+  if(mon.asrc){ try{ mon.asrc.stop(); }catch(e){} mon.asrc=null; }
+  mon.playing=false; if(mon.raf){ cancelAnimationFrame(mon.raf); mon.raf=null; }
+  const btn=mon.el.querySelector('[data-a="play"]'); if(btn)btn.textContent='▶'; }
+
+function smTick(){ const mon=_srcMon; if(!mon||!mon.playing)return; const m=mon.m, d=Math.max(0.04,m.dur||0);
+  if(m.kind==='video'&&mon.vid) mon.t=mon.vid.currentTime;
+  else if(m.kind==='audio'&&mon.asrc) mon.t=mon.at0+(ACTX().currentTime-mon.abase);
+  else { const now=performance.now(); mon.t+=Math.min(0.25,(now-mon.last)/1000); mon.last=now; }
+  if(mon.t>=d){ mon.t=d; smPinta(); smPause(); return; }
+  smPinta(); mon.raf=requestAnimationFrame(smTick); }
+
+function smAccion(a){ const mon=_srcMon; if(!mon)return; const m=mon.m, d=Math.max(0.04,m.dur||0);
+  if(a==='play'){ mon.playing?smPause():smPlay(); return; }
+  if(a==='in'){ smSeek(m.srcIn||0); return; }
+  if(a==='mi'){ m.srcIn=Math.min(mon.t,(m.srcOut!=null?m.srcOut:d)-0.04); if(m.srcIn<0)m.srcIn=0; }
+  else if(a==='mo'){ m.srcOut=Math.max(mon.t,(m.srcIn!=null?m.srcIn:0)+0.04); if(m.srcOut>d)m.srcOut=d; }
+  else if(a==='clr'){ m.srcIn=0; m.srcOut=d; }
+  else if(a==='ins'){ const r=srcRange(m); addClip(m,null,state.playhead,r);
+    flashStatus(r?(T('Inserted ','Insertado ')+fmtTime(r.dur)):T('Inserted the whole clip','Insertado el clip entero')); return; }
+  markDirty(); renderMedia(); smPinta(); }
 
 /* ===================== I18N (apply language to static chrome) ===================== */
 function setLang(l){ state.lang=(l==='es')?'es':'en'; try{localStorage.setItem('domeProLang',state.lang);}catch(e){} try{if(IS_ELEC&&DSP.setUiState)DSP.setUiState({dirty:!!state.dirty,lang:state.lang});}catch(e){}
