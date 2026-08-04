@@ -38,7 +38,7 @@ function bootProyectoListo(){ if(!_bootEsperandoProyecto)return; _bootEsperandoP
      sobre una ventana que todavía se está mostrando. */
   if(_autoguardadoPendiente){ const ruta=_autoguardadoPendiente; _autoguardadoPendiente=null;
     setTimeout(()=>{ appConfirm(T('An autosave newer than this file exists (possible crash). Restore it?','Existe un autoguardado más reciente que este archivo (posible cierre inesperado). ¿Restaurarlo?'),
-      async ok=>{ if(!ok)return; try{ const txt=await DSP.readText(ruta); if(txt)loadProject(JSON.parse(txt)); }catch(e){ appAlert(T('Could not restore the autosave.','No se pudo restaurar el autoguardado.')); } },
+      async ok=>{ if(!ok)return; try{ const txt=await DSP.readText(ruta); if(txt)loadProject(JSON.parse(stripBom(txt))); }catch(e){ appAlert(T('Could not restore the autosave.','No se pudo restaurar el autoguardado.')); } },
       {ok:T('Restore','Restaurar'),cancel:T('Keep the file','Mantener el archivo')}); }, 700); } }
 function bootReveal(){
   if(_bootEsperandoProyecto)return;                    // hay un proyecto en marcha: el splash sigue, ya llamará bootProyectoListo
@@ -449,9 +449,16 @@ function compLimForRect(x0,y0,x1,y1){ const A=_compAspect, s=Math.min(2/A,2), Fx
    mapeo es exacto por construcción, sobre o falte lo que sobre o falte del redondeo.
    El resto de la casa (export, NDI, Spout, caché de nests) sigue en CUADRADO CON LETTERBOX. Son dos convenciones
    conviviendo a propósito: el `_ncSquare` de R180 depende de la vieja. */
+/* [R242·Aud-2.6] El driver recorta el viewport a MAX_VIEWPORT_DIMS EN SILENCIO. Con un lienzo de aspecto >512
+   (p. ej. 16000×20, sólo alcanzable tecleando una resolución absurda) el viewport de relleno pedía 51 200 px y
+   GL entregaba 32 767: `mstrU/mstrV` calculaban contra un viewport que no era el real y el contenido se
+   descolocaba. Se acota AQUÍ, replicando el clamp del driver (dimensiones sí, origen no — medido en la RTX
+   4060), para que cálculo y GL usen SIEMPRE los mismos números: el caso patológico degrada a submuestreo
+   consistente en vez de a un mapeo roto. En todo caso realista (≤ GL_MAXSIDE) es un no-op. */
+const GL_MAXVP=(()=>{ try{ const vd=gl.getParameter(gl.MAX_VIEWPORT_DIMS); return Math.max(4096,(vd&&vd[0])||16384); }catch(e){ return 16384; } })();
 function compFillVp(){ const A=_compAspect||1, s=Math.min(2/A,2), Fx=s*A/2, Fy=s/2;
   const vw=Math.max(1,Math.round(compW/Fx)), vh=Math.max(1,Math.round(compH/Fy));
-  return {x:Math.round(-(vw-compW)/2), y:Math.round(-(vh-compH)/2), w:vw, h:vh, Fx, Fy}; }
+  return {x:Math.round(-(vw-compW)/2), y:Math.round(-(vh-compH)/2), w:Math.min(vw,GL_MAXVP), h:Math.min(vh,GL_MAXVP), Fx, Fy}; }
 function mstrU(px,W){ W=Math.max(1,W||state.seqW||1); const V=compFillVp();
   return (V.x + V.w*0.5 + V.w*V.Fx*(px/W-0.5))/Math.max(1,compW); }
 function mstrV(py,H){ H=Math.max(1,H||state.seqH||1); const V=compFillVp();
@@ -1705,7 +1712,7 @@ function startNDI(res){ if(!ndiAvailable()){ appAlert(T('The NDI runtime is not 
   flashStatus(T('NDI output ON · ','Salida NDI activa · ')+res+'×'+res+' · '+_ndiFps+'fps'); }
 function stopNDI(){ const was=_ndiOn; _ndiOn=false; clearInterval(_ndiTimer); _ndiTimer=0; try{DSP.ndi.stop();}catch(e){} _closeNdiGL(); if(was){ try{ if(IS_ELEC&&DSP.powerSave)DSP.powerSave(false); }catch(e){} } const b=$('#ndiBtn'); if(b)b.classList.remove('on'); try{refreshOutputInd();}catch(e){} flashStatus(T('NDI output off','Salida NDI desactivada')); }
 function ndiMenu(x,y){ if(!IS_ELEC||!DSP.ndi){ appAlert(T('NDI output is only available in the desktop app.','La salida NDI solo está disponible en la app de escritorio.')); return; }
-  if(!ndiAvailable()){ appConfirm(T('The free NDI runtime is not installed. It is required to broadcast NDI. Open the download page?','El runtime gratuito de NDI no está instalado. Es necesario para transmitir por NDI. ¿Abrir la página de descarga?'),ok=>{ if(ok){ try{ const u=DSP.ndi.runtimeUrl(); window.open(u,'_blank'); }catch(e){} } }); return; }
+  if(!ndiAvailable()){ appConfirm(T('The free NDI runtime is not installed. It is required to broadcast NDI. Open the download page?','El runtime gratuito de NDI no está instalado. Es necesario para transmitir por NDI. ¿Abrir la página de descarga?'),ok=>{ if(ok){ try{ const u=DSP.ndi.runtimeUrl(); if(IS_ELEC&&DSP.openExternal)DSP.openExternal(u); else window.open(u,'_blank'); }catch(e){} } }); return; } /* [R242·Aud-4.1] window.open('_blank') está DENEGADO por el setWindowOpenHandler (sólo permite el visor emergente): esta puerta llevaba muerta desde entonces — el usuario aceptaba y no pasaba nada. Ahora sale por shell.openExternal (navegador del sistema) */
   const ck=r=>(_ndiOn&&_ndiRes===r)?'  ✓':''; const items=[
     {label:T('Dome master 1:1 · 2048 × 2048','Máster Domo 1:1 · 2048 × 2048')+ck(2048),ico:'ndi',fn:()=>{ (_ndiOn&&_ndiRes===2048)?stopNDI():startNDI(2048); }},
     {label:T('Dome master 1:1 · 4096 × 4096','Máster Domo 1:1 · 4096 × 4096')+ck(4096),ico:'ndi',fn:()=>{ (_ndiOn&&_ndiRes===4096)?stopNDI():startNDI(4096); }} ];
@@ -1771,7 +1778,7 @@ function makeNdiMedia(sourceName){ const nm=ndiSourceLabel(sourceName);
   try{ if(DSP&&DSP.ndi)DSP.ndi.recvOpen(sourceName); }catch(e){}
   state.media.push(m); renderMedia(); markDirty(); ndiStartPump(); return m; }
 function addNdiInput(){ if(!IS_ELEC||!DSP.ndi){ appAlert(T('NDI is only available in the desktop app.','NDI solo está disponible en la app de escritorio.')); return; }
-  if(!ndiAvailable()){ appConfirm(T('The free NDI runtime is not installed. Open the download page?','El runtime gratuito de NDI no está instalado. ¿Abrir la página de descarga?'),ok=>{ if(ok){ try{ window.open(DSP.ndi.runtimeUrl(),'_blank'); }catch(e){} } }); return; }
+  if(!ndiAvailable()){ appConfirm(T('The free NDI runtime is not installed. Open the download page?','El runtime gratuito de NDI no está instalado. ¿Abrir la página de descarga?'),ok=>{ if(ok){ try{ const u=DSP.ndi.runtimeUrl(); if(IS_ELEC&&DSP.openExternal)DSP.openExternal(u); else window.open(u,'_blank'); }catch(e){} } }); return; } // [R242·Aud-4.1] misma corrección que en ndiMenu: el '_blank' denegado se sustituye por shell.openExternal
   flashStatus(T('Scanning for NDI sources…','Buscando fuentes NDI…'));
   // give the finder a moment to accumulate sources, then show the picker
   DSP.ndi.findSources(300);
@@ -2452,6 +2459,18 @@ function setMeters(v){ const p=(v*100)+'%'; if($('#mL'))$('#mL').style.width=p; 
 function addImage(file,path){ const url=URL.createObjectURL(file); const img=new Image(); const folder=_importFolder;
   img.onload=()=>{const fit=fitImage(img); const m={id:uid(),name:file.name,kind:'image',el:fit.src,originalEl:img,tex:newTex(),w:fit.w,h:fit.h,dur:5,fps:0,thumb:url,color:clipColorFor('image'),proxyReady:false,proxyPct:0,path:path||null,fsize:file.size||0,folder:folder||null}; // [M5] photos default to 5 s
     upTex(m.tex,fit.src); state.media.push(m); adopt(m); renderMedia(); render(); markDirty(); }; img.src=url; }
+/* [R242·Aud-3.3] Aviso de material pesado al importar. R241 midió que con este material (HEVC 6,5 Mpx, 410 Mbps,
+   GOP de 250 fotogramas) el proxy no es una optimización: es la diferencia entre poder montar (8 ms de scrub) y
+   no (1148 ms). ADR-0003 se respeta ENTERO — la generación sigue siendo manual —: esto sólo INFORMA, una vez por
+   tanda de importación, de que el clip lo va a necesitar. Umbral: ≥5 Mpx (la tira 7196×912 y el 4K entran; 1440p
+   no) o ≥80 Mbps estimados por tamaño/duración. */
+let _pesadosN=0,_pesadosT=0;
+function adviseHeavyMedia(m){ const mpx=(m.w||0)*(m.h||0), mbps=(m.fsize&&m.dur)?(m.fsize*8/m.dur/1e6):0;
+  if(mpx<5e6 && mbps<80)return; if(m.proxyReady)return;
+  _pesadosN++; clearTimeout(_pesadosT);
+  _pesadosT=setTimeout(()=>{ const n=_pesadosN; _pesadosN=0; if(!n)return;
+    flashStatus(n===1?T('Heavy clip imported — right-click it → Generate proxy to scrub smoothly','Clip pesado importado — clic derecho → Generar proxy para un scrub fluido')
+      :(n+T(' heavy clips imported — right-click → Generate proxy to scrub smoothly',' clips pesados importados — clic derecho → Generar proxy para un scrub fluido'))); },900); }
 function addVideo(file,path){ const url=URL.createObjectURL(file); const folder=_importFolder; const v=document.createElement('video'); v.src=url;v.muted=true;v.playsInline=true;v.preload='auto';
   v.addEventListener('loadedmetadata',()=>{ const m={id:uid(),name:file.name,kind:'video',el:v,originalEl:v,srcUrl:url,tex:newTex(),w:v.videoWidth,h:v.videoHeight,dur:v.duration,fps:30,thumb:null,color:clipColorFor('video'),proxyReady:false,proxyPct:0,path:path||null,fsize:file.size||0,folder:folder||null};
     state.media.push(m); adopt(m); renderMedia(); markDirty();
@@ -2461,7 +2480,8 @@ function addVideo(file,path){ const url=URL.createObjectURL(file); const folder=
        al REABRIR un proyecto (`reloadMedia`). Así, reimportar un clip ya proxyficado —o traerlo a un proyecto nuevo—
        lo dejaba reproduciendo el original pesado hasta que alguien pedía «Generar proxy» a mano y descubría que ya
        estaba. La GENERACIÓN sigue siendo manual (ADR-0003): esto sólo ADOPTA lo que ya hay en disco. */
-    if(m.path)attachExistingProxy(m,true).then(ok=>{ if(ok)flashStatus(T('Existing proxy found for ','Proxy existente encontrado para ')+m.name); }).catch(()=>{});
+    if(m.path)attachExistingProxy(m,true).then(ok=>{ if(ok)flashStatus(T('Existing proxy found for ','Proxy existente encontrado para ')+m.name); else adviseHeavyMedia(m); }).catch(()=>{ adviseHeavyMedia(m); });
+    else adviseHeavyMedia(m); // [R242·Aud-3.3] sin proxy adoptable → si el clip es pesado, avisar (una vez por tanda)
     detectFps(v,m,()=>{ seekMedia(m,0,true).then(()=>{makeThumb(m);render();}); }); },{once:true}); } // proxies are MANUAL now (right-click media → Generate proxy)
 function makeThumb(m){const c=document.createElement('canvas');c.width=108;c.height=64;try{c.getContext('2d').drawImage(m.originalEl||m.el,0,0,108,64);m.thumb=c.toDataURL();renderMedia();}catch(e){}}
 /* [R241] Detección de la tasa de fotogramas. Dos cosas cambiaron tras la prueba de estrés con el material real
@@ -2496,6 +2516,9 @@ function detectFps(v,m,done){let fin=false;
    encontrarlos y la carpeta `autosave` aparecía donde no era. */
 const PSEP=(()=>{ try{ return (IS_ELEC&&DSP.sep)?DSP.sep:'\\'; }catch(e){ return '\\'; } })();
 function pjoin(...partes){ return partes.filter(p=>p!=null&&p!=='').join(PSEP); }
+/* [R242·Aud-2.4] Un `.isp` re-guardado desde un editor de Windows llega con BOM UTF-8 y JSON.parse lo rechaza
+   («Invalid project» sin pista de por qué). Se pela ANTES de cada parse de archivo de proyecto/autoguardado. */
+function stripBom(t){ return (t&&t.charCodeAt(0)===0xFEFF)?t.slice(1):t; }
 function pdir(p){ const i=Math.max(String(p||'').lastIndexOf('\\'),String(p||'').lastIndexOf('/')); return i<0?'':String(p).slice(0,i); }
 function pbase(p){ const i=Math.max(String(p||'').lastIndexOf('\\'),String(p||'').lastIndexOf('/')); return String(p||'').slice(i+1); }
 
@@ -7770,10 +7793,10 @@ async function ncBuild(m){
   const blando=/^(av1|vp9)/.test(cod.kind);
   const choice=await ncDialog(m,Object.assign({},tam,{codLabel:cod.label,blando})); if(!choice)return;
   const bitrate=ncBitrate(tam.s,tam.s,fps);
-  const i=Math.max(currentPath.lastIndexOf('\\'),currentPath.lastIndexOf('/')), dir=currentPath.slice(0,i)+'\\nest proxies';
+  const i=Math.max(currentPath.lastIndexOf('\\'),currentPath.lastIndexOf('/')), dir=currentPath.slice(0,i)+PSEP+'nest proxies'; // [R242·Aud-4.3] PSEP, no '\\': la familia R204 tenía aquí sus dos últimos supervivientes (en macOS creaban archivos con la barra DENTRO del nombre)
   try{ if(DSP.ensureDir)await DSP.ensureDir(dir); }catch(e){ appAlert(T('Could not create the “nest proxies” folder.','No se pudo crear la carpeta “nest proxies”.')); return; }
   const safe=(m.name||'nest').replace(/[\\/:*?"<>|]/g,'_').slice(0,50);
-  const outPath=dir+'\\'+safe+' ['+choice.w+'x'+choice.h+'] '+String(uid()).padStart(4,'0')+'.mp4'; // nombre nuevo cada vez: sobrescribir el que está enlazado a un <video> vivo falla en Windows
+  const outPath=dir+PSEP+safe+' ['+choice.w+'x'+choice.h+'] '+String(uid()).padStart(4,'0')+'.mp4'; // nombre nuevo cada vez: sobrescribir el que está enlazado a un <video> vivo falla en Windows · [R242·Aud-4.3] PSEP
   const old=m.ncPath;
   const ui=ripProgress(T('Nest proxy','Proxy de composición'), (m.name||'').slice(0,22)+' · '+choice.w+'×'+choice.h+' · '+cod.label+' · '+fps+' fps', 1);
   let thrown=null;
@@ -9183,7 +9206,7 @@ function renderSeqBar(){ const bar=$('#seqTabs'); if(!bar)return; const _sl=bar.
       e.preventDefault(); bar.scrollLeft+=d; seqTabsOvf(); },{passive:false});
     bar.addEventListener('scroll',seqTabsOvf); }
   bar.scrollLeft=_sl; seqTabsReveal(); } // [R239] el repintado no mueve la vista… salvo lo justo para que la pestaña activa se vea
-function serProject(){ saveActiveSeq(); return { app:'DomeStudioPro', v:4, fps:state.fps, lanes:state.lanes, playhead:state.playhead, markers:[], groups:[], clips:[], media:state.media.map(serMedia), workIn:state.workIn, workOut:state.workOut, folders:state.folders, folderColors:state.folderColors||{}, tl:{bpm:state.tl.bpm,sig:state.tl.sig,tcMode:state.tl.tcMode,pxPerSec:state.tl.pxPerSec,inlineCurves:!!state.inlineCurves}, /* [R214] audioH removed — loadProject never read it back (vestige of R148) */ exportPresets:state.exportPresets||[], openSeqs:(state.openSeqs||[]).slice(), activeSeqId:state.activeSeqId, seqW:state.seqW, seqH:state.seqH, reactive:state.reactive||null, autoItems:state.autoItems||{} }; } // [R95·D2] the Automation Item library travels with the project (clips reference items by id via kfLink) // v4: the active sequence's clips/markers/groups live in its nest media (serMedia); top-level kept empty to avoid doubling the heaviest data (kf + maskData)
+function serProject(){ saveActiveSeq(); return { app:'DomeStudioPro', v:4, fps:state.fps, lanes:state.lanes, playhead:state.playhead, markers:[], groups:[], clips:[], media:state.media.map(serMedia), workIn:state.workIn, workOut:state.workOut, folders:state.folders, folderColors:state.folderColors||{}, tl:{bpm:state.tl.bpm,sig:state.tl.sig,tcMode:state.tl.tcMode,pxPerSec:state.tl.pxPerSec,inlineCurves:!!state.inlineCurves,audioCollapsed:!!state.tl.audioCollapsed/* [R242·Aud-2.5] volvió a guardarse: el lector de R110 llevaba tiempo esperando un campo que nadie escribía */}, /* [R214] audioH removed — loadProject never read it back (vestige of R148) */ exportPresets:state.exportPresets||[], openSeqs:(state.openSeqs||[]).slice(), activeSeqId:state.activeSeqId, seqW:state.seqW, seqH:state.seqH, reactive:state.reactive||null, autoItems:state.autoItems||{} }; } // [R95·D2] the Automation Item library travels with the project (clips reference items by id via kfLink) // v4: the active sequence's clips/markers/groups live in its nest media (serMedia); top-level kept empty to avoid doubling the heaviest data (kf + maskData)
 async function saveProject(saveAs){ const json=JSON.stringify(serProject());
   if(IS_ELEC){ let p=currentPath; if(saveAs||!p){ p=await DSP.saveDialog(p||((currentTitle()==='Untitled project'?T('untitled','proyecto'):currentTitle())+'.isp')); if(!p)return; }
     try{ const old=await DSP.readText(p); if(old&&old.length>2)await DSP.writeText(p+'.bak',old); }catch(e){} // rotate a .bak of the previous save — protects against a corrupted/interrupted overwrite
@@ -9214,14 +9237,14 @@ async function newProjectViaLanding(){
   if(state.playing)pause();
   _lchVolver=true; showLanding(); }
 async function openProject(skipConfirm){ if(!(await confirmDiscard(skipConfirm)))return;
-  if(IS_ELEC){ const p=await DSP.openDialog(); if(!p)return; const txt=await DSP.readText(p); if(txt==null){appAlert(T('Could not read the file.','No se pudo leer el archivo.'));return;} let obj; try{obj=JSON.parse(txt);}catch(e){appAlert(T('Invalid project','Proyecto no válido'));return;} currentPath=p; hideLanding(); loadProject(await maybeOfferAutosave(p,obj)); } // hide the landing FIRST so the recovery prompt (if any) shows on a clean screen, not buried behind the start screen
+  if(IS_ELEC){ const p=await DSP.openDialog(); if(!p)return; const txt=await DSP.readText(p); if(txt==null){appAlert(T('Could not read the file.','No se pudo leer el archivo.'));return;} let obj; try{obj=JSON.parse(stripBom(txt));}catch(e){appAlert(T('Invalid project','Proyecto no válido'));return;} currentPath=p; hideLanding(); loadProject(await maybeOfferAutosave(p,obj)); } // hide the landing FIRST so the recovery prompt (if any) shows on a clean screen, not buried behind the start screen
   else { $('#projInput').click(); } }
 /* [R175] Cada salida de aquí tiene que soltar el splash. Si el archivo no se puede leer, no es JSON válido o el
    usuario cancela, `_bootEsperandoProyecto` se quedaría en true y el editor NO aparecería nunca: el splash se
    quedaría fijo hasta el plazo del proceso principal, y encima revelaría una ventana todavía en `preboot`. */
 async function openProjectPath(p,skipConfirm){ if(!p||!IS_ELEC){ bootProyectoListo(); return; }
   if(!(await confirmDiscard(skipConfirm))){ bootProyectoListo(); return; } // open a .isp handed in by a double-click (file association) — o un reciente del launcher, que trae su consentimiento en `skipConfirm` [R228]
-  try{ const txt=await DSP.readText(p); if(txt==null){appAlert(T('Could not read the file.','No se pudo leer el archivo.'));bootProyectoListo();return;} let obj; try{obj=JSON.parse(txt);}catch(e){appAlert(T('Invalid project','Proyecto no válido'));bootProyectoListo();return;} currentPath=p; hideLanding(); loadProject(await maybeOfferAutosave(p,obj)); } // hide the landing FIRST so the recovery prompt shows on a clean screen
+  try{ const txt=await DSP.readText(p); if(txt==null){appAlert(T('Could not read the file.','No se pudo leer el archivo.'));bootProyectoListo();return;} let obj; try{obj=JSON.parse(stripBom(txt));}catch(e){appAlert(T('Invalid project','Proyecto no válido'));bootProyectoListo();return;} currentPath=p; hideLanding(); loadProject(await maybeOfferAutosave(p,obj)); } // hide the landing FIRST so the recovery prompt shows on a clean screen
   catch(e){ appAlert(T('Could not open the project.','No se pudo abrir el proyecto.')); bootProyectoListo(); } }
 function disposeMedia(m){ try{ disposeDecoder(m); if(m.srcUrl)URL.revokeObjectURL(m.srcUrl); if(m.proxyUrl)URL.revokeObjectURL(m.proxyUrl); if(m._frameUrls)m._frameUrls.forEach(u=>{try{URL.revokeObjectURL(u);}catch(e){}}); if(m.thumb&&typeof m.thumb==='string'&&m.thumb.indexOf('blob:')===0)URL.revokeObjectURL(m.thumb); if(m.tex)gl.deleteTexture(m.tex); if(m.fbo){try{gl.deleteFramebuffer(m.fbo);}catch(e){}} if(m.nestClips)for(const c of m.nestClips)if(c.maskTex){try{gl.deleteTexture(c.maskTex);}catch(e){}} }catch(e){} }
 /* [R227] Devuelve `true` si el proyecto se creó de verdad y `false` si `confirmDiscard()` lo canceló. Antes no
@@ -9233,6 +9256,7 @@ async function newProject(mode,w,h,fps,cov,skipConfirm){ if(!(await confirmDisca
   state.media=[]; state.clips=[]; state.groups=[]; state.markers=[]; state.selId=null; state.selGroupId=null; state.selMarkerId=null; state.playhead=0; state.workIn=null; state.workOut=null; state.folders=[]; state.folderColors={}; state.selFolder=null; state.mediaFolder=null; state.selIds=[];
   state.reactive=null; _arCache=null; _fxEnvCache.clear(); try{freeFxResources();}catch(e){}
   state.lanes=defLanes();
+  resetProjDefaults(); // [R242·Aud-2.3] un proyecto nuevo tampoco hereda el encuadre del visor ni el tempo del anterior (el modo/cov se fijan justo debajo)
   const _fl=(mode==='flat'); state.seqMode=_fl?'flat':'dome'; const _dres=Math.max(512,Math.round(w||4096)); state.seqW=_fl?(w||1920):_dres; state.seqH=_fl?(h||1080):_dres; state.seqCov=_fl?180:(cov||180); if(fps)state.fps=fps; // [R228] el domo respeta la resolución elegida en el launcher (antes forzaba 4096 y el selector Resolution no hacía nada); cuadrado siempre
   state.openSeqs=[]; state.activeSeqId=null; ensureSequences();
   clearAllUndo(); currentPath=null; state.dirty=false;
@@ -9303,6 +9327,7 @@ async function newRoomProject(cfg,skipConfirm){ if(!(await confirmDiscard(skipCo
   state.media=[]; state.clips=[]; state.groups=[]; state.markers=[]; state.selId=null; state.selGroupId=null; state.selMarkerId=null; state.playhead=0; state.workIn=null; state.workOut=null; state.folders=[]; state.folderColors={}; state.selFolder=null; state.mediaFolder=null; state.selIds=[];
   state.reactive=null; _arCache=null; _fxEnvCache.clear(); try{freeFxResources();}catch(e){}
   state.lanes=defLanes(); if(cfg.fps)state.fps=cfg.fps;
+  resetProjDefaults(); // [R242·Aud-2.3] mismos defaults de fábrica que newProject/loadProject (el modo y la cámara de sala se fijan justo debajo)
   const wseq=createRoomSequences(cfg), room=wseq.room, walls=room.walls, stripW=wseq.w, stripH=wseq.h; // [R217] wall/floor media creation now lives in createRoomSequences (shared with newSequenceDialog's Room type) — same locals as before so the framing code below is untouched
   state.seqMode='room'; state.seqW=stripW; state.seqH=stripH;
   state.view.cam.yaw=1.99; state.view.cam.pitch=0.42; // [R211] vista 3D inicial desde detrás de Back → FRONT al fondo/arriba, calza con el plano (sólo al crear; el domo conserva su default)
@@ -9410,12 +9435,28 @@ function migrateNestFulldome(){ let n=0;
   for(const m of state.media) if(m.kind==='nest') fix(m.nestClips);
   if(n)flashStatus(n+T(' nest clip(s) set to dome master (the Patch option is gone)',' clip(s) de composición pasan a máster de domo (la opción Parche ya no existe)'));
   return n; }
+/* [R242·Aud-2.1/2.2/2.3] Defaults de FÁBRICA aplicados SIEMPRE antes de leer el archivo — la cura de raíz de la
+   familia «heredar estado del proyecto anterior» (cuarta aparición cazada por la auditoría 2026-08: un `.isp`
+   legacy sin secuencias creaba la suya con el `seqMode` de la SALA anterior y guardarlo lo corrompía). La regla
+   es la de R240b con `pxPerSec`: campo ausente en el archivo → valor de fábrica, NUNCA el del proyecto abierto
+   antes. Los valores son los del literal de `state` (arriba del todo). */
+function resetProjView(){ state.view.zoom=0.92; state.view.pan=[0,0]; state.view.vp=null; state.view.vpFocus=null;
+  state.view.cam={yaw:0, pitch:0.5, dist:3.0, fov:60, back:0.8}; } // el encuadre del visor (global + por panel + cámara 3D) es del proyecto que se cierra, no del que se abre — newRoomProject ya lo hacía; ahora lo hacen los tres caminos
+function resetProjDefaults(){ state.seqMode='dome'; state.seqCov=180;
+  state.tl.bpm=120; state.tl.sig=4; state.tl.tcMode='timecode'; state.tl.audioCollapsed=false;
+  resetProjView(); }
 function loadProject(obj){ relinkReset(); // [R204] el índice de reenlace es de ESTE proyecto: se tira al cargar otro
-  state.view.vp=null; state.view.vpFocus=null; // [R230b] el encuadre por panel es del proyecto que se cierra, no del que se abre
+  resetProjDefaults(); // [R242·Aud-2.1] fábrica ANTES de leer `obj`: lo que el archivo no diga, no se hereda
   try{ if(!_bootEsperandoProyecto)showLoadingScreen(T('Loading project…','Cargando proyecto…')); else bootMark(72); }catch(e){} /* [R175] durante el arranque la cuenta la lleva el splash, no una segunda pantalla encima del editor */ // [U9] logo-loop loading screen while the project + its proxies buffer
   if(state.playing)pause(); disposeAllVinst(); try{freeFxResources();}catch(e){} for(const _tid in (state.mediaTrash||{})) disposeMedia(state.mediaTrash[_tid]); state.mediaTrash={}; resetLutReg(); // free deleted-media textures + FX history from the previous project
+  /* [R242·Aud-3.1] Los MEDIOS del proyecto saliente también se liberan — `newProject` siempre lo hizo y aquí
+     faltaba: cada apertura dejaba vivas las texturas GL de los medios (y las `maskTex` de sus clips) del proyecto
+     anterior. Medido: +5 texturas por ciclo con el demo; con medios reales son texturas de fotograma de decenas
+     de MB de VRAM por proyecto abierto en la sesión. */
+  for(const c of (state.clips||[])){ try{ if(c.maskTex)gl.deleteTexture(c.maskTex); }catch(e){} }
+  for(const m of (state.media||[])){ try{ disposeMedia(m); }catch(e){} }
   clearAllUndo(); // [R92-T1 C2] undo history belongs to the PREVIOUS project — Ctrl+Z after opening must never inject its clips here (newProject already did this; loadProject didn't)
-  state.fps=obj.fps||60; state.lanes=obj.lanes||state.lanes; state.clips=(obj.clips||[]).map(c=>({...c,kf:c.kf||{},maskTex:null})); state.playhead=obj.playhead||0; state.markers=obj.markers||[]; state.selMarkerId=null; state.groups=obj.groups||[]; state.selGroupId=null;
+  state.fps=obj.fps||60; state.lanes=obj.lanes||defLanes(); /* [R242·Aud-2.1] sin `lanes` en el archivo → pistas de fábrica, no las del proyecto anterior */ state.clips=(obj.clips||[]).map(c=>({...c,kf:c.kf||{},maskTex:null})); state.playhead=obj.playhead||0; state.markers=obj.markers||[]; state.selMarkerId=null; state.groups=obj.groups||[]; state.selGroupId=null;
   // restore custom PNG masks from their persisted dataURL (or drop a stale 'custom' that has no data)
   for(const c of state.clips){ if((c.penMasks&&c.penMasks.length)||c.maskData)rebuildMaskTex(c); else if(c.props&&(c.props.mask==='custom'||c.props.mask==='pen'))c.props.mask='none'; }
   state.media=(obj.media||[]).map(md=>({...md,el:null,originalEl:null,tex:null,buffer:null,missing:true,_loading:true,proxyReady:false,proxyPct:0})); // _loading: file exists but is still decoding → show "loading", NOT "missing" (esp. audio, which decodes slowly)
@@ -9665,7 +9706,7 @@ async function restoreAutosave(){ if(!(await confirmDiscard()))return;
     const bases=[]; { const b=autosaveBase(); if(b)bases.push(b); } if(currentPath)bases.push(currentPath); if(_asDir){ bases.push(pjoin(_asDir,'unsaved.isp')); bases.push(pjoin(_asDir,'unsaved.ise')); bases.push(pjoin(_asDir,'unsaved.rdome')); }
     const withT=[]; for(const b of bases)for(const s of ['.autosave1','.autosave2']){ try{ const st=await DSP.stat(b+s); if(st&&st.size>2)withT.push({p:b+s,t:st.mtimeMs||0}); }catch(e){} }
     withT.sort((x,y)=>y.t-x.t);
-    for(const c of withT){ try{ const txt=await DSP.readText(c.p); if(!txt)continue; loadProject(JSON.parse(txt)); flashStatus(T('Autosave restored','Autoguardado restaurado')); return; }catch(e){} } } // unparseable (torn write) → try the next-newest copy
+    for(const c of withT){ try{ const txt=await DSP.readText(c.p); if(!txt)continue; loadProject(JSON.parse(stripBom(txt))); flashStatus(T('Autosave restored','Autoguardado restaurado')); return; }catch(e){} } } // unparseable (torn write) → try the next-newest copy
   try{ const s=localStorage.getItem('domeProPro'); if(!s){flashStatus(T('No autosave found','No se encontró autoguardado'));return;} loadProject(JSON.parse(s)); flashStatus(T('Autosave restored','Autoguardado restaurado')); }catch(e){appAlert(T('Could not restore.','No se pudo restaurar.'));} }
 /* opening a project whose autosave on disk is NEWER than the file itself (crash without manual save) → offer recovery */
 async function maybeOfferAutosave(p,obj){ try{ const stP=await DSP.stat(p); let best=null;
@@ -9677,7 +9718,7 @@ async function maybeOfferAutosave(p,obj){ try{ const stP=await DSP.stat(p); let 
          abre el archivo tal cual y la oferta de recuperación se guarda para DESPUÉS, ya con el editor listo. */
       if(_bootEsperandoProyecto){ _autoguardadoPendiente=best.p; return obj; }
       const yes=await new Promise(r=>appConfirm(T('An autosave newer than this file exists (possible crash). Restore it?','Existe un autoguardado más reciente que este archivo (posible cierre inesperado). ¿Restaurarlo?'),r,{ok:T('Restore autosave','Restaurar autoguardado'),cancel:T('Open the file','Abrir el archivo')}));
-      if(yes){ const txt=await DSP.readText(best.p); if(txt)return JSON.parse(txt); } } }catch(e){}
+      if(yes){ const txt=await DSP.readText(best.p); if(txt)return JSON.parse(stripBom(txt)); } } }catch(e){}
   return obj; }
 /* Recovery history (R82c): browse the last hour of autosave snapshots + the two live crash files; open any
    one as a NEW project (currentPath cleared → re-saving asks for a fresh name, so the current work is safe). */
@@ -9697,7 +9738,7 @@ async function openRecoveryHistory(){ if(!IS_ELEC||!DSP.listDir){ restoreAutosav
     <div style="display:flex;justify-content:flex-end;margin-top:11px;"><button class="mbtn" id="rhClose">${T('Close','Cerrar')}</button></div></div></div>`;
   document.body.appendChild(ov); const close=()=>ov.remove(); $('#rhClose').onclick=close; ov.addEventListener('pointerdown', e=>{if(e.target===ov)close();});
   ov.querySelectorAll('.rhrow').forEach(b=>b.onclick=async()=>{ const e=entries[+b.dataset.i]; close(); if(!(await confirmDiscard()))return;
-    try{ const txt=await DSP.readText(e.p); if(!txt){appAlert(T('Could not read that snapshot.','No se pudo leer ese snapshot.'));return;} const obj=JSON.parse(txt); currentPath=null; loadProject(obj); state.dirty=true; projTitle(); flashStatus(T('Recovery snapshot opened as a new project — Save to keep it','Snapshot de recuperación abierto como proyecto nuevo — Guarda para conservarlo')); }
+    try{ const txt=await DSP.readText(e.p); if(!txt){appAlert(T('Could not read that snapshot.','No se pudo leer ese snapshot.'));return;} const obj=JSON.parse(stripBom(txt)); currentPath=null; loadProject(obj); state.dirty=true; projTitle(); flashStatus(T('Recovery snapshot opened as a new project — Save to keep it','Snapshot de recuperación abierto como proyecto nuevo — Guarda para conservarlo')); }
     catch(err){ appAlert(T('That snapshot is corrupt.','Ese snapshot está dañado.')); } }); }
 function updRelink(){ const miss=state.media.filter(m=>m.missing&&!m._loading); if(miss.length)flashStatus(T('Missing media: ','Medios ausentes: ')+miss.map(m=>m.name).join(', '),'err'); } // only GENUINE failures — a file that's still decoding is "loading", not missing · [R94-UT3·U-21]
 

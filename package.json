@@ -58,10 +58,14 @@
       "assets/**/*",
       "node_modules/dsp-ndi-send/index.js",
       "node_modules/dsp-ndi-send/package.json",
-      "node_modules/dsp-ndi-send/build/Release/*.node"
+      "node_modules/dsp-ndi-send/build/Release/*.node",
+      "node_modules/dsp-spout-send/index.js",
+      "node_modules/dsp-spout-send/package.json",
+      "node_modules/dsp-spout-send/build/Release/*.node"
     ],
     "asarUnpack": [
-      "node_modules/dsp-ndi-send/build/Release/*.node"
+      "node_modules/dsp-ndi-send/build/Release/*.node",
+      "node_modules/dsp-spout-send/build/Release/*.node"
     ],
     "win": {
       "icon": "assets/alma-logo.png",

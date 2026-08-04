@@ -21,7 +21,11 @@ Antes de re-escanear `app.js`, consultá el **mapa vivo** (evita quemar tokens):
 - **Syntax check rápido:** `node --check app.js && node --check main.js`.
 - **Verificar en el .exe real (CDP):** lanzar `npx electron . --remote-debugging-port=9222` y evaluar por WebSocket (`Runtime.evaluate`) — patrón en `scratchpad/*.js`. Reléer `<system-reminder>` de rutas; matar todas las instancias antes de relanzar (single-instance re-enfoca la ventana vieja).
 
-## Deploy (tras `npm run dist`, copiar `dist/win-unpacked/resources/app.asar` a las 3 instalaciones)
+## Deploy (tras `npm run dist`, copiar `dist/win-unpacked/resources/` a las 3 instalaciones)
+> **[R242] Copiar la carpeta `resources` ENTERA**, no sólo `app.asar`: los addons nativos viven en
+> `app.asar.unpacked/` y copiar sólo el asar los deja desincronizados (la auditoría de agosto encontró el unpacked
+> desplegado con 6 días de retraso respecto al asar, y una copia ANIDADA `app.asar.unpacked/app.asar.unpacked/`
+> de un copiado manual anterior). Alternativa a prueba de errores: reinstalar con el instalador silencioso.
 1. `C:\Users\beltr\AppData\Local\Programs\Immersive Studio Pro\resources\app.asar`  ← **canónica** (asociación `.isp`, acceso directo)
 2. `C:\Users\beltr\AppData\Local\Programs\dome studio pro\resources\app.asar`  ← legacy
 3. `C:\Program Files\Dome Studio Pro\resources\app.asar`  ← legacy (requiere elevación: `Start-Process powershell -Verb RunAs`)

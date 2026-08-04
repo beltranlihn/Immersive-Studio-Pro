@@ -4,6 +4,42 @@
 > en `COMPONENTS.md` + una entrada en `PLAN.md` en el mismo commit, como manda el ritual de `/commit`).
 > Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: 2026-08-04.
 
+## 🔭 Lo siguiente (abierto) — el scrub sin proxy
+> Sale de `AUDITORIA-2026-08.md` §3.3, y es **lo de más valor práctico que queda**. R241 midió 1148 ms de mediana
+> con 4 capas sin proxy frente a 8 ms con proxy; la auditoría llegó a la causa: los clips de masterización tienen
+> **GOP de 250 fotogramas** (medido con ffprobe sobre `Neuro1_7196.mp4`), así que un seek exacto decodifica hasta
+> 250 fotogramas de 6,5 Mpx. No es «optimizar»: es el coste de la exactitud sobre un GOP largo.
+- [ ] **Previsualización al fotograma clave más cercano mientras se arrastra**, y seek exacto al soltar (lo que
+      hacen Resolve y Premiere en modo rápido). Decodificar 1 fotograma en vez de ≤250 → estimado **~10-40 ms por
+      muestra, 30-100× mejor**, a cambio de una imagen «a saltos de 4 s» sólo durante el arrastre. Toca
+      `vinstSeek` y el camino de scrub en caliente → **ronda propia con verificación aparte**, no se coló en R242
+      junto a los arreglos de integridad a propósito. Medir con `scratchpad/r241-medir.mjs`; objetivo: mediana
+      <50 ms sin proxy.
+- [ ] Opcional, complementaria: encender el caché de scrub-ahead (`_raOn`) por defecto cuando hay medios pesados
+      (mitiga el re-scrub sobre la misma zona, no el primer toque).
+> **[R242] Ya hecho de esta zona:** el aviso al importar material pesado («clic derecho → Generar proxy»), que era
+> la mitad barata. ADR-0003 intacto: informa, no genera.
+
+## ✅ Auditoría delta 2026-08 — CERRADA EN CÓDIGO [R242]
+> Informe completo en `AUDITORIA-2026-08.md` (auditor externo, sobre el `.exe`/RTX). Sus cinco etapas ejecutadas y
+> sus cinco decisiones resueltas en R242 — el detalle y el porqué de cada decisión, en `PLAN.md › ROUND 242`.
+> Verificado con las seis sondas del propio informe (`scratchpad/aud2608-*.mjs`), `__errs` vacío.
+- [x] **Integridad de datos (ALTA):** `resetProjDefaults()` — valores de fábrica antes de leer el archivo, en los
+      TRES caminos. Mata la cuarta aparición de «heredar del proyecto anterior»: un `.isp` legacy creaba su
+      secuencia con el `seqMode` de la SALA anterior y **guardarlo corrompía el archivo**. Cubre también
+      `tl.bpm/sig/tcMode`, el encuadre del visor y `obj.lanes`.
+- [x] **Fuga de medios (ALTA por acumulación):** `loadProject` no desechaba los medios del proyecto saliente
+      (`newProject` sí). Medido: +5 texturas GL por apertura → ahora 0.
+- [x] **Robustez:** BOM en el `.isp` («Invalid project» sin pista) · `dsp:openExternal` con allowlist (la descarga
+      del runtime NDI llevaba muerta desde R226) · macOS: reabrir desde el Dock dejaba la ventana invisible para
+      siempre (estático, sin Mac para probarlo) · `PSEP` en las dos últimas rutas cableadas de `ncBuild`.
+- [x] **Deuda/limpieza:** viewport de relleno acotado a `MAX_VIEWPORT_DIMS` · `build.files`/`asarUnpack` nombran
+      Spout · `tl.audioCollapsed` vuelve a serializarse (el lector de R110 esperaba un campo que nadie escribía).
+- [x] **Cola de export:** pendiente **cerrado**. Con [D2] retirado no se edita mientras exporta, así que la UI
+      mínima de R216 es suficiente: no hay cola que administrar en paralelo.
+- [ ] **Pendiente de Mac:** verificar allí el arreglo del Dock y las rutas de `ncBuild` (más el tope H.264 de
+      VideoToolbox que `docs/MACOS.md` ya marca como sin medir). No hay máquina disponible.
+
 ## 🧪 QA pendiente de la auditoría de julio — 2026-08-04 · CERRADA ✅ [R240]
 > La «segunda pasada de QA» que `AUDITORIA-2026-07.md` dejó anotada y nunca se corrió. Ejecutada por CDP
 > (`scratchpad/r240-qa.mjs` + `r240-qa2.mjs`), `__errs` vacío.

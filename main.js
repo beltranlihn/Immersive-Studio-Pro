@@ -283,7 +283,12 @@ else {
   app.on('open-file', (e, p) => { e.preventDefault(); if (win && !win.isDestroyed() && win.webContents && !win.webContents.isDestroyed()) win.webContents.send('dsp:openPath', p); else pendingOpenPath = p; }); // macOS
   app.whenReady().then(() => { createSplash(); createWindow(); }); // splash cuadrado primero; la ventana 16:9 se revela al terminar el arranque
   app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+  /* [R242·Aud-4.2] macOS: al reabrir desde el Dock (Cmd+W deja la app viva sin ventana), la ventana nueva nace
+     con show:false y sólo la muestra finishBoot()… cuyo guard `bootDone` quedó en true desde el PRIMER arranque:
+     la ventana no se mostraba nunca y la app parecía muerta (única salida: Cmd+Q). Se rearma el ciclo de boot
+     antes de crear — sin splash (splashWin es null y splashSend/close lo toleran), el bootReady del renderer
+     vuelve a ser quien la revela, con el salvavidas de 25 s que arma createWindow(). */
+  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) { bootDone = false; createWindow(); } });
 }
 
 // --- IPC: UI state report (dirty flag + language) ---
@@ -351,6 +356,17 @@ ipcMain.handle('dsp:ensureDir', async (e, dirPath) => {
 // random-access file streaming (MP4 export writes chunks straight to disk — no multi-GB RAM buffer)
 const _fds = new Map(); let _fdSeq = 1;
 ipcMain.handle('dsp:proxyDir', async () => { try { const d = path.join(app.getPath('userData'), 'proxies'); await fsp.mkdir(d, { recursive: true }); return d; } catch (err) { return null; } }); // persistent proxy cache dir (survives sessions/projects)
+/* [R242·Aud-4.1] Abrir una URL en el navegador del SISTEMA. El setWindowOpenHandler deniega (bien) todo
+   window.open que no sea el visor emergente, así que la página de descarga del runtime NDI llevaba muerta desde
+   entonces. Allowlist estricta: sólo http(s) hacia los dominios de NDI — este canal no es un "abrir cualquier
+   cosa" genérico, y si mañana hace falta otro dominio se añade aquí a conciencia. */
+ipcMain.handle('dsp:openExternal', async (e, u) => {
+  try { const url = new URL(String(u || ''));
+    const ok = (url.protocol === 'http:' || url.protocol === 'https:') && /(^|\.)ndi\.(video|link)$/i.test(url.hostname);
+    if (ok) { await shell.openExternal(url.href); return true; }
+  } catch (_) {}
+  return false;
+});
 ipcMain.handle('dsp:revealPath', async (e, p) => { try { if (!p) return false; const st = await fsp.stat(p).catch(() => null); if (st && st.isDirectory()) { await shell.openPath(p); } else { shell.showItemInFolder(p); } return true; } catch (err) { return false; } }); // reveal an exported file / folder in the OS file manager
 ipcMain.handle('dsp:autosaveDir', async () => { try { const d = path.join(app.getPath('userData'), 'autosave'); await fsp.mkdir(d, { recursive: true }); return d; } catch (err) { return null; } }); // disk autosave for not-yet-saved projects
 ipcMain.handle('dsp:fileOpen', async (e, p) => { try { const fh = await fsp.open(p, 'w'); const id = _fdSeq++; _fds.set(id, fh); return id; } catch (err) { return null; } });

@@ -71,6 +71,8 @@ contextBridge.exposeInMainWorld('dsp', {
   proxyDir: () => ipcRenderer.invoke('dsp:proxyDir'),
   autosaveDir: () => ipcRenderer.invoke('dsp:autosaveDir'),
   revealPath: (p) => ipcRenderer.invoke('dsp:revealPath', p),
+  openExternal: (u) => ipcRenderer.invoke('dsp:openExternal', u), // [R242·Aud-4.1] navegador del sistema (allowlist en main) — window.open('_blank') está denegado a propósito
+
   listDir: (dir) => ipcRenderer.invoke('dsp:listDir', dir),
   listSubdirs: (dir) => ipcRenderer.invoke('dsp:listSubdirs', dir), // [R204] reenlace de medios junto al proyecto
   // [R206] menú Edición de macOS → la página decide según el foco; `nativeEdit` hace lo que harían los papeles

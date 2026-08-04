@@ -1,5 +1,93 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 242 — El plan de la auditoría de agosto, ejecutado
+
+`AUDITORIA-2026-08.md` (auditoría delta R223→R241, hecha por un auditor externo sobre el `.exe` desplegado) dejó
+un plan de cinco etapas y cinco decisiones. Beltrán delegó el criterio («confío en tu criterio, avanza»), así que
+se ejecutan las cinco etapas y se resuelven las cinco decisiones, que quedan anotadas abajo por si alguna hay que
+revertir.
+
+### La cura de raíz: nada se hereda del proyecto anterior
+
+La auditoría cazó la **cuarta aparición** de la familia que ya costó R239, R239b y R240b, y esta vez con
+consecuencia grave: un `.isp` **legacy sin secuencias** (v2/`.rdome`) creaba la suya en `ensureSequences` con el
+**`state.seqMode` del proyecto ANTERIOR**. Abriendo un domo v2 con una sala 360 abierta, el domo entraba como
+`mode:'room'` sin `seq.room` — y **guardarlo dejaba esa mentira escrita en el archivo para siempre**.
+
+En vez de tapar ese caso, se generaliza la regla de R240b: **`resetProjDefaults()` aplica los valores de FÁBRICA
+antes de leer el archivo**, y lo llaman los TRES caminos (`loadProject`, `newProject`, `newRoomProject`). Cubre
+`seqMode`/`seqCov`, `tl.bpm`/`sig`/`tcMode`/`audioCollapsed` (los tres primeros se leían con `if(obj.tl.X)`, así
+que un archivo sin bloque `tl` se quedaba con el tempo del proyecto anterior: medido, bpm 174 y compás 7 viajando
+de una sala a un domo recién abierto) y el **encuadre del visor** — zoom/pan global, `view.vp` por panel y la
+cámara 3D—, que sobrevivían tanto a `newProject` como a `loadProject`. Que `newRoomProject` YA lo reseteara era la
+prueba de que era descuido y no decisión. `obj.lanes||state.lanes` pasa a `obj.lanes||defLanes()` por lo mismo.
+
+Es además la «migración centralizada de `.isp`» que la auditoría de julio pidió, hecha en su versión mínima: una
+función, un punto de aplicación, y la regla explícita de que **campo ausente = fábrica, nunca lo heredado**.
+
+### La fuga que sólo se veía abriendo proyectos
+
+`newProject` desechaba los medios del proyecto saliente desde siempre; **`loadProject` no**. Su limpieza cubría
+`_vinst`, `_fxHist`, la papelera y el registro de LUTs, pero `state.media` se reemplazaba sin `disposeMedia` y
+`state.clips` sin borrar sus `maskTex`. Medido por CDP: **+5 texturas GL vivas por cada apertura**, que no volvían
+nunca. Con el demo son texturas pequeñas; con material real cada medio de vídeo se lleva su textura de fotograma
+(26 MB en una tira de 7196×912) más su `<video>` y su decodificador. Cuatro o cinco proyectos abiertos en una
+jornada de montaje = cientos de MB que sólo devolvía reiniciar. Ahora las dos pasadas de dispose son simétricas a
+las de `newProject`. Verificado: el mismo ciclo de cuatro aperturas pasa de **5→10→15→20 texturas** a **0, 0, 0, 0**.
+
+### Lo demás del plan
+
+- **BOM.** Un `.isp` re-guardado desde el Bloc de notas (el caso real: alguien corrige una ruta a mano) llega con
+  BOM UTF-8 y `JSON.parse` lo rechazaba: **«Invalid project», sin pista de por qué**. `stripBom()` en los cinco
+  parses de proyecto y autoguardado. Verificado: el mismo archivo que fallaba abre.
+- **La descarga del runtime NDI llevaba muerta desde R226.** El `setWindowOpenHandler` deniega —bien— todo
+  `window.open` que no sea el visor emergente, así que el «¿Abrir la página de descarga?» aceptaba y **no pasaba
+  nada**. Canal nuevo `dsp:openExternal` con `shell.openExternal` y **allowlist estricta** (sólo http(s) hacia
+  `ndi.video`/`ndi.link`): no es un «abrir cualquier cosa» genérico. Verificado que un dominio ajeno, un `file://`
+  y una cadena que no es URL devuelven `false`.
+- **macOS · el Dock.** Cerrar la ventana en macOS deja la app viva; el clic del Dock llamaba a `createWindow()`,
+  que nace con `show:false` y espera a `finishBoot()`… cuyo guard `bootDone` seguía en `true` desde el primer
+  arranque. **La ventana no se mostraba nunca** y la única salida era Cmd+Q. Se rearma `bootDone=false` antes de
+  crear. Estático: no hay Mac para probarlo, queda anotado.
+- **Las dos últimas rutas con `'\\'` cableado** (`ncBuild`, la carpeta «nest proxies» y el nombre del archivo)
+  pasan a `PSEP`. Eran los supervivientes de la familia R204; en Windows son inocuas, por eso nadie las vio.
+- **El viewport de relleno se acota a `MAX_VIEWPORT_DIMS`.** Con un lienzo de aspecto >512 el driver lo recortaba
+  **en silencio** mientras `mstrU/mstrV` seguían calculando con el viewport pedido. Ahora cálculo y GL usan los
+  mismos números. Es un caso de laboratorio (haría falta un lienzo de 16000×20), pero el arreglo es una línea y el
+  fallo era del tipo que no avisa.
+- **`build.files`/`asarUnpack` incluyen Spout explícitamente.** No arregla un bug —electron-builder ya lo metía
+  por su cuenta, verificado en el paquete real—, pero la lista nombraba sólo NDI y **sugería que Spout faltaba**.
+  Ahora la lista dice la verdad.
+
+### Las cinco decisiones, resueltas (revisables)
+
+1. **Encuadre del visor entre proyectos** → se **resetea** al abrir y al crear, en vez de guardarse en el `.isp`.
+   Coherente con `newRoomProject` y con R239: cada proyecto abre encuadrado por sí mismo, no por el anterior.
+2. **Scrub sin proxy** → se toma **sólo la mitad barata**: un aviso al importar material pesado (≥5 Mpx o
+   ≥80 Mbps) que recuerda el proxy, agrupado por tanda. **ADR-0003 queda intacto: informa, no genera.** La
+   previsualización al keyframe durante el arrastre (~30-100×) **NO se hace aquí**: toca el camino de
+   decodificación en caliente, se merece su propia ronda con su verificación, y meterla en el mismo commit que
+   siete arreglos de integridad habría hecho imposible saber qué rompió qué. Queda en `docs/NEXT.md` como lo
+   siguiente de más valor.
+3. **Hardening de la superficie IPC** → **no se toca**, se documenta. El renderer es código propio, no se navega a
+   contenido remoto y el `setWindowOpenHandler` ya cierra la puerta de las ventanas; acotar `deleteFile`/
+   `writeText` a raíces conocidas añade fricción real (render en el sitio, proxies junto al clip, export a
+   cualquier carpeta) contra un riesgo que hoy es hipotético. Si algún día se abren `.isp` de terceros de forma
+   habitual, se reabre.
+4. **`tl.audioCollapsed`** → **revivido**. El lector de R110 seguía ahí esperando un campo que `serProject` había
+   dejado de escribir en alguna reescritura; devolverlo son tres caracteres y la promesa vuelve a cumplirse.
+5. **Interfaz de la cola de export** → **se cierra el pendiente**: la UI mínima de R216 (fila por trabajo, ✕
+   individual, «Cancel queued») es suficiente ahora que **[D2] está retirado** y no se puede editar mientras
+   exporta. Sin una cola que se administre en paralelo, no hay nada más que gobernar.
+
+### Verificación
+
+Las seis sondas de la auditoría, vueltas a pasar (`scratchpad/aud2608-*.mjs`), `__errs` vacío en todas:
+herencia **sin heredar nada** en los tres frentes (vista 0,92/[0,0]/cámara de fábrica · legacy v2 tras una sala →
+`mode:'dome'` · tempo 120/4/timecode) · BOM abre · migraciones v2 y v3 y el viaje v3→v4 sin cambios · fugas
+**0,0,0,0** · encuadre por secuencia sin regresión (0 · 5000 · 1234) · `openExternal` deniega dominio ajeno,
+`file://` y basura. `node --check` limpio en `app.js` y `main.js`.
+
 ## ROUND 241 — Prueba de estrés tipo show, con el material real
 
 La única cosa que quedaba en la cola y que no se podía simular. Beltrán prestó su sala (`Rito360.isp`, 7196×912,
