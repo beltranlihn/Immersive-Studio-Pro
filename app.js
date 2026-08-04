@@ -3858,6 +3858,12 @@ function clipHalfPx(c,stripW,stripH){ const m=(typeof mediaById==='function')?me
   const hw=wW/2*sc*sxm, hh=wH/2*sc*sym;
   const rot=(c.props.rot||0)*Math.PI/180, cs=Math.abs(Math.cos(rot)), sn=Math.abs(Math.sin(rot));
   return (hw*cs+hh*sn)/A*stripW; } // semiancho del clip, en píxeles de la tira
+/* [R238] DECIDIDO CON BELTRÁN (2026-08-04): esto reubica la POSICIÓN y nada más — la ESCALA no se toca.
+   Al estrechar un muro, un clip encuadrado a su medida puede acabar desbordándolo e invadiendo al vecino, y se
+   corrige a mano. Se valoraron las dos alternativas y se descartaron: escalar con el muro arrastra el alto
+   (`scale` es uniforme, así que estrechar un muro encogería también verticalmente y un clip que llenaba el alto
+   dejaría de llenarlo), y recortar sólo al desbordar pierde el encuadre igual pero de forma impredecible. NO
+   "arreglar" esto sin volver a preguntar. */
 function reubicarClipsPorMuro(clips,lanes,viejos,viejoW,nuevos,nuevoW){
   if(!(viejoW>0)||!(nuevoW>0)||!viejos.length)return 0;
   const nuevoPorRol={}; for(const w of nuevos)nuevoPorRol[w.role]=w;
@@ -8703,7 +8709,7 @@ function roomPlan(walls){ const by={}; for(const w of (walls||[]))if(w&&w.role)b
      hay nada que resolver: los laterales salen rectos (θ=0) y la U/L queda a escuadra. Con fondo, θ es la raíz de
      «la distancia entre las dos esquinas traseras = ancho del fondo». Se busca por barrido + bisección porque la
      función no es monótona cuando el frente es estrecho frente a los laterales. */
-  let th=0, imposible=false;
+  let th=0, imposible=false, motivo=null;
   if(has('Back')&&(has('Left')||has('Right'))){
     const f=t=>Math.hypot(wF+(wL+wR)*Math.sin(t),(wR-wL)*Math.cos(t))-wB;
     /* [R232] LA ECUACIÓN TIENE HASTA DOS RAÍCES, y la de |θ| grande pliega la sala sobre sí misma: las dos
@@ -8713,21 +8719,40 @@ function roomPlan(walls){ const by={}; for(const w of (walls||[]))if(w&&w.role)b
        tiene raíz en −67,6° (cruzada) y en −0,6° (la sala casi rectangular que se había medido).
        Ahora se recogen TODAS las raíces, se descartan las que se cruzan y se elige la de |θ| más pequeña: la
        lectura más rectangular de las cuatro medidas, que es lo que quiere decir quien las teclea. */
-    const LIM=Math.PI/2-1e-3, N=360; const raices=[]; let pv=f(-LIM), pt=-LIM;
-    for(let i=1;i<=N;i++){ const t=-LIM+2*LIM*i/N, v=f(t);
-      if((pv<=0&&v>=0)||(pv>=0&&v<=0)){ let lo=pt,hi=t; const s=Math.sign(f(hi)-f(lo))||1;
-        for(let k=0;k<52;k++){ const m=(lo+hi)/2; if(s*f(m)<0)lo=m; else hi=m; }
-        raices.push((lo+hi)/2); }
-      pv=v; pt=t; }
+    const LIM=Math.PI/2-1e-3, N=360, TOL=1e-4*Math.max(wF,wB,wL,wR); // TOL ≈ décimas de milímetro en una sala de metros
+    const bisec=(lo,hi)=>{ const s=Math.sign(f(hi)-f(lo))||1;
+      for(let k=0;k<52;k++){ const m=(lo+hi)/2; if(s*f(m)<0)lo=m; else hi=m; }
+      return (lo+hi)/2; };
+    const extremo=(lo,hi,min)=>{ for(let k=0;k<60;k++){ const m1=lo+(hi-lo)/3, m2=hi-(hi-lo)/3;
+      if(min?(f(m1)<f(m2)):(f(m1)>f(m2)))hi=m2; else lo=m1; } return (lo+hi)/2; };
+    const ts=[],vs=[]; for(let i=0;i<=N;i++){ const t=-LIM+2*LIM*i/N; ts.push(t); vs.push(f(t)); }
+    const raices=[];
+    for(let i=1;i<=N;i++){ const a=vs[i-1],b=vs[i];
+      if((a<=0&&b>=0)||(a>=0&&b<=0))raices.push(bisec(ts[i-1],ts[i])); }
+    /* [R238] El barrido sólo miraba CAMBIOS DE SIGNO, así que perdía LAS DOS raíces a la vez cuando ambas caen
+       dentro del mismo paso, o cuando la curva besa el cero sin llegar a cruzarlo (raíz doble). Fallaba del lado
+       seguro —avisa «no cierran»— pero era un FALSO NEGATIVO: medidas que sí cierran una sala se rechazaban.
+       Ahora, además, se refina cada EXTREMO local por búsqueda ternaria y, si su valor alcanza el otro lado del
+       cero, se bisecan sus dos ramas. Un extremo que ya está pasado del cero no se mira: sus cruces los cogió el
+       bucle de arriba. */
+    for(let i=1;i<N;i++){ const a=vs[i-1],b=vs[i],c=vs[i+1];
+      const esMin=(b<a&&b<c), esMax=(b>a&&b>c); if(!esMin&&!esMax)continue;
+      if(esMin?(b<0):(b>0))continue;
+      const ex=extremo(ts[i-1],ts[i+1],esMin), fv=f(ex);
+      if(esMin?(fv>TOL):(fv<-TOL))continue;                       // no llega al cero: no hay raíz aquí
+      if(Math.abs(fv)<=TOL)raices.push(ex);                       // raíz doble tangencial
+      else raices.push(bisec(ts[i-1],ex),bisec(ex,ts[i+1])); }
+    raices.sort((a,b)=>a-b);
+    const unicas=raices.filter((t,i)=>i===0||Math.abs(t-raices[i-1])>1e-6);
     const porRecto=(a,b)=>Math.abs(a)-Math.abs(b);
-    const sanas=raices.filter(t=>!planCruzada(wF,wL,wR,t)).sort(porRecto);
+    const sanas=unicas.filter(t=>!planCruzada(wF,wL,wR,t)).sort(porRecto);
     if(sanas.length)th=sanas[0];
     // Hay cierre, pero SÓLO cruzándose: se coge la menos plegada y se marca. Igual que abajo, no se enseña en
     // silencio una sala que no es la que se ha escrito — así es como un error de medición llega al montaje.
-    else if(raices.length){ th=raices.slice().sort(porRecto)[0]; imposible=true; }
+    else if(unicas.length){ th=unicas.slice().sort(porRecto)[0]; imposible=true; motivo='cruzada'; }
     // sin raíz, esas cuatro medidas no cierran NINGUNA sala (p.ej. un fondo más largo que frente + los dos
     // laterales). Se dibuja la forma sana (θ=0) y se marca.
-    else imposible=true;
+    else { imposible=true; motivo='nocierra'; }
   }
   const BL=[FL[0]-wR*Math.sin(th), FL[1]+wR*Math.cos(th)];
   const BR=[FR[0]+wL*Math.sin(th), FR[1]+wL*Math.cos(th)];
@@ -8736,7 +8761,7 @@ function roomPlan(walls){ const by={}; for(const w of (walls||[]))if(w&&w.role)b
      conservan su x0/x1); sólo cambia a qué lado físico va cada rol, y con ello el 3D, el plano y el iso. */
   const E={Front:[FL,FR],Left:[FR,BR],Back:[BR,BL],Right:[BL,FL]};
   const seg=presentes.map(r=>({role:r,a:E[r][0].slice(),b:E[r][1].slice(),h:Hm(r)}));
-  return {seg, closed:presentes.length===4, poly:[FL,FR,BR,BL], imposible}; }
+  return {seg, closed:presentes.length===4, poly:[FL,FR,BR,BL], imposible, motivo}; }
 /* Two synced schematics of the room: a 3D iso (left) for shape/orientation and a to-scale top-down PLAN
    (right, with a metre bar) for exact footprint measurements. The wall under edit lights up in both. Drawn
    at ~2× for crispness; fonts sized to the app's scale via U = W/528 (so N*U renders at ~N screen px). */
@@ -8830,9 +8855,14 @@ function drawRoomIso(cv,walls,floorOn,activeRole,pal,solo){ if(!cv)return; const
   // scale bar (metrically exact for the plan): pick the largest round length that fits ~half the panel
   /* [R199] Si esas medidas no cierran ninguna sala, se dice. Antes se dibujaba en silencio una forma con el fondo
      cambiado, y un error de medición así no se descubre hasta el montaje. */
+  /* [R238] El rótulo dice CUÁL de los dos problemas es. Antes los dos casos —«no cierran ninguna sala» y «cierran
+     pero cruzándose sobre sí misma»— compartían el mismo texto, y son cosas distintas: en el primero sobran o
+     faltan centímetros, y en el segundo el error está en QUÉ pared se midió como cuál. */
   if(plan.imposible){ ctx.textAlign='right'; ctx.textBaseline='middle'; ctx.fillStyle='rgba(229,181,103,0.95)';
     ctx.font=`600 ${7.5*TU}px Geist,system-ui`;
-    ctx.fillText(T('These sizes don’t close a room','Estas medidas no cierran una sala'), W-pad, H-pad*0.7); }
+    ctx.fillText(plan.motivo==='cruzada'
+      ? T('These sizes only close by crossing over','Estas medidas sólo cierran cruzándose')
+      : T('These sizes don’t close a room','Estas medidas no cierran una sala'), W-pad, H-pad*0.7); }
   { let m=1; for(const c of [10,5,2,1,0.5,0.2]){ if(c*sPlan<=availRW*0.5){ m=c; break; } } const bp=m*sPlan, bx=split+pad, by=H-pad*0.7;
     line([bx,by],[bx+bp,by],'rgba(200,200,200,0.7)',1.4*U); line([bx,by-3*U],[bx,by+3*U],'rgba(200,200,200,0.7)',1.4*U); line([bx+bp,by-3*U],[bx+bp,by+3*U],'rgba(200,200,200,0.7)',1.4*U);
     ctx.textAlign='left'; ctx.textBaseline='middle'; ctx.fillStyle='rgba(170,170,170,0.9)'; ctx.font=`500 ${7.5*TU}px Geist,system-ui`; ctx.fillText((m>=1?m+' m':(m*100)+' cm'), bx+bp+5*U, by); } }

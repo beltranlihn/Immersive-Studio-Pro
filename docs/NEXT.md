@@ -63,11 +63,23 @@
       en `evalR` y se escribía en la base (igual en la ESCALA, anterior a R234), el azimut del domo se guardaba
       fuera de [0,360), reordenar muros se llevaba clips más anchos que su muro, y deshacer devolvía los clips sin
       la geometría. Verificados en `scratchpad/r234b-review.mjs` y `r234c-reorden.mjs`.
-- [ ] **Deuda anotada (bajo impacto, de la misma revisión):** el barrido del solver puede perder LAS DOS raíces
-      cuando el mínimo de la curva roza el cero (`N=360`; exige medidas degeneradas como 240/10/1200/1200 y falla
-      del lado seguro: avisa) · el rótulo «These sizes don't close a room» se reutiliza para el caso «cierra pero
-      cruzada», que un barrido de 28 561 combinaciones dice que no se alcanza · al cambiar el ANCHO de un muro el
-      clip se recentra pero no se reescala, así que puede desbordarlo.
+- [x] ~~**Deuda anotada (bajo impacto, de la misma revisión).**~~ _(R238, verificada por CDP en
+      `scratchpad/r238-solver.mjs` y `r238-antes.mjs`, `__errs` vacío)_
+  - [x] **El barrido del solver perdía LAS DOS raíces cuando el mínimo de la curva roza el cero.** Ahora, además
+        de los cambios de signo, se refina cada EXTREMO local por búsqueda ternaria y, si alcanza el otro lado del
+        cero, se bisecan sus dos ramas (con tolerancia de raíz doble). El caso se construye EXACTO porque en
+        `s=sin θ` la curva es una parábola: con Front 500 · Right 400 · Left 600 el mínimo cae en un fondo de
+        **172,00 cm**, y ahí el barrido viejo encontraba **0 raíces** —avisaba «no cierran» siendo falso— y ahora
+        cierra con error 0. Por debajo del mínimo sigue avisando. Barrido de **28 561 combinaciones sin
+        regresión**: 0 cruzadas en silencio, 0 sanas rechazadas, peor error de cierre **0 cm**; el caso real de
+        Beltrán (648/745/641/648) sigue en θ=0,59°.
+  - [x] **El rótulo ya distingue los dos casos:** «no cierran una sala» (sobran o faltan centímetros) frente a
+        «sólo cierran cruzándose» (el error está en qué pared se midió como cuál). El segundo sigue siendo
+        inalcanzable en la práctica —el barrido lo confirma, 0 de 28 561—, así que es corrección, no algo que se vea.
+  - [x] **Al cambiar el ANCHO de un muro el clip se recentra pero no se reescala.** _(DECISIÓN de Beltrán,
+        2026-08-04: **dejarlo como está.** Se valoraron y descartaron escalar con el muro —`scale` es uniforme, así
+        que estrechar un muro encogería también el alto y un clip que llenaba la altura dejaría de llenarla— y
+        recortar sólo al desbordar. Anotado en `reubicarClipsPorMuro` para que no se "arregle" sin volver a preguntar.)_
 - [ ] Probar en el `.exe` desplegado y confirmar con una sala real medida a mano.
 
 ## 🧪 Tanda de Beltrán — 2026-07-30 (prueba sobre el .exe desplegado) · CERRADA EN CÓDIGO ✅ [R231]

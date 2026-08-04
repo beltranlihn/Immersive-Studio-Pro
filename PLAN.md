@@ -1,5 +1,48 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 238 — La deuda que dejó la revisión de la sala 360
+
+Tres puntos anotados como «bajo impacto» en R234b/c. Dos eran arreglables sin ambigüedad; el tercero era una
+decisión de producto y la tomó Beltrán.
+
+### El solver perdía LAS DOS raíces cuando el mínimo de la curva roza el cero
+
+El barrido de `roomPlan` buscaba raíces por **cambio de signo**. Eso deja fuera dos situaciones: cuando la curva
+besa el cero sin llegar a cruzarlo (raíz doble) y cuando las dos raíces caen dentro del mismo paso. En los dos
+casos el barrido devolvía cero raíces y la app decía «estas medidas no cierran una sala». Fallaba del lado
+seguro, sí, pero era un **falso negativo**: medidas que sí cierran se rechazaban.
+
+Ahora, además de los cambios de signo, se refina cada **extremo local** por búsqueda ternaria; si su valor alcanza
+el otro lado del cero se bisecan sus dos ramas, y si lo roza dentro de la tolerancia se toma como raíz doble.
+
+El caso de prueba no hay que buscarlo por tanteo: en `s = sin θ` la curva es una **parábola**
+(`g² = (b²−c²)s² + 2ab s + (a²+c²)`, con a=Front, b=Left+Right, c=Right−Left), así que el mínimo se calcula exacto.
+Con Front 500 · Right 400 · Left 600, cae en un fondo de **172,00 cm**. Medido ahí: el barrido viejo encontraba
+**0 raíces** y el nuevo cierra con **error 0**. Por debajo del mínimo sigue avisando, que es lo correcto.
+
+No hay regresión: barrido de **28 561 combinaciones** con 0 plantas cruzadas coladas en silencio, 0 sanas
+rechazadas y peor error de cierre **0 cm**. El caso real de Beltrán (648/745/641/648) sigue resolviéndose en
+θ = 0,59°, la lectura casi rectangular de R232.
+
+### El rótulo de aviso decía lo mismo para dos problemas distintos
+
+«These sizes don't close a room» se usaba tanto cuando no hay ninguna solución como cuando la hay pero cruzada.
+Son cosas distintas: en el primer caso sobran o faltan centímetros, en el segundo el error está en **qué pared se
+midió como cuál**. `plan.motivo` los separa y cada uno tiene su texto. El segundo sigue siendo inalcanzable en la
+práctica —el mismo barrido lo confirma, 0 de 28 561—, así que es corrección, no algo que se vaya a ver.
+
+### Cambiar el ancho de un muro: la escala se queda como está (decisión de Beltrán)
+
+`reubicarClipsPorMuro` mueve la posición y la curva de posición, pero no toca la escala, así que al estrechar un
+muro un clip encuadrado a su medida puede desbordarlo. Se le plantearon a Beltrán las tres salidas y **eligió
+dejarlo como está**: se corrige a mano. Las alternativas tenían su propio coste — escalar con el muro arrastra el
+alto (`scale` es uniforme, así que estrechar un muro encogería también verticalmente y un clip que llenaba la
+altura dejaría de llenarla) y recortar sólo al desbordar pierde el encuadre igual, pero de forma impredecible.
+Anotado **en el código**, no sólo aquí, para que no se "arregle" en una limpieza futura.
+
+Verificado por CDP en dev: `scratchpad/r238-solver.mjs` y `r238-antes.mjs` (que reimplementa el barrido viejo para
+demostrar que el caso tangente daba 0 raíces), `__errs` vacío.
+
 ## ROUND 237 — El composite máster deja de ser cuadrado
 
 R236 hizo que «Full» enseñara la calidad original dimensionando el composite con el lienzo, pero lo dejó CUADRADO
