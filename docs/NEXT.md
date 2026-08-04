@@ -4,6 +4,11 @@
 > en `COMPONENTS.md` + una entrada en `PLAN.md` en el mismo commit, como manda el ritual de `/commit`).
 > Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: 2026-08-04.
 
+## ✅ Motion Flotar · CERRADO [R252]
+- [x] **Flotar**: ↔ + ↕ + giro en vaivén, desfasados y a velocidades no múltiplos entre sí. Primer preset de Motion
+      que estampa un ACORDE (`parts`), no un solo modificador. Arreglado de paso: los presets se buscaban en el
+      juego de domo primero, así que en 2D el chip Pulsar animaba un parámetro que ese camino ni lee.
+
 ## ✅ Dos arreglos de edición diaria · CERRADOS [R251]
 - [x] **Copiar/pegar VARIOS clips.** El portapapeles guardaba uno solo; ahora guarda la selección entera y la pega
       conservando distancias y pistas.

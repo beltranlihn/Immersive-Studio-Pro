@@ -784,6 +784,20 @@ const ANIM_PRESETS=[
   {key:'pulse',  param:'size', mode:'wave',   speed:0.4,  amp:16, label:['Pulse','Pulsar']},
   {key:'wobble', param:'rot',  mode:'wave',   speed:0.35, amp:12, label:['Wobble','Bambolear']},
   {key:'flicker',param:'opacity',mode:'wave', speed:0.9,  amp:22, label:['Flicker','Parpadeo']},
+  /* [R252] FLOTAR — no es un parámetro, es un ACORDE de tres. Definición de Beltrán: «que el objeto se esté
+     moviendo suavemente arriba y abajo, suavemente a la izquierda y a la derecha, y suavemente una rotación ligera
+     entre un lado y otro», los tres en vaivén y desfasados.
+     En el domo el «izquierda/derecha, arriba/abajo» son `fx`/`fy` — el deslizamiento por el plano del ojo de pez
+     que entró en R246 —, no az/el: az/el se mueven sobre la ESFERA, así que cerca del cenit un mismo grado de
+     azimut recorre mucho menos y el flotar saldría desigual según dónde esté puesto el clip.
+     Las tres velocidades son DISTINTAS y no múltiplos entre sí (0,09 · 0,07 · 0,055 → periodos de 11, 14 y 18 s):
+     con la misma velocidad y sólo el desfase cambiado, los tres cierran el ciclo a la vez y el recorrido se
+     repite igual cada vuelta, que es exactamente lo que delata a una animación. Sin múltiplo común corto, el
+     conjunto tarda minutos en volver a alinearse y se lee como deriva, no como bucle. */
+  {key:'float', label:['Float','Flotar'], parts:[
+    {param:'fx',  mode:'wave', speed:0.09,  amp:0.05,  phase:0},
+    {param:'fy',  mode:'wave', speed:0.07,  amp:0.038, phase:0.27},
+    {param:'rot', mode:'wave', speed:0.055, amp:4,     phase:0.61} ]},
 ];
 // Flat / 360-room motion set (2D transform params). Vertical movement tiles the clip infinitely so it loops.
 const ANIM_PRESETS_FLAT=[
@@ -791,12 +805,27 @@ const ANIM_PRESETS_FLAT=[
   {key:'pulse',  param:'scale',mode:'wave',   speed:0.4, amp:16, label:['Pulse','Pulsar']},
   {key:'hmove',  param:'x',    mode:'linear', speed:15,  amp:0,  label:['Horizontal','Horizontal']},
   {key:'vmove',  param:'y',    mode:'linear', speed:15,  amp:0,  tile:true, label:['Vertical','Vertical']},
+  {key:'float', label:['Float','Flotar'], parts:[   // [R252] el mismo acorde, con los parámetros del plano
+    {param:'x',   mode:'wave', speed:0.09,  amp:4,   phase:0},
+    {param:'y',   mode:'wave', speed:0.07,  amp:3,   phase:0.27},
+    {param:'rot', mode:'wave', speed:0.055, amp:3.5, phase:0.61} ]},
 ];
 function curAnimPresets(){ return isFlat()?ANIM_PRESETS_FLAT:ANIM_PRESETS; }
 function hasLiveAnim(c){ return !!(c&&c.anim&&c.anim.some(a=>a.on)); }
 function clipVTile(c){ return !!(c&&c.anim&&c.anim.some(a=>a.on&&a.tile&&a.param==='y')); } // vertical-movement modifier → tile the clip vertically for a seamless infinite scroll
-function addAnimPreset(c,key){ if(!c)return; if(!c.anim)c.anim=[]; const p=ANIM_PRESETS.concat(ANIM_PRESETS_FLAT).find(x=>x.key===key)||ANIM_PRESETS[0]; c.anim.push({id:uid(),param:p.param,mode:p.mode,speed:p.speed,amp:p.amp,phase:0,on:true,tile:p.tile||false});
-  c.props=c.props||{}; const mk='mot:'+p.param+':mix'; if(c.props[mk]==null)c.props[mk]=100; } // [R224] el Mix nace al 100 % como valor base del parámetro (antes era `a.wet` ausente = 1)
+/* [R252] Un preset puede ser UN modificador o un ACORDE (`parts`), que es lo que hace falta para Flotar: la
+   sensación no está en ningún parámetro, sino en la mezcla de tres desfasados. Se estampan como modificadores
+   normales, no como una caja negra, así que después se toca cada uno por separado (o se apaga el que sobre).
+   El preset se busca PRIMERO en el juego de la secuencia actual: `pulse` existe en los dos con parámetros
+   distintos (`size` en domo, `scale` en plano) y buscar en la lista concatenada devolvía siempre el de domo, así
+   que en una secuencia 2D el chip Pulsar animaba un parámetro que el camino plano ni lee. */
+function addAnimPreset(c,key){ if(!c)return; if(!c.anim)c.anim=[];
+  const set=curAnimPresets();
+  const p=set.find(x=>x.key===key)||ANIM_PRESETS.concat(ANIM_PRESETS_FLAT).find(x=>x.key===key)||set[0];
+  const partes=p.parts||[{param:p.param,mode:p.mode,speed:p.speed,amp:p.amp,phase:0,tile:p.tile}];
+  c.props=c.props||{};
+  for(const q of partes){ c.anim.push({id:uid(),param:q.param,mode:q.mode,speed:q.speed,amp:q.amp,phase:q.phase||0,on:true,tile:q.tile||false});
+    const mk='mot:'+q.param+':mix'; if(c.props[mk]==null)c.props[mk]=100; } } // [R224] el Mix nace al 100 % como valor base del parámetro (antes era `a.wet` ausente = 1)
 let _previewClock=0,_prevRaf=0,_prevLast=0;
 function animTime(t){ return (state.playing||exporting)?t:(t+_previewClock); } // paused editor advances a preview clock; export/playback use the real frame time (deterministic)
 /* per-modifier dry/wet (0..1) — keyframeable so the user can decide WHEN a motion ramps in on the timeline.

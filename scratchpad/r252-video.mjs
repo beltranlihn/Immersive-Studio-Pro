@@ -1,0 +1,47 @@
+/* [R252] Graba Flotar en el domo con material real, y al lado el mismo clip quieto, para que se vea la diferencia. */
+import http from 'http'; import fs from 'fs'; import path from 'path';
+const DL=path.join(process.env.USERPROFILE,'Downloads');
+const t=await new Promise((res,rej)=>{http.get({host:'127.0.0.1',port:9222,path:'/json/list'},r=>{let b='';r.on('data',c=>b+=c);r.on('end',()=>res(JSON.parse(b)));}).on('error',rej);});
+const page=t.find(x=>x.type==='page'&&x.webSocketDebuggerUrl&&/index\.html/.test(x.url));
+const ws=new WebSocket(page.webSocketDebuggerUrl); await new Promise(r=>ws.onopen=r);
+let id=0;const p=new Map();ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id&&p.has(m.id)){p.get(m.id)(m);p.delete(m.id);}};
+const cmd=(m,q={})=>new Promise((res,rej)=>{const i=++id;p.set(i,x=>x.error?rej(new Error(JSON.stringify(x.error))):res(x.result));ws.send(JSON.stringify({id:i,method:m,params:q}));});
+const ev=async x=>{const r=await cmd('Runtime.evaluate',{expression:x,awaitPromise:true,returnByValue:true,timeout:120000});if(r.exceptionDetails)throw new Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);return r.result.value;};
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+await cmd('Page.enable'); await cmd('Page.reload',{ignoreCache:true}); await wait(3800);
+await ev(`(async()=>{ await newProject('dome',2048,2048,60,180,true); if(typeof hideLanding==='function')hideLanding(); })()`); await wait(1100);
+await ev(`(function(){ const b=document.querySelector('#viewModeSeg button[data-v="2d"]'); if(b)b.click();
+  state.view.showGrid=false; state.view.showOutline=false; state.view.hfade=false; state.motionPreview=true;
+  state.view.zoom=1; state.view.pan=[0,0]; resize(); render(); return 1; })()`); await wait(400);
+await ev(`window.__addImg=function(ruta,nombre){ return new Promise(res=>{ const url=DSP.toFileURL(ruta); const img=new Image();
+  img.onload=()=>{ const cv=document.createElement('canvas'); cv.width=img.naturalWidth; cv.height=img.naturalHeight;
+    cv.getContext('2d').drawImage(img,0,0);
+    const m={id:uid(),kind:'image',name:nombre,el:cv,originalEl:cv,tex:newTex(),w:cv.width,h:cv.height,dur:60,fps:0,color:clipColorFor('image'),path:ruta,missing:false,_loading:false};
+    upTex(m.tex,cv); try{m.thumb=cv.toDataURL();}catch(e){} state.media.push(m); res(1); }; img.onerror=()=>res(0); img.src=url; }); };1`);
+const files=fs.readdirSync(DL).filter(f=>/\.(png|jpe?g)$/i.test(f)).slice(0,4);
+for(const f of files) await ev(`__addImg(${JSON.stringify(path.join(DL,f))},${JSON.stringify(f)})`);
+await ev(`renderMedia();1`);
+const info=await ev(`(function(){ state.clips=[];
+  const ims=state.media.filter(m=>m.kind==='image').slice(0,4);
+  /* cuatro clips repartidos por el domo; a los de la izquierda se les pone Flotar, los de la derecha quietos */
+  const puestos=[{az:225,el:45},{az:135,el:45},{az:315,el:45},{az:45,el:45}];
+  ims.forEach((m,i)=>{ const c=makeClip(m,state.lanes.findIndex(l=>l.kind==='video')+i,0); c.dur=60;
+    c.props.az=puestos[i].az; c.props.el=puestos[i].el; c.props.size=42;
+    state.clips.push(c);
+    if(i<2){ state.selId=c.id; addAnimPreset(c,'float'); } });
+  state.playhead=1; renderTimeline(); render();
+  return { clips:state.clips.length, conFlotar:state.clips.filter(c=>c.anim&&c.anim.length).length }; })()`);
+await wait(600);
+console.log(info.clips+' clips · '+info.conFlotar+' con Flotar (los dos de arriba)');
+await ev(`window.__grab=function(clock){ _previewClock=clock; render();
+  const S=Math.min(glc.width,glc.height), sx=Math.round((glc.width-S)/2), sy=Math.round((glc.height-S)/2);
+  const cv=document.createElement('canvas'); cv.width=cv.height=520; const g=cv.getContext('2d');
+  g.fillStyle='#000'; g.fillRect(0,0,520,520); g.drawImage(glc, sx,sy,S,S, 0,0,520,520); return cv.toDataURL('image/png'); };1`);
+const dir=path.join(process.cwd(),'scratchpad','r252-fr');
+fs.rmSync(dir,{recursive:true,force:true}); fs.mkdirSync(dir,{recursive:true});
+const N=25*14;
+for(let i=0;i<N;i++){ const url=await ev(`__grab(${(i/25).toFixed(4)})`);
+  fs.writeFileSync(path.join(dir,'f'+String(i).padStart(4,'0')+'.png'), Buffer.from(url.split(',')[1],'base64')); }
+console.log(N+' fotogramas (14 s)');
+await ev(`_previewClock=0; render();1`);
+ws.close();

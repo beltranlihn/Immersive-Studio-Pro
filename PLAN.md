@@ -1,5 +1,61 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 252 — Flotar: el primer Motion que es un acorde, no un parámetro
+
+Beltrán: *«para mí el efecto de flotar es que el objeto se esté moviendo suavemente arriba y abajo, suavemente a la
+izquierda y a la derecha, y suavemente una rotación ligera entre un lado y otro. La mezcla de los tres con distinto
+phase genera esa sensación»*.
+
+Es una definición exacta, y también la razón de que este preset no se pareciera a ninguno de los que había: **la
+sensación no vive en ningún parámetro, vive en la mezcla**. Hasta ahora un preset de Motion era un modificador —un
+parámetro, una onda—, así que el sistema tuvo que aprender a estampar un **acorde**.
+
+### Cómo queda
+
+`ANIM_PRESETS` admite ahora `parts`: una lista de modificadores que se estampan juntos. Se estampan como
+modificadores **normales**, no como una caja negra, así que después se toca cada uno por separado, se apaga el que
+sobre o se le pone una curva de Mix a uno solo. Flotar no es un tipo especial de nada: es tres cosas que el
+programa ya sabía hacer, puestas a la vez y bien elegidas.
+
+| | Domo | Plano / sala |
+|---|---|---|
+| ↔ | `fx` · 0,09 Hz · ±0,05 | `x` · 0,09 Hz · ±4 |
+| ↕ | `fy` · 0,07 Hz · ±0,038 | `y` · 0,07 Hz · ±3 |
+| giro | `rot` · 0,055 Hz · ±4° | `rot` · 0,055 Hz · ±3,5° |
+| desfases | 0 · 0,27 · 0,61 | los mismos |
+
+**En el domo el «izquierda/derecha, arriba/abajo» son `fx`/`fy`, no `az`/`el`.** Az/el se mueven sobre la ESFERA:
+cerca del cenit un mismo grado de azimut recorre mucha menos distancia aparente, así que el mismo Flotar se vería
+distinto según dónde esté puesto el clip. `fx`/`fy` —el deslizamiento por el plano del ojo de pez que entró con
+R246— son lo que el espectador lee como izquierda/derecha, y se comportan igual en todo el domo.
+
+**Las tres velocidades son distintas y no múltiplos entre sí** (periodos de 11, 14 y 18 s). Con la misma velocidad
+y sólo el desfase cambiado, los tres cierran el ciclo a la vez y el recorrido se repite idéntico cada vuelta, que
+es justo lo que delata a una animación. Sin múltiplo común corto el conjunto tarda minutos en volver a alinearse y
+se lee como deriva. Medido: partiendo del mismo punto, a los 18 s el objeto está a 0,083 de distancia y a los 36 s
+a 0,133 — nunca vuelve.
+
+### Un fallo que salió al hacerlo
+
+`addAnimPreset` buscaba el preset en `ANIM_PRESETS.concat(ANIM_PRESETS_FLAT)`, o sea **siempre el juego de domo
+primero**. `pulse` existe en los dos con parámetros distintos —`size` en domo, `scale` en plano—, así que **en una
+secuencia 2D el chip «Pulsar» animaba `size`, un parámetro que el camino plano ni lee**: el chip no hacía nada.
+Comprobado evaluando la expresión vieja sobre las tablas actuales: buscaba `size` donde el chip decía `scale`.
+Ahora se busca primero en el juego de la secuencia actual. Sin esto, Flotar habría heredado el mismo problema.
+
+### Verificado sobre el .exe
+
+| | Resultado |
+|---|---|
+| Domo · modificadores estampados | `fx`, `fy`, `rot` con sus velocidades, amplitudes y desfases |
+| Domo · recorrido real en 60 s | fx 0,0996 · fy 0,0759 · rot 8,0° (= 2× amplitud, la onda completa) |
+| Plano · modificadores | `x`, `y`, `rot` · recorrido 7,97 · 5,99 · 7,0° |
+| Mix de cada parte | 100 % los tres, como cualquier Motion recién puesto |
+| ¿Se cierra el recorrido? | no, ni a los 18 s ni a los 36 s |
+| Chip Pulsar en secuencia plana | anima `scale` (antes `size`) |
+
+---
+
 ## ROUND 251 — Copiar varios clips, y que una composición no estrene pista cada vez
 
 Dos cosas que salieron editando de verdad.
