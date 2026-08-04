@@ -59,6 +59,32 @@ desbordan, así que ese caso no probaba lo que yo creía, y a `wheelResizeLanes`
 **evento** (`e.deltaY` salía `undefined` y encogía siempre). La misma trampa nº 3 que el encargo de la auditoría
 avisaba. Corregidos los dos casos, todo verde.
 
+### [R244b] Lo que encontró la revisión del diff — tres hallazgos, y uno tumba mi verificación
+
+- **La regla vive DENTRO del área de scroll, y yo repartía el hueco entero.** `#ruler` (24 px) es hija de
+  `#tlscroll` y, aunque sea `position:sticky`, sigue **en flujo** — lo confirma el `min-height:calc(100% - 24px)`
+  de `.tracks`. Repartir `clientHeight` completo dejaba un desbordamiento permanente de **exactamente esos 24 px**,
+  y como `.tlscroll` lleva `scrollbar-width:none` **no se veía**: la última pista se recortaba en silencio. Ahora
+  el hueco se mide sin la regla (`tlHueco`, leyendo el alto real del DOM con `RULER_H` de reserva). Medido:
+  `scrollHeight − clientHeight` pasa de **24 a 0**.
+- **Y esto es lo que más vale de la revisión:** mi sonda comparaba «suma de alturas» contra `clientHeight` y
+  cantaba «exacto, 435 = 435»… que es **justo la igualdad que mi propio reparto impone**. Una prueba tautológica:
+  no podía fallar aunque el código estuviera mal, porque medía el invariante que el código fabrica en vez de la
+  propiedad que importa. La comprobación correcta es la del DOM, `scrollHeight === clientHeight`, y es la que
+  lleva ahora la sonda. Vale la pena dejarlo escrito: un número verde no prueba nada si la prueba mide su propia
+  premisa.
+- **`maxManual` perdió el suelo de 170 px.** Al extraer `tlContentH()` de `tlMaxH()` se me quedó fuera el
+  `Math.max(170, …)`. Con altura manual y las pistas plegadas, el contenido cae a 89 px y el panel lo seguía —
+  por debajo de los 153 px del `#toolRail`, que quedaba recortado. Se disparaba al plegar o borrar pistas
+  **después** de haber arrastrado el divisor alguna vez. Verificado: el panel se queda en 170 y tapa el rail.
+- **`markDirty()` en cada `pointermove`.** El `after` corre a ~60 Hz y `markDirty` hace dos IPC al proceso
+  principal (`setTitle`, `setUiState`) más `raInvalidate()`: ~120 IPC/s para anotar un alto de pista. Ahora se
+  marca **una vez al soltar**, como ya hacía `startVCapDrag`. Medido: de 8 llamadas por arrastre a **1**.
+
+*(Y una tercera del arnés, por si sirve de aviso: la sonda dejó de parsear porque escribí **backticks dentro de un
+comentario que vive en una plantilla** y cierran el template — trampa nº 5 del encargo, con su propia nota ahora
+en el archivo.)*
+
 ## ROUND 243 — El scrub sin proxy deja de ser inviable
 
 Lo último que quedaba en la cola, y lo de más valor práctico para Beltrán según la auditoría de agosto (§3.3).

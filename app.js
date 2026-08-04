@@ -10345,8 +10345,14 @@ function tlDragMaxH(){ return Math.max(170, Math.round(innerHeight*0.92)); }
    las pistas van a acompañar al contenedor. Si caben —pocas pistas, o muchas pero bajitas— el gesto las lleva
    consigo en los dos sentidos. Si NO caben, ya hay scroll y el divisor nunca estuvo bloqueado: subir y bajar es
    sólo enseñar más o menos pistas, que es lo que Beltrán describe como el caso sin problema. */
+/* [R244b] El hueco REAL para pistas es `clientHeight` MENOS la regla: `#ruler` es hija de `#tlscroll` y, aunque sea
+   `position:sticky`, sigue EN FLUJO (lo confirma el `min-height:calc(100% - 24px)` de `.tracks`). Repartir el
+   `clientHeight` entero —lo que hacía R244— dejaba un desbordamiento permanente de exactamente esos 24 px, y como
+   `.tlscroll` lleva `scrollbar-width:none` NO se veía: la última pista se recortaba en silencio. Se mide del DOM
+   con `RULER_H` de reserva, para que no vuelva a desincronizarse si cambia el CSS. */
+function tlHueco(sc){ const rl=$('#ruler'); const rh=(rl&&rl.offsetHeight)||RULER_H; return (sc.clientHeight-rh); }
 function tlLanesFit(){ const sc=$('#tlscroll'); if(!sc||!state.lanes.length)return false;
-  const hueco=sc.clientHeight; if(hueco<40)return false;
+  const hueco=tlHueco(sc); if(hueco<40)return false;
   let total=0; state.lanes.forEach((l,i)=>total+=laneH(i));
   return total<=hueco+2; }
 /* [R244] Las pistas acompañan al contenedor: se reparten el hueco visible, en los DOS sentidos. Se llama en cada
@@ -10357,7 +10363,7 @@ function tlLanesFit(){ const sc=$('#tlscroll'); if(!sc||!state.lanes.length)retu
    su alto sí se descuenta del hueco. Los topes de siempre mandan: `laneFloorH` abajo y `LANE_MAX_H` arriba — al
    llegar a ellos el gesto deja de estirar y aparece el scroll (o una banda), que es el final honesto. */
 function fillLanesToViewport(base){ const sc=$('#tlscroll'); if(!sc)return false;
-  const hueco=sc.clientHeight; if(hueco<40||!state.lanes.length)return false;
+  const hueco=tlHueco(sc); if(hueco<40||!state.lanes.length)return false; // [R244b] sin la regla — ver tlHueco
   let fijo=0, elastico=0;
   state.lanes.forEach((l,i)=>{ const h=(base&&base[i]!=null)?base[i]:laneH(i); if(l.collapsed)fijo+=laneH(i); else elastico+=h; });
   if(elastico<=0)return false;                    // todas plegadas: no hay nada que repartir
@@ -10373,19 +10379,23 @@ function fillLanesToViewport(base){ const sc=$('#tlscroll'); if(!sc)return false
   if(ultima>=0){ const drift=(hueco-fijo)-suma;
     if(drift){ const l=state.lanes[ultima]; const ajust=Math.max(laneFloorH(l),Math.min(LANE_MAX_H,nuevas.get(ultima)+drift)); nuevas.set(ultima,ajust); } }
   for(const [i,nh] of nuevas){ if(state.lanes[i].h!==nh){ state.lanes[i].h=nh; cambio=true; } }
-  if(cambio)markDirty();                          // el alto de pista viaja en el `.isp` (lanes[].h)
+  /* [R244b] El `markDirty()` iba AQUÍ y esto corre a ~60 Hz durante el arrastre: dos IPC al proceso principal
+     (`setTitle`, `setUiState`) más `raInvalidate()` por cada movimiento, ~120 IPC/s para anotar un alto de pista.
+     Se marca UNA vez al soltar, como ya hacía `startVCapDrag`. */
   return cambio; }
-let _tlFillDrag=false, _tlFillBase=null; // ¿este arrastre lleva las pistas consigo? + sus alturas al empezar
+let _tlFillDrag=false, _tlFillBase=null, _tlFillCambio=false; // ¿este arrastre lleva las pistas consigo? + sus alturas al empezar + si llegó a cambiar alguna
 let _tlResizing=false;                   // [R244] mientras dura el arrastre manda el ratón, no el ajuste automático
 hResize('#tlResize','.timeline',170,tlDragMaxH,
-  ()=>{ _tlAltoManual=true; resize(); if(_tlFillDrag)fillLanesToViewport(_tlFillBase); renderTimeline(); try{renderVZoom();}catch(e){} }, // [R171] arrastrar el divisor marca la altura como manual (ver clampTimelineH) · [R244] y las pistas lo acompañan
+  ()=>{ _tlAltoManual=true; resize(); if(_tlFillDrag&&fillLanesToViewport(_tlFillBase))_tlFillCambio=true; renderTimeline(); try{renderVZoom();}catch(e){} }, // [R171] arrastrar el divisor marca la altura como manual (ver clampTimelineH) · [R244] y las pistas lo acompañan
   ()=>{ _tlFillDrag=tlLanesFit(); _tlFillBase=_tlFillDrag?state.lanes.map((l,i)=>laneH(i)):null;
     /* [R244] `renderTimeline` llama a `clampTimelineH`, que recorta el panel al alto del contenido. Durante el
        arrastre eso PELEA con el ratón: el reparto deja el contenido a un par de píxeles del hueco (redondeo por
        pista) y el recorte devolvía esa diferencia en cada movimiento, con el temblor correspondiente. Se aparta
        mientras dura el gesto y se suelta al levantar el dedo, donde un único ajuste ya no se nota. */
-    _tlResizing=true;
-    const fin=()=>{ _tlResizing=false; window.removeEventListener('pointerup',fin); try{ clampTimelineH(); renderVZoom(); }catch(e){} };
+    _tlResizing=true; _tlFillCambio=false;
+    const fin=()=>{ _tlResizing=false; window.removeEventListener('pointerup',fin);
+      if(_tlFillCambio){ _tlFillCambio=false; markDirty(); } // [R244b] una sola vez al soltar, no 60 por segundo
+      try{ clampTimelineH(); renderVZoom(); }catch(e){} };
     window.addEventListener('pointerup',fin); });
 /* [R171] `tlMaxH` sólo limitaba el ARRASTRE. La altura de partida está cableada en el CSS (402px) y no se
    recalcula al colapsar, quitar o escalar pistas, así que sobraba banda vacía debajo de la última. Esto la
@@ -10402,7 +10412,11 @@ function clampTimelineH(){ if(_tlResizing)return; // [R244] durante el arrastre 
      automático: si no, el divisor dejaba llegar al 92 % y al soltar el recorte lo devolvía al 78 % — dos topes
      peleando por la misma altura. Se sigue recortando al CONTENIDO, que es lo que evita la banda vacía bajo la
      última pista (el motivo de R171): cuando las pistas ya no pueden crecer más, sobra panel y se quita. */
-  const maxManual=Math.min(tlDragMaxH(), tlContentH());
+  /* [R244b] `Math.max(170,…)` — el suelo que `tlMaxH()` sí llevaba y que al extraer `tlContentH()` se me quedó
+     fuera. Sin él, con altura manual y las pistas plegadas el contenido cae a 89 px y el panel lo seguía, por
+     debajo de los 104 px del `#toolRail`, que quedaba recortado. Se dispara al plegar o borrar pistas DESPUÉS de
+     haber arrastrado el divisor alguna vez. */
+  const maxManual=Math.max(170, Math.min(tlDragMaxH(), tlContentH()));
   const objetivo=_tlAltoManual?Math.min(cur,maxManual):max;
   if(Math.abs(cur-objetivo)>0.5){ el.style.height=objetivo+'px'; try{ resize(); }catch(e){} } }
 function saveWorkspace(){ try{ const prev=JSON.parse(localStorage.getItem('domeProWs')||'{}'); const mc=state.prefs.mediaCollapsed, ic=state.prefs.inspCollapsed;

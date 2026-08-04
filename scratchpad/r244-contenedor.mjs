@@ -21,9 +21,19 @@ await ev(`(function(){ window.__errs=[]; addEventListener('error',e=>__errs.push
     const pasos=8; for(let i=1;i<=pasos;i++){ window.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,clientX:x,clientY:y+dy*i/pasos})); }
     window.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,clientX:x,clientY:y+dy}));
     return 1; };
+  /* [R244b] OJO CON ESTA MEDIDA. La versión anterior comparaba "suma de alturas" contra clientHeight y daba
+     "exacto" — pero es la comparación que NO puede detectar el fallo, porque es justo la igualdad que el propio
+     reparto impone. La regla (#ruler, 24 px) vive DENTRO de #tlscroll, así que el hueco de pistas es
+     clientHeight menos la regla; repartir el clientHeight entero desbordaba 24 px, y con scrollbar-width:none eso
+     no se ve: recorta la última pista en silencio. La propiedad que hay que exigir es la del DOM:
+     scrollHeight === clientHeight.
+     (Y sin backticks en este comentario: está dentro de una plantilla y la cerrarían — trampa nº 5 del encargo.) */
   window.__foto=function(){ const el=document.querySelector('.timeline'), sc=document.getElementById('tlscroll');
-    return { panel:Math.round(el.getBoundingClientRect().height), hueco:sc.clientHeight,
+    const rl=document.getElementById('ruler'); const regla=(rl&&rl.offsetHeight)||24;
+    return { panel:Math.round(el.getBoundingClientRect().height), clientHeight:sc.clientHeight,
+      hueco:sc.clientHeight-regla, regla,
       contenido:state.lanes.reduce((s,l,i)=>s+laneH(i),0), alturas:state.lanes.map((l,i)=>laneH(i)),
+      scrollHeight:sc.scrollHeight, desbordaPx:sc.scrollHeight-sc.clientHeight,
       desborda:sc.scrollHeight>sc.clientHeight+1, topeViejo:Math.round(tlMaxH()), topeArrastre:Math.round(tlDragMaxH()) }; };
   return 1; })()`);
 
@@ -50,6 +60,7 @@ out['1_pocasPistas']=await ev(`(function(){
     panelCrecio: despues.panel>antes.panel+100,
     pistasCrecieron: despues.contenido>antes.contenido+100,
     llenanElHueco: Math.abs(despues.contenido-despues.hueco)<=6,
+    sinDesbordamiento: !despues.desborda,          // [R244b] LA prueba de verdad: nada recortado en silencio
     sinBandaVacia: !(despues.contenido < despues.hueco-6) }; })()`);
 await wait(300);
 
@@ -59,7 +70,8 @@ out['2_alAchicar']=await ev(`(function(){ const antes=__foto();
   const despues=__foto();
   return { antes, despues, panelEncogio:despues.panel<antes.panel-100,
     pistasEncogieron:despues.contenido<antes.contenido-100,
-    llenanElHueco:Math.abs(despues.contenido-despues.hueco)<=6 }; })()`);
+    llenanElHueco:Math.abs(despues.contenido-despues.hueco)<=6,
+    sinDesbordamiento:!despues.desborda }; })()`);
 await wait(300);
 
 /* ---- CASO 3 · MUCHAS pistas (el contenido ya desborda): no se toca nada, sólo scroll ---- */
@@ -96,6 +108,24 @@ out['6_altRuedaNoSalta']=await ev(`(function(){
   return { antes, trasAgrandar:despues, trasEncoger,
     noSaltaHaciaAbajoAlPedirCrecer: despues.every((h,i)=>h>=antes[i]),
     yEncogeCuandoSeLePide: trasEncoger.every((h,i)=>h<despues[i]) }; })()`);
+
+/* ---- CASO 7 · [R244b] el suelo del panel: plegar pistas tras un arrastre no puede hundirlo bajo 170 ---- */
+out['7_sueloDelPanel']=await ev(`(function(){
+  state.lanes=state.lanes.slice(0,2); state.lanes.forEach(l=>{l.h=LANE_DEF_H;l.collapsed=false;}); renderTimeline();
+  __arrastraDivisor(-120);                                   // deja _tlAltoManual en true
+  state.lanes.forEach(l=>l.collapsed=true);                  // plegarlas hunde tlContentH a ~89
+  renderTimeline(); const f=__foto();
+  const railH=(document.getElementById('toolRail')||{offsetHeight:0}).offsetHeight;
+  return { panel:f.panel, contenidoCrudo:24+f.contenido+17, railH,
+    noBajaDe170:f.panel>=170, tapaElRail:f.panel>=railH }; })()`);
+
+/* ---- CASO 8 · [R244b] markDirty NO se dispara en cada movimiento del arrastre ---- */
+out['8_markDirtyUnaVez']=await ev(`(function(){
+  state.lanes.forEach(l=>{l.collapsed=false;l.h=LANE_DEF_H;}); renderTimeline();
+  let n=0; const orig=window.markDirty; window.markDirty=function(){ n++; return orig.apply(this,arguments); };
+  state.dirty=false; __arrastraDivisor(-150);                // 8 pasos + pointerup
+  window.markDirty=orig;
+  return { llamadas:n, pasosDelArrastre:8, unaSolaVezOMenos:n<=1 }; })()`);
 
 await ev(`(async()=>{ state.dirty=false; await newProject('dome',4096,4096,60,180,true); })()`);
 out.errs=await ev(`window.__errs.slice(0,10)`);
