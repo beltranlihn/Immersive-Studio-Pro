@@ -5784,7 +5784,30 @@ function _renderInspectorMain(){
     lrow.querySelector('#loopToggle').onclick=()=>{const cc=selClip();if(cc)toggleLoop(cc);};
     if(c.loop && m.kind!=='audio'){ // R88: ping-pong reverse (video / sequence)
       const lr=pbRow('loopRevToggle',T('Reverse','Inverso'),T('Ping-pong (fwd → back → fwd)','Ping-pong (ida → vuelta → ida)'),!!c.loopRev);
-      lr.querySelector('#loopRevToggle').onclick=()=>{const cc=selClip();if(cc)toggleLoopReverse(cc);}; } }
+      lr.querySelector('#loopRevToggle').onclick=()=>{const cc=selClip();if(cc)toggleLoopReverse(cc);}; }
+    /* [R250] EL TRAMO QUE SE REPITE, a la vista y editable. El motor siempre supo envolver sobre
+       `[inP, inP+loopLen)`, y `loopLen` se capturaba de la duración del clip al ENCENDER el bucle — así que
+       recortar primero y encender después ya daba un bucle corto. El problema era que no se veía por ninguna parte
+       y que para cambiarlo había que apagar el bucle... lo cual RECORTA el clip a lo que quede de archivo (medido:
+       40 s → 30,13 s). Es decir, re-decidir el bucle costaba el montaje. Aquí se ve, se edita y se puede tomar de
+       la longitud actual del clip SIN apagar nada. */
+    if(c.loop){ const srcDur=isSeqMedia(m)?seqDur(m):(m.dur||0);
+      const row=document.createElement('div'); row.className='prow';
+      row.innerHTML=`<span class="kf" style="cursor:default;"></span><span class="lab" style="flex:1;min-width:0;">${T('Loop range','Tramo del bucle')}</span>`
+        +`<span class="tnum" id="loopLenV" style="color:var(--ink-2);min-width:70px;text-align:right;">${(+(c.loopLen||0).toFixed(2))} s</span>` /* con decimales: `fmtDur` redondea a segundos y un bucle de 6,5 s se leía «6s» */
+        +`<button class="mbtn" id="loopFromClip" type="button" style="height:20px;padding:0 7px;font-size:10px;margin-left:6px;">${T('From clip','Del clip')}</button>`;
+      row.title=T('The stretch of source that repeats. "From clip" takes the clip\'s current length.','El trozo de la fuente que se repite. «Del clip» lo toma de la longitud actual del clip.');
+      $('#playbackRows').appendChild(row);
+      const info=document.createElement('div'); info.className='prow';
+      info.innerHTML=`<span class="kf" style="cursor:default;"></span><span class="tnum" style="flex:1;color:var(--ink-dim);font-size:10px;line-height:1.4;">`
+        +T('Repeats ','Repite ')+fmtTime(c.inP||0)+' → '+fmtTime((c.inP||0)+(c.loopLen||0))+T(' of the source',' de la fuente')+`</span>`;
+      $('#playbackRows').appendChild(info);
+      row.querySelector('#loopFromClip').onclick=()=>{ const cc=selClip(); if(!cc)return;
+        setLoopRange(cc, cc.dur*(cc.speed||1)); };
+      row.querySelector('#loopLenV').style.cursor='text';
+      row.querySelector('#loopLenV').ondblclick=()=>{ const cc=selClip(); if(!cc)return;
+        appPrompt(T('Loop range in seconds','Tramo del bucle en segundos'),String(+(cc.loopLen||0).toFixed(3)),v=>{
+          if(v==null)return; const nv=parseFloat(String(v).replace(',','.')); if(!isNaN(nv)&&nv>0)setLoopRange(cc,nv); }); }; } }
   // [REDISEÑO Rev1] Playback · Speed — per-clip playback rate (c.speed, default 1); time-based media only (video/audio/sequence)
   /* [R195] La velocidad usa el MISMO componente `.field` que el resto de parámetros —barra arrastrable y número
      editable al doble clic— en vez del `<input type=range>` con la cifra sólo de lectura que tenía. Arrastrar
@@ -10864,6 +10887,19 @@ function _applyLoopToggle(c,m){ // [R223] núcleo sin pushUndo/render, reutiliza
     c.loopLen=Math.max(0.05,Math.min(c.dur*(c.speed||1), srcDur-(c.inP||0))); c.loop=true;
   }
   if(!c.loop)delete c.loopRev; } // loop off → reverse no longer applies
+/* [R250] Cambiar el tramo que se repite SIN apagar el bucle — que es lo que obligaba a hacerlo antes, y apagarlo
+   recorta el clip a lo que quede de archivo, así que re-decidir el bucle costaba el montaje. Aquí sólo se toca
+   `loopLen`: la longitud del clip en la línea de tiempo no se mueve. Se acota a lo que hay de fuente a partir de
+   la entrada, que es el único límite real. El clip de audio enlazado va con él, como en todo lo demás. */
+function setLoopRange(c,len){ if(!c||!c.loop)return; const m=mediaById(c.mediaId); if(!m)return;
+  const srcDur=isSeqMedia(m)?seqDur(m):(m.dur||Infinity);
+  const max=Math.max(0.05,srcDur-(c.inP||0));
+  const nv=Math.max(0.05,Math.min(len||0,max));
+  if(Math.abs(nv-(c.loopLen||0))<1e-4)return;
+  pushUndo(); c.loopLen=nv;
+  const par=linkPartner(c); if(par&&par.loop)par.loopLen=nv; // [R223] Link A/V: la mitad de audio repite el mismo tramo
+  disposeAllVinst(); renderTimeline(); renderInspector(); render(); reschedAudio(); markDirty(); // el mismo cierre que toggleLoop: las instancias de vídeo cachean el tramo
+  flashStatus(T('Loop range: ','Tramo del bucle: ')+fmtDur(nv)); }
 function toggleLoop(c){ if(!c)return; const m=mediaById(c.mediaId); if(!(m&&(m.kind==='video'||m.kind==='audio'||isSeqMedia(m)))){ flashStatus(T('Only video / audio / sequence clips can loop','Solo clips de vídeo / audio / secuencia pueden loopear')); return; }
   pushUndo(); const wasOn=!!c.loop;
   _applyLoopToggle(c,m);

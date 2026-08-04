@@ -1,5 +1,54 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 250 — El tramo del bucle ya existía: lo que faltaba era verlo y poder cambiarlo
+
+Beltrán, tras usar el monitor de origen: *«me di cuenta de que el loopeo funciona superbién, pero sólo me permite
+tomar la duración completa del clip para marcar el loop»* — y propuso dos modelos: que el in/out del monitor
+marque el tramo loopeable, o que lo marque la duración del clip ya recortado en la línea de tiempo.
+
+**Medido antes de tocar nada, y la premisa era falsa: los dos modelos ya funcionaban.** `srcT` envuelve desde R81
+sobre `[inP, inP+loopLen)`, y `_applyLoopToggle` captura `loopLen` de la **duración del clip en el momento de
+encender el bucle**. Sobre el `.exe`, con un archivo de 50,13 s:
+
+| Caso | `loopLen` resultante |
+|---|---|
+| Clip entero → Loop | 50,13 s (el archivo entero) |
+| **Recortar a 6 s → Loop** | **6 s** ← su modelo (b), ya existía |
+| **Del monitor (entrada 20 s, 6,5 s marcados) → Loop** | **6,5 s, envolviendo en [20 s, 26,5 s]** ← su modelo (a), gratis |
+
+Lo que había pasado es el caso común: encender Loop sobre un clip que aún está entero. **No faltaba una función,
+faltaba que se viera.** El comportamiento dependía del ORDEN (recortar y luego encender ≠ encender y luego
+recortar) sin que nada lo dijera.
+
+### El defecto de verdad
+
+Para cambiar el tramo había que **apagar el bucle y volver a encenderlo** — y apagarlo **recorta el clip** a lo que
+quede de archivo (medido: un clip estirado a 40 s vuelve a 30,13 s). Ese recorte tiene su razón —sin él se verían
+fotogramas congelados más allá del final—, pero significa que **re-decidir el bucle costaba el montaje**.
+
+### Lo que entra
+
+En el inspector, con el bucle encendido, dos filas nuevas:
+- **Tramo del bucle** — la longitud del ciclo, con decimales (`fmtDur` redondea a segundos y un bucle de 6,5 s se
+  leía «6s»), editable a doble clic, y un botón **«Del clip»** que lo toma de la longitud actual del clip.
+- Debajo, en pequeño, **qué trozo de la fuente se repite** en código de tiempo: `Repite 00:00:20 → 00:00:26:15`.
+
+`setLoopRange(c,len)` cambia **sólo** `loopLen`: la longitud del clip en la línea de tiempo no se mueve, el bucle
+no se apaga, y se acota a lo que haya de fuente desde la entrada. El clip de audio enlazado va con él.
+
+Comprobado sobre el `.exe`: encender con 6,5 s marcados da 6,5 · con el clip estirado a 40 s, «Del clip» pone 30
+(el tope real de fuente) **sin tocar los 40 s de la línea de tiempo ni apagar el bucle** · a mano, 3 s deja el clip
+en 40 y a los 10 s de línea de tiempo se ve el segundo 21 de la fuente (20 + 10 mód 3) · pedir 999 se acota a 30.
+
+### De paso, la otra pregunta
+
+*«Cuando ya lo tengo en el timeline, ¿lo puedo extender para que vuelva a aparecer el resto del vídeo?»* **Sí**, y
+medido: el borde derecho de un clip con entrada en el segundo 20 llega a 30,13 s, que es exactamente lo que queda
+de archivo; y arrastrando el borde izquierdo hacia atrás se recuperan los 20 s anteriores a la marca (`inP` 20 → 0).
+Las marcas eligen por dónde EMPIEZA la ventana, no recortan el material.
+
+---
+
 ## ROUND 249 — El monitor de origen: mirar el material antes de soltarlo
 
 Beltrán: *«me di cuenta de que me faltaba… un reproductor de clip para visualizar el clip antes de arrastrarlo al

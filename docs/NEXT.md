@@ -4,6 +4,12 @@
 > en `COMPONENTS.md` + una entrada en `PLAN.md` en el mismo commit, como manda el ritual de `/commit`).
 > Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: 2026-08-04.
 
+## ✅ Tramo del bucle · CERRADO [R250]
+- [x] **El tramo loopeable ya se marcaba solo** (`loopLen` se captura de la duración del clip al encender Loop, así
+      que recortar antes —o venir del monitor con marcas— ya daba un bucle corto). Lo que faltaba era **verlo** y
+      poder **cambiarlo sin apagar el bucle**, que recorta el clip. Ahora hay fila en el inspector con la longitud
+      del ciclo, el trozo de fuente que repite, y un botón «Del clip».
+
 ## ✅ Monitor de origen · CERRADO [R249]
 - [x] **Reproductor de clip, como el de Premiere.** Doble clic en un medio (o el botón *Source* del inspector) abre
       una ventana flotante con transporte y marcas de entrada/salida; se arrastra desde ella y cae **sólo el tramo
