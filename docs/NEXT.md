@@ -20,6 +20,16 @@
 > **[R242] Ya hecho de esta zona:** el aviso al importar material pesado («clic derecho → Generar proxy»), que era
 > la mitad barata. ADR-0003 intacto: informa, no genera.
 
+## ✅ Las dos preguntas abiertas de R239 — CONTESTADAS [R242c]
+- [x] **Encuadre al entrar a una secuencia.** Regla de Beltrán: *primera vez → 00; después, cada secuencia vuelve
+      donde se la dejó la última vez* (A en el minuto 70 y B en el 5 → entrar a A da 70 y a B da 5). **Es lo que
+      el código ya hacía desde R239: no se tocó nada.** Verificado con su escenario literal
+      (`scratchpad/r242c-encuadre-beltran.mjs`): 0/0 la primera vez · 4200 y 300 al volver, dos veces seguidas ·
+      una secuencia creada desde el minuto 70 abre en 0.
+- [x] **Desvanecido del borde de las pestañas → «corte hueso».** Retirado y archivado (ADR-0007). Se quedan la
+      rueda y `seqTabsReveal`, que son las que impiden que una pestaña quede inalcanzable. Verificado con diez
+      secuencias (`scratchpad/r242c-tabs-hueso.mjs`): `mask-image:none`, sin clases `ovf-*`, rueda viva.
+
 ## ✅ Auditoría delta 2026-08 — CERRADA EN CÓDIGO [R242]
 > Informe completo en `AUDITORIA-2026-08.md` (auditor externo, sobre el `.exe`/RTX). Sus cinco etapas ejecutadas y
 > sus cinco decisiones resueltas en R242 — el detalle y el porqué de cada decisión, en `PLAN.md › ROUND 242`.

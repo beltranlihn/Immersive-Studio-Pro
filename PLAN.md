@@ -122,6 +122,34 @@ Uno de ellos corrige una **decisión mía equivocada** de la propia ronda, así 
 
 Verificado con las mismas sondas más una nueva para el caso de `inlineCurves` (`scratchpad/r242b-review.mjs`).
 
+### [R242c] Las dos preguntas que quedaban abiertas, contestadas por Beltrán
+
+Las dos venían de R239 y llevaban dos sesiones esperando. Ninguna era un bug: eran decisiones de producto que no
+me correspondía tomar.
+
+**1 · El encuadre al entrar a una secuencia — su regla, palabra por palabra:** *«Al entrar a un nest o secuencia
+por primera vez, sí o sí al inicio. Luego, volver a cualquier otra secuencia, debe estar donde dejamos la última
+vez esa secuencia. Si la secuencia A la dejé en el minuto 70 y la B en el 5: si entro a la A debo estar en el 70 y
+si entro a la B en el 5. Siempre manda la última vez que entramos. Y si es la primera vez, 00.»*
+
+**Eso es EXACTAMENTE lo que hace el código desde R239, así que no se toca nada.** Vale la pena dejarlo escrito
+porque en su momento Beltrán había dicho «al inicio nomás» y yo lo implementé simétrico con el padre por criterio
+propio, anotándolo como pregunta abierta; su respuesta confirma esa lectura. Verificado con su escenario literal
+(`scratchpad/r242c-encuadre-beltran.mjs`, con dos secuencias A y B y el zoom fijo para poder hablar en segundos):
+primera vez en A → **0** · primera vez en B → **0** · dejo A en 4200 s (minuto 70) y B en 300 s (minuto 5) ·
+vuelvo a A → **4200** · a B → **300** · y otra vuelta más, **4200** y **300** (para descartar que aguantara sólo
+un salto) · una secuencia **creada** estando en el minuto 70 abre en **0**. `__errs` vacío.
+
+**2 · El desvanecido del borde de las pestañas: «corte hueso».** Era un añadido mío de R239b — al ocultar la barra
+de scroll de las pestañas de secuencia desapareció el único aviso de que había más, y lo sustituí difuminando el
+borde por el lado con contenido oculto. Beltrán prefiere el corte limpio, así que `seqTabsOvf` y sus tres
+llamadas se archivan junto con las tres reglas CSS (ADR-0007,
+`_backup/deprecated/20260804-seqtabs-overflow-fade.js`). **Lo que NO se va:** la rueda sobre las pestañas y
+`seqTabsReveal`, que arrastra la activa a la vista — sin ellas volvería el defecto real de R239b (una pestaña
+inalcanzable). Verificado con diez secuencias abiertas (`scratchpad/r242c-tabs-hueso.mjs`): la barra desborda
+(1107 px de contenido en 453 de hueco), `mask-image` es **none** y no queda ni una clase `ovf-*` ni la función;
+la rueda sigue desplazando (327 → 447) y activar la última pestaña la deja visible.
+
 ## ROUND 241 — Prueba de estrés tipo show, con el material real
 
 La única cosa que quedaba en la cola y que no se podía simular. Beltrán prestó su sala (`Rito360.isp`, 7196×912,

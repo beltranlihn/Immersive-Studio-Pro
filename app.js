@@ -9185,18 +9185,16 @@ function startSeqTabDrag(e,id){ if(e.button!==0)return; if(e.target.closest('.se
   window.addEventListener('pointermove',move); window.addEventListener('pointerup',up); }
 /* [R239] Con la barra de scroll oculta, la rueda es la ÚNICA forma de alcanzar las pestañas que se salen — y
    `innerHTML=''` devolvía `scrollLeft` a 0 en cada repintado, así que con diez secuencias abiertas la de la derecha
-   quedaba fuera de la vista sin ninguna pista de que existiera. Se conserva el desplazamiento entre repintados, se
-   arrastra la pestaña ACTIVA a la vista, y `.ovf-l/.ovf-r` desvanecen el borde por el lado en el que queda algo por
-   ver: es lo que sustituye a la barra como aviso de que hay más. */
-function seqTabsOvf(){ const bar=$('#seqTabs'); if(!bar)return;
-  const max=bar.scrollWidth-bar.clientWidth;
-  bar.classList.toggle('ovf-l', max>1 && bar.scrollLeft>1);
-  bar.classList.toggle('ovf-r', max>1 && bar.scrollLeft<max-1); }
+   quedaba fuera de la vista sin ninguna pista de que existiera. Se conserva el desplazamiento entre repintados y se
+   arrastra la pestaña ACTIVA a la vista.
+   [archivado 20260804 · R242c] Aquí iba `seqTabsOvf`, que desvanecía el borde por el lado con pestañas ocultas
+   (añadido de R239b para sustituir a la barra como aviso). **Beltrán eligió el corte a hueso** → la máscara de
+   degradado se retira; la rueda y el arrastre de la activa a la vista se quedan.
+   Ver `_backup/deprecated/20260804-seqtabs-overflow-fade.js`. */
 function seqTabsReveal(){ const bar=$('#seqTabs'); if(!bar)return; const act=bar.querySelector('.seqtab.on'); if(!act)return;
   const l=act.offsetLeft, r=l+act.offsetWidth;
   if(l<bar.scrollLeft) bar.scrollLeft=Math.max(0,l-4);
-  else if(r>bar.scrollLeft+bar.clientWidth) bar.scrollLeft=r-bar.clientWidth+4;
-  seqTabsOvf(); }
+  else if(r>bar.scrollLeft+bar.clientWidth) bar.scrollLeft=r-bar.clientWidth+4; }
 function renderSeqBar(){ const bar=$('#seqTabs'); if(!bar)return; const _sl=bar.scrollLeft; bar.innerHTML='';
   for(const id of (state.openSeqs||[])){ const m=mediaById(id); if(!isSeqMedia(m))continue; const on=(id===state.activeSeqId);
     const t=document.createElement('div'); t.className='seqtab'+(on?' on':''); t.dataset.seq=id; t.title=T('Click to switch · double-click rename · right-click options','Clic para cambiar · doble-clic renombrar · clic-derecho opciones');
@@ -9214,8 +9212,7 @@ function renderSeqBar(){ const bar=$('#seqTabs'); if(!bar)return; const _sl=bar.
   if(!bar._seqWheel){ bar._seqWheel=1;
     bar.addEventListener('wheel',e=>{ if(bar.scrollWidth<=bar.clientWidth)return;
       const d=(Math.abs(e.deltaX)>Math.abs(e.deltaY))?e.deltaX:e.deltaY; if(!d)return;
-      e.preventDefault(); bar.scrollLeft+=d; seqTabsOvf(); },{passive:false});
-    bar.addEventListener('scroll',seqTabsOvf); }
+      e.preventDefault(); bar.scrollLeft+=d; },{passive:false}); } // [R242c] sin `seqTabsOvf`: el borde va a hueso (ver el archivado)
   bar.scrollLeft=_sl; seqTabsReveal(); } // [R239] el repintado no mueve la vista… salvo lo justo para que la pestaña activa se vea
 function serProject(){ saveActiveSeq(); return { app:'DomeStudioPro', v:4, fps:state.fps, lanes:state.lanes, playhead:state.playhead, markers:[], groups:[], clips:[], media:state.media.map(serMedia), workIn:state.workIn, workOut:state.workOut, folders:state.folders, folderColors:state.folderColors||{}, tl:{bpm:state.tl.bpm,sig:state.tl.sig,tcMode:state.tl.tcMode,pxPerSec:state.tl.pxPerSec,inlineCurves:!!state.inlineCurves/* [archivado 20260804 · R242b] aquí iba `audioCollapsed`: R242 lo revivió por error — su módulo no existe desde R148 y nunca hubo setter → _backup/deprecated/20260804-tl-audiocollapsed.js */}, /* [R214] audioH removed — loadProject never read it back (vestige of R148) */ exportPresets:state.exportPresets||[], openSeqs:(state.openSeqs||[]).slice(), activeSeqId:state.activeSeqId, seqW:state.seqW, seqH:state.seqH, reactive:state.reactive||null, autoItems:state.autoItems||{} }; } // [R95·D2] the Automation Item library travels with the project (clips reference items by id via kfLink) // v4: the active sequence's clips/markers/groups live in its nest media (serMedia); top-level kept empty to avoid doubling the heaviest data (kf + maskData)
 async function saveProject(saveAs){ const json=JSON.stringify(serProject());

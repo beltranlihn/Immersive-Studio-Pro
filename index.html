@@ -655,9 +655,8 @@
   .transport .seqtabs::-webkit-scrollbar{height:0;width:0;display:none;}
   /* [R239] Aviso de que hay más pestañas por ese lado: sin barra no queda ninguna otra pista. Las clases las pone
      `seqTabsOvf()` según el desplazamiento real, así que el desvanecido sólo aparece donde queda algo por ver. */
-  .transport .seqtabs.ovf-r{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 12px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 12px),transparent);}
-  .transport .seqtabs.ovf-l{-webkit-mask-image:linear-gradient(90deg,transparent,#000 12px);mask-image:linear-gradient(90deg,transparent,#000 12px);}
-  .transport .seqtabs.ovf-l.ovf-r{-webkit-mask-image:linear-gradient(90deg,transparent,#000 12px,#000 calc(100% - 12px),transparent);mask-image:linear-gradient(90deg,transparent,#000 12px,#000 calc(100% - 12px),transparent);}
+  /* [archivado 20260804 · R242c] aquí iban `.ovf-l`/`.ovf-r`, el desvanecido del borde de las pestañas de
+     secuencia (R239b). Beltrán eligió el CORTE A HUESO → _backup/deprecated/20260804-seqtabs-overflow-fade.js */
   .transport .seqtab{height:16px;padding:0 8px;border-radius:2px;background:transparent;border:none;}
   .transport .seqtab.on{background:var(--state-on);color:var(--ink);border:none;}
   .transport .seqtab.seqadd{padding:0 7px;border:none;color:var(--ink-2);}
