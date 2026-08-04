@@ -26,7 +26,14 @@
       texel ENTERAMENTE cubierto (medio texel no bastaba: la banda no cae en múltiplos de texel)._
 - [x] ~~**Paneo vertical lento en el lienzo (R235).**~~ _Usaba `min(cw,ch)` en los dos ejes con un mapeo anisótropo
       (`sy`≈0,23 en una tira): 100 px de arrastre movían 23. Ahora escala por eje (`panScale`); medido 1:1 en X e Y._
-- [ ] 🔴 **PRIORITARIO · composite no cuadrado.** Reportado por Beltrán en producción: un clip sin proxy en **Full**
+- [x] ~~**«Full» no enseñaba la calidad original (R236).**~~ _El composite estaba clavado en 2048²; ahora se
+      dimensiona con el lienzo (`compBase()` = `max(w,h)`, tope `COMP_MAX=8192` por memoria). Medido: sala de
+      7196×912 en Full → **submuestreo 1,00 en los dos ejes** (198 MB). El domo pasa de 2× a 1:1 y un 2D 1080p
+      gasta menos que antes. Coste: a Full se sombrea el lienzo completo — para eso están ½ y ¼._
+- [ ] **Deuda menor:** el composite sigue siendo CUADRADO, así que una tira apaisada desperdicia VRAM (198 MB en
+      vez de 26). Cambiarlo a no cuadrado toca el caché de scrub-ahead (`blitFramebuffer` a `RA_SIZE²`), NDI, Spout
+      y el export. Beneficio sólo de memoria, no de calidad → baja prioridad.
+- [ ] ~~🔴 PRIORITARIO · composite no cuadrado.~~ Reportado por Beltrán en producción: un clip sin proxy en **Full**
       se ve muy pixelado. Medido: lienzo 7196×912 → banda de **2048×260 texels** = **3,51× de submuestreo en LOS DOS
       ejes** y **87,3 % de la textura desperdiciado**. «Full» no está enseñando la calidad original. El export no se
       ve afectado (FBO propio). Arreglo: composite del tamaño del lienzo → 6,5 M texels (26 MB) frente a 0,53 M

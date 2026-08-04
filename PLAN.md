@@ -87,6 +87,29 @@ raíces cuando el mínimo de la curva roza el cero (exige medidas degeneradas, y
 tamaño del clip no acompaña al muro al cambiar su ancho, sólo la posición.
 
 
+## ROUND 236 — «Full» ya enseña la calidad original
+
+El composite máster estaba clavado en **2048²** pasara lo que pasara con el lienzo. Como el contenido va encajado
+por la matemática de NDC, una tira de 7196×912 caía en una banda de **2048×260 texels**: 3,51× de submuestreo en
+LOS DOS ejes, con el 87 % de la textura desperdiciado. A 791 % de zoom eso es lo que Beltrán vio, y con razón:
+«Full» no estaba enseñando la calidad original.
+
+Ahora el composite se dimensiona **según el lienzo**. El lado del cuadrado que da 1:1 es `max(w,h)`: con A>1 el
+ancho mapea entero y el alto cae justo en `lado/A = h`. Medido, sala de 7196×912 en Full → banda de **7196×912
+texels, submuestreo 1,00 en los dos ejes**. El domo mejora de regalo (4096² pasa de 2× de submuestreo a 1:1) y un
+2D de 1080p gasta **menos** memoria que antes (14 MB frente a 17).
+
+**Sigue siendo CUADRADO a propósito.** Un composite no cuadrado ahorraría memoria (26 MB en vez de 198 para esa
+sala), pero el caché de scrub-ahead (`blitFramebuffer` a `RA_SIZE²`), NDI, Spout y el export dan por hecha esa
+forma; cambiarla es una ronda aparte y el beneficio es sólo de VRAM, no de calidad.
+
+El tope, `COMP_MAX=8192`, es de MEMORIA y no de calidad: 268 MB en RGBA. Por encima —una sala de cuatro muros 4K
+son 15360 de ancho— se queda submuestreado, que es preferible a reservar 1 GB de VRAM.
+
+**Coste honesto:** a Full ahora se sombrea el lienzo COMPLETO en vez de 1/12 de él. Para eso están ½ y ¼, que
+siguen dividiendo el lado (y por tanto el coste por cuatro). El export no se toca: siempre usó su propio FBO a
+resolución de salida.
+
 ## ROUND 235 — El paneo vertical iba cuatro veces más lento
 
 Beltrán, con zoom dentro del lienzo de una sala: «en horizontal funciona bien, pero vertical no me deja avanzar

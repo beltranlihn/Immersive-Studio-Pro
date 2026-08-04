@@ -639,8 +639,19 @@ const compFBO=gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER,compFBO)
 gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,compTex,0); gl.bindFramebuffer(gl.FRAMEBUFFER,null);
 /* preview quality affects ONLY the clip composite (this master texture), not the screen canvas, dome mesh,
    grid or 2D overlays — so the dome grid always stays crisp while clips can render at 1/2 or 1/4. */
+/* [R236] El composite ya no se queda clavado en 2048²: se dimensiona SEGÚN EL LIENZO. Era la causa de que «Full»
+   no enseñara la calidad original — un lienzo de 7196×912 entraba en una banda de 2048×260 texels, o sea 3,51× de
+   submuestreo EN LOS DOS EJES (medido en R235). Como el contenido va encajado por la matemática de NDC
+   (`Fx=min(1,A)`, `Fy=min(1,1/A)`), el lado del cuadrado que da resolución 1:1 es `max(w,h)`: con A>1 el ancho
+   mapea entero y el alto cae en `lado/A = h`. Sigue siendo CUADRADO a propósito — el caché de scrub-ahead
+   (`blitFramebuffer` a `RA_SIZE²`), NDI, Spout y el export dan por hecha esa forma.
+   El tope es de MEMORIA, no de calidad: 8192² en RGBA son 268 MB. Por encima de eso un lienzo enorme (una sala de
+   4 muros 4K son 15360 de ancho) se queda submuestreado, que es preferible a reservar 1 GB de VRAM.
+   Coste real: a Full se sombrea el lienzo COMPLETO en vez de 1/12 de él. Por eso están ½ y ¼. */
+const COMP_MAX=8192;
+function compBase(){ return Math.max(256,Math.min(COMP_MAX,Math.round(Math.max(state.seqW||COMP,state.seqH||COMP)))); }
 let compSize=COMP;
-function setCompSize(s){ s=Math.max(256,Math.min(COMP,Math.round(s))); if(s===compSize)return; compSize=s; gl.bindTexture(gl.TEXTURE_2D,compTex); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,compSize,compSize,0,gl.RGBA,gl.UNSIGNED_BYTE,null); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE); gl.bindTexture(gl.TEXTURE_2D,null); }
+function setCompSize(s){ s=Math.max(256,Math.min(COMP_MAX,Math.round(s))); if(s===compSize)return; compSize=s; gl.bindTexture(gl.TEXTURE_2D,compTex); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,compSize,compSize,0,gl.RGBA,gl.UNSIGNED_BYTE,null); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE); gl.bindTexture(gl.TEXTURE_2D,null); }
 
 /* math */
 const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
@@ -2140,6 +2151,10 @@ function drawLabels3D(mvp,spec){const fx=-1;gx.clearRect(0,0,view.cw,view.ch);if
   for(const[t,P,c] of L){const p=proj3(P,mvp,fx);if(p){gx.fillStyle=c;gx.fillText(t,p[0],p[1]);}}}
 
 function resize(){if(exporting)return;const r=$('#stage').getBoundingClientRect();const dpr=Math.min(window.devicePixelRatio||1,2); // screen canvas is always full-res; preview quality only shrinks the clip composite (setCompSize)
+  /* [R236] El composite se redimensiona con el LIENZO, y `resize()` es por donde pasan todos los caminos que lo
+     cambian (crear, abrir, cambiar de secuencia, editar la geometría de la sala). `setCompSize` sale sola si el
+     tamaño no cambia, así que llamarla aquí es gratis. */
+  try{ setCompSize(compBase()*(state.previewQuality||1)); }catch(_){}
   if(state.view.mode==='3d'){ const W=Math.max(80,r.width),H=Math.max(80,r.height); view.cw=W; view.ch=H; VSIZE=Math.min(W,H);
     glc.style.width=W+'px';glc.style.height=H+'px';glc.style.left='0px';glc.style.top='0px';glc.width=Math.max(1,Math.round(W*dpr));glc.height=Math.max(1,Math.round(H*dpr));
     gridc.style.width=W+'px';gridc.style.height=H+'px';gridc.style.left='0px';gridc.style.top='0px';gridc.width=Math.round(W*dpr);gridc.height=Math.round(H*dpr);
@@ -9819,7 +9834,7 @@ $('#dispSeg').querySelectorAll('button').forEach(b=>b.onclick=()=>{ const d=b.da
    es que no sobrevivía al reinicio y volvía a Full. Se guarda en localStorage, como el último export. */
 function applyPreviewQuality(q){ q=parseFloat(q)||1; state.previewQuality=q;
   $('#qualitySeg').querySelectorAll('button').forEach(x=>x.classList.toggle('on',parseFloat(x.dataset.q)===q));
-  setCompSize(COMP*q); }
+  setCompSize(compBase()*q); } // [R236] la base la manda el LIENZO, no una constante
 $('#qualitySeg').querySelectorAll('button').forEach(b=>b.onclick=()=>{ applyPreviewQuality(b.dataset.q); render();
   try{ localStorage.setItem('dspPreviewQuality',String(state.previewQuality)); }catch(_){}
   flashStatus(b.dataset.q==='1'?T('Preview: full quality','Previsualización: calidad completa'):(T('Preview at ','Previsualización a ')+(b.textContent.trim())+T(' quality',' de calidad'))); });
