@@ -4,7 +4,18 @@
 > en `COMPONENTS.md` + una entrada en `PLAN.md` en el mismo commit, como manda el ritual de `/commit`).
 > Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: 2026-08-04.
 
-## 🔭 Lo siguiente (abierto) — el scrub sin proxy
+## ✅ El scrub sin proxy — CERRADO [R243]
+> Era «lo de más valor práctico que queda». Hecho y medido sobre el `.exe` con el material real: **4 capas de
+> 7196×912 pasan de 1137 a 128 ms de mediana (8,9×); una capa, de 178 a 16 ms (11,1×)**. Detalle, guardas y la
+> corrección de mi estimación optimista (prometí 30-100×, son 9-11×) en `PLAN.md › ROUND 243`.
+- [x] **Previsualización al fotograma clave mientras se arrastra**, exacto al soltar. `fastSeek()` no existe en
+      Chromium → los instantes clave salen del demuxador propio (tabla `stss`). Guardas verificadas: con proxy no
+      actúa · en export manda `exporting` · <2 Mpx ni lee el moov · intra-only exento · red de seguridad que apaga
+      la bandera ante `pointerup`/`pointercancel`/`blur`.
+- [ ] **Sigue abierto (opcional):** encender el caché de scrub-ahead (`_raOn`) por defecto con medios pesados.
+      Mitigaría el RE-scrub sobre la misma zona, que es lo único que R243 no toca (el primer toque ya va a 128 ms).
+
+## 🗄️ El planteamiento original (para contexto) — el scrub sin proxy
 > Sale de `AUDITORIA-2026-08.md` §3.3, y es **lo de más valor práctico que queda**. R241 midió 1148 ms de mediana
 > con 4 capas sin proxy frente a 8 ms con proxy; la auditoría llegó a la causa: los clips de masterización tienen
 > **GOP de 250 fotogramas** (medido con ffprobe sobre `Neuro1_7196.mp4`), así que un seek exacto decodifica hasta

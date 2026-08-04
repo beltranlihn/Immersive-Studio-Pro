@@ -2478,6 +2478,7 @@ function addImage(file,path){ const url=URL.createObjectURL(file); const img=new
 let _pesadosN=0,_pesadosT=0;
 function adviseHeavyMedia(m){ const mpx=(m.w||0)*(m.h||0), mbps=(m.fsize&&m.dur)?(m.fsize*8/m.dur/1e6):0;
   if(mpx<5e6 && mbps<80)return; if(m.proxyReady)return;
+  try{ kfWarm(m); }catch(e){} // [R243] material pesado → su tabla de fotogramas clave se prepara ya, para que el PRIMER arrastre también sea rápido
   _pesadosN++; clearTimeout(_pesadosT);
   _pesadosT=setTimeout(()=>{ const n=_pesadosN; _pesadosN=0; if(!n)return;
     flashStatus(n===1?T('Heavy clip imported — right-click it → Generate proxy to scrub smoothly','Clip pesado importado — clic derecho → Generar proxy para un scrub fluido')
@@ -5031,8 +5032,20 @@ $('#ruler').addEventListener('pointerdown',e=>{ if(e.button!==0)return;
     window.addEventListener('pointermove',move); window.addEventListener('pointerup',up); return; }
   if(state.selMarkerId!=null){ state.selMarkerId=null; renderTimeline(); }
   if(state.tl.selA!=null){ state.tl.selA=state.tl.selB=null; state.tl.selLanes=null; renderTimeSel(); } // scrubbing the ruler clears the timeline insert/selection → play resumes from the scrubbed playhead
-  const go=ev=>{ state.playhead=frameSnap(xAt(ev)/state.tl.pxPerSec); scrubRender(); }; go(e); /* [T7] scrub snaps to frame grid */
-  const up=()=>{window.removeEventListener('pointermove',go);window.removeEventListener('pointerup',up);}; window.addEventListener('pointermove',go);window.addEventListener('pointerup',up); });
+  /* [R243] El modo rápido se enciende en el PRIMER movimiento, no en el pointerdown: así un clic suelto en la
+     regla —que es un salto, no un arrastre— va directo al fotograma exacto sin decodificar dos veces. */
+  const go=ev=>{ if(!_scrubFast){ _scrubFast=true; scrubWarmKf(); } state.playhead=frameSnap(xAt(ev)/state.tl.pxPerSec); scrubRender(); }; go(e); /* [T7] scrub snaps to frame grid */
+  const up=()=>{window.removeEventListener('pointermove',go);window.removeEventListener('pointerup',up);
+    if(_scrubFast){ _scrubFast=false; scrubRender(); } }; // [R243] al soltar: el fotograma EXACTO del instante donde se soltó
+  window.addEventListener('pointermove',go);window.addEventListener('pointerup',up); });
+/* [R243] Red de seguridad del modo rápido. Una bandera `_scrubFast` que se quedara encendida enseñaría el
+   fotograma clave en vez del exacto EN SILENCIO — el peor modo de fallo imaginable en un montaje. Se apaga ante
+   cualquier `pointerup` de la ventana y al perder el foco (arrastre interrumpido por un Alt+Tab, captura de
+   puntero perdida). Se registra al cargar, así que corre ANTES que el `up` del gesto: el que llegue primero pide
+   el fotograma exacto y el otro ve la bandera ya apagada y no hace nada. */
+window.addEventListener('pointerup',()=>{ if(_scrubFast){ _scrubFast=false; try{scrubRender();}catch(e){} } });
+window.addEventListener('pointercancel',()=>{ if(_scrubFast){ _scrubFast=false; try{scrubRender();}catch(e){} } });
+window.addEventListener('blur',()=>{ if(_scrubFast){ _scrubFast=false; try{scrubRender();}catch(e){} } });
 /* rename a locator INLINE, over its own label on the ruler (not in a floating dialog) */
 function renameLocatorInline(mk){ if(!mk)return; state.selMarkerId=mk.id; state.selId=null; state.selIds=[]; state.selGroupId=null; state.selLane=null; renderTimeline(); // [R223] idem: entrar a renombrar un locator lo vuelve la selección activa
   const rr=$('#ruler').getBoundingClientRect(); const pps=state.tl.pxPerSec;
@@ -6813,6 +6826,9 @@ async function scrubRender(){ const tok=++seekTok; positionPlayhead(); refreshIn
   const drawn=collectDrawnVideoClips(state.clips,state.lanes,state.playhead,0,[]);
   await Promise.all(drawn.map(({c,m,local})=>vinstSeek(c,m,local)));
   if(tok===seekTok) render(); }
+/* [R243] Al empezar a arrastrar se pide la tabla de fotogramas clave de lo que hay bajo el cabezal. Construirla
+   cuesta una lectura del moov; hacerlo dentro del primer salto desperdiciaría justo el gesto que se acelera. */
+function scrubWarmKf(){ try{ for(const {m} of collectDrawnVideoClips(state.clips,state.lanes,state.playhead,0,[])) kfWarm(m); }catch(e){} }
 const HAS_RVFC = (typeof HTMLVideoElement!=='undefined') && ('requestVideoFrameCallback' in HTMLVideoElement.prototype);
 /* upload a video frame to its texture only when a NEW frame is presented (vs re-uploading every rAF) */
 function pumpVF(m){ const v=m.el; if(!v||!v.requestVideoFrameCallback)return; const cb=()=>{ if(!state.playing||v.paused){m._vf=0;return;} upTex(m.tex,v); m._vf=v.requestVideoFrameCallback(cb); }; m._vf=v.requestVideoFrameCallback(cb); }
@@ -6989,6 +7005,60 @@ let _exportQuality=false; // export/still bind instances to the ORIGINAL source;
 const HAS_WEBCODECS=(typeof VideoDecoder!=='undefined');
 function _vinstUrl(m){ if(m&&m.kind==='nest') return ncUsable(m)?m.ncUrl:null; // [R180] un nest cacheado se enlaza como si fuera un vídeo: mismo camino de seek/play/textura que ya está probado
   return (!_exportQuality && state.view.useProxy!==false && m.proxyReady && m.proxyUrl) ? m.proxyUrl : (m.srcUrl||null); }
+/* ===================== [R243] SCRUB AL FOTOGRAMA CLAVE =====================================================
+   El cuello del arrastre del cabezal con material de masterización NO es el motor: es el reposicionamiento del
+   decodificador. Medido en R241 y confirmado en la auditoría 2026-08: 4 capas de HEVC 7196×912 sin proxy dan
+   1196 ms de mediana por salto (2275 el peor), frente a 8 ms con proxy. La causa, medida con ffprobe sobre el
+   material real: **GOP de 250 fotogramas** (I-frames en 0, 250, 500 → uno cada 4,2 s a 60 fps). `currentTime=t`
+   exige el fotograma EXACTO, así que el decodificador tiene que rehacer hasta 250 fotogramas de 6,5 Mpx.
+
+   No es un problema de eficiencia: es el precio de la exactitud sobre un GOP largo. Lo que se cambia es la
+   PREGUNTA — mientras el cabezal se ARRASTRA no hace falta el fotograma exacto, basta con el más cercano que se
+   pueda dar ya (es lo que hacen Resolve y Premiere en su modo rápido). Al SOLTAR se pide el exacto y se acaba en
+   el fotograma correcto, así que la precisión del montaje no se toca en ningún momento.
+
+   `fastSeek()` (la API estándar para esto) NO existe en Chromium — comprobado en el .exe—, así que las
+   posiciones de los fotogramas clave se sacan del demuxador propio (`demuxMP4` ya lee la tabla `stss`) y se
+   cachean por medio. Con la tabla, pedir el instante EXACTO de un fotograma clave hace que el decodificador
+   decodifique UNO en vez de hasta 250.
+
+   Sólo actúa donde duele: original sin proxy (con proxy ya son 8 ms), `kind:'video'`, fuera de export y sólo
+   mientras dura el arrastre. */
+let _scrubFast=false;         // ¿el cabezal se está ARRASTRANDO ahora mismo? (lo arma el gesto de la regla)
+const KF_MIN_MPX=2.0;         // por debajo de esto el reposicionamiento ya es barato y no compensa ni leer el moov
+/* Tabla de fotogramas clave del medio, en SEGUNDOS y ascendente. Se construye una vez y se cachea en el medio;
+   un fallo (archivo sin moov legible, pista rotada, códec raro) se recuerda para no reintentarlo en cada gesto. */
+function kfTimes(m){
+  if(!m||m.kind!=='video'||!m.path||m._kfTFail)return Promise.resolve(null);
+  if(m._kfT)return Promise.resolve(m._kfT);
+  if(m._kfTP)return m._kfTP;
+  if(!(IS_ELEC&&DSP.openRead&&DSP.readAt)){ m._kfTFail=true; return Promise.resolve(null); }
+  m._kfTP=demuxMP4(m.path).then(d=>{
+    try{
+      const out=[]; for(const s of d.samples) if(s.key) out.push(s.ptsExact/1e6);
+      out.sort((a,b)=>a-b);
+      m._kfT=Float64Array.from(out);
+      /* Un archivo con TODO fotograma clave (intra-only: ProRes, DNx, MJPEG) no necesita esto — su seek ya es
+         barato y snapear no cambiaría nada. Se marca para saltarse el trabajo en el gesto. */
+      m._kfAllIntra=(out.length>=d.samples.length);
+      return m._kfT;
+    } finally { try{ d.close(); }catch(e){} }      // sólo se quería la tabla: el descriptor se cierra ya
+  }).catch(()=>{ m._kfTFail=true; return null; }).finally(()=>{ m._kfTP=null; });
+  return m._kfTP; }
+/* ¿este medio se beneficia del ajuste? Original pesado sin proxy en uso. */
+function kfWorthIt(m){ if(!m||m.kind!=='video'||!m.path||m._kfTFail||m._kfAllIntra)return false;
+  if(((m.w||0)*(m.h||0))/1e6 < KF_MIN_MPX)return false;
+  if(_vinstUrl(m)!==m.srcUrl)return false;         // está sirviéndose del proxy → ya va a 8 ms, no hay nada que ganar
+  return true; }
+/* Mayor tiempo de fotograma clave ≤ t. Sin tabla (o antes del primero) devuelve `t` tal cual: el peor caso es el
+   comportamiento de siempre, nunca uno peor. */
+function snapKf(m,t){ const K=m&&m._kfT; if(!K||!K.length)return t;
+  let lo=0,hi=K.length-1,res=-1;
+  while(lo<=hi){ const mid=(lo+hi)>>1; if(K[mid]<=t+1e-6){ res=mid; lo=mid+1; } else hi=mid-1; }
+  return res<0?t:K[res]; }
+/* Se llama al empezar a arrastrar y al importar material pesado: construir la tabla cuesta una lectura del moov,
+   y hacerla durante el primer salto del arrastre desperdiciaría justo el gesto que se quiere acelerar. */
+function kfWarm(m){ if(kfWorthIt(m)&&!m._kfT)kfTimes(m); }
 /* [R108·E4] use the WebCodecs ClipDecoder when this clip would otherwise decode the ORIGINAL heavy file through a
    <video> element (no usable proxy) — the exact case where the 4th <video> decoder collapses. Proxied playback keeps
    the proven <video> path; a demux/codec failure sets m._cdFail → permanent fallback to <video> for that media. */
@@ -7093,7 +7163,11 @@ function vinstSeekVideo(c,m,local){ const vi=vinstEnsure(c,m); if(!vi||vi.cd)ret
   if(!vi.vsrc)bindVideoSrc(vi,_vinstUrl(m));   // [R194] llegamos aquí desde el repliegue de WebCodecs: puede no estar enlazado todavía
   if(!vi.vsrc)return Promise.resolve();        // sin origen no hay nada que buscar — mejor seguir que colgarse
   return (vi.loadP||Promise.resolve()).then(()=>new Promise(res=>{ const v=vi.vel; if(!v){res();return;}
-    const t=Math.max(0,Math.min((v.duration||0)-1e-3, local||0));
+    let t=Math.max(0,Math.min((v.duration||0)-1e-3, local||0));
+    /* [R243] Mientras se ARRASTRA el cabezal, el instante se lleva al fotograma clave anterior: el decodificador
+       decodifica UNO en vez de hasta 250 (GOP del material real). Al soltar, el gesto pide el exacto y se acaba
+       en el fotograma correcto. Fuera del arrastre —y en export, donde `exporting` manda— esto no existe. */
+    if(_scrubFast && !exporting && kfWorthIt(m)){ kfTimes(m); t=Math.max(0,Math.min((v.duration||0)-1e-3, snapKf(m,t))); }
     if(Math.abs(v.currentTime-t)<1e-3 && v.readyState>=2){ upTex(vi.vtex,v); vi.ready=true; requestAnimationFrame(()=>res()); return; }
     const on=()=>{ v.removeEventListener('seeked',on); upTex(vi.vtex,v); vi.ready=true; res(); }; v.addEventListener('seeked',on); try{ v.currentTime=t; }catch(e){ v.removeEventListener('seeked',on); res(); } })); }
 function pumpVFClip(vi){ const v=vi.vel; if(!v||!v.requestVideoFrameCallback)return; const cb=()=>{ if(!state.playing||v.paused){vi.vf=0;return;} upTex(vi.vtex,v); vi.ready=true; vi.vf=v.requestVideoFrameCallback(cb); }; vi.vf=v.requestVideoFrameCallback(cb); }

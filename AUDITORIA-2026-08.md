@@ -10,8 +10,12 @@
 > por la salida equivocada**: `audioCollapsed` no había que revivirlo sino RETIRARLO (su módulo no existe desde
 > R148 y nunca hubo un setter), y que a `resetProjDefaults` se le habían escapado **`inlineCurves`** y
 > **`selFolder`/`mediaFolder`** — la misma familia de §2.1/2.3. Detalle en `PLAN.md › ROUND 242 › [R242b]`.
-> **Lo único NO ejecutado a propósito:** la previsualización al fotograma clave durante el scrub (§3.3, opción 1)
-> — toca el camino de decodificación en caliente y va en ronda propia; queda como lo siguiente en `docs/NEXT.md`.
+> **[R243] También §3.3 opción 1, que R242 había dejado para su propia ronda: HECHA.** Previsualización al
+> fotograma clave durante el arrastre, exacta al soltar. Medido sobre el `.exe` con el material real: 4 capas de
+> 7196×912 pasan de **1137 a 128 ms** de mediana (8,9×) y una capa de **178 a 16 ms** (11,1×).
+> **Corrección de este informe:** §3.3 estimó «~10-40 ms, 30-100× mejor» — la ganancia real es **9-11×**, no
+> 30-100×. La estimación suponía que decodificar un fotograma cuesta 10-40 ms en total, cuando con cuatro capas
+> son ~32 ms por capa.
 > El texto de abajo se conserva **tal como se escribió**, sin retocar: es el diagnóstico, no el parte de obra.
 
 > **Alcance:** el delta R223→R241 (35 commits desde la auditoría del 29 de julio), lo nunca auditado

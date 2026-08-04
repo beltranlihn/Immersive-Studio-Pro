@@ -1,5 +1,69 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 243 — El scrub sin proxy deja de ser inviable
+
+Lo último que quedaba en la cola, y lo de más valor práctico para Beltrán según la auditoría de agosto (§3.3).
+R241 midió el problema —4 capas de HEVC 7196×912 sin proxy: **1148 ms de mediana por salto de cabezal**, frente a
+8 ms con proxy— y lo atribuyó al «reposicionamiento del decodificador». La auditoría llegó a la causa exacta con
+ffprobe sobre el material real: **GOP de 250 fotogramas** (I-frames en 0, 250, 500 → uno cada 4,2 s a 60 fps).
+
+**No es un problema de eficiencia que se pueda optimizar: es el precio de la exactitud sobre un GOP largo.**
+`currentTime = t` exige el fotograma EXACTO, así que el decodificador tiene que rehacer hasta 250 fotogramas de
+6,5 Mpx. Lo que cambia esta ronda no es el cómo, es **la pregunta**: mientras el cabezal se ARRASTRA no hace falta
+el fotograma exacto, basta el más cercano que se pueda dar ya — que es lo que hacen Resolve y Premiere en su modo
+rápido. Al SOLTAR se pide el exacto. La precisión del montaje no se toca en ningún momento.
+
+### Lo medido, sobre el `.exe` y con el material de Beltrán
+
+| Escenario (sin proxy) | Antes | Arrastrando | Ganancia |
+|---|---|---|---|
+| 4 capas de 7196×912 | 1137 ms · peor 2242 | **128 ms · peor 164** | **8,9×** |
+| 1 capa | 178 ms · peor 361 | **16 ms · peor 18** | **11,1×** |
+
+Con una capa, 16 ms es un fotograma de reloj: el arrastre va fluido. Con cuatro, 128 ms es la diferencia entre
+«no se puede montar» y «se puede».
+
+**Corrección honesta de mi propia estimación:** el informe de auditoría aventuró «~10-40 ms, 30-100× mejor». La
+ganancia real es **9-11×**, no 30-100×. La estimación daba por hecho que decodificar un fotograma cuesta 10-40 ms
+en total, cuando con cuatro capas son ~32 ms por capa. El orden de magnitud del alivio se cumple; el múltiplo que
+prometí, no. Queda escrito porque una estimación optimista sin corregir se convierte en la cifra que alguien cita
+seis meses después.
+
+### Cómo
+
+`fastSeek()` —la API estándar para esto— **no existe en Chromium**, comprobado en el `.exe`. Así que las
+posiciones de los fotogramas clave salen del demuxador propio, que ya leía la tabla `stss` para el camino de
+WebCodecs: `kfTimes(m)` construye una vez la lista de instantes clave en segundos y la cachea en el medio;
+`snapKf(m,t)` hace una búsqueda binaria del mayor ≤ t. Pedir el instante EXACTO de un fotograma clave hace que el
+decodificador decodifique UNO en vez de hasta 250. Medido en el material: 4 fotogramas clave por clip, **4,17 s
+entre ellos** — exactamente el GOP de 250 a 60 fps que dijo ffprobe.
+
+El modo rápido se enciende en el **primer movimiento**, no en el `pointerdown`: así un clic suelto en la regla
+—que es un salto, no un arrastre— va directo al fotograma exacto sin decodificar dos veces.
+
+### Dónde NO actúa, que es la mitad del trabajo
+
+Un atajo que se cuele donde no debe enseñaría un fotograma equivocado **en silencio**, que en un montaje es el
+peor fallo posible. Las guardas, todas verificadas:
+
+- **Con proxy en uso, no actúa** (`kfWorthIt` → false): ya son 8 ms, no hay nada que ganar.
+- **En export, no actúa** — y no por la bandera, sino porque `exporting` manda: verificado forzando la bandera a
+  mano durante un export simulado, el fotograma sigue siendo el exacto.
+- **Material ligero, no actúa**: por debajo de 2 Mpx el reposicionamiento ya es barato y ni se lee el moov (un
+  720p da `false`; la tira de 7196×912, `true`).
+- **Intra-only** (ProRes, DNx, MJPEG): si todos los fotogramas son clave, se marca `_kfAllIntra` y se deja en paz.
+- **Red de seguridad:** la bandera se apaga ante cualquier `pointerup` de la ventana, `pointercancel` o pérdida de
+  foco — un arrastre interrumpido por un Alt+Tab no puede dejar el editor enseñando fotogramas clave para siempre.
+  Verificado disparando un `pointerup` con la bandera armada.
+- **Al soltar, el fotograma es el pedido:** los cuatro clips en `currentTime` 7,317 exacto tras soltar en 7,317.
+
+La tabla se pre-calienta al importar material pesado (se engancha al aviso de proxy de R242, que ya identifica ese
+material), para que el PRIMER arrastre también sea rápido en vez de pagar la lectura del moov dentro del gesto.
+
+Sondas: `scratchpad/r243-scrub.mjs` (la medida, con comprobación anti-trampa de que ninguna instancia se está
+sirviendo del proxy) y `r243-guardas.mjs` (las seis guardas). `__errs` vacío en las dos.
+
+
 ## ROUND 242 — El plan de la auditoría de agosto, ejecutado
 
 `AUDITORIA-2026-08.md` (auditoría delta R223→R241, hecha por un auditor externo sobre el `.exe` desplegado) dejó
