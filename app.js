@@ -130,7 +130,7 @@ const state = {
   view:{ mode:'2d', three:'orbit', zoom:0.92, pan:[0,0], showGrid:true, showOutline:true, cull:false, useProxy:true, useNestCache:true, checkerBg:false, /* [R180] los cachés de composición nacen activos, como los proxies: se generan a mano, así que si existe uno es porque alguien lo pidió */
          showCenter:false, showSeam:true, // [R168·Etapa 7] guías de centro (2D) y costuras de muro (sala): el tercer hueco de superposición por formato. La costura nace encendida porque en la sala orienta, igual que el horizonte en el domo.
          cw:400, ch:400, cam:{yaw:0, pitch:0.5, dist:3.0, fov:60, back:0.8} },
-  tl:{ pxPerSec:80/* = TL_PPS_DEF; literal a propósito: la constante se declara más abajo y aquí estaría en TDZ */, tool:'select', tcMode:'timecode', bpm:120, sig:4, gridDiv:0, gridFixed:false, gridFixedBase:1, selA:null, selB:null, audioCollapsed:false }, // [R161] fuera `snap` (R158 quitó el ajuste a la cuadrícula) y `simpleClips` (R155 dejó sólo el agarre estilo Premiere): nadie los leía. [R110] audioCollapsed = the audio module is compacted to just its bar
+  tl:{ pxPerSec:80/* = TL_PPS_DEF; literal a propósito: la constante se declara más abajo y aquí estaría en TDZ */, tool:'select', tcMode:'timecode', bpm:120, sig:4, gridDiv:0, gridFixed:false, gridFixedBase:1, selA:null, selB:null }, // [R161] fuera `snap` (R158 quitó el ajuste a la cuadrícula) y `simpleClips` (R155 dejó sólo el agarre estilo Premiere): nadie los leía. [archivado 20260804 · R242b] audioCollapsed — el módulo de audio plegable no existe desde R148 y NUNCA hubo un setter → _backup/deprecated/20260804-tl-audiocollapsed.js
   workIn:null, workOut:null,
   prefs:{ reducedMotion:false, snapping:true, grid:true, mediaCollapsed:false, inspCollapsed:false, tallInsp:false },
   mediaFilter:'all', mediaQuery:'', mediaGroupBy:'none', collapsedGroups:{}, folders:[], folderColors:{}, mediaView:'list', mediaFolder:null, selFolder:null,
@@ -1680,6 +1680,17 @@ function viewerPaint(){ if(_vBusy||!viewerOpen()||exporting||glLost)return; cons
    (preload) with a NEGATIVE line stride so the bottom-up WebGL buffer becomes top-down NDI with zero copy. */
 let _ndiOn=false, _ndiRes=2048, _ndiFps=30, _ndiTimer=0, _ndiFBO=null, _ndiTex=null, _ndiBuf=null, _ndiFrames=0;
 function ndiAvailable(){ try{ return !!(IS_ELEC && DSP.ndi && DSP.ndi.available()); }catch(e){ return false; } }
+/* [R242b] Abrir la página de descarga del runtime NDI, COMPROBANDO el resultado. `dsp:openExternal` devuelve
+   `false` en silencio si la URL no pasa su allowlist, y la URL no es nuestra: la da el addon nativo
+   (`native/ndi-send/index.js`). Si NDI mueve su dominio, descartar ese `false` reproduciría exactamente la puerta
+   muda que R242 vino a cerrar. Cuando falla se enseña la URL para poder copiarla a mano. */
+async function abrirDescargaNDI(){ let u='';
+  try{ u=(DSP.ndi&&DSP.ndi.runtimeUrl&&DSP.ndi.runtimeUrl())||''; }catch(e){}
+  if(!u)u='http://ndi.link/NDIRedistV6';
+  let ok=false;
+  try{ ok=(IS_ELEC&&DSP.openExternal)?(await DSP.openExternal(u)):!!window.open(u,'_blank'); }catch(e){ ok=false; }
+  if(!ok)appAlert(T('Could not open the browser. The NDI runtime download page is: ','No se pudo abrir el navegador. La página de descarga del runtime NDI es: ')+u);
+  return ok; }
 function ensureNdiFBO(res){ if(_ndiFBO&&_ndiRes===res&&_ndiBuf)return;
   if(_ndiFBO){ try{gl.deleteFramebuffer(_ndiFBO);}catch(e){} } if(_ndiTex){ try{gl.deleteTexture(_ndiTex);}catch(e){} }
   _ndiFBO=gl.createFramebuffer(); _ndiTex=gl.createTexture();
@@ -1712,7 +1723,7 @@ function startNDI(res){ if(!ndiAvailable()){ appAlert(T('The NDI runtime is not 
   flashStatus(T('NDI output ON · ','Salida NDI activa · ')+res+'×'+res+' · '+_ndiFps+'fps'); }
 function stopNDI(){ const was=_ndiOn; _ndiOn=false; clearInterval(_ndiTimer); _ndiTimer=0; try{DSP.ndi.stop();}catch(e){} _closeNdiGL(); if(was){ try{ if(IS_ELEC&&DSP.powerSave)DSP.powerSave(false); }catch(e){} } const b=$('#ndiBtn'); if(b)b.classList.remove('on'); try{refreshOutputInd();}catch(e){} flashStatus(T('NDI output off','Salida NDI desactivada')); }
 function ndiMenu(x,y){ if(!IS_ELEC||!DSP.ndi){ appAlert(T('NDI output is only available in the desktop app.','La salida NDI solo está disponible en la app de escritorio.')); return; }
-  if(!ndiAvailable()){ appConfirm(T('The free NDI runtime is not installed. It is required to broadcast NDI. Open the download page?','El runtime gratuito de NDI no está instalado. Es necesario para transmitir por NDI. ¿Abrir la página de descarga?'),ok=>{ if(ok){ try{ const u=DSP.ndi.runtimeUrl(); if(IS_ELEC&&DSP.openExternal)DSP.openExternal(u); else window.open(u,'_blank'); }catch(e){} } }); return; } /* [R242·Aud-4.1] window.open('_blank') está DENEGADO por el setWindowOpenHandler (sólo permite el visor emergente): esta puerta llevaba muerta desde entonces — el usuario aceptaba y no pasaba nada. Ahora sale por shell.openExternal (navegador del sistema) */
+  if(!ndiAvailable()){ appConfirm(T('The free NDI runtime is not installed. It is required to broadcast NDI. Open the download page?','El runtime gratuito de NDI no está instalado. Es necesario para transmitir por NDI. ¿Abrir la página de descarga?'),ok=>{ if(ok)abrirDescargaNDI(); }); return; } /* [R242·Aud-4.1] window.open('_blank') está DENEGADO por el setWindowOpenHandler (sólo permite el visor emergente): esta puerta llevaba muerta desde entonces — el usuario aceptaba y no pasaba nada. Ahora sale por shell.openExternal (navegador del sistema) */
   const ck=r=>(_ndiOn&&_ndiRes===r)?'  ✓':''; const items=[
     {label:T('Dome master 1:1 · 2048 × 2048','Máster Domo 1:1 · 2048 × 2048')+ck(2048),ico:'ndi',fn:()=>{ (_ndiOn&&_ndiRes===2048)?stopNDI():startNDI(2048); }},
     {label:T('Dome master 1:1 · 4096 × 4096','Máster Domo 1:1 · 4096 × 4096')+ck(4096),ico:'ndi',fn:()=>{ (_ndiOn&&_ndiRes===4096)?stopNDI():startNDI(4096); }} ];
@@ -1778,7 +1789,7 @@ function makeNdiMedia(sourceName){ const nm=ndiSourceLabel(sourceName);
   try{ if(DSP&&DSP.ndi)DSP.ndi.recvOpen(sourceName); }catch(e){}
   state.media.push(m); renderMedia(); markDirty(); ndiStartPump(); return m; }
 function addNdiInput(){ if(!IS_ELEC||!DSP.ndi){ appAlert(T('NDI is only available in the desktop app.','NDI solo está disponible en la app de escritorio.')); return; }
-  if(!ndiAvailable()){ appConfirm(T('The free NDI runtime is not installed. Open the download page?','El runtime gratuito de NDI no está instalado. ¿Abrir la página de descarga?'),ok=>{ if(ok){ try{ const u=DSP.ndi.runtimeUrl(); if(IS_ELEC&&DSP.openExternal)DSP.openExternal(u); else window.open(u,'_blank'); }catch(e){} } }); return; } // [R242·Aud-4.1] misma corrección que en ndiMenu: el '_blank' denegado se sustituye por shell.openExternal
+  if(!ndiAvailable()){ appConfirm(T('The free NDI runtime is not installed. Open the download page?','El runtime gratuito de NDI no está instalado. ¿Abrir la página de descarga?'),ok=>{ if(ok)abrirDescargaNDI(); }); return; } // [R242·Aud-4.1] misma corrección que en ndiMenu: el '_blank' denegado se sustituye por shell.openExternal
   flashStatus(T('Scanning for NDI sources…','Buscando fuentes NDI…'));
   // give the finder a moment to accumulate sources, then show the picker
   DSP.ndi.findSources(300);
@@ -9206,7 +9217,7 @@ function renderSeqBar(){ const bar=$('#seqTabs'); if(!bar)return; const _sl=bar.
       e.preventDefault(); bar.scrollLeft+=d; seqTabsOvf(); },{passive:false});
     bar.addEventListener('scroll',seqTabsOvf); }
   bar.scrollLeft=_sl; seqTabsReveal(); } // [R239] el repintado no mueve la vista… salvo lo justo para que la pestaña activa se vea
-function serProject(){ saveActiveSeq(); return { app:'DomeStudioPro', v:4, fps:state.fps, lanes:state.lanes, playhead:state.playhead, markers:[], groups:[], clips:[], media:state.media.map(serMedia), workIn:state.workIn, workOut:state.workOut, folders:state.folders, folderColors:state.folderColors||{}, tl:{bpm:state.tl.bpm,sig:state.tl.sig,tcMode:state.tl.tcMode,pxPerSec:state.tl.pxPerSec,inlineCurves:!!state.inlineCurves,audioCollapsed:!!state.tl.audioCollapsed/* [R242·Aud-2.5] volvió a guardarse: el lector de R110 llevaba tiempo esperando un campo que nadie escribía */}, /* [R214] audioH removed — loadProject never read it back (vestige of R148) */ exportPresets:state.exportPresets||[], openSeqs:(state.openSeqs||[]).slice(), activeSeqId:state.activeSeqId, seqW:state.seqW, seqH:state.seqH, reactive:state.reactive||null, autoItems:state.autoItems||{} }; } // [R95·D2] the Automation Item library travels with the project (clips reference items by id via kfLink) // v4: the active sequence's clips/markers/groups live in its nest media (serMedia); top-level kept empty to avoid doubling the heaviest data (kf + maskData)
+function serProject(){ saveActiveSeq(); return { app:'DomeStudioPro', v:4, fps:state.fps, lanes:state.lanes, playhead:state.playhead, markers:[], groups:[], clips:[], media:state.media.map(serMedia), workIn:state.workIn, workOut:state.workOut, folders:state.folders, folderColors:state.folderColors||{}, tl:{bpm:state.tl.bpm,sig:state.tl.sig,tcMode:state.tl.tcMode,pxPerSec:state.tl.pxPerSec,inlineCurves:!!state.inlineCurves/* [archivado 20260804 · R242b] aquí iba `audioCollapsed`: R242 lo revivió por error — su módulo no existe desde R148 y nunca hubo setter → _backup/deprecated/20260804-tl-audiocollapsed.js */}, /* [R214] audioH removed — loadProject never read it back (vestige of R148) */ exportPresets:state.exportPresets||[], openSeqs:(state.openSeqs||[]).slice(), activeSeqId:state.activeSeqId, seqW:state.seqW, seqH:state.seqH, reactive:state.reactive||null, autoItems:state.autoItems||{} }; } // [R95·D2] the Automation Item library travels with the project (clips reference items by id via kfLink) // v4: the active sequence's clips/markers/groups live in its nest media (serMedia); top-level kept empty to avoid doubling the heaviest data (kf + maskData)
 async function saveProject(saveAs){ const json=JSON.stringify(serProject());
   if(IS_ELEC){ let p=currentPath; if(saveAs||!p){ p=await DSP.saveDialog(p||((currentTitle()==='Untitled project'?T('untitled','proyecto'):currentTitle())+'.isp')); if(!p)return; }
     try{ const old=await DSP.readText(p); if(old&&old.length>2)await DSP.writeText(p+'.bak',old); }catch(e){} // rotate a .bak of the previous save — protects against a corrupted/interrupted overwrite
@@ -9443,7 +9454,17 @@ function migrateNestFulldome(){ let n=0;
 function resetProjView(){ state.view.zoom=0.92; state.view.pan=[0,0]; state.view.vp=null; state.view.vpFocus=null;
   state.view.cam={yaw:0, pitch:0.5, dist:3.0, fov:60, back:0.8}; } // el encuadre del visor (global + por panel + cámara 3D) es del proyecto que se cierra, no del que se abre — newRoomProject ya lo hacía; ahora lo hacen los tres caminos
 function resetProjDefaults(){ state.seqMode='dome'; state.seqCov=180;
-  state.tl.bpm=120; state.tl.sig=4; state.tl.tcMode='timecode'; state.tl.audioCollapsed=false;
+  state.tl.bpm=120; state.tl.sig=4; state.tl.tcMode='timecode';
+  /* [R242b] `inlineCurves` vive en el MISMO bloque `tl` serializado y sólo se restauraba dentro del `if(obj.tl)`:
+     abrir un legacy sin ese bloque conservaba el modo automatización del proyecto anterior (con `#curvesBtn`
+     encendido) y al guardar lo escribía en un proyecto que nunca lo tuvo. Lo cazó la revisión del diff de R242
+     — es exactamente la familia que R242 decía curar de raíz, y se me había escapado un miembro. */
+  state.inlineCurves=false;
+  /* [R242b] Y la NAVEGACIÓN del panel de medios: `newProject`/`newRoomProject` la limpiaban y `loadProject` no,
+     así que el proyecto nuevo abría "dentro" de una carpeta del anterior. No es cosmético: ahí van a parar los
+     archivos que se importan, y con una carpeta del mismo nombre en el proyecto nuevo, Delete borraba la suya
+     con sus medios sin que el usuario la hubiera seleccionado nunca. */
+  state.selFolder=null; state.mediaFolder=null;
   resetProjView(); }
 function loadProject(obj){ relinkReset(); // [R204] el índice de reenlace es de ESTE proyecto: se tira al cargar otro
   resetProjDefaults(); // [R242·Aud-2.1] fábrica ANTES de leer `obj`: lo que el archivo no diga, no se hereda
@@ -9495,10 +9516,14 @@ function loadProject(obj){ relinkReset(); // [R204] el índice de reenlace es de
      por ese caso. */
   { const pv=obj.tl&&obj.tl.pxPerSec; state.tl.pxPerSec=(pv>0)?Math.max(TL_PPS_MIN,Math.min(TL_PPS_MAX,pv)):TL_PPS_DEF; }
   if(obj.tl){ if(obj.tl.bpm)state.tl.bpm=obj.tl.bpm; if(obj.tl.sig)state.tl.sig=obj.tl.sig; if(obj.tl.tcMode)state.tl.tcMode=obj.tl.tcMode;
-    state.tl.audioCollapsed=!!obj.tl.audioCollapsed; state.tl._audioScroll=0; // [R110] the audio module reopens collapsed if it was saved collapsed
+    state.tl._audioScroll=0; // [archivado 20260804 · R242b] aquí iba la lectura de `audioCollapsed` → _backup/deprecated/20260804-tl-audiocollapsed.js
     // [R158] `tl.snap` de un .isp viejo se ignora: el ajuste a la cuadrícula ya no existe // (both default off)
     syncSimpleUI(); // [R155] el modo de agarre ya no es una preferencia: un `tl.simpleClips` guardado se ignora
-    state.inlineCurves=!!obj.tl.inlineCurves; const cb=$('#curvesBtn'); if(cb)cb.classList.toggle('on',state.inlineCurves); syncAutoUI(); } // [R92-T4] the automation view (and each track's lane layout, in lanes[]._auto) reopens as saved · [R94-UT2·U-05/U-09] legend + grab-band state restored too
+    state.inlineCurves=!!obj.tl.inlineCurves; } // [R92-T4] the automation view (and each track's lane layout, in lanes[]._auto) reopens as saved · [R94-UT2·U-05/U-09] legend + grab-band state restored too
+  /* [R242b] El sincronizado de la UI va FUERA del `if(obj.tl)`, por el mismo motivo que el zoom de R240b: con un
+     archivo sin bloque `tl`, `resetProjDefaults` ya apagó `inlineCurves` pero el botón y las alturas de pista se
+     habrían quedado como los dejó el proyecto anterior. */
+  { const cb=$('#curvesBtn'); if(cb)cb.classList.toggle('on',state.inlineCurves); syncAutoUI(); }
   state.seqW=obj.seqW||4096; state.seqH=obj.seqH||4096;
   // SEQUENCES (unified: sequences are nest media). v4: openSeqs/activeSeqId. Back-compat: v3 obj.sequences[] → convert; v≤2 single timeline → one sequence.
   if(Array.isArray(obj.openSeqs)&&state.media.some(isSeqMedia)){

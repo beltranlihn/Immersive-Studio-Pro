@@ -34,7 +34,14 @@
       del runtime NDI llevaba muerta desde R226) · macOS: reabrir desde el Dock dejaba la ventana invisible para
       siempre (estático, sin Mac para probarlo) · `PSEP` en las dos últimas rutas cableadas de `ncBuild`.
 - [x] **Deuda/limpieza:** viewport de relleno acotado a `MAX_VIEWPORT_DIMS` · `build.files`/`asarUnpack` nombran
-      Spout · `tl.audioCollapsed` vuelve a serializarse (el lector de R110 esperaba un campo que nadie escribía).
+      Spout · ~~`tl.audioCollapsed` vuelve a serializarse~~ → **[R242b] RETIRADO**: su módulo no existe desde R148
+      y nunca hubo un setter, así que revivirlo sólo añadía una constante al `.isp`. Archivado (ADR-0007).
+- [x] **[R242b] Cuatro hallazgos de la revisión del diff**, todos reales y corregidos (`scratchpad/r242b-review.mjs`):
+      la decisión equivocada de `audioCollapsed` (arriba) · **`inlineCurves` se había escapado de
+      `resetProjDefaults`** —la misma familia que R242 curaba de raíz— · `selFolder`/`mediaFolder` tampoco se
+      limpiaban al abrir (los imports aterrizaban en una carpeta del proyecto anterior y Delete podía borrar la
+      homónima del nuevo) · el resultado de `openExternal` se descartaba, así que un cambio de dominio de NDI
+      habría reproducido la puerta muda.
 - [x] **Cola de export:** pendiente **cerrado**. Con [D2] retirado no se edita mientras exporta, así que la UI
       mínima de R216 es suficiente: no hay cola que administrar en paralelo.
 - [ ] **Pendiente de Mac:** verificar allí el arreglo del Dock y las rutas de `ncBuild` (más el tope H.264 de

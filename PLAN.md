@@ -76,6 +76,7 @@ las de `newProject`. Verificado: el mismo ciclo de cuatro aperturas pasa de **5�
    habitual, se reabre.
 4. **`tl.audioCollapsed`** → **revivido**. El lector de R110 seguía ahí esperando un campo que `serProject` había
    dejado de escribir en alguna reescritura; devolverlo son tres caracteres y la promesa vuelve a cumplirse.
+   > **Corregido en R242b: era la salida equivocada.** Ver abajo.
 5. **Interfaz de la cola de export** → **se cierra el pendiente**: la UI mínima de R216 (fila por trabajo, ✕
    individual, «Cancel queued») es suficiente ahora que **[D2] está retirado** y no se puede editar mientras
    exporta. Sin una cola que se administre en paralelo, no hay nada más que gobernar.
@@ -87,6 +88,39 @@ herencia **sin heredar nada** en los tres frentes (vista 0,92/[0,0]/cámara de f
 `mode:'dome'` · tempo 120/4/timecode) · BOM abre · migraciones v2 y v3 y el viaje v3→v4 sin cambios · fugas
 **0,0,0,0** · encuadre por secuencia sin regresión (0 · 5000 · 1234) · `openExternal` deniega dominio ajeno,
 `file://` y basura. `node --check` limpio en `app.js` y `main.js`.
+
+### [R242b] Lo que encontró la revisión del diff — cuatro hallazgos, todos reales
+
+Uno de ellos corrige una **decisión mía equivocada** de la propia ronda, así que conviene dejarlo escrito.
+
+- **`audioCollapsed`: la decisión 4 estaba mal, y la salida buena era la otra.** La auditoría ofrecía revivir el
+  campo o retirar el lector; R242 lo revivió «porque son tres caracteres». El revisor fue a mirar si alguien lo
+  usaba y **no**: el módulo de audio plegable (`.audiozone`) **no existe desde R148** —lo dice el comentario que
+  hay junto a `audioZoneScrollBy`, «ese módulo no existe desde R148»— y `git log -S "audioCollapsed=true"` no
+  devuelve **nada** en toda la historia del repo: **nunca hubo un gesto que lo pusiera en `true`**. Es decir: el
+  lector no esperaba un campo perdido, esperaba uno que jamás pudo valer otra cosa que `false`. Revivir la
+  escritura sólo añadía una constante al `.isp` y, peor, dejaba tres documentos diciendo que una promesa se había
+  restaurado. Retirado entero (literal de `state`, lectura y escritura) y archivado con el porqué
+  (`_backup/deprecated/20260804-tl-audiocollapsed.js`, ADR-0007). `_audioScroll` no se toca: ese sí se escribe.
+- **`inlineCurves` se me escapó de `resetProjDefaults`** — y es exactamente la familia que la ronda decía curar
+  **de raíz**. Vive en el mismo bloque `tl` serializado y sólo se restauraba dentro del `if(obj.tl)`, así que
+  abrir un legacy sin ese bloque (el propio `aud2608-legacy-v2.rdome` del repo tiene esa forma) conservaba el modo
+  automatización del proyecto anterior, con `#curvesBtn` encendido, y al guardar lo escribía en un proyecto que
+  nunca lo tuvo. De paso, el sincronizado de la UI sale del `if(obj.tl)` por el mismo motivo que el zoom de R240b:
+  sin eso el valor se reseteaba pero el botón y las alturas de pista se quedaban como los dejó el anterior.
+- **La navegación del panel de medios tampoco se limpiaba al abrir.** `newProject` y `newRoomProject` ponen
+  `selFolder`/`mediaFolder` a null; `loadProject` no. El proyecto nuevo abría «dentro» de una carpeta del anterior:
+  ahí aterrizaban los archivos importados (que aparecían como sin archivar) y, si el proyecto nuevo tenía una
+  carpeta del mismo nombre, **Delete borraba esa carpeta con sus medios** sin que el usuario la hubiera
+  seleccionado nunca ahí.
+- **El resultado de `openExternal` se descartaba.** El canal devuelve `false` sin diálogo ni registro cuando la
+  URL no pasa su allowlist, y esa URL **no es nuestra**: la da el addon nativo. Si NDI mudara su dominio, tirar
+  ese `false` reproduciría *exactamente* la puerta muda que R242 vino a cerrar. Ahora hay un único
+  `abrirDescargaNDI()` que comprueba el resultado y, si falla, **enseña la URL** para copiarla a mano. (El
+  revisor lo marcó como `PLAUSIBLE` —hoy la URL pasa—; se arregla igual porque el coste es una función y el
+  fallo es del tipo que no avisa.)
+
+Verificado con las mismas sondas más una nueva para el caso de `inlineCurves` (`scratchpad/r242b-review.mjs`).
 
 ## ROUND 241 — Prueba de estrés tipo show, con el material real
 

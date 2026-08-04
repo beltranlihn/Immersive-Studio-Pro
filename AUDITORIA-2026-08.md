@@ -5,7 +5,11 @@
 > decisiones de §7 resueltas — el porqué de cada una, en `PLAN.md › ROUND 242`. Resumen: defaults de fábrica
 > centralizados (`resetProjDefaults`) · fuga de medios de `loadProject` cerrada (5→0 texturas por ciclo) · BOM ·
 > `dsp:openExternal` con allowlist · Dock de macOS · `PSEP` en `ncBuild` · viewport de relleno acotado ·
-> `build.files` simétrico · `audioCollapsed` revivido · aviso de proxy al importar.
+> `build.files` simétrico · aviso de proxy al importar.
+> **[R242b]** Una revisión del diff encontró cuatro cosas más, ya corregidas — entre ellas que **§2.5 se resolvió
+> por la salida equivocada**: `audioCollapsed` no había que revivirlo sino RETIRARLO (su módulo no existe desde
+> R148 y nunca hubo un setter), y que a `resetProjDefaults` se le habían escapado **`inlineCurves`** y
+> **`selFolder`/`mediaFolder`** — la misma familia de §2.1/2.3. Detalle en `PLAN.md › ROUND 242 › [R242b]`.
 > **Lo único NO ejecutado a propósito:** la previsualización al fotograma clave durante el scrub (§3.3, opción 1)
 > — toca el camino de decodificación en caliente y va en ronda propia; queda como lo siguiente en `docs/NEXT.md`.
 > El texto de abajo se conserva **tal como se escribió**, sin retocar: es el diagnóstico, no el parte de obra.
