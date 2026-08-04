@@ -2303,7 +2303,17 @@ function importFiles(files,folder,opts){ let arr=[...files]; const dropFolder=fo
   for(const k in seqs){ const g=seqs[k]; if(g.length>=3){ g.sort((a,b)=>a.n-b.n); seqGroups.push(g); } else rest.push(...g.map(x=>x.f)); }
   for(const f of rest){ const p=filePath(f); _importFolder=dropFolder; if(f.type.startsWith('video'))addVideo(f,p); else if(f.type.startsWith('image'))addImage(f,p); else if(f.type.startsWith('audio'))addAudio(f,p); } _importFolder=null; // reset so no later add* call inherits this import's folder
   // numbered PNG/JPG batches → timed video-like sequences; ask the frame rate once for the whole import
-  if(seqGroups.length){ askSeqFps(seqGroups, fps=>{ for(const g of seqGroups){ _importFolder=dropFolder; addSequence(g.map(x=>x.f), g[0].f.name, fps); } _importFolder=null; }); } }
+  /* [R245b] `cb(fps, sueltas)`: el diálogo tiene ahora una tercera salida — «Como imágenes sueltas», que importa
+     el grupo como clips en vez de como un vídeo. Antes sólo cabía aceptar (se convertían en un vídeo) o cancelar
+     (no entraba NADA), y con imágenes numeradas que no son secuencia no había salida buena. */
+  if(seqGroups.length){ askSeqFps(seqGroups, (fps,sueltas)=>{ _importFolder=dropFolder;
+    if(sueltas){ for(const g of seqGroups) for(const x of g) addImage(x.f, filePath(x.f)); }
+    else for(const g of seqGroups) addSequence(g.map(x=>x.f), g[0].f.name, fps);
+    _importFolder=null; }); }
+  /* [R245b] Se pidió «Importar secuencia de imágenes…» y no había ninguna agrupable (hacen falta 3 o más con el
+     mismo prefijo y extensión, numeradas). Entraron como imágenes sueltas, que es lo correcto — pero en silencio
+     parecería que el modo no funcionó. */
+  else if(opts&&opts.avisaSinSecuencia&&!sinSecuencia) flashStatus(T('No numbered image sequence found — imported as separate images','No se encontró ninguna secuencia numerada — importadas como imágenes sueltas')); }
 /* R88: drop from Windows Explorer — a dropped FOLDER is imported whole, recreating its subfolder tree under `baseFolder`. Falls back to a flat import if the entry API is unavailable. */
 /* [R245] Todo lo que entra POR AQUÍ es un arrastre, así que ninguna de sus tres llamadas agrupa secuencias
    (`noSeq`). Para traer una secuencia de imágenes está el selector de archivos. */
@@ -2326,17 +2336,23 @@ function askSeqFps(groups,cb){ const total=groups.reduce((s,g)=>s+g.length,0); c
   const presets=[12,24,25,30,50,60];
   ov.innerHTML='<div class="modal" style="width:400px;margin-top:120px;padding:16px 18px;">'
     +'<div class="mh" style="padding:0 0 12px;border:none;"><span style="color:var(--ink-2);display:flex;">'+ICO('video',16)+'</span><span class="t">'+T('Import image sequence','Importar secuencia de imágenes')+'</span></div>'
-    +'<div style="font-size:11px;color:var(--ink-2);line-height:1.5;margin-bottom:13px;">'+(groups.length===1?T('1 sequence','1 secuencia'):groups.length+' '+T('sequences','secuencias'))+' · '+total+' '+T('frames total — imported as a single video clip. Set its frame rate:','fotogramas en total — se importan como un clip de vídeo. Elige su velocidad:')+'</div>'
+    +'<div style="font-size:11px;color:var(--ink-2);line-height:1.5;margin-bottom:13px;">'+(groups.length===1?T('1 sequence','1 secuencia'):groups.length+' '+T('sequences','secuencias'))+' · '+total+' '+T('frames total — imported as a single video clip. Set its frame rate:','fotogramas en total — se importan como un clip de vídeo. Elige su velocidad:')+'<br><span style="color:var(--ink-dim);">'+T('Not a sequence? Import them as separate images.','¿No son una secuencia? Impórtalas como imágenes sueltas.')+'</span></div>'
     +'<div class="frow" style="margin-bottom:11px;"><label style="width:auto;">'+T('Frame rate','Velocidad')+'</label><input type="number" class="tnum" id="sfFps" value="'+def+'" min="1" max="120" style="width:74px;flex:0 0 auto;"><span class="tnum" style="color:var(--ink-dim);">fps</span><div style="flex:1;"></div></div>'
     +'<div class="kindseg" id="sfPresets" style="margin-bottom:15px;">'+presets.map(p=>'<button data-f="'+p+'" class="'+(p===def?'on':'')+'">'+p+'</button>').join('')+'</div>'
-    +'<div style="display:flex;gap:8px;justify-content:flex-end;"><button id="sfCancel" class="togbtn2">'+T('Cancel','Cancelar')+'</button><button id="sfOk" class="togbtn2 on">'+ICO('plus')+' '+T('Import','Importar')+'</button></div></div>';
+    +'<div style="display:flex;gap:8px;align-items:center;"><button id="sfLoose" class="togbtn2">'+T('As separate images','Como imágenes sueltas')+'</button><div style="flex:1;"></div><button id="sfCancel" class="togbtn2">'+T('Cancel','Cancelar')+'</button><button id="sfOk" class="togbtn2 on">'+ICO('plus')+' '+T('Import as sequence','Importar como secuencia')+'</button></div></div>';
   document.body.appendChild(ov); const fin=$('#sfFps'); setTimeout(()=>{try{fin.focus();fin.select();}catch(e){}},10);
   const mark=()=>{ const v=+fin.value; ov.querySelectorAll('#sfPresets button').forEach(b=>b.classList.toggle('on',+b.dataset.f===v)); };
   ov.querySelectorAll('#sfPresets button').forEach(b=>b.onclick=()=>{ fin.value=b.dataset.f; mark(); }); fin.oninput=mark;
-  let done=false; const close=ok=>{ if(done)return; done=true; ov.remove(); if(ok&&cb)cb(Math.max(1,Math.min(120,+fin.value||def))); };
-  $('#sfOk').onclick=()=>close(true); $('#sfCancel').onclick=()=>close(false);
-  fin.addEventListener('keydown',e=>{ e.stopPropagation(); if(e.key==='Enter'){e.preventDefault();close(true);} else if(e.key==='Escape'){e.preventDefault();close(false);} });
-  ov.addEventListener('pointerdown',e=>{ if(e.target===ov)close(false); }); }
+  /* [R245b] TRES salidas, no dos. Antes sólo había «Importar» y «Cancelar», y Cancelar **descartaba los archivos
+     enteros**: quien traía cinco imágenes numeradas que NO son una secuencia se quedaba sin salida buena —
+     aceptar las convertía en un vídeo y cancelar no importaba nada—, y acababa metiéndolas de una en una (que es
+     literalmente lo que tuvo que hacer Beltrán). `modo`: 'seq' · 'sueltas' · null = cancelar de verdad. */
+  let done=false; const close=modo=>{ if(done)return; done=true; ov.remove();
+    if(modo==='seq'&&cb)cb(Math.max(1,Math.min(120,+fin.value||def)));
+    else if(modo==='sueltas'&&cb)cb(null,true); };
+  $('#sfOk').onclick=()=>close('seq'); $('#sfLoose').onclick=()=>close('sueltas'); $('#sfCancel').onclick=()=>close(null);
+  fin.addEventListener('keydown',e=>{ e.stopPropagation(); if(e.key==='Enter'){e.preventDefault();close('seq');} else if(e.key==='Escape'){e.preventDefault();close(null);} });
+  ov.addEventListener('pointerdown',e=>{ if(e.target===ov)close(null); }); }
 /* numbered image batch -> one timed sequence clip (stop-motion / Higgsfield / PNG-sequence-as-video). fps chosen at import. */
 function addSequence(files,name,fps){ fps=Math.max(1,Math.min(120,+fps||24)); const total=files.length, frames=new Array(total); const folder=_importFolder;
   const m={id:uid(),name:name.replace(/\d+(\.[^.]+)$/,'###$1')+' ['+total+'f]',kind:'sequence',frames,tex:newTex(),w:1,h:1,dur:total/fps,fps,thumb:null,color:clipColorFor('sequence'),framePaths:files.map(f=>filePath(f)),_frameUrls:[],_curFrame:-1,folder:folder||null};
@@ -2763,7 +2779,7 @@ function renderMedia(){
     else if(so==='type')items.sort((a,b)=>((a.kind||'')+'~'+(a.name||'')).localeCompare((b.kind||'')+'~'+(b.name||'')));
     else if(so==='date')items.sort((a,b)=>(b.id||0)-(a.id||0)); }
   if(!state.media.length){ list.innerHTML='<div class="drop" id="dropZone">'+T('Drag <b>videos / images / audio</b><br>or click to import','Arrastra <b>vídeos / imágenes / audio</b><br>o haz clic para importar')+'</div>';
-    $('#dropZone').onclick=()=>$('#fileInput').click(); wireDrop($('#dropZone')); return; }
+    $('#dropZone').onclick=()=>pickMedia(false); wireDrop($('#dropZone')); return; } // [R245b] la zona vacía importa medios sueltos
   if(!items.length){ list.innerHTML='<div style="padding:34px 16px;color:var(--ink-dim);text-align:center;font-size:11px;">'+T('No matching media.','No hay medios coincidentes.')+'</div>'; return; }
   if(state.mediaView==='grid'){ // square-tile view with NESTED folder navigation (double-click a folder to enter, ← to go back; drag onto a folder to file into it)
     const grid=document.createElement('div'); grid.className='mediagrid'; list.appendChild(grid);
@@ -9986,7 +10002,7 @@ function wireDrop(el){ el.addEventListener('dragover',e=>{ e.preventDefault();
   if(el.id==='mediaList'){ const t=_dropTargetAt(e); // [R239] misma resolución que el arrastre interno: cabecera, zona vacía, MEDIO de la carpeta o fondo de la cuadrícula
     target = t ? t.path : ((state.mediaView==='grid')?state.mediaFolder:(state.selFolder||state.mediaFolder||null)); }
   _clearDropFX(); importDropped(e.dataTransfer, target); }); } // R89: OS files/folders dropped ONTO a folder header land in that folder; [R239] o sobre cualquier medio suyo; otherwise in the browsed (grid) or selected (tree) folder
-$('#importBtn').onclick=()=>$('#fileInput').click();
+$('#importBtn').onclick=()=>pickMedia(false); // [R245b] el botón Import trae medios sueltos; la secuencia se pide por su propia entrada
 /* [R92-T5 P1] media search — the state.mediaQuery filter existed in renderMedia; the input never did */
 /* [AUDITORÍA Rev1] El rediseño quitó el buscador VISIBLE del panel, no la búsqueda: Ctrl+F revela el campo en la
    fila de filtros y Esc lo cierra. Al cerrarse con texto escrito se limpia el filtro, para que no quede un panel
@@ -10015,7 +10031,21 @@ $('#textBtn').addEventListener('contextmenu',e=>{ e.preventDefault(); openMenu(e
   {label:T('Lower third','Tercio inferior'),fn:()=>createTextClip({text:'NAME\nRole',tstroke:true,el:18,size:44})},
   {label:T('Credits','Créditos'),fn:()=>createTextClip({text:'Directed by\nNAME',el:35,size:50})} ]); });
 $('#shapeBtn').onclick=()=>createShapeClip('rect');
-$('#fileInput').onchange=e=>{importFiles(e.target.files, state.mediaView==='grid'?state.mediaFolder:(state.selFolder||state.mediaFolder||null));e.target.value='';}; // Import button files into the folder you're in (browsed or selected)
+/* [R245b] MODELO PREMIERE, pedido por Beltrán: la secuencia de imágenes se ELIGE ANTES de abrir el selector, no se
+   adivina después. Premiere lo resuelve con una casilla «Image Sequence» dentro de su diálogo; el selector de
+   archivos aquí es el NATIVO del sistema y no admite controles propios, así que la elección vive donde ya estaba
+   —las dos entradas del menú del panel, «Importar medios…» e «Importar secuencia de imágenes…», que hasta ahora
+   hacían exactamente lo mismo (la duplicación que quedó anotada en R245)—. Ahora dicen la verdad:
+     · Importar medios…              → cada imagen entra como SU clip. Nunca pregunta nada.
+     · Importar secuencia de imágenes… → agrupa las numeradas y pide los fotogramas por segundo.
+   `pickMedia(seq)` es la única puerta al selector; la bandera se consume en el `onchange` y se limpia siempre,
+   así que un diálogo cancelado no deja el modo pegado para la próxima importación. */
+let _importSeq=false;
+function pickMedia(seq){ _importSeq=!!seq; const fi=$('#fileInput'); if(fi)fi.click(); }
+$('#fileInput').onchange=e=>{ const seq=_importSeq; _importSeq=false;
+  const files=e.target.files, n=files?files.length:0;
+  importFiles(files, state.mediaView==='grid'?state.mediaFolder:(state.selFolder||state.mediaFolder||null), {noSeq:!seq, avisaSinSecuencia:seq&&n>0});
+  e.target.value=''; }; // Import button files into the folder you're in (browsed or selected)
 wireDrop($('#mediaList')); wireDrop($('#stage'));
 /* right-click the empty media area → Import / New folder (items and folder headers keep their own menus) */
 /* [R245] `.mtile` FALTABA en la lista de exclusiones. En vista de CUADRÍCULA el tile abría su propio menú y, acto
@@ -10024,7 +10054,7 @@ wireDrop($('#mediaList')); wireDrop($('#stage'));
    En LISTA no pasaba porque esas filas son `.mitem`, que sí estaba. Los tiles de CARPETA tampoco se veían
    afectados porque llevan además la clase `folderhdr`. Se comprueban todas en un solo `closest`. */
 $('#mediaList').addEventListener('contextmenu',e=>{ if(e.target.closest('.mitem,.mtile,.folderhdr,.folderdrop'))return; e.preventDefault();
-  const items=[{label:T('Import media…','Importar medios…'),ico:'plus',fn:()=>$('#fileInput').click()},{label:T('Import image sequence…','Importar secuencia de imágenes…'),ico:'video',fn:()=>$('#fileInput').click()}];
+  const items=[{label:T('Import media…','Importar medios…'),ico:'plus',fn:()=>pickMedia(false)},{label:T('Import image sequence…','Importar secuencia de imágenes…'),ico:'video',fn:()=>pickMedia(true)}]; // [R245b] las dos entradas ya NO hacen lo mismo: la segunda es la que agrupa
   if(IS_ELEC&&window.dsp&&window.dsp.ndi) items.push({label:T('Add NDI source…','Añadir fuente NDI…'),ico:'ndi',fn:()=>addNdiInput()});
   if(IS_ELEC&&window.dsp&&window.dsp.spout&&window.dsp.spout.inList) items.push({label:T('Add Spout source…','Añadir fuente Spout…'),ico:'ndi',fn:()=>addSpoutInput()}); // [V3] entrada Spout (local, misma máquina)
   items.push('sep',{label:T('New folder','Nueva carpeta'),ico:'folder',fn:()=>$('#newFolderBtn').click()});
@@ -10465,7 +10495,7 @@ window.addEventListener('keydown',e=>{ const tag=(e.target.tagName||'').toLowerC
   if(mod&&e.key.toLowerCase()==='n'){e.preventDefault();newProjectViaLanding();return;} // [R227] mismo destino que File → New project…: la pantalla de inicio (antes creaba un domo por defecto a ciegas)
   if(mod&&e.key.toLowerCase()==='s'){e.preventDefault();saveProject(e.shiftKey);return;}
   if(mod&&e.key.toLowerCase()==='e'){e.preventDefault(); if(e.shiftKey)openExport(); else { splitAtSelection(); flashStatus(T('Split (Ctrl+E) — Export is Ctrl+Shift+E','Dividir (Ctrl+E) — Exportar es Ctrl+Shift+E')); } return;} // Ctrl+E = Split (Ableton) · Ctrl+Shift+E = Export · [R94-UT2·U-25] disambiguate for users expecting Export
-  if(mod&&e.key.toLowerCase()==='i'){e.preventDefault();$('#fileInput').click();return;}
+  if(mod&&e.key.toLowerCase()==='i'){e.preventDefault();pickMedia(false);return;} // [R245b] ⌘I = medios sueltos
   if(mod&&e.key.toLowerCase()==='f'){e.preventDefault(); if(state.prefs&&state.prefs.mediaCollapsed){ state.prefs.mediaCollapsed=false; setPaneCollapsed('#mediaPane',false); } showMediaSearch(true); return;} // [R92-T5] Ctrl+F = media search · [AUDITORÍA Rev1] revela el campo (y abre el panel si estaba plegado)
   if(mod&&e.key.toLowerCase()==='o'){e.preventDefault();openProject();return;}
   if(mod&&e.key.toLowerCase()==='z'){e.preventDefault();e.shiftKey?redo():undo();return;}
@@ -10842,7 +10872,7 @@ function commandList(){ const c1=T('Transport','Reproducción'),c2=T('File','Arc
   [c1,T('Render-ahead: cache range for smooth playback','Render-ahead: cachear rango para playback fluido'),'',renderAheadWork],
   [c1,T('Render-ahead: off + clear cache','Render-ahead: apagar + limpiar caché'),'',renderAheadOff],
   [c2,T('New project','Nuevo proyecto'),'⌘N',()=>newProjectViaLanding()],[c2,T('New sequence','Nueva secuencia'),'',newSequenceDialog], // [R227] a la pantalla de inicio, igual que el menú File y Ctrl+N
-  [c2,T('Save','Guardar'),'⌘S',saveProject],[c2,T('Import media…','Importar medios…'),'⌘I',()=>$('#fileInput').click()],
+  [c2,T('Save','Guardar'),'⌘S',saveProject],[c2,T('Import media…','Importar medios…'),'⌘I',()=>pickMedia(false)],
   [c2,T('Export master…','Exportar máster…'),'⇧⌘E',openExport],[c2,T('Open project','Abrir proyecto'),'⌘O',()=>openProject()],[c2,T('Preferences…','Preferencias…'),'⌘,',openPrefs],
   [c2,T('Save As… (new file)','Guardar como… (archivo nuevo)'),'⇧⌘S',()=>saveProject(true)],[c2,T('Save incremental (_vNN.isp)','Guardar incremental (_vNN.isp)'),'',saveIncremental],[c2,T('Restore last autosave','Restaurar último autoguardado'),'',restoreAutosave],[c2,T('Recovery history…','Historial de recuperación…'),'',openRecoveryHistory],
   [c2,T('Save diagnostics log…','Guardar registro de diagnóstico…'),'',saveDiagLog],

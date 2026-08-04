@@ -42,11 +42,44 @@ buscaba `.mi/.item/div` cuando `openMenu` construye `<button role="menuitem">` �
 **deduplica por nombre+tamaño** y los archivos ya los había metido la prueba del arrastre: hubo que darles
 prefijos distintos. Las dos correcciones quedan anotadas en la propia sonda.
 
-### Observación, no tocada
+### [R245b] El modelo de Premiere: la secuencia se ELIGE antes, no se adivina después
 
-En el menú del panel, «Importar medios…» e «Importar secuencia de imágenes…» **hacen exactamente lo mismo**
-(`$('#fileInput').click()`). No es un fallo —la detección automática hace que la segunda funcione— pero son dos
-entradas para una sola acción. Se deja como está: cambiarlo es una decisión de interfaz, no una corrección.
+Al contarme el caso con calma, Beltrán dio con la raíz y con la solución: *«Algo bueno que tiene Premiere es que
+cuando pongo importar medio, me da la opción de seleccionar con un check si es una secuencia de imágenes o no. Si
+no tengo seleccionado el check, simplemente selecciono las imágenes y las importa unitariamente.»*
+
+Tiene razón, y R245 sólo había arreglado la mitad: el arrastre. Por el selector, cinco imágenes numeradas que no
+son una secuencia seguían abriendo el diálogo de fotogramas por segundo, y ahí **no había salida buena** —
+aceptar las convertía en un vídeo y **Cancelar descartaba los archivos enteros** (`close(false)` no llamaba al
+callback), que es exactamente por qué acabó importándolas de una en una.
+
+**La casilla de Premiere ya existía aquí, mal cableada.** El menú del panel tenía dos entradas —«Importar
+medios…» e «Importar secuencia de imágenes…»— que hacían **exactamente lo mismo**; era la duplicación que R245
+dejó anotada como observación. Ahora dicen la verdad, y son la casilla:
+
+| Puerta | Qué hace |
+|---|---|
+| **Importar medios…** (y el botón Import, ⌘I, la zona vacía) | cada imagen entra como SU clip · **nunca pregunta nada** |
+| **Importar secuencia de imágenes…** | agrupa las numeradas y pide los fotogramas por segundo |
+| **Arrastrar** | siempre clips sueltos (R245) |
+
+El selector de archivos es el **nativo del sistema** y no admite controles propios, así que la elección no puede
+ir dentro del diálogo como en Premiere: vive en la puerta por la que entras. `pickMedia(seq)` es la única vía al
+selector y la bandera se consume en el `onchange` y se limpia siempre — un diálogo cancelado no deja el modo
+pegado para la importación siguiente.
+
+Dos remates para que ningún camino quede mudo:
+- **El diálogo estrena una tercera salida, «Como imágenes sueltas»**, para cuando el agrupador acierta la forma
+  pero se equivoca de intención. Cancelar sigue significando cancelar; lo que ya no hace falta es elegir entre un
+  vídeo que no querías y perder la importación.
+- Si pides «Importar secuencia de imágenes…» y **no hay ninguna agrupable** (hacen falta 3 o más con el mismo
+  prefijo y extensión, numeradas), entran como imágenes sueltas —que es lo correcto— **y se avisa**, porque en
+  silencio parecería que el modo no funcionó.
+
+**Verificado** (`scratchpad/r245-ctx-grid.mjs`): «Importar medios…» con cuatro `medios00N.png` → **4 medios
+`image`, sin diálogo** · «Importar secuencia…» + «Como imágenes sueltas» → **4 medios `image`** · «Importar
+secuencia…» + «Importar como secuencia» con cinco archivos → **1 medio `sequence` a 60 fps** · el botón Import
+pasa por `pickMedia(false)`.
 
 ## ROUND 244 — El contenedor de la línea de tiempo deja de estar preso de las pistas
 

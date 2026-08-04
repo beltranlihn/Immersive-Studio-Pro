@@ -94,6 +94,42 @@ out['R245_2_selectorConserva']=await ev(`(async function(){
   if(dlg)document.getElementById('seqFpsOv').remove();
   return r; })()`);
 
+/* ===== [R245b] MODELO PREMIERE: la secuencia se ELIGE antes de abrir el selector ==========================
+   «Importar medios…» nunca agrupa · «Importar secuencia de imágenes…» sí. Y el diálogo tiene una TERCERA salida
+   («Como imágenes sueltas») para cuando las numeradas no son una secuencia — el caso que obligó a Beltrán a
+   importarlas de una en una. */
+out['R245b_dosPuertas']=await ev(`(function(){
+  return { pickMedia:(typeof pickMedia), importBtnUsaPick:/pickMedia\\(false\\)/.test(String(document.getElementById('importBtn').onclick)) }; })()`);
+
+out['R245b_importarMedios_noAgrupa']=await ev(`(async function(){
+  const n0=state.media.length; const files=__pngs(4,'medios');
+  importFiles(files,null,{noSeq:true});          // lo que hace ahora «Importar medios…»
+  await new Promise(r=>setTimeout(r,800));
+  const dlg=!!document.getElementById('seqFpsOv'); const nuevos=state.media.slice(n0);
+  if(dlg)document.getElementById('seqFpsOv').remove();
+  return { pidioFps:dlg, nuevos:nuevos.length, todosImagen:nuevos.length===4&&nuevos.every(m=>m.kind==='image') }; })()`);
+
+out['R245b_terceraSalida']=await ev(`(async function(){
+  const n0=state.media.length; const files=__pngs(4,'sueltas');
+  importFiles(files,null,{noSeq:false});         // «Importar secuencia…» → sale el diálogo
+  await new Promise(r=>setTimeout(r,700));
+  const ov=document.getElementById('seqFpsOv'); if(!ov)return {err:'no salió el diálogo'};
+  const btn=document.getElementById('sfLoose'); if(!btn)return {err:'no existe el botón de imágenes sueltas'};
+  btn.click(); await new Promise(r=>setTimeout(r,900));
+  const nuevos=state.media.slice(n0);
+  return { hayBoton:true, nuevos:nuevos.length, tipos:nuevos.map(m=>m.kind),
+    entraronComoImagenes:nuevos.length===4&&nuevos.every(m=>m.kind==='image') }; })()`);
+
+out['R245b_secuenciaSigueFuncionando']=await ev(`(async function(){
+  const n0=state.media.length; const files=__pngs(5,'lasecuencia');
+  importFiles(files,null,{noSeq:false});
+  await new Promise(r=>setTimeout(r,700));
+  const ov=document.getElementById('seqFpsOv'); if(!ov)return {err:'no salió el diálogo'};
+  document.getElementById('sfOk').click(); await new Promise(r=>setTimeout(r,1200));
+  const nuevos=state.media.slice(n0);
+  return { nuevos:nuevos.length, tipos:nuevos.map(m=>m.kind),
+    esUnaSecuencia:nuevos.length===1&&nuevos[0].kind==='sequence', fps:nuevos[0]&&nuevos[0].fps }; })()`);
+
 await ev(`(async()=>{ state.dirty=false; await newProject('dome',4096,4096,60,180,true); })()`);
 out.errs=await ev(`window.__errs.slice(0,10)`);
 console.log(JSON.stringify(out,null,1));
