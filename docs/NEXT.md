@@ -24,9 +24,15 @@
       `LINEAR` mezclaba el último texel con el vacío. Una tira de 7196×912 ocupa ~65 texels en un composite de 512²
       → 1 texel = 14 px de lienzo → ~140 px de banda negra a 1000%. Arreglado acotando el muestreo al primer/último
       texel ENTERAMENTE cubierto (medio texel no bastaba: la banda no cae en múltiplos de texel)._
-- [ ] **Deuda anotada:** el composite cuadrado desperdicia resolución con lienzos muy apaisados (7196×912 → sólo 65
-      de 512 texels de alto). Hacerlo del aspecto del lienzo daría nitidez vertical ×8 en sala y haría el clamp
-      innecesario. Es un cambio de calado (afecta a `composite()`, `setCompSize`, export); no urgente.
+- [x] ~~**Paneo vertical lento en el lienzo (R235).**~~ _Usaba `min(cw,ch)` en los dos ejes con un mapeo anisótropo
+      (`sy`≈0,23 en una tira): 100 px de arrastre movían 23. Ahora escala por eje (`panScale`); medido 1:1 en X e Y._
+- [ ] 🔴 **PRIORITARIO · composite no cuadrado.** Reportado por Beltrán en producción: un clip sin proxy en **Full**
+      se ve muy pixelado. Medido: lienzo 7196×912 → banda de **2048×260 texels** = **3,51× de submuestreo en LOS DOS
+      ejes** y **87,3 % de la textura desperdiciado**. «Full» no está enseñando la calidad original. El export no se
+      ve afectado (FBO propio). Arreglo: composite del tamaño del lienzo → 6,5 M texels (26 MB) frente a 0,53 M
+      útiles hoy = **13× más resolución con 8× menos memoria**. Toca `composite()`, `setCompSize`, el NDC del
+      dibujado de clips, el UV del blit (`compContentLim`/`compLimForRect` se simplificarían), el export y el caché
+      de nests. Ronda propia con verificación aparte.
 - [x] ~~**Revisión de R233 (R233b)**~~ — el acotado se hacía contra el RECORTE y no contra el contenido (comía un
       texel en las costuras interiores: export por-muro y panel de muros); la franja seguía viva en el 3D. Ambos
       corregidos con `u_uvlim` = banda del lienzo, salvando el caso `_ncSquare` (letterbox del caché de nest).

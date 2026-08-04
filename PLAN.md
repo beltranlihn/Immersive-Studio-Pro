@@ -87,6 +87,29 @@ raíces cuando el mínimo de la curva roza el cero (exige medidas degeneradas, y
 tamaño del clip no acompaña al muro al cambiar su ancho, sólo la posición.
 
 
+## ROUND 235 — El paneo vertical iba cuatro veces más lento
+
+Beltrán, con zoom dentro del lienzo de una sala: «en horizontal funciona bien, pero vertical no me deja avanzar
+naturalmente». El paneo dividía el arrastre por `min(cw,ch)` en LOS DOS ejes, pero el mapeo marco→pantalla es
+**anisótropo**: `flatMap` saca un `sx` y un `sy` distintos, y en una tira de 7196×912 metida en un panel apaisado
+`sy` vale ~0,23. Arrastrando 100 px en vertical el contenido se movía ~23. Ahora cada eje usa SU escala
+(`panScale(P)`, guardada al agarrar), así que el punto agarrado se queda bajo el cursor en las dos direcciones.
+Medido: ratio 1,000 en X y en Y. El domo es isótropo y conserva `min(cw,ch)/2`.
+
+### Medido de paso: por qué «Full» no enseña la calidad original
+
+Beltrán también reportó que un clip sin proxy, en Full, se ve muy pixelado. Tiene razón y ahora hay números. El
+composite máster es una textura **CUADRADA** de 2048² y una tira de 7196×912 va encajada en una banda de
+**2048×260 texels**. Eso es **3,51× de submuestreo en LOS DOS ejes** —no sólo en vertical— y **el 87,3 % de la
+textura desperdiciado** en letterbox. A 791 % de zoom se ve exactamente como lo que es: una imagen de 2048×260
+estirada a 7196×912.
+
+El export NO pasa por aquí (usa su propio FBO a resolución de salida), así que esto es sólo el visor. La deuda ya
+estaba anotada desde R233; ahora está cuantificada. El arreglo correcto es un composite **no cuadrado** del
+tamaño del lienzo: 7196×912 = 6,5 M texels (26 MB) frente a los 0,53 M útiles de hoy — **13× más resolución
+usando 8× menos memoria**. Toca el núcleo del render (NDC del dibujado de clips, UV del blit, export y caché de
+nests), así que va en su propia ronda con verificación aparte, no al final de una sesión larga.
+
 ## ROUND 234 — El clip saltaba al agarrarlo
 
 Beltrán: «cuando arrastro un clip en el lienzo, se mueve solo para centrarse en el cursor; el anclaje debe ser

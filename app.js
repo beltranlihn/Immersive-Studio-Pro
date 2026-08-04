@@ -1870,6 +1870,12 @@ function flatMap(P){ P=P||vpPanels()[0];
   const st=vpState(P.surf), z=st.zoom, p=st.pan;
   return { A,Fx:Math.min(1,A),Fy:Math.min(1,1/A), P, sx,sy,z, // [R231] `sx/sy/z` salen fuera: son lo que convierte unidades de marco en píxeles de PANTALLA (lo necesita el umbral del imán)
     px:(fx,fy)=>{ const ndx=(fx-p[0])*z*sx, ndy=(fy-p[1])*z*sy; return [P.x+(ndx*0.5+0.5)*P.w, P.y+(1-(ndy*0.5+0.5))*P.h]; } }; }
+/* [R235] Píxeles de PANTALLA por unidad de marco (a zoom 1), por eje. Es lo que convierte un arrastre del ratón
+   en desplazamiento de encuadre sin que un eje vaya más lento que el otro. En el domo el mapeo es isótropo y se
+   queda con `min(cw,ch)/2` de siempre. */
+function panScale(P){ const S=Math.min(view.cw,view.ch);
+  if(!isFlat()||!P)return [S/2,S/2];
+  const M=flatMap(P); return [Math.max(1,P.w/2*M.sx), Math.max(1,P.h/2*M.sy)]; }
 function drawFlatFrame(P){ const M=flatMap(P); const a=M.px(-1,1), b=M.px(1,-1); const x0=a[0],y0=a[1],w=b[0]-a[0],h=b[1]-a[1];
   gx.lineWidth=1; gx.strokeStyle='rgba(255,255,255,0.30)'; gx.strokeRect(x0,y0,w,h);
   if(state.view.showGrid && !isRoom()){ gx.strokeStyle='rgba(255,255,255,0.09)'; for(let i=1;i<3;i++){ const xx=x0+w*i/3; gx.beginPath();gx.moveTo(xx,y0);gx.lineTo(xx,y0+h);gx.stroke(); const yy=y0+h*i/3; gx.beginPath();gx.moveTo(x0,yy);gx.lineTo(x0+w,yy);gx.stroke(); } } // room uses the per-wall grid (drawRoomGrid2D) instead of the generic thirds
@@ -5035,7 +5041,7 @@ gridc.addEventListener('pointerdown',e=>{ const r=gridc.getBoundingClientRect();
     { const Pf=vpPanelAt(px,py); if(Pf&&state.view.vpFocus!==Pf.surf){ state.view.vpFocus=Pf.surf; vzLbl(); } } // [R230b] el panel tocado toma el foco: es al que obedecen +/− y el %
     const dvx=vpDivX(); // [R230] el divisor del visor partido gana a cualquier otro gesto
     if(dvx!=null && Math.abs(px-dvx)<=VP_DIV_HIT+VP_DIVW/2 && !mid){ vdrag={mode:'vpdiv'}; e.preventDefault(); }
-    else if(mid||e.shiftKey){ const st=vpState((vpPanelAt(px,py)||vpPanels()[0]).surf); vdrag={mode:'pan',x:e.clientX,y:e.clientY,pan:[...st.pan],st}; }
+    else if(mid||e.shiftKey){ const Pp=vpPanelAt(px,py)||vpPanels()[0]; const st=vpState(Pp.surf); vdrag={mode:'pan',x:e.clientX,y:e.clientY,pan:[...st.pan],st,sc:panScale(Pp)}; } // [R235] escala POR EJE
     else if(isFlat()){ // R88: 2D — ONLY the timeline-selected clip is draggable (so an overlapping clip on top can't hijack the drag; pick the one below via the timeline, then move it here)
       const sel=selClip();
       const hh=(sel && !sel.adjust)?flatHandleHit(px,py):null;
@@ -5052,7 +5058,7 @@ gridc.addEventListener('pointerdown',e=>{ const r=gridc.getBoundingClientRect();
         try{ const _CP=clipPanel(sel); if(_CP){ const _f=pix2frame(px,py,_CP);
           off=[((evalP(sel,'x',state.playhead)||0)/100)-_f[0], ((evalP(sel,'y',state.playhead)||0)/100)-_f[1]]; } }catch(_){}
         vdrag={mode:'elemFlat',id:sel.id,off}; }
-      else { const st=vpState((vpPanelAt(px,py)||vpPanels()[0]).surf); vdrag={mode:'pan',x:e.clientX,y:e.clientY,pan:[...st.pan],st}; } } // [R94e] the viewport never re-picks: selection comes from the timeline, so a clip under other layers stays draggable
+      else { const Pp=vpPanelAt(px,py)||vpPanels()[0]; const st=vpState(Pp.surf); vdrag={mode:'pan',x:e.clientX,y:e.clientY,pan:[...st.pan],st,sc:panScale(Pp)}; } } // [R94e] the viewport never re-picks: selection comes from the timeline, so a clip under other layers stays draggable · [R235] escala POR EJE
     else { // dome 2D: same rule — only the timeline-selected clip is draggable (no hit-test stealing by the top layer)
       const sel=selClip(); const selHit=(sel&&!sel.adjust)?domeClipHit(sel,px,py):false;
       if(selHit){ pushUndo(); // [R234] mismo desfase de agarre que en plano, en az/el
@@ -5079,7 +5085,15 @@ gridc.addEventListener('pointermove',e=>{
   if(vdrag.mode==='orbit'){ const inv=(isRoom()&&state.view.three==='spec')?-1:1; state.view.cam.yaw=vdrag.yaw-(e.clientX-vdrag.x)*0.0065*inv; state.view.cam.pitch=Math.max(-HALF_PI+0.02,Math.min(HALF_PI-0.02,vdrag.pitch+(e.clientY-vdrag.y)*0.0065*inv)); render(); } // 3D-room Viewer = first-person look → invert drag
   else if(vdrag.mode==='vpdiv'){ /* [R230] arrastrar el divisor: se guarda la PROPORCIÓN, no los píxeles, para que aguante un cambio de tamaño de ventana */
     state.view.roomDiv=Math.max(0.15,Math.min(0.88,px/Math.max(1,view.cw))); resize(); } // [R230b] se guarda al soltar (endVdrag), no en cada evento de movimiento
-  else if(vdrag.mode==='pan'){ const st=vdrag.st||state.view; const S=Math.min(view.cw,view.ch); const d=[(e.clientX-vdrag.x)/(S/2),-(e.clientY-vdrag.y)/(S/2)]; st.pan=[vdrag.pan[0]-d[0]/st.zoom,vdrag.pan[1]-d[1]/st.zoom]; render(); }
+  /* [R235] El paneo usaba `min(cw,ch)` para LOS DOS ejes, pero el mapeo marco→pantalla es ANISÓTROPO: `flatMap`
+     saca un `sx` y un `sy` distintos, y en una tira de sala (7196×912 en un panel apaisado) `sy` vale ~0.23. O sea
+     que arrastrando 100 px en vertical el contenido sólo se movía ~23: en horizontal iba 1:1 y en vertical
+     costaba cuatro veces más avanzar. Ahora cada eje usa SU escala, guardada al agarrar, así que el punto que
+     agarras se queda bajo el cursor en las dos direcciones. El domo es isótropo y conserva `min(cw,ch)`. */
+  else if(vdrag.mode==='pan'){ const st=vdrag.st||state.view; const S=Math.min(view.cw,view.ch);
+    const sc=vdrag.sc||[S/2,S/2];
+    const d=[(e.clientX-vdrag.x)/sc[0],-(e.clientY-vdrag.y)/sc[1]];
+    st.pan=[vdrag.pan[0]-d[0]/st.zoom,vdrag.pan[1]-d[1]/st.zoom]; render(); }
   else if(vdrag.mode==='elem'){ const c=clipById(vdrag.id); if(!c)return; const f=pix2f(px,py); const ae=f2azel(f[0],f[1]);
     const off=vdrag.off||[0,0]; // [R234] el punto de agarre manda
     /* [R234b] El azimut se normaliza a [0,360): `f2azel` sí normaliza, pero sumarle un desfase que cruza el corte
