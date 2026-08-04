@@ -130,7 +130,7 @@ const state = {
   view:{ mode:'2d', three:'orbit', zoom:0.92, pan:[0,0], showGrid:true, showOutline:true, cull:false, useProxy:true, useNestCache:true, checkerBg:false, /* [R180] los cachés de composición nacen activos, como los proxies: se generan a mano, así que si existe uno es porque alguien lo pidió */
          showCenter:false, showSeam:true, // [R168·Etapa 7] guías de centro (2D) y costuras de muro (sala): el tercer hueco de superposición por formato. La costura nace encendida porque en la sala orienta, igual que el horizonte en el domo.
          cw:400, ch:400, cam:{yaw:0, pitch:0.5, dist:3.0, fov:60, back:0.8} },
-  tl:{ pxPerSec:80, tool:'select', tcMode:'timecode', bpm:120, sig:4, gridDiv:0, gridFixed:false, gridFixedBase:1, selA:null, selB:null, audioCollapsed:false }, // [R161] fuera `snap` (R158 quitó el ajuste a la cuadrícula) y `simpleClips` (R155 dejó sólo el agarre estilo Premiere): nadie los leía. [R110] audioCollapsed = the audio module is compacted to just its bar
+  tl:{ pxPerSec:80/* = TL_PPS_DEF; literal a propósito: la constante se declara más abajo y aquí estaría en TDZ */, tool:'select', tcMode:'timecode', bpm:120, sig:4, gridDiv:0, gridFixed:false, gridFixedBase:1, selA:null, selB:null, audioCollapsed:false }, // [R161] fuera `snap` (R158 quitó el ajuste a la cuadrícula) y `simpleClips` (R155 dejó sólo el agarre estilo Premiere): nadie los leía. [R110] audioCollapsed = the audio module is compacted to just its bar
   workIn:null, workOut:null,
   prefs:{ reducedMotion:false, snapping:true, grid:true, mediaCollapsed:false, inspCollapsed:false, tallInsp:false },
   mediaFilter:'all', mediaQuery:'', mediaGroupBy:'none', collapsedGroups:{}, folders:[], folderColors:{}, mediaView:'list', mediaFolder:null, selFolder:null,
@@ -176,7 +176,7 @@ function laneH(li){ const l=state.lanes[li]; if(!l)return LANE_DEF_H; if(l.colla
   return Math.max(laneFloorH(l),Math.min(LANE_MAX_H,l.h||(l.kind==='audio'?AUDIO_LANE_H:LANE_DEF_H))); }
 function duration(){ let d=2; for(const c of state.clips) d=Math.max(d,c.start+c.dur); return d; }
 function frameSnap(t){ const f=state.fps||30; return Math.max(0,Math.round(t*f)/f); } /* [T7] quantize a time to the project frame grid */
-const TL_PPS_MIN=0.1, TL_PPS_MAX=2400; // [T2] timeline zoom range. Max raised 600→2400 so a frame is 40–80px wide at 24–30fps → the per-frame trim snap is clearly visible
+const TL_PPS_MIN=0.1, TL_PPS_MAX=2400, TL_PPS_DEF=80; // [T2] timeline zoom range. Max raised 600→2400 so a frame is 40–80px wide at 24–30fps → the per-frame trim snap is clearly visible · [R240] DEF = el mismo 80 con el que nace `state.tl`, al que vuelve un proyecto sin zoom guardado
 function clipById(id){ return state.clips.find(c=>c.id===id); }
 function mediaById(id){ return state.media.find(m=>m.id===id); }
 function selClip(){ return clipById(state.selId); }
@@ -9424,7 +9424,17 @@ function loadProject(obj){ relinkReset(); // [R204] el índice de reenlace es de
   state.autoItems=(obj.autoItems&&typeof obj.autoItems==='object')?obj.autoItems:{}; // [R95·D2]
   state.workIn=(obj.workIn!=null?obj.workIn:null); state.workOut=(obj.workOut!=null?obj.workOut:null); state.folders=Array.isArray(obj.folders)?obj.folders:[]; state.folderColors=(obj.folderColors&&typeof obj.folderColors==='object')?obj.folderColors:{}; state.exportPresets=Array.isArray(obj.exportPresets)?obj.exportPresets:[];
   state.reactive=obj.reactive||null; _arCache=null; _fxEnvCache.clear(); // Reactive FX config (source clip + sensitivity) — bands re-analyzed lazily when the panel opens
-  if(obj.tl){ if(obj.tl.bpm)state.tl.bpm=obj.tl.bpm; if(obj.tl.sig)state.tl.sig=obj.tl.sig; if(obj.tl.tcMode)state.tl.tcMode=obj.tl.tcMode; if(obj.tl.pxPerSec)state.tl.pxPerSec=obj.tl.pxPerSec;
+  /* [R240] El zoom del `.isp` se ACOTA como cualquier otro camino. Los ocho gestos que lo tocan (rueda, ±, los dos
+     botones, la barra de zoom, Fit, Zoom-to-clip) pasan por `TL_PPS_MIN/MAX`; abrir un proyecto era el único que
+     no, así que un valor corrupto en el archivo entraba tal cual. Medido con un `.isp` de `pxPerSec:1e7`: la
+     línea de tiempo reservaba **33 millones de píxeles** de ancho y no había gesto que la devolviera a un rango
+     usable. Sale de la sonda de QA que dejó pendiente la auditoría de 2026-07. */
+  /* Y si el archivo NO trae zoom —ni el campo ni el bloque `tl` entero, que es lo que pasa con un `.isp` legacy—
+     se vuelve al valor de FÁBRICA en vez de conservar el del proyecto ANTERIOR: misma familia de defecto que el
+     encuadre horizontal de [R239], heredar estado de lo que había abierto antes. Va FUERA del `if(obj.tl)` justo
+     por ese caso. */
+  { const pv=obj.tl&&obj.tl.pxPerSec; state.tl.pxPerSec=(pv>0)?Math.max(TL_PPS_MIN,Math.min(TL_PPS_MAX,pv)):TL_PPS_DEF; }
+  if(obj.tl){ if(obj.tl.bpm)state.tl.bpm=obj.tl.bpm; if(obj.tl.sig)state.tl.sig=obj.tl.sig; if(obj.tl.tcMode)state.tl.tcMode=obj.tl.tcMode;
     state.tl.audioCollapsed=!!obj.tl.audioCollapsed; state.tl._audioScroll=0; // [R110] the audio module reopens collapsed if it was saved collapsed
     // [R158] `tl.snap` de un .isp viejo se ignora: el ajuste a la cuadrícula ya no existe // (both default off)
     syncSimpleUI(); // [R155] el modo de agarre ya no es una preferencia: un `tl.simpleClips` guardado se ignora

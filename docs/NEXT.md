@@ -4,6 +4,28 @@
 > en `COMPONENTS.md` + una entrada en `PLAN.md` en el mismo commit, como manda el ritual de `/commit`).
 > Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: 2026-08-04.
 
+## 🧪 QA pendiente de la auditoría de julio — 2026-08-04 · CERRADA ✅ [R240]
+> La «segunda pasada de QA» que `AUDITORIA-2026-07.md` dejó anotada y nunca se corrió. Ejecutada por CDP
+> (`scratchpad/r240-qa.mjs` + `r240-qa2.mjs`), `__errs` vacío.
+- [x] **Seis de siete escenarios ya se comportaban bien:** trim a duración 0 (topa en `CUT_MIN` por los dos bordes,
+      sin negativos ni NaN, respetando el límite del material) · borrar media en uso + deshacer (devuelve medio y
+      clips) · work in/out invertido (no rompe `duration()` ni el repintado) · marcadores y exclusión locator ⇄ clip
+      en las dos direcciones · borrar/cerrar la única secuencia (el guard aguanta) · zoom extremo por la UI.
+- [x] **Hallazgo real, arreglado: el zoom del `.isp` entraba SIN ACOTAR.** Los ocho gestos que tocan `pxPerSec`
+      pasan por `TL_PPS_MIN/MAX`; abrir un proyecto era el único que no. Con `pxPerSec:1e7` la línea de tiempo
+      reservaba **33 554 432 px** de ancho y ningún gesto la devolvía a un rango usable. Acotado al cargar (mismo
+      archivo → 2400 y 53 869 px). Importa porque el zoom **se guarda en el proyecto**: cualquier valor malo deja
+      la línea de tiempo inservible al abrir, sin pista de por qué.
+- [x] **[R240b] Y si el `.isp` no trae zoom, se vuelve al valor de fábrica** en vez de heredar el del proyecto
+      anterior — la misma familia de defecto que el encuadre horizontal de R239. Salió de una nota «fuera de
+      alcance» de la revisión del diff. Siete casos verificados en `scratchpad/r240b-zoom.mjs`.
+- [x] **Atajos, barridos** (`scratchpad/r240-atajos.mjs`). De las 56 entradas de la paleta, **33 anuncian atajo y
+      las 33 tienen función detrás**; dispararlos todos no produce ni un error. ⌘D duplica, `0` alterna
+      desactivado y ⌘C llena el portapapeles. Se buscaba la clase de fallo que ya se dio una vez aquí ([R92-T5]:
+      la paleta prometía `+`/`−` de zoom que no existían) — **no hay ninguno vivo**.
+- [ ] **Lo único que no se puede simular: la prueba de estrés tipo show** (8-10 clips 4K/8K + sala completa) para
+      ejercer de verdad calidad de preview, render-ahead y VRAM. Necesita medios reales y la máquina con la RTX.
+
 ## 🔧 Tanda de Beltrán — 2026-08-04 (cuatro ajustes de uso diario) · CERRADA EN CÓDIGO ✅ [R239 + R239b]
 > Verificada por CDP en dev (`scratchpad/r239-diag.mjs` para el estado ANTES, `r239-verify.mjs` y
 > `r239b-review.mjs`), `__errs` vacío en las tres. **Pendiente de build + deploy**, junto con R237 y R238.

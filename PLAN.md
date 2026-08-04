@@ -1,5 +1,58 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 240 — La segunda pasada de QA que quedó pendiente de la auditoría
+
+`AUDITORIA-2026-07.md` cerró sus cuatro etapas pero dejó anotada una **«segunda pasada de QA»** que nunca se
+corrió: atajos, trim a duración 0, borrar media en uso, borrar la secuencia activa, marcadores, work in/out
+invertido y zoom extremo del timeline. Se ejecutó por CDP (`scratchpad/r240-qa.mjs` y `r240-qa2.mjs`).
+
+**Resultado: seis de siete escenarios ya se comportaban bien.** El trim topa en `CUT_MIN` (0,05 s) por los dos
+bordes sin dejar duraciones negativas ni NaN, y respeta el límite del material de origen; borrar un medio en uso y
+deshacer devuelve medio y clips intactos; un work in/out invertido no rompe `duration()` ni el repintado del rango;
+la exclusión locator ⇄ clip funciona en las dos direcciones (los cuatro caminos que seleccionan un locator limpian
+`selId`, y el gesto del timeline limpia `selMarkerId`); y el guard que impide quedarse sin secuencia abierta
+aguanta.
+
+### El hallazgo: el zoom del `.isp` entraba sin acotar
+
+Los ocho gestos que tocan `pxPerSec` —rueda, `+`/`−`, los dos botones, la barra de zoom, Fit y zoom-a-clip— pasan
+por `TL_PPS_MIN`/`TL_PPS_MAX`. **Abrir un proyecto era el único que no.** Con un `.isp` de `pxPerSec:1e7` la línea
+de tiempo reservaba **33 554 432 px** de ancho y ningún gesto la devolvía a un rango usable. Acotado al cargar:
+mismo archivo → 2400 y 53 869 px.
+
+No es un caso de laboratorio por una razón concreta: el zoom **se guarda en el proyecto**, así que cualquier vía
+que llegue a escribir un valor malo —un archivo tocado a mano, un `.isp` de una versión futura, un cálculo que se
+desmadre— deja la línea de tiempo inservible al abrir, y el usuario no tiene forma de saber por qué.
+
+**[R240b]** La revisión del diff no encontró defectos, pero dejó anotada como fuera de alcance una consecuencia
+que resultó ser **la misma familia de bug que esta sesión ya persiguió dos veces**: un `.isp` que no trae zoom
+—ni el campo, ni el bloque `tl` entero, que es lo de un archivo legacy— **heredaba el del proyecto anterior** en
+vez de volver al de fábrica. Idéntico en naturaleza al encuadre horizontal de R239. Ahora el reset vive FUERA del
+`if(obj.tl)`, justo por el caso del bloque ausente. Siete casos verificados (`scratchpad/r240b-zoom.mjs`): sin
+zoom → 80 · absurdo alto → 2400 · absurdo bajo → 0,1 · negativo y no numérico → 80 · sin bloque `tl` → 80 · sano
+→ tal cual. La constante `TL_PPS_DEF` se declara junto a MIN/MAX; en el literal del objeto `state` se deja el 80
+a mano **a propósito**, porque ahí la constante estaría en zona muerta temporal y la app no arrancaría.
+
+### Los atajos, barridos
+
+La auditoría pedía repasarlos «uno a uno». Se hizo por lo que la app **anuncia**, que es donde este proyecto ya
+tuvo un fallo real ([R92-T5]: la paleta prometía `+`/`−` de zoom que no existían): de las 56 entradas de
+`commandList()`, **33 declaran atajo y las 33 tienen función detrás**, y dispararlos todos seguidos no produce un
+solo error. ⌘D duplica, `0` alterna desactivado y ⌘C llena el portapapeles. Sin promesas rotas.
+
+Un detalle del arnés que conviene recordar: `⇧⌘E` abre la hoja de export, y el guard global de atajos (`#exOv`)
+bloquea **todo** lo que venga detrás. La primera corrida dio tres falsos negativos por eso; hay que barrer las
+modales entre bloques o el resto del barrido mide una app sorda.
+
+### Dos apuntes de método
+
+Las dos primeras sondas de esta ronda dieron **falsos positivos míos**, y conviene dejarlo escrito porque es un
+error fácil de repetir: `trimItem` espera el **item del arrastre** (`start0/dur0/inP0`), no el clip, y su borde es
+`'L'`/`'R'` en mayúscula — al pasarle el clip y una `'r'`, `it.dur0` salía `undefined` y el NaN resultante parecía
+un bug del programa. Y la selección de clip que apaga el locator vive en el **gesto** del timeline: asignar
+`state.selId` a mano no la ejercita, y el camino del teclado depende de `:focus-visible`, que un script no puede
+forzar. Con un `pointerdown` real sobre el clip, verde.
+
 ## ROUND 239 — Cuatro ajustes de Beltrán
 
 Cuatro cosas pequeñas de uso diario. Dos resultaron no ser lo que parecían.

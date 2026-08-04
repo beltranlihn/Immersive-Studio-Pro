@@ -323,8 +323,12 @@ proyecto 2D Flat dedicado.
 ### Verificación de cierre (tras las etapas)
 - Export limpio de punta a punta con audio sano + con audio indecodificable (debe avisar y seguir) + cancelación
   a mitad (debe volver en segundos). Re-correr los flujos OK de Área 2 como regresión.
-- Segunda pasada de QA pendiente: atajos uno a uno, trim a duración 0, borrar media en uso, borrar secuencia
-  activa, marcadores, work in/out invertido, zoom extremo del timeline.
+- ~~Segunda pasada de QA pendiente: atajos uno a uno, trim a duración 0, borrar media en uso, borrar secuencia
+  activa, marcadores, work in/out invertido, zoom extremo del timeline.~~ **CORRIDA en R240**
+  (`scratchpad/r240-qa.mjs` + `r240-qa2.mjs`): seis de siete escenarios ya se comportaban bien. Un hallazgo real y
+  arreglado — **el zoom guardado en el `.isp` entraba sin acotar** (los ocho gestos de la UI pasan por
+  `TL_PPS_MIN/MAX`; abrir un proyecto era el único que no: con `pxPerSec:1e7` la línea de tiempo reservaba 33,5 M
+  de píxeles de ancho y ningún gesto la recuperaba). Los atajos uno a uno siguen sin barrer de forma exhaustiva.
 - Prueba de estrés tipo show (8-10 clips 4K/8K + sala completa) para ejercer de verdad calidad de preview,
   render-ahead y VRAM.
 
