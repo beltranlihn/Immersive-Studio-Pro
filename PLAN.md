@@ -1,5 +1,86 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 253 — El plan de la auditoría 2026-08b, ejecutado
+
+Fable auditó de madrugada el delta R242→R252b con la pregunta que importaba: **¿puede Beltrán actualizar y abrir
+la película que está montando sin que se le rompa nada?** El informe está en `AUDITORIA-2026-08b.md`.
+
+**Veredicto: sí, y sin migración de datos.** Un proyecto hecho con el build anterior (a33c70b/R246) abre con el
+nuevo dejando estado, bucles, composiciones y **píxeles del render idénticos**. El permiso que dio Beltrán —«en
+los clips loopeados no me interesa mucho dónde partan»— no hizo falta usarlo.
+
+Lo demostró como había que demostrarlo: **fabricando el proyecto viejo con el código viejo** (worktree en
+a33c70b), con 9 bucles a propósito retorcidos —`inP`≠0, ping-pong, estirados más allá de la fuente, par A/V
+enlazado, nido loopeado con un clip loopeado dentro—, 3 composiciones con retoques manuales y `mediaIds` fuera del
+orden del panel, keyframes, máscaras y un `pulse` 2D de los viejos. Y comparando contra las copias de `RitoDome`
+(23 bucles, 3 composes), `Rito360` y `RitoFlat`.
+
+Esta ronda ejecuta su plan. **Ninguna acción es una migración**: no hay caso viejo que detectar ni transformar.
+
+### 1 · Un despliegue mío que llevaba días fallando en silencio
+
+`C:\Program Files\Dome Studio Pro` tenía el asar del 04-08 a las 20:50 —**anterior a todo el tejido**— y un
+`app.asar.unpacked` del 29 de julio, con la copia ANIDADA que el propio `CLAUDE.md` avisa desde R242.
+
+La causa es mía y de método: la copia con elevación se lanza con `Start-Process -Verb RunAs -Wait`, **cuyo éxito no
+dice nada sobre si la copia ocurrió**. Yo imprimía «legacy2» después y lo daba por bueno. Ahora el despliegue
+**verifica el sha1 de los tres `app.asar`** y falla ruidosamente si alguno no coincide. Sin comprobación, un
+despliegue no está hecho: está supuesto.
+
+### 2 · El deslizador de intensidad se destruía a sí mismo
+
+`sl.oninput` llamaba a `buildAnimList`, que empieza con `host.innerHTML=''`: el propio deslizador que se estaba
+arrastrando desaparecía del DOM al primer paso. Apuntando al 200 % se quedaba en el 109 %. Al vivo se refrescan
+ahora sólo las cifras de amplitud, en su sitio (`refreshAnimAmps`), y la lista se rehace **al soltar**. Medido con
+arrastre real: 204 % apuntando a 200 %.
+
+### 3 · Mirar no debe escribir
+
+El botón **Source** del inspector estampaba la entrada y salida del clip **en el MEDIO**, sin `pushUndo` ni
+`markDirty`. A partir de ese momento, todo arrastre de ese archivo entraba recortado —sin rastro en el historial,
+sin marcar el proyecto como sucio y sin nada en pantalla que lo explicara.
+
+Ahora la ventana lleva **su propia selección** (`mon.in`/`mon.out`): al abrirla desde un clip enseña su tramo, y
+las marcas del medio sólo cambian por un gesto explícito (I/O, las asas, borrar), que pasa por `smCommitMarks` con
+undo y marca de sucio. Lo que se arrastra o se inserta es **lo que se ve marcado**, que no siempre es lo guardado.
+
+Y para cerrar del todo el «sin rastro», la ficha del panel enseña ahora **`[6s]`** cuando un medio tiene marcas,
+con el tramo en el tooltip. Un archivo marcado hace una semana ya no suelta un trozo sin explicación.
+
+### 4 · Dos arreglos de bulto pequeño
+
+- Los rótulos del transporte del monitor tienen **ancho reservado**: el del rango cambia de texto al marcar
+  («Clip entero» → «Rango 00:00:06») y empujaba los botones `[ ] ⌫` a otro sitio a mitad de gesto. La sonda de la
+  auditoría llegó a pulsar ⌫ queriendo pulsar `]`; a un humano le habría pasado igual.
+- `openCompose` **cierra el diálogo anterior** si ya había uno: apilaba dos cuadros y dejaba el enganche del
+  arrastre apuntando sólo al último, así que soltar un medio alimentaba la cesta de un diálogo distinto del que se
+  estaba mirando.
+
+### 5 · Lo que se documenta y NO se migra
+
+- **La envoltura `fx`/`fy` del domo cambió en R247c**: un desplazamiento que sale del disco ahora **se hunde bajo
+  el horizonte**; antes quedaba clavado en el borde. Es la corrección deliberada que arregló «los clips
+  desaparecen antes de llegar al final», pero es un cambio visual silencioso sobre material viejo. Censo en este
+  equipo: **0 clips afectados**.
+- Los modificadores `pulse` que builds ≤R246 estamparon sobre `size` en secuencias **2D** quedan **inertes a
+  propósito**. Migrarlos a `scale` haría aparecer un movimiento que Beltrán nunca vio, que es peor que dejar
+  quieto algo que hoy no hace nada. Censo local: 0.
+
+Los dos quedan anotados en `ARCHITECTURE.md`.
+
+### Verificado tras ejecutar (sobre el `.exe`, RTX 4060)
+
+| | |
+|---|---|
+| `aud8b-gestos.mjs` (gestos reales de usuario) | **todos OK** — antes fallaba 1 |
+| Maestro de intensidad, arrastre continuo | 204 % apuntando a 200 % (antes 109 %) |
+| Source del inspector | no escribe en el medio · la ventana sí enseña el tramo del clip · ni sucio ni undo |
+| Doble apertura del compose | 1 diálogo, 0 velos huérfanos |
+| `aud8b-compara.mjs` viejo→nuevo | **TODO IDÉNTICO**: fixture a33c70b (estado + píxeles domo + píxeles 2D), RitoDome, Rito360, RitoFlat |
+| sha1 de los tres `app.asar` | iguales |
+
+---
+
 ## ROUND 252b — Flotar gana su mando de intensidad
 
 Beltrán: *«que tenga un parámetro para decidir la intensidad, pero me imagino que ya lo agregaste»*. **No estaba.**

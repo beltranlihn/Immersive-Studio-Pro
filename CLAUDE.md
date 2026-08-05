@@ -21,7 +21,18 @@ Antes de re-escanear `app.js`, consultá el **mapa vivo** (evita quemar tokens):
 - **Syntax check rápido:** `node --check app.js && node --check main.js`.
 - **Verificar en el .exe real (CDP):** lanzar `npx electron . --remote-debugging-port=9222` y evaluar por WebSocket (`Runtime.evaluate`) — patrón en `scratchpad/*.js`. Reléer `<system-reminder>` de rutas; matar todas las instancias antes de relanzar (single-instance re-enfoca la ventana vieja).
 
-## Deploy (tras `npm run dist`, copiar `dist/win-unpacked/resources/` a las 3 instalaciones)
+## Deploy — usar SIEMPRE el script, que además VERIFICA
+```bash
+powershell -NoProfile -ExecutionPolicy Bypass -File "scripts/deploy-verificado.ps1"
+```
+> **[R253] Un despliegue sin comprobar no está hecho: está supuesto.** La copia a Program Files se lanza con
+> `Start-Process -Verb RunAs -Wait`, **cuyo éxito no dice nada sobre si la copia ocurrió**. Así estuvo esa
+> instalación días con un asar viejo mientras el despliegue se daba por bueno (lo cazó la auditoría 2026-08b).
+> El script copia las tres, limpia el anidamiento `app.asar.unpacked\app.asar.unpacked` y **compara el sha1 de los
+> tres `app.asar`**; si alguno no coincide, sale con error. Ojo al tocarlo: PowerShell 5.1 lee los `.ps1` como
+> ANSI, así que **el script tiene que quedarse en ASCII puro** (un guion largo bastó para romper el parser).
+
+Lo que hace por dentro (y por qué), si hay que hacerlo a mano:
 > **[R242] Copiar la carpeta `resources` ENTERA**, no sólo `app.asar`: los addons nativos viven en
 > `app.asar.unpacked/` y copiar sólo el asar los deja desincronizados (la auditoría de agosto encontró el unpacked
 > desplegado con 6 días de retraso respecto al asar, y una copia ANIDADA `app.asar.unpacked/app.asar.unpacked/`

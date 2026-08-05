@@ -4,6 +4,13 @@
 > en `COMPONENTS.md` + una entrada en `PLAN.md` en el mismo commit, como manda el ritual de `/commit`).
 > Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: 2026-08-04.
 
+## ✅ Auditoría 2026-08b y su plan · CERRADOS [R253]
+- [x] **Veredicto: se puede actualizar sin romper nada, y sin migración de datos** (informe en `AUDITORIA-2026-08b.md`).
+- [x] Ejecutadas las 7 acciones del plan: despliegue de Program Files **con verificación de sha1**, el maestro de
+      intensidad ya no se destruye al arrastrar, **mirar no escribe** en el monitor (+ distintivo `[dur]` en el
+      panel), anchos fijos en el transporte, guardia del doble diálogo, y los dos cambios de comportamiento
+      documentados SIN migrar (envoltura fx/fy y `pulse` inerte).
+
 ## ✅ Motion Flotar · CERRADO [R252]
 - [x] **Flotar**: ↔ + ↕ + giro en vaivén, desfasados y a velocidades no múltiplos entre sí. Primer preset de Motion
       que estampa un ACORDE (`parts`), no un solo modificador. Arreglado de paso: los presets se buscaban en el

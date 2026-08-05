@@ -104,7 +104,7 @@ console.log('\n2 · R249 · marcas por UI y arrastre desde el panel');
   }
 }
 
-/* ============ 3 · R249: el boton Source del inspector ESTAMPA marcas en el MEDIO (sin undo) ============ */
+/* ============ 3 · R249/R253: el boton Source MUESTRA el tramo del clip pero NO escribe en el medio ============ */
 console.log('\n3 · R249 · boton Source del inspector: efecto lateral sobre el medio');
 {
   const r = await ev(`(async function(){ const c=state.clips.find(x=>x.name==='c_trim'); if(!c)return {err:'sin c_trim'};
@@ -112,12 +112,16 @@ console.log('\n3 · R249 · boton Source del inspector: efecto lateral sobre el 
     state.selId=c.id; state.selIds=[c.id]; renderInspector(); await new Promise(r=>setTimeout(r,150));
     const b=document.querySelector('#selSrcMon'); if(!b||b.style.display==='none')return {err:'sin boton Source visible'};
     b.click(); await new Promise(r=>setTimeout(r,250));
-    const desp={i:+(m.srcIn||0).toFixed(2),o:+(m.srcOut||0).toFixed(2),dirty:state.dirty,undo:_ustk().u.length,mon:!!_srcMon};
+    const desp={i:(m.srcIn!=null?+m.srcIn.toFixed(2):null),o:(m.srcOut!=null?+m.srcOut.toFixed(2):null),dirty:state.dirty,undo:_ustk().u.length,mon:!!_srcMon,
+      vin:(_srcMon?+_srcMon.in.toFixed(2):null), vout:(_srcMon?+_srcMon.out.toFixed(2):null), rango:(_srcMon?smRangeVisible():null)};
     closeSourceMonitor();
     return {antes,desp,inP:+(c.inP||0).toFixed(2),dur:+c.dur.toFixed(2)}; })()`);
   if (r.err) { informa('boton Source', false, r.err); } else {
     console.log('   antes: srcIn/srcOut=' + r.antes.i + '/' + r.antes.o + ' · despues: ' + r.desp.i + '/' + r.desp.o + ' (clip inP ' + r.inP + ' dur ' + r.dur + ')');
-    informa('CONSTATADO: abrir el Source de un clip recortado escribe las marcas del clip EN EL MEDIO', r.desp.i === r.inP && Math.abs(r.desp.o - (r.inP + r.dur)) < 0.05, 'sin pushUndo (undo ' + r.antes.undo + '→' + r.desp.undo + ') y dirty ' + r.antes.dirty + '→' + r.desp.dirty);
+    console.log('   la ventana MUESTRA: ' + r.desp.vin + ' → ' + r.desp.vout + ' (el tramo del clip)');
+    informa('[R253] abrir el Source NO escribe las marcas en el medio', r.desp.i === r.antes.i && r.desp.o === r.antes.o, 'medio ' + r.antes.i + '/' + r.antes.o + ' → ' + r.desp.i + '/' + r.desp.o);
+    informa('[R253] ...pero la ventana SI ensena el tramo del clip', Math.abs(r.desp.vin - r.inP) < 0.05 && Math.abs(r.desp.vout - (r.inP + r.dur)) < 0.05, 've ' + r.desp.vin + ' → ' + r.desp.vout + ' · clip inP ' + r.inP + ' dur ' + r.dur);
+    informa('[R253] ...y no ensucia el proyecto ni el historial', r.desp.dirty === r.antes.dirty && r.desp.undo === r.antes.undo, 'dirty ' + r.antes.dirty + '→' + r.desp.dirty + ' · undo ' + r.antes.undo + '→' + r.desp.undo);
     await ev(`(function(){ const m=state.media.find(m=>m.name==='vidC.mp4'); m.srcIn=0; m.srcOut=m.dur; return 1; })()`);
   }
 }

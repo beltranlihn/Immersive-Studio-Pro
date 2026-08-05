@@ -92,6 +92,16 @@ Orden en el fragment shader: exposure → contrast → saturation → temp/tint 
 - **i18n.** `T('EN','ES')`; UI en inglés, botones en infinitivo; `applyLang` reetiqueta por idioma (ojo: los `tn()` que ponen
   `textContent` borran iconos → para botones icon-only quitar el `tn`).
 - **`hasKf()` devuelve `undefined`** (no `false`) → usar `!!hasKf(...)` con `classList.toggle`.
+- **Motion: dos cambios de comportamiento que NO se migraron** (auditoría 2026-08b, censo local: 0 clips afectados
+  en los dos casos; migrar habría introducido movimiento que el usuario nunca vio):
+  - Desde **R247c**, un desplazamiento `fx`/`fy` que sale del disco **se hunde bajo el horizonte**; hasta R246
+    quedaba clavado en el borde. Es la corrección que arregló «los clips desaparecen antes de llegar al final»,
+    pero cambia el aspecto de material viejo que use esos parámetros en el borde.
+  - Los modificadores `pulse` que builds **≤R246** estamparon sobre `size` en secuencias **2D** (el camino plano
+    lee `scale`, no `size`) quedan **inertes a propósito**. Desde R252 el chip estampa `scale`.
+- **Las marcas de origen (`m.srcIn`/`m.srcOut`) son del MEDIO, no de la ventana** (R249). Un medio marcado entra
+  recortado **se abra o no el monitor**, así que la ficha del panel lo señala con `[dur]`. Sólo se escriben por un
+  gesto explícito, nunca por abrir el monitor a mirar (R253).
 - **Secuencias = media `kind:'nest'`** (pestañas estilo Premiere). Los compose son nests generados por parámetros (`m.comp`).
 
 ## 8 · Decisiones (arc42 §9)
