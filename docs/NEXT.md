@@ -4,6 +4,16 @@
 > en `COMPONENTS.md` + una entrada en `PLAN.md` en el mismo commit, como manda el ritual de `/commit`).
 > Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: 2026-08-04.
 
+## 🍎 Lista del Mac — 2026-08-05 · CERRADA ✅ [R254b]
+> Ejecutada en un MacBook Apple Silicon (macOS 26.5.2). Detalle y tabla del codificador en `docs/MACOS.md`.
+- [x] ~~**Reabrir desde el Dock** ([R242], escrito a ciegas)~~ — funciona: 0 ventanas tras cerrar, 1 ventana
+      **visible** tras `activate`. Probado por el inspector del proceso principal (`--inspect`), no por AppleScript.
+- [x] ~~**Rutas del proxy de composición** ([R242], escrito a ciegas)~~ — `PSEP` = `/`; la carpeta `nest proxies`
+      sale DENTRO de la del proyecto y sin barra invertida en el nombre.
+- [x] ~~**Techo de H.264**~~ — medido: cuadrado topa en **3072²** (4096² NO), HEVC llega a 4096²; 7680×1080 sí,
+      7680×2160 no. **Al revés de la hipótesis: aquí aguanta MENOS que NVENC.** No hay umbral cableado que tocar.
+- [ ] **Al planificar entregas desde el Mac:** un máster cuadrado de 4096 no sale en H.264 → HEVC o secuencia PNG.
+
 ## 🔭 Abierto — caché del tramo del bucle en el export (medido en R254)
 - [ ] **Un clip en bucle cuesta ×1,7 por fotograma al exportar** (medido alternando A/B: 590 vs 1017 ms/fotograma,
       rangos sin solapar). Al envolver, el tiempo de fuente salta hacia atrás y el decodificador secuencial se

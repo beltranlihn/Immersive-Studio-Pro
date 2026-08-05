@@ -33,20 +33,23 @@ await ev(`window.__probe=function(opts){
   const W=as.w||1, H=as.h||1, stripH=Math.min(H,room.stripH||H);
   const fw=(room.walls||[]).find(w=>w.role==='Front')||(room.walls||[])[0];
   const fx0=fw?fw.x0:0, fx1=fw?fw.x1:W;
-  const S=512, prevSize=compSize; setCompSize(S);
+  /* [R237] El master ya NO es cuadrado: tiene la forma del lienzo, asi que se compone con fill y el mapeo
+     lienzo-textura es una escala lineal, sin letterbox. Antes esto usaba compSize y la matematica de la banda.
+     (Sin acentos graves aqui dentro: esto vive en una plantilla de JS.) */
+  const SH=256, SW=Math.max(64,Math.round(SH*W/H)), prevW=compW, prevH=compH; setCompSize(SW,SH);
   const fb=_drawFlat, ca=_compAspect, rw=_roomWrap;
   _drawFlat=true; _roomWrap=true; _compAspect=W/H;
   prepNests(state.clips,state.playhead,0);
-  gl.bindFramebuffer(gl.FRAMEBUFFER,compFBO); composite(state.playhead,S,false);
-  const buf=new Uint8Array(S*S*4); gl.readPixels(0,0,S,S,gl.RGBA,gl.UNSIGNED_BYTE,buf);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,compFBO); composite(state.playhead,0,false,true);
+  const S_W=compW, S_H=compH;
+  const buf=new Uint8Array(S_W*S_H*4); gl.readPixels(0,0,S_W,S_H,gl.RGBA,gl.UNSIGNED_BYTE,buf);
   gl.bindFramebuffer(gl.FRAMEBUFFER,null);
-  _drawFlat=fb; _compAspect=ca; _roomWrap=rw; setCompSize(prevSize);
-  // px del lienzo -> px del FBO cuadrado (y hacia ARRIBA en el FBO)
-  const A=W/H, sC=Math.min(2/A,2), FxC=sC*A/2, FyC=sC/2, K=2*FxC/W;
-  const vX=px=>Math.round(((K*px-FxC)*0.5+0.5)*S), vY=py=>Math.round(((FyC-K*py)*0.5+0.5)*S);
-  const lit=(x,y)=>{ const i=(y*S+x)*4; return (buf[i+3]>16 && (buf[i]+buf[i+1]+buf[i+2])>24); };
-  function count(px0,px1,py0,py1){ const X0=Math.max(0,vX(px0)),X1=Math.min(S,vX(px1));
-    const Y0=Math.max(0,vY(py1)),Y1=Math.min(S,vY(py0)); let n=0,tot=0; // vY invierte: py1 (abajo) -> Y menor
+  _drawFlat=fb; _compAspect=ca; _roomWrap=rw; setCompSize(prevW,prevH);
+  // px del lienzo -> px del FBO (y hacia ARRIBA en el FBO)
+  const vX=px=>Math.round(px/W*S_W), vY=py=>Math.round((1-py/H)*S_H);
+  const lit=(x,y)=>{ const i=(y*S_W+x)*4; return (buf[i+3]>16 && (buf[i]+buf[i+1]+buf[i+2])>24); };
+  function count(px0,px1,py0,py1){ const X0=Math.max(0,vX(px0)),X1=Math.min(S_W,vX(px1));
+    const Y0=Math.max(0,vY(py1)),Y1=Math.min(S_H,vY(py0)); let n=0,tot=0; // vY invierte: py1 (abajo) -> Y menor
     for(let y=Y0;y<Y1;y++)for(let x=X0;x<X1;x++){ tot++; if(lit(x,y))n++; }
     return {lit:n,tot,pct:tot?+(100*n/tot).toFixed(2):0}; }
   const q=Math.max(1,Math.round((fx1-fx0)*0.35)); // franja de sondeo junto a cada costura

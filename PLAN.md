@@ -1,5 +1,43 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 254b — La lista del Mac, ejecutada (y el techo del codificador, medido)
+
+R235→R254 llegaron de Windows: 34 commits, ~11k líneas, con dos auditorías y cuatro rondas de revisión dentro. No
+se han vuelto a revisar aquí línea a línea — sería repetir trabajo ya hecho. Lo que sí se ha hecho es lo que
+**sólo se puede hacer en un Mac**: la lista de `docs/MACOS.md`, que llevaba tres puntos sin ejecutar.
+
+**Los dos arreglos escritos a ciegas funcionan.** Reabrir desde el Dock ([R242]) devuelve una ventana visible —
+probado por el inspector del proceso principal, que es donde vive el arreglo; AppleScript no servía porque el
+terminal no tiene permiso de accesibilidad en esta máquina. Y `PSEP` resuelve a `/`, así que la carpeta del proxy
+de composición sale dentro del proyecto y sin barra invertida en el nombre.
+
+**El techo del codificador, medido por primera vez.** La hipótesis del encargo era que Apple Silicon podría
+aguantar más que NVENC. Es al revés: H.264 cuadrado topa en **3072²** (falla ya en 4096²), mientras HEVC sí llega
+a 4096². En rectangular, 7680×1080 pasa y 7680×2160 no. No hace falta tocar nada —`pickCodec` sondea y degrada
+solo—, pero conviene saberlo antes de planificar una entrega: **un máster cuadrado de 4096 no sale en H.264 desde
+este Mac**. La tabla completa queda en `docs/MACOS.md`.
+
+### Comprobación de que lo mío sigue en pie
+
+Las sondas de R230/R231c/R234b pasan enteras contra el código nuevo, `__errs` vacío: seam wrap partiendo el clip
+por la mitad sin perder área, piso contenido, ida y vuelta pantalla↔marco con error 0, el botón `Floor` de la
+emergente dando muros solos, el agarre sin absorber la animación y el azimut del domo en rango.
+
+`scratchpad/r230-surfaces.mjs` hubo que actualizarlo: usaba `compSize` y la matemática del cuadrado con letterbox,
+que **R237 retiró**. Ahora compone con `fill` y mapea lienzo→textura por escala lineal.
+
+Un susto que no era tal: en una sala, `compContentLim()` sigue devolviendo una banda de letterbox aunque el máster
+ya tenga la forma del lienzo. Parecía que mi acotado por superficie de R234b hubiera quedado descolgado, pero
+R237 hizo lo correcto — creó `mstrContentLim`/`mstrLimForRect`, las versiones de relleno, y dejó las mías sólo
+para el export, que sigue usando el FBO cuadrado. La regla («se acota a la superficie, nunca al recorte») viajó
+intacta, incluido el caso del piso como isla.
+
+### Nota de operación
+
+El primer `npm run dist:mac` falló al construir el `.dmg` dejando un volumen temporal montado; repetirlo lo
+resolvió. Si vuelve a pasar, es eso: `hdiutil info` enseña el `.temp…dmg` colgado.
+
+
 ## ROUND 254 — Perfilar la exportación: una afirmación falsa retirada, un coste medido y una hipótesis refutada
 
 Beltrán preguntó por qué una exportación iría más rápida con proxys si lo que quiere es máxima calidad. La pregunta
