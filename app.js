@@ -5681,7 +5681,11 @@ function _renderInspectorMain(){
   { const sf=$('#secFx'); if(sf){ const tt=sf.querySelector('.t'); if(tt)tt.textContent=T('Clip','Clip'); } const sc=$('#secColor'); if(sc){ const tt=sc.querySelector('.t'); if(tt)tt.textContent=T('Color','Color'); } const sm=$('#secMotion'); if(sm){ const tt=sm.querySelector('.t'); if(tt)tt.textContent=T('Motion','Movimiento'); } const ss=$('#secSource'); if(ss){ const tt=ss.querySelector('.t'); if(tt)tt.textContent=T('Source','Fuente'); } const sp=$('#secPlayback'); if(sp){ const tt=sp.querySelector('.t'); if(tt)tt.textContent=T('Playback','Reproducción'); } } // [I2/Rev1] section titles (secFx reused as the Clip section; Source/Playback/Color/Motion)
   buildRows('#tfRows', isFlat()?TF_FLAT:TF, c);
   { const fxAll=(!isFlat()&&c.props.fulldome)?FX.filter(f=>['opacity','feather','exposure','contrast','saturation','temperature','tint'].includes(f[0])):FX; // fulldome path (PFD) supports opacity + grade + mask/feather
-    buildRows('#fxRows', fxAll.filter(f=>!FX_COLOR_KEYS.has(f[0])), c);   // [I2] Clip section: opacity/blur/feather/crop + (below) mask/blend/loop/keys
+    /* [R276c] «Feather» del clip RETIRADO del inspector: Beltran no lo usa, y competia visualmente con el
+       suavizado de la mascara de puntos, que si se usa. Se filtra AQUI y no en FX porque de esa tabla comen
+       tambien las lineas de automatizacion y el export: un proyecto que ya lo tuviera puesto se sigue viendo
+       igual, solo desaparece el mando. */
+    buildRows('#fxRows', fxAll.filter(f=>!FX_COLOR_KEYS.has(f[0])&&f[0]!=='feather'), c);   // [I2] Clip section: opacity/blur/crop + (below) mask/blend/loop/keys
     buildRows('#colorRows', fxAll.filter(f=>FX_COLOR_KEYS.has(f[0])), c); } // [I2] Color section: exposure/contrast/saturation/temp/tint/glow/chroma + (below) LUT
   $('#sourceRows').innerHTML=''; $('#playbackRows').innerHTML=''; // [Rev1] these are appendChild targets (buildRows only clears tf/fx/color) — clear each render or rows accumulate
   // 360-room "Mask to wall": the clip is only visible inside the chosen wall(s) — multi-select
@@ -6130,7 +6134,7 @@ function buildPenMaskUI(host,c){ if(!c)return; const masks=c.penMasks||(c.penMas
       <button class="mbtn" id="penAdd" style="height:18px;padding:0 8px;">${ICO('plus',11)} ${T('Add mask','Añadir máscara')}</button></div>
     <div id="penList" style="display:flex;flex-direction:column;gap:1px;"></div>
     <button class="mbtn${editing?' on':''}" id="penEdit" style="height:22px;display:${masks.length?'inline-flex':'none'};justify-content:center;">${editing?T('Done','Terminar'):T('Edit on canvas','Editar en el lienzo')}</button>
-    <div class="prow" id="penFeRow" style="padding:0;display:${masks.length?'flex':'none'};"><span class="lab" title="${T('Feather of the selected point mask','Suavizado de la máscara de puntos seleccionada')}">${T('Mask feather','Suav. máscara')}</span><input type="range" id="penFe" min="0" max="60" value="0"><div class="box"><span class="num" id="penFeV">0</span><span class="u">px</span></div></div>
+    <div class="prow" id="penFeRow" style="padding:0;display:${masks.length?'flex':'none'};"><span class="lab" title="${T('Feather of the selected point mask','Suavizado de la máscara de puntos seleccionada')}">${T('Feather','Suavizar')}</span><input type="range" id="penFe" min="0" max="60" value="0"><div class="box"><span class="num" id="penFeV">0</span><span class="u">px</span></div></div>
     <div class="prow" id="penExpRow" style="padding:0;display:${masks.length?'flex':'none'};"><span class="lab">${T('Expand','Expandir')}</span><input type="range" id="penExp" min="20" max="200" value="${Math.round((c.penExpand||1)*100)}"><div class="box"><span class="num" id="penExpV">${Math.round((c.penExpand||1)*100)}</span><span class="u">%</span></div></div>
     <span style="font-size:11px;color:var(--ink-dim);line-height:1.35;display:${masks.length?'block':'none'}" id="penHint">${editing
       ? T('On the viewer: click the outline to add a point · drag to move · double-click to remove · Esc to finish.','En el visor: clic en el contorno para añadir un punto · arrastra para mover · doble clic para quitar · Esc para terminar.')
