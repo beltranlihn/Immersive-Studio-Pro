@@ -5680,7 +5680,7 @@ function _renderInspectorMain(){
        de la proporción del clip y del ancho de tira. Ofrecer aquí Elevación o Tamaño era ofrecer mandos muertos —y
        en el tejido, invitar justo a estirar el clip, que es lo que Beltrán pidió que no pasara. */
     else if(isTun){ f1=['icN',T('Count','Cantidad'),g.count,2,32,'count']; f2=['icTTo',T('To size','Hasta'),(g.sizeTo!=null?g.sizeTo:200),10,400,'sizeTo']; }
-    else if(isWea){ f1=['icWB',T('Strips','Tiras'),(g.bands||5),1,24,'bands']; f2=['icWW',T('Width','Ancho'),(g.bandW!=null?g.bandW:100),10,200,'bandW']; }
+    else if(isWea){ f1=['icWB',T('Strips','Tiras'),(g.bands||5),1,24,'bands']; f2=['icWW',T('Width','Ancho'),(g.bandW!=null?g.bandW:100),10,100,'bandW']; } // [R263b] tope 100 como el cuadro y como `weaveLayout`: por encima no hacía nada y se reescribía al aplicar
     else if(isGrid){ f1=['icCols',T('Columns','Columnas'),g.cols||3,1,12,'cols']; f2=_plano?null:['icArc',T('Arc','Arco'),g.arc||140,10,360,'arc']; }
     else if(isSpi){ f1=['icN',T('Count','Cantidad'),g.count,2,32,'count']; f2=['icTurns',T('Turns','Vueltas'),g.turns||3,1,8,'turns']; }
     else { f1=['icN',T('Count','Cantidad'),g.count,2,32,'count']; f2=_plano?null:['icEl',T('Elevation','Elevación'),g.el,0,85,'el']; } // en plano no hay elevación
@@ -11465,13 +11465,15 @@ function compLayout(g){ const out=[],n=g.count;
 function compTunnelAnim(g,phase){
   const spd=Math.max(0.001,(g.speed!=null?g.speed:0.12));                    // ciclos por segundo
   const from=Math.max(1,g.sizeFrom||1), to=Math.max(from+1,(g.sizeTo!=null?g.sizeTo:200));
-  const an=[{id:uid(),param:'size',mode:'saw',speed:spd,amp:(to-from),phase,curve:(g.curve!=null?g.curve:60),on:true}];
+  /* `_lay:1` marca «esto lo puso el reparto, no el usuario» — así al recomponer se pueden retirar los viejos sin
+     llevarse por delante los modificadores que haya añadido a mano en el inspector [R263b]. */
+  const an=[{id:uid(),param:'size',mode:'saw',speed:spd,amp:(to-from),phase,curve:(g.curve!=null?g.curve:60),on:true,_lay:1}];
   /* [R262] Entrada y salida por separado. Los túneles viejos no traen `fadeIn`/`fadeOut`: se les da medio ciclo a
      cada una, que con la rampa de coseno alzado reproduce exactamente el fundido único de R246 (ver `fadeEnv`).
      `fade:false` de un proyecto viejo sigue significando «sin fundido». Con las dos cantidades a cero no se añade
      modificador ninguno: nada que evaluar en cada fotograma. */
   const fi=tunnelFadeIn(g), fo=tunnelFadeOut(g);
-  if(fi>0||fo>0) an.push({id:uid(),param:'opacity',mode:'fade',speed:spd,amp:100,phase,fadeIn:fi,fadeOut:fo,on:true});
+  if(fi>0||fo>0) an.push({id:uid(),param:'opacity',mode:'fade',speed:spd,amp:100,phase,fadeIn:fi,fadeOut:fo,on:true,_lay:1});
   return an; }
 /* Un único sitio donde se decide cuánto entra y cuánto sale, para que el reparto de opacidad base (`compElProps`)
    y el modificador no puedan discrepar — que es justo como nacen los fundidos que no se apagan. */
@@ -11487,7 +11489,7 @@ function tunnelFadeOut(g){ return Math.max(0,Math.min(1, g.fadeOut!=null?g.fadeO
 function compWeaveAnim(g,p){ const v=Math.max(0,(p._spd!=null?p._spd:0.12))*100*(p._dir||0);
   if(!v)return [];                                                   // [R247d] quieto (o velocidad 0): sin modificador, y así el preview no gasta reloj
   const step=Math.max(0.01,p._step||1);
-  return [{id:uid(),param:(p._axis||'x'),mode:'saw',speed:v/step,amp:step,phase:0,curve:0,on:true}]; }
+  return [{id:uid(),param:(p._axis||'x'),mode:'saw',speed:v/step,amp:step,phase:0,curve:0,on:true,_lay:1}]; }
 /* [R247] La proporción del material entra en el CÁLCULO del tejido (decide el tamaño y hacia dónde mira el clip),
    así que hay que conocerla antes de repartir. Se toma la del primer medio con dimensiones reales; con fuentes de
    proporciones distintas conviven todas sin estirarse —cada parche deriva su alto de su propio `h/w`—, y esto sólo
@@ -11590,10 +11592,10 @@ function createComposition(opts){ pushUndo();
   const nestLanes=lay.map((p,i)=>({id:uid(),name:'V'+(i+1),tag:'V'+(i+1),kind:'video'}));
   ensureCompOrder(g,lay.length,srcs.length);
   const nestClips=lay.map((p,i)=>{ const src=srcs[(p._src!=null)?(p._src%srcs.length):compMediaIndex(g,i,srcs.length)]; /* [R247] el tejido asigna la fuente POR TIRA, no clip a clip */ const layP=compElProps(g,p); const c=makeClip(src,i,0,layP,{name:src.name+' ['+(i+1)+']',color:CLIP_COLORS[i%CLIP_COLORS.length]}); c.dur=dur; c.slot=i; c._layBase={...layP}; if(scope){ c.inP=scope.inP||0; if(scope.speed&&scope.speed!==1)c.speed=scope.speed; } return c; }); // [N4] _layBase = the layout baseline so later recomposes preserve the user's manual delta
-  if(!flat && g.kind==='line'&&g.scroll) for(const cc of nestClips) cc.anim=[{id:uid(),param:'el',mode:'linear',speed:(g.scrollSpeed!=null?g.scrollSpeed:20),amp:0,phase:0,on:true}]; // dome infinite strip: scroll along the diameter (wrap makes it reappear)
+  if(!flat && g.kind==='line'&&g.scroll) for(const cc of nestClips) cc.anim=[{id:uid(),param:'el',mode:'linear',speed:(g.scrollSpeed!=null?g.scrollSpeed:20),amp:0,phase:0,on:true,_lay:1}]; // dome infinite strip: scroll along the diameter (wrap makes it reappear)
   if(!flat && g.kind==='tunnel') nestClips.forEach((cc,i)=>{ cc.anim=compTunnelAnim(g,(lay[i]&&lay[i]._phase)||0); }); // [R246] cada anillo con su desfase en el ciclo
   if(g.kind==='weave') nestClips.forEach((cc,i)=>{ if(lay[i])cc.anim=compWeaveAnim(g,lay[i]); }); // [R247c] cada clip por su eje, con el sentido de su tira
-  if(flat && g.infinite) for(const cc of nestClips) cc.anim=[{id:uid(),param:'x',mode:'linear',speed:(g.scrollSpeed!=null?g.scrollSpeed:12),amp:0,phase:0,on:true}]; // 360 infinite extension: scroll horizontally (room wrap makes it seamless)
+  if(flat && g.infinite) for(const cc of nestClips) cc.anim=[{id:uid(),param:'x',mode:'linear',speed:(g.scrollSpeed!=null?g.scrollSpeed:12),amp:0,phase:0,on:true,_lay:1}]; // 360 infinite extension: scroll horizontally (room wrap makes it seamless)
   const ncount=state.media.filter(m=>m.kind==='nest').length;
   const nest=newSeqMedia(cap(kindES(g.kind))+(ncount?' '+(ncount+1):''), state.fps, nestW, nestH, nestClips, nestLanes, compMode); nest.dur=dur; nest.comp=g;
   state.media.push(nest);
@@ -11610,7 +11612,12 @@ function createComposition(opts){ pushUndo();
   renderMedia(); renderSeqBar(); renderTimeline(); renderInspector(); render(); markDirty();
   flashStatus(cap(kindES(g.kind))+' → '+((state.lanes[vlane]&&state.lanes[vlane].tag)||'V')+' · '+lay.length+' '+T('items','elementos')); return nest; } // [R251] decir EN QUÉ PISTA cayó: ahora puede ser una existente, y conviene verlo · [R247c] el conteo real del reparto: el tejido y el relleno de domo no lo sacan de g.count
 /* rebuild a compose-nest's inner clips/lanes from its stored comp params (live edit from the inspector / Recompose dialog) */
-function regenComposeNest(m){ if(!m||!m.comp)return false; const g=m.comp; const ids=(g.mediaIds&&g.mediaIds.length)?g.mediaIds:(g.mediaId!=null?[g.mediaId]:[]); const srcs=ids.map(mediaById).filter(Boolean); if(!srcs.length)return false; g.mediaIds=srcs.map(s=>s.id); g.mediaId=srcs[0].id; if(g.kind==='weave'){ g._aspect=compAspectOf(srcs); g._aspects=compAspectsOf(srcs); if(!flatLikeMode(m.mode))m.mode='flat'; /* [R247c] los tejidos de la versión esférica vivían en un nido de domo; al recomponerlos pasan al plano 1:1 */ } ensureRand(g); const flat=flatLikeMode(m.mode); const lay=flat?compLayoutFlat(g):compLayout(g);
+function regenComposeNest(m){ if(!m||!m.comp)return false; const g=m.comp; const ids=(g.mediaIds&&g.mediaIds.length)?g.mediaIds:(g.mediaId!=null?[g.mediaId]:[]); const srcs=ids.map(mediaById).filter(Boolean); if(!srcs.length)return false; g.mediaIds=srcs.map(s=>s.id); g.mediaId=srcs[0].id; if(g.kind==='weave'){ g._aspect=compAspectOf(srcs); g._aspects=compAspectsOf(srcs); if(!flatLikeMode(m.mode))m.mode='flat'; /* [R247c] los tejidos de la versión esférica vivían en un nido de domo; al recomponerlos pasan al plano 1:1 */ }
+  /* [R263b] …y a la inversa. El tejido vive en un nido PLANO, así que cambiarlo a un tipo de domo dejaba el nido
+     en plano y el reparto salía por `compLayoutFlat`: un esparcido rectangular en vez de un túnel. El modo del
+     nido lo dicta el TIPO, no lo que hubiera antes. Sólo se fuerza para los tipos que únicamente existen en domo;
+     `grid`/`row`/`col`/`random` valen en los dos y se quedan donde estén. */
+  else if(['ring','domegrid','spiral','phyllo','wave','fib','line','tunnel'].includes(g.kind) && flatLikeMode(m.mode)) m.mode='dome'; ensureRand(g); const flat=flatLikeMode(m.mode); const lay=flat?compLayoutFlat(g):compLayout(g);
   const dur=Math.max(0.1, m.dur||compSrcDur(srcs)); // [R225·7] misma regla al recomponer (sólo si el nest no tiene ya su duración)
   const prev=Array.isArray(m.nestClips)?m.nestClips:[]; // [N4] reuse the existing inner clips so per-element tweaks survive a recompose
   for(const c of prev)if(c.slot>=lay.length&&c.maskTex){try{gl.deleteTexture(c.maskTex);}catch(e){}} // free dropped slots' masks
@@ -11623,10 +11630,17 @@ function regenComposeNest(m){ if(!m||!m.comp)return false; const g=m.comp; const
       for(const k of ['warp','secAz','secEl','weaveCells','weavePar']){ if(layP[k]!=null)ex.props[k]=layP[k]; else delete ex.props[k]; } // [N5] warp/sector props are layout-controlled (not user tweaks) → follow the layout (e.g. Flat tiles removes them) · [R247c] la rejilla del entrelazado tampoco es un retoque: es geometría, y además no es un número (el bucle de arriba sólo copia números)
       ex._layBase={...layP}; ex.lane=i; ex.slot=i; ex.dur=dur; if(g.scopeInP!=null)ex.inP=g.scopeInP; if(g.scopeSpeed)ex.speed=g.scopeSpeed; return ex; }
     const c=makeClip(src,i,0,layP,{name:src.name+' ['+(i+1)+']',color:CLIP_COLORS[i%CLIP_COLORS.length]}); c.dur=dur; c.slot=i; c._layBase={...layP}; if(g.scopeInP!=null)c.inP=g.scopeInP; if(g.scopeSpeed)c.speed=g.scopeSpeed; return c; }); // R88: re-apply the persisted cut in-point (don't revert to the source's frame 0)
-  if(!flat && g.kind==='line'&&g.scroll) for(const cc of m.nestClips) cc.anim=[{id:uid(),param:'el',mode:'linear',speed:(g.scrollSpeed!=null?g.scrollSpeed:20),amp:0,phase:0,on:true}]; // dome infinite strip scroll
-  if(!flat && g.kind==='tunnel') m.nestClips.forEach((cc,i)=>{ cc.anim=compTunnelAnim(g,(lay[i]&&lay[i]._phase)||0); }); // [R246] al recomponer, el desfase se rehace: es geometría del túnel, no un retoque del usuario
-  if(g.kind==='weave') m.nestClips.forEach((cc,i)=>{ if(lay[i])cc.anim=compWeaveAnim(g,lay[i]); }); // [R247c] ídem: el eje y el sentido son de la tira
-  if(flat && g.infinite) for(const cc of m.nestClips) cc.anim=[{id:uid(),param:'x',mode:'linear',speed:(g.scrollSpeed!=null?g.scrollSpeed:12),amp:0,phase:0,on:true}]; // 360 infinite extension scroll
+  /* [R263b] El movimiento que pone el REPARTO se retira antes de volver a ponerlo. Sin esto, cambiar el tipo de
+     una composición dejaba el diente de sierra del tamaño y el fundido del túnel pegados a cada clip reutilizado,
+     así que un anillo heredaba el movimiento de un túnel. Se filtra por `_lay`, no se vacía `anim`: los
+     modificadores que el usuario haya añadido a mano en el inspector sobreviven —antes los borraba de golpe
+     cualquier recomposición de línea/túnel/tejido, que además era una pérdida silenciosa. */
+  for(const cc of m.nestClips) if(Array.isArray(cc.anim)&&cc.anim.length) cc.anim=cc.anim.filter(a=>!a._lay);
+  const _pon=(cc,arr)=>{ cc.anim=(cc.anim||[]).concat(arr); };
+  if(!flat && g.kind==='line'&&g.scroll) for(const cc of m.nestClips) _pon(cc,[{id:uid(),param:'el',mode:'linear',speed:(g.scrollSpeed!=null?g.scrollSpeed:20),amp:0,phase:0,on:true,_lay:1}]); // dome infinite strip scroll
+  if(!flat && g.kind==='tunnel') m.nestClips.forEach((cc,i)=>{ _pon(cc,compTunnelAnim(g,(lay[i]&&lay[i]._phase)||0)); }); // [R246] al recomponer, el desfase se rehace: es geometría del túnel, no un retoque del usuario
+  if(g.kind==='weave') m.nestClips.forEach((cc,i)=>{ if(lay[i])_pon(cc,compWeaveAnim(g,lay[i])); }); // [R247c] ídem: el eje y el sentido son de la tira
+  if(flat && g.infinite) for(const cc of m.nestClips) _pon(cc,[{id:uid(),param:'x',mode:'linear',speed:(g.scrollSpeed!=null?g.scrollSpeed:12),amp:0,phase:0,on:true,_lay:1}]); // 360 infinite extension scroll
   m.dur=dur; if(m.id===state.activeSeqId)loadSeqIntoState(m); raInvalidate(); return true; }
 /* dome schematic: plot the composition's elements on a fisheye disc (front=bottom, right=right) so you can see what the layout will do */
 function drawComposePreview(g,canvas){ if(!canvas)return; const x=canvas.getContext('2d'); const W=canvas.width,H=canvas.height,cx=W/2,cy=H/2,R=Math.min(W,H)/2-7; x.clearRect(0,0,W,H);
@@ -11660,11 +11674,15 @@ function drawComposePreview(g,canvas){ if(!canvas)return; const x=canvas.getCont
      toca en SU instante del ciclo (la misma curva de perspectiva que usa el motor), y la opacidad del fundido.
      Así la vista previa enseña el reparto en profundidad, que es lo que se está ajustando. */
   if(g.kind==='tunnel'){ const from=Math.max(1,g.sizeFrom||1), to=Math.max(from+1,(g.sizeTo!=null?g.sizeTo:200));
-    const fade=(g.fade!==false), curve=(g.curve!=null?g.curve:60);
+    /* [R263b] La vista previa se había quedado leyendo `g.fade`, que R262 sustituyó por entrada y salida
+       independientes: dibujaba siempre el fundido viejo, así que apagarlo no cambiaba nada EN PANTALLA — el mismo
+       síntoma que R262 arregló en los datos. Ahora usa la misma envolvente que el motor (`fadeEnv`), con lo que la
+       vista previa no puede volver a discrepar del resultado. */
+    const fin=tunnelFadeIn(g), fout=tunnelFadeOut(g), fade=(fin>0||fout>0), curve=(g.curve!=null?g.curve:60);
     const ord=lay.map((p,i)=>({p,i})).sort((a,b)=>(a.p._phase||0)-(b.p._phase||0)); // de lejos a cerca, como en el render
     ord.forEach(({p,i})=>{ const f=p._phase||0; const sz=from+(to-from)*sawShape(f,curve);
       const r=R*(sz/55)*0.5; if(r<1.5)return;                       // size/55 = 1:1 en el shader; 55 llena el disco
-      x.globalAlpha=fade?Math.max(0.06,Math.sin(Math.PI*f)):0.92;   // seno del fundido: 0 al nacer, 1 a mitad, 0 al salir
+      x.globalAlpha=fade?Math.max(0.06,fadeEnv(f,fin,fout)):0.92;   // [R263b] la MISMA envolvente que el render
       x.strokeStyle=CLIP_COLORS[i%CLIP_COLORS.length]; x.lineWidth=Math.max(1.5,R*0.055);
       x.beginPath(); x.arc(cx,cy,Math.min(r,R*1.25),0,7); x.stroke();
       if(r<R*0.98&&r>R*0.16){ x.globalAlpha=1; x.fillStyle=CLIP_COLORS[i%CLIP_COLORS.length]; x.font='700 10px Inter'; x.textAlign='center'; x.textBaseline='middle'; x.fillText(String(i+1),cx,cy-r); } });

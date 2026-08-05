@@ -1,5 +1,49 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 263b — Los cuatro hallazgos del code review sobre R262/R263
+
+Los cuatro eran reales y tres estaban encadenados: al abrir el inspector a los tipos túnel y tejido (R263), quedaron
+al alcance transiciones que hasta entonces nadie podía hacer, y ahí salió lo que no estaba preparado para ellas.
+
+### 1 · La vista previa del túnel seguía leyendo `g.fade`
+
+R262 sustituyó la casilla única por entrada y salida independientes, pero el esquema del cuadro seguía consultando
+el campo viejo: dibujaba **siempre** el fundido de antes, así que apagarlo no cambiaba nada en pantalla. Es
+exactamente el síntoma que R262 acababa de arreglar en los datos, sobreviviendo en el dibujo. Ahora la vista previa
+llama a `fadeEnv`, **la misma envolvente que el render**, con lo que no puede volver a discrepar.
+
+### 2 · Cambiar un tejido a túnel dejaba el nido en plano
+
+Un tejido se monta en un nido plano (R247c). `regenComposeNest` forzaba `flat` para el tejido pero no hacía el
+camino de vuelta, así que al cambiar el tipo el reparto salía por `compLayoutFlat`: un esparcido rectangular en
+lugar de un túnel. **El modo del nido lo dicta el tipo**, y se fuerza sólo para los que únicamente existen en domo
+—`grid`/`row`/`col`/`random` valen en los dos y se quedan donde estén.
+
+### 3 · El movimiento del tipo anterior se quedaba pegado
+
+`regenComposeNest` reutiliza los clips interiores para conservar los retoques del usuario, pero nunca limpiaba
+`cc.anim`: un anillo heredaba el diente de sierra y el fundido del túnel que había sido antes.
+
+Al arreglarlo apareció un segundo problema que nadie había reportado, del signo contrario: los tres bloques que
+ponían movimiento **asignaban** `cc.anim=[…]`, o sea que cada recomposición de una línea, un túnel o un tejido
+**borraba en silencio los modificadores que el usuario hubiera añadido a mano**. Ahora el movimiento del reparto se
+marca con `_lay`, se retira **filtrando** y se **añade** en vez de sustituir. Verificado: un `rot/linear` puesto a
+mano sobrevive a un cambio de tipo completo.
+
+### 4 · El campo «Ancho» del inspector llegaba a 200
+
+Mío, de R263: `weaveLayout` topa en 100 y el cuadro también, así que por encima no hacía nada y se reescribía al
+siguiente Aplicar. Corregido a 10-100.
+
+### Verificado (`scratchpad/r263b-hallazgos.mjs`)
+
+La vista previa da tres valores distintos de opacidad dibujada para «con fundido», «sin fundido» y «sólo entrada».
+Un tejido cambiado a túnel pasa de nido `flat` a `dome`, pierde el `x/saw` del tejido, gana `size/saw` +
+`opacity/fade`, y conserva el `rot/linear` del usuario. El campo Ancho llega a 100.
+Y las pruebas de R262 (cinco puntos) y R263 (inspector) siguen pasando.
+
+---
+
 ## ROUND 263 — Barrido de las demás composiciones tras R262: el cuadro está limpio, el inspector no lo estaba
 
 Beltrán, en cuanto se arregló el túnel: «revisa altiro los otros compose para evitar que tengan el mismo error».
