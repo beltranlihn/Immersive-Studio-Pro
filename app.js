@@ -11589,6 +11589,14 @@ function regenComp(g){ const m=mediaById(g.mediaId); if(!m)return; ensureRand(g)
 /* media assignment for composed elements: sequential (i % n) by default, or a STABLE shuffle when g.shuffle
    is on (so a multi-media dome-fill/grid isn't always ordered). The shuffle map (g.order) is kept so re-renders
    stay put; set g._orderR to force a fresh reshuffle. Distributes each media ~evenly, then randomizes positions. */
+/* [R265b] El TAMAÑO del mapa tiene que ser el del dominio por el que se INDEXA, no el número de elementos.
+   El tejido reparte una fuente POR TIRA (`p._src`) pero el mapa se construía sobre `lay.length` — con 8 tiras de
+   10 clips salían 80 entradas balanceadas de las que sólo se leían las 8 primeras: una MUESTRA al azar, no un
+   reparto. Medido con 8 tiras y 4 fuentes: {0:2, 1:2, 2:3, 3:1}, y en otra tirada una fuente no salía en ninguna
+   tira — «Aleatorio» se comía un clip del usuario en silencio. */
+function compOrderCount(lay){ let mx=-1, hay=false;
+  for(const p of (lay||[])){ if(p&&p._src!=null){ hay=true; if(p._src>mx)mx=p._src; } }
+  return hay?(mx+1):(lay?lay.length:0); }
 function ensureCompOrder(g,count,mcount){ if(!g.shuffle||mcount<=1){ if(!g.shuffle)g.order=null; return; }
   if(!Array.isArray(g.order)||g.order.length!==count||g._orderM!==mcount||g._orderR){ const a=[]; for(let i=0;i<count;i++)a.push(i%mcount); for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); const t=a[i]; a[i]=a[j]; a[j]=t; } g.order=a; g._orderM=mcount; g._orderR=false; } }
 function compMediaIndex(g,i,mcount){ if(g.shuffle&&Array.isArray(g.order)&&g.order[i]!=null) return ((g.order[i]%mcount)+mcount)%mcount; return i%mcount; }
@@ -11621,7 +11629,7 @@ function createComposition(opts){ pushUndo();
   ensureRand(g); const lay=flat?compLayoutFlat(g):compLayout(g); const dur=scope?Math.max(0.1,scope.dur):compSrcDur(srcs);
   // build the nest: one composed element per nest-lane (no same-lane overlap → no spurious crossfade), geometry from compLayout; media cycle across elements
   const nestLanes=lay.map((p,i)=>({id:uid(),name:'V'+(i+1),tag:'V'+(i+1),kind:'video'}));
-  ensureCompOrder(g,lay.length,srcs.length);
+  ensureCompOrder(g,compOrderCount(lay),srcs.length); // [R265b] por TIRA en el tejido, por elemento en el resto
   const nestClips=lay.map((p,i)=>{ const src=srcs[compMediaIndex(g,(p._src!=null?p._src:i),srcs.length)]; /* [R247] el tejido asigna la fuente POR TIRA, no clip a clip */ const layP=compElProps(g,p); const c=makeClip(src,i,0,layP,{name:src.name+' ['+(i+1)+']',color:CLIP_COLORS[i%CLIP_COLORS.length]}); c.dur=dur; c.slot=i; c._layBase={...layP}; if(scope){ c.inP=scope.inP||0; if(scope.speed&&scope.speed!==1)c.speed=scope.speed; } return c; }); // [N4] _layBase = the layout baseline so later recomposes preserve the user's manual delta
   if(!flat && g.kind==='line'&&g.scroll) for(const cc of nestClips) cc.anim=[{id:uid(),param:'el',mode:'linear',speed:(g.scrollSpeed!=null?g.scrollSpeed:20),amp:0,phase:0,on:true,_lay:1}]; // dome infinite strip: scroll along the diameter (wrap makes it reappear)
   if(!flat && g.kind==='tunnel') nestClips.forEach((cc,i)=>{ cc.anim=compTunnelAnim(g,(lay[i]&&lay[i]._phase)||0); }); // [R246] cada anillo con su desfase en el ciclo
@@ -11653,7 +11661,7 @@ function regenComposeNest(m){ if(!m||!m.comp)return false; const g=m.comp; const
   const prev=Array.isArray(m.nestClips)?m.nestClips:[]; // [N4] reuse the existing inner clips so per-element tweaks survive a recompose
   for(const c of prev)if(c.slot>=lay.length&&c.maskTex){try{gl.deleteTexture(c.maskTex);}catch(e){}} // free dropped slots' masks
   m.nestLanes=lay.map((p,i)=>({id:uid(),name:'V'+(i+1),tag:'V'+(i+1),kind:'video'}));
-  ensureCompOrder(g,lay.length,srcs.length);
+  ensureCompOrder(g,compOrderCount(lay),srcs.length); // [R265b] por TIRA en el tejido, por elemento en el resto
   m.nestClips=lay.map((p,i)=>{ const src=srcs[compMediaIndex(g,(p._src!=null?p._src:i),srcs.length)]; const layP=compElProps(g,p); const ex=prev[i]; // [R247] ídem al recomponer
     if(ex && ex.mediaId===src.id){ // [N4] keep this element's manual tweaks (opacity/mask/fades/keyframes/fx) AND apply the new layout RELATIVE to the user's delta, so a hand-scaled item doesn't snap back to 0
       const base=ex._layBase||{};

@@ -4,6 +4,14 @@
 > en `COMPONENTS.md` + una entrada en `PLAN.md` en el mismo commit, como manda el ritual de `/commit`).
 > Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: 2026-08-04.
 
+## 🧵 Revisión desde el Mac de R255→R265 — 2026-08-05 · [R265b]
+- [x] ~~**«Aleatorio» del tejido se comía un clip.**~~ El mapa de barajado se dimensionaba por el número de
+      ELEMENTOS (80 = 8 tiras × 10 clips) y se leía por índice de TIRA: sólo se usaban las 8 primeras entradas,
+      que son una muestra al azar y no un reparto. Medido `{0:2, 1:2, 2:3, 3:1}`, y una fuente ausente en otra
+      tirada. `compOrderCount(lay)` dimensiona ahora por el dominio que se indexa. Verificado con 200 tiradas:
+      desvío 0, ninguna fuente ausente; el resto de composes, intactos.
+      _Ojo: un tejido guardado con «Aleatorio» se rebaraja UNA vez al reabrirlo (el mapa viejo tenía otro tamaño)._
+
 ## 🔭 Abierto — un bucle PEGADO AL FINAL del archivo se sale del camino rápido (visto en R261)
 - [ ] Medido con un bucle de 0,4 s cuyo tramo son los últimos 0,4 s de la fuente: el decodificador **se rinde**
       y la exportación entera de ese medio cae al repliegue — **84 fotogramas en 100-138 s** (1,2-1,6 s cada uno)
