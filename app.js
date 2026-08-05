@@ -3422,8 +3422,10 @@ function renderTimeline(){ reconcileVinst(); // free private decoders of clips t
       // [archivado 20260730 · R224] chapa ↻ de "movimiento activo" sobre el clip → _backup/deprecated/20260730-clip-motion-badge.js (la info vive en el inspector y en el chooser de la cabecera)
       const mutedBadge=(lane.mute&&!c.disabled)?`<div class="mutebadge" title="${T('Track muted','Pista silenciada')}">${ICO('mute',11)}</div>`:''; // [T5] chapa de mute (signo de forma, no de color → daltonismo)
       let loopMarks=''; const lcyc=loopCycleSec(c); // R81: subtle boundary ticks + a ↻ badge at each loop repeat
-      if(lcyc>0.02){ for(let k=1;k*lcyc<c.dur-1e-3;k++){ const lx=k*lcyc*pps; loopMarks+=`<div style="position:absolute;left:${lx}px;top:0;bottom:0;width:1px;background:repeating-linear-gradient(180deg,rgba(255,255,255,0.55) 0 3px,transparent 3px 6px);pointer-events:none;z-index:2;"></div><div style="position:absolute;left:${lx+2}px;bottom:2px;font-size:11px;line-height:1;color:rgba(255,255,255,0.55);pointer-events:none;z-index:2;">↻</div>`; } }
-      const _ct=clipTint(c,m); cd.innerHTML=`<div class="fill" style="background-image:${fillBg};background-color:${_ct}"></div><div class="scrim"></div>${cth}${fades}${loopMarks}<div class="tt" style="background:${_ct};color:${textOn(_ct)}">${c.loop?'↻ ':''}${c.name}${pxTag}</div>${px2}${mutedBadge}<div class="hd l"></div><div class="hd r"></div><div class="fadeh fadeL" style="left:${fiPx}px"></div><div class="fadeh fadeR" style="right:${foPx}px"></div>${kf}`; // R84c: clips use their OWN colour (lane colour tints only the header)
+      /* [R271] Sólo la línea punteada. Cada vuelta llevaba además una chapa ↻ pegada a la línea, y con un clip
+         extendido son decenas de iconos repitiendo lo que la línea ya dice. Basta con la línea (Beltrán). */
+      if(lcyc>0.02){ for(let k=1;k*lcyc<c.dur-1e-3;k++){ const lx=k*lcyc*pps; loopMarks+=`<div style="position:absolute;left:${lx}px;top:0;bottom:0;width:1px;background:repeating-linear-gradient(180deg,rgba(255,255,255,0.55) 0 3px,transparent 3px 6px);pointer-events:none;z-index:2;"></div>`; } }
+      const _ct=clipTint(c,m); cd.innerHTML=`<div class="fill" style="background-image:${fillBg};background-color:${_ct}"></div><div class="scrim"></div>${cth}${fades}${loopMarks}<div class="tt" style="background:${_ct};color:${textOn(_ct)}">${c.name}${pxTag}</div>${px2}${mutedBadge}<div class="hd l"></div><div class="hd r"></div><div class="fadeh fadeL" style="left:${fiPx}px"></div><div class="fadeh fadeR" style="right:${foPx}px"></div>${kf}`; // R84c: clips use their OWN colour (lane colour tints only the header)
       cd.tabIndex=0; cd.setAttribute('aria-label',c.name||T('Clip','Clip')); // [R94-UT5·U-10b] Tab reaches every clip; Enter/Space selects (keydown delegated on #tracks)
       row.appendChild(cd);
       // drag-and-drop a Motion chip onto a clip to animate it
@@ -12242,6 +12244,7 @@ function openSourceMonitor(m,pre){ if(!m)return;
     pic:el.querySelector('.smpic'), bar:el.querySelector('.smbar'), sel:el.querySelector('.smsel'),
     ph:el.querySelector('.smph'), hIn:el.querySelector('.smhi'), hOut:el.querySelector('.smho'),
     tnum:el.querySelector('[data-n="t"]'), rnum:el.querySelector('[data-n="r"]'), conT };
+  el.addEventListener('pointerdown',()=>{ try{ el.focus({preventScroll:true}); }catch(e){} },true); // [R271] el teclado necesita el foco: se lo da cualquier clic en la ventana
   el.querySelector('.smname').textContent=m.name;
   if(!conT){ el.querySelector('.smbar').style.display='none'; el.querySelector('.smtrans').style.display='none'; } // una foto no tiene nada que recorrer: sólo se mira y se arrastra
   /* posición: donde se dejó la última vez, y si no, arrimada al borde derecho sobre la línea de tiempo */
@@ -12286,8 +12289,16 @@ function openSourceMonitor(m,pre){ if(!m)return;
     const x0=ev.clientX, y0=ev.clientY; let arrancado=false;
     const mv=e2=>{ if(arrancado)return; if(Math.abs(e2.clientX-x0)+Math.abs(e2.clientY-y0)<5)return; arrancado=true;
       window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up);
-      /* [R253] se arrastra lo que se VE marcado, que no siempre es lo guardado en el medio */
-      startMediaDrag({clientX:e2.clientX, clientY:e2.clientY, currentTarget:mon.pic}, mon.m, smRangeVisible()); };
+      /* [R253] se arrastra lo que se VE marcado, que no siempre es lo guardado en el medio
+         [R271] …y el fantasma es una CHAPA, no la ventana. `startMediaDrag` clona lo que se le pase como origen:
+         desde el panel de medios eso es una fila pequeña, pero desde aquí era el área de imagen entera, o sea un
+         rectángulo enorme y translúcido con el vídeo dentro que tapaba justo el sitio donde se quiere soltar. */
+      const chapa=document.createElement('div');
+      chapa.style.cssText='display:flex;align-items:center;gap:6px;max-width:190px;';
+      const pun=document.createElement('span'); pun.style.cssText='width:13px;height:13px;border-radius:2px;flex:none;background:'+(mon.m.color||'#8A9199')+';';
+      const nom=document.createElement('span'); nom.style.cssText='font-size:11px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+      nom.textContent=mon.m.name; chapa.appendChild(pun); chapa.appendChild(nom);
+      startMediaDrag({clientX:e2.clientX, clientY:e2.clientY, currentTarget:chapa}, mon.m, smRangeVisible()); };
     const up=()=>{ window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up); if(!arrancado&&mon.conT)smAccion('play'); };
     window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); });
   /* --- teclas, sólo mientras la ventana tiene el foco (ver la guarda del atajo global) --- */
@@ -12297,7 +12308,17 @@ function openSourceMonitor(m,pre){ if(!m)return;
     if(!mon.conT)return;
     if(k==='i'){ e.preventDefault(); e.stopPropagation(); smAccion('mi'); }
     else if(k==='o'){ e.preventDefault(); e.stopPropagation(); smAccion('mo'); }
-    else if(e.code==='Space'){ e.preventDefault(); e.stopPropagation(); smAccion('play'); } };
+    else if(e.code==='Space'){ e.preventDefault(); e.stopPropagation(); smAccion('play'); }
+    /* [R271] FOTOGRAMA A FOTOGRAMA. Marcar la entrada y la salida exactas era imposible con el ratón: en un clip
+       largo, un píxel de la barra son varios fotogramas. Va con la MISMA guarda de foco que el resto de teclas de
+       esta ventana, así que no le quita las flechas a la línea de tiempo. Shift salta de segundo en segundo, e
+       Inicio/Fin llevan a las marcas ya puestas. */
+    else if(e.key==='ArrowRight'||e.key==='ArrowLeft'){ e.preventDefault(); e.stopPropagation();
+      if(mon.playing)smPause();
+      const fps=Math.max(1,mon.m.fps||state.fps||30), paso=e.shiftKey?1:(1/fps);
+      smSeek(mon.t+(e.key==='ArrowRight'?paso:-paso)); smPinta(); }
+    else if(e.key==='Home'){ e.preventDefault(); e.stopPropagation(); smSeek(mon.in); smPinta(); }
+    else if(e.key==='End'){ e.preventDefault(); e.stopPropagation(); smSeek(mon.out); smPinta(); } };
   window.addEventListener('keydown',mon.onKey,true);
   el.focus();
   return mon; }
