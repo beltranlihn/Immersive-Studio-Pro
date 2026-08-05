@@ -9680,7 +9680,12 @@ function renderSeqBar(){ const bar=$('#seqTabs'); if(!bar)return; const _sl=bar.
     t.onclick=e=>{ if(e.target.isContentEditable||_seqDragged)return; switchSeq(id); }; t.ondblclick=()=>renameSequence(id);
     t.oncontextmenu=e=>{ e.preventDefault(); openMenu(e.clientX,e.clientY,[{label:T('Rename','Renombrar'),fn:()=>renameSequence(id)},{label:T('Settings…','Ajustes…'),ico:'gear',fn:()=>{ if(id!==state.activeSeqId)switchSeq(id); openSeqSettings(); }},{label:T('Close tab','Cerrar pestaña'),fn:()=>closeSeqTab(id)},'sep',{label:T('Delete sequence','Eliminar secuencia'),danger:true,fn:()=>deleteSequenceMedia(id)}]); };
     bar.appendChild(t); }
-  const add=document.createElement('button'); add.className='seqtab seqadd'; add.textContent='＋'; add.title=T('New sequence','Nueva secuencia'); add.onclick=newSequenceDialog; bar.appendChild(add);
+  /* [R277c] El «+» va FUERA de la tira, como hermano suyo en el transporte. Dentro obligaba a reservarle
+     ancho, y ese sobrante era justo lo que dejaba asomar la cabeza de la cuarta pestana; quitarselo lo
+     habria escondido al desplazar. Se retira el anterior porque renderSeqBar solo vacia `bar`. */
+  { const host=bar.parentElement; const viejo=host&&host.querySelector(':scope > .seqadd'); if(viejo)viejo.remove();
+    const add=document.createElement('button'); add.className='seqtab seqadd'; add.textContent='＋'; add.title=T('New sequence','Nueva secuencia'); add.onclick=newSequenceDialog;
+    if(host)host.insertBefore(add, bar.nextSibling); else bar.appendChild(add); }
   /* [R239] La rueda del ratón sobre las pestañas desplaza en HORIZONTAL. Con muchas secuencias abiertas el well se
      desbordaba y la única salida era una barra de scroll que se comía media altura; ahora la vista se corta y se
      recorre con la rueda. Se engancha UNA vez (`_seqWheel`), no en cada repintado, y sólo se traga el evento

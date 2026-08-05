@@ -32,13 +32,18 @@ const r=await ev(`(function(){
   /* la barra de transporte: la pestana no debe llegar a los botones de reproduccion */
   const play=document.querySelector('#playBtn')||document.querySelector('[id*=play]');
   const hueco=play?Math.round(play.getBoundingClientRect().left-(l0+w)):null;
-  return {anchos, w:Math.round(w), scrollW:Math.round(bar.scrollWidth), caben, hueco,
+  /* [R277c] «que no se alcance a ver la cabecita del otro»: ninguna pestana puede quedar A MEDIAS dentro del
+     hueco visible. Se cuentan las que asoman sin caber enteras. */
+  const asoman=tabs.filter(t=>{ const b=t.getBoundingClientRect(); return b.left<l0+w-0.5 && b.right>l0+w+0.5; }).length;
+  const mas=document.querySelector('.transport > .seqadd');
+  return {anchos, w:Math.round(w), scrollW:Math.round(bar.scrollWidth), caben, hueco, asoman,
+          masFuera:!!mas, masVisible:mas?Math.round(mas.getBoundingClientRect().width)>0:false,
           rotulos:tabs.map(t=>t.querySelector('.seqlab').textContent.length),
           tooltip:(tabs[1]&&tabs[1].title||'').slice(0,42), x:Math.round(l0), y:Math.round(bar.getBoundingClientRect().top), h:Math.round(bar.getBoundingClientRect().height)}; })()`);
 
 console.log('anchos de pestana: '+r.anchos.join(', '));
 console.log('largo de los rotulos: '+r.rotulos.join(', ')+'  (los nombres SI son dispares)');
-console.log('barra: '+r.w+' px visibles de '+r.scrollW+' px totales   caben enteras: '+r.caben);
+console.log('barra: '+r.w+' px visibles de '+r.scrollW+' px totales   caben enteras: '+r.caben+'   asoman a medias: '+r.asoman+'   boton + fuera: '+r.masFuera);
 console.log('hueco hasta el boton de reproducir: '+r.hueco+' px');
 console.log('tooltip de la 2a: "'+r.tooltip+'..."');
 
@@ -46,6 +51,9 @@ const unico=[...new Set(r.anchos)];
 if(unico.length!==1) mal('las pestanas NO miden lo mismo: '+unico.join('/')+' -> el nombre sigue mandando');
 if(new Set(r.rotulos).size<3) mal('los nombres de prueba no son bastante dispares: no se prueba nada');
 if(r.caben!==3) mal('caben '+r.caben+' pestanas enteras y se pidieron 3');
+if(r.asoman) mal('asoma '+r.asoman+' pestana a medias: se pidio que no se viera la cabeza de la siguiente');
+if(!r.masFuera) mal('el boton + sigue dentro de la tira: se perderia al desplazar');
+if(!r.masVisible) mal('el boton + no se ve');
 if(r.scrollW<=r.w+4) mal('no hay nada que desplazar: la barra no llega a cortarse con 6 secuencias');
 if(r.hueco!=null&&r.hueco<0) mal('la barra se solapa con los botones de reproduccion');
 

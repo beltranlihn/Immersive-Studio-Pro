@@ -675,10 +675,21 @@
   /* [R277b] 118 px por pestana dejaban la tira en 392 y casi tocando el transporte. La referencia que dio
      Beltran es el panel lateral -medido: 292 px-, y la tira debe "apenas pasarlo": 3x90 + huecos + relleno +
      el «+» = 310. El rotulo se recorta antes, pero el nombre entero sigue en el tooltip. */
-  .transport .seqtabs{--seqtab-w:90px;}
+  .transport{--seqtab-w:90px;}
+  /* [R277c] El «+» sale de la zona que se desplaza. Mientras estaba dentro, el ancho tenia que reservarle
+     sitio y ese sobrante ensenaba media pestana siguiente; y si se le quitaba el sitio, el boton se perdia
+     al desplazar. Fuera, la tira mide EXACTAMENTE tres pestanas y el «+» esta siempre a mano. */
+  .transport>.seqtab.seqadd{width:auto;flex:0 0 auto;margin-left:3px;}
   .transport .seqtab{width:var(--seqtab-w);flex:0 0 var(--seqtab-w);}
   .transport .seqtab .seqlab{flex:1;min-width:0;max-width:none;}
   .transport .seqtab.seqadd{width:auto;flex:0 0 auto;}   /* el «+» no es una secuencia: se queda a su tamano */
+  /* [R277c] Separador entre pestanas. La activa se distingue por su fondo, pero las demas se leian como una
+     tira continua con un aspa suelta en medio, y no se sabia a cual pertenece. Una linea fina en el hueco lo
+     resuelve sin meter siete cajas: el aspa queda claramente dentro de la pestana que tiene a su izquierda.
+     No se dibuja junto a la activa -ni antes ni despues- porque ahi el borde del propio chip ya separa. */
+  .transport .seqtab{position:relative;}
+  .transport .seqtab:not(.seqadd)+.seqtab:not(.seqadd)::before{content:"";position:absolute;left:-2.5px;top:4px;bottom:4px;width:1px;border-radius:1px;background:rgba(255,255,255,0.16);}
+  .transport .seqtab.on::before,.transport .seqtab.on+.seqtab::before{display:none;}
   .seqtab.on{background:var(--state-on);color:var(--ink);border-color:var(--ink-2);}
   .seqtab .seqx{margin:-4px -5px -4px 3px;opacity:.38;font-size:8.5px;line-height:1;padding:7px;border-radius:2px;} /* [U-20] ≥18px clickable area via padding; negative margins keep the tab size */ /* [R195] el aspa se pedía MÁS PEQUEÑA (11px → 8,5px): sólo encoge el glifo, el área de clic la da el padding y crece a 7px para compensar */
   .seqtab .seqx:hover{opacity:1;color:var(--ink);background:rgba(255,255,255,0.15);}
@@ -689,7 +700,7 @@
      que el `height:0` de abajo no servía de nada mientras `.seqtabs` heredase `scrollbar-width:thin`: medido, la
      barra se comía 12 de los 22 px de alto del well. La vista se corta donde manda `max-width` y el desplazamiento
      va con la rueda (ver el listener de #seqTabs). */
-  .transport .seqtabs{padding:2px;height:22px;box-sizing:border-box;gap:2px;background:var(--surface-2);border:.5px solid rgba(255,255,255,0.1);border-radius:3px;border-bottom:.5px solid rgba(255,255,255,0.1);max-width:calc(var(--seqtab-w)*3 + 6px + 4px + 30px);flex-shrink:1;   /* [R277] 3 pestanas + 3 huecos + relleno + el «+» */overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-ms-overflow-style:none;}
+  .transport .seqtabs{padding:2px;height:22px;box-sizing:border-box;gap:2px;background:var(--surface-2);border:.5px solid rgba(255,255,255,0.1);border-radius:3px;border-bottom:.5px solid rgba(255,255,255,0.1);max-width:calc(var(--seqtab-w)*3 + 4px + 4px);flex-shrink:1;   /* [R277c] 3 pestanas + 2 huecos + relleno. Ni un pixel mas: lo que sobre asoma como la cabeza de la cuarta */overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-ms-overflow-style:none;}
   .transport .seqtabs::-webkit-scrollbar{height:0;width:0;display:none;}
   /* [R239] Aviso de que hay más pestañas por ese lado: sin barra no queda ninguna otra pista. Las clases las pone
      `seqTabsOvf()` según el desplazamiento real, así que el desvanecido sólo aparece donde queda algo por ver. */
