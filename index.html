@@ -238,15 +238,18 @@
      Value reads by LIGHTNESS (light-gray fill on the recessed --s0 groove), per the app's Resolve/Blender colour contract. */
   .vslab input[type=range].vfader{-webkit-appearance:none;appearance:none;width:74px;height:14px;background:transparent;cursor:ew-resize;margin:0;vertical-align:middle;}
   .vslab input[type=range].vfader:focus{outline:none;}
-  .vslab input[type=range].vfader::-webkit-slider-runnable-track{height:4px;border-radius:2px;background:linear-gradient(90deg,var(--ink-2) 0 var(--pct,50%),var(--s0) var(--pct,50%) 100%);box-shadow:inset 0 0 0 .5px rgba(255,255,255,0.06),inset 0 1px 1px rgba(0,0,0,0.5);}
-  .vslab input[type=range].vfader::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:11px;height:11px;margin-top:-3.5px;border-radius:50%;background:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,0.55),0 0 0 .5px rgba(0,0,0,0.45);transition:transform .12s cubic-bezier(0.22,1,0.36,1),box-shadow .12s;}
-  .vslab input[type=range].vfader:hover::-webkit-slider-thumb{transform:scale(1.15);}
-  .vslab input[type=range].vfader:active::-webkit-slider-thumb{transform:scale(1.06);box-shadow:0 0 0 3px rgba(201,205,211,0.22),0 1px 2px rgba(0,0,0,0.55);}
-  .vslab input[type=range].vfader:focus-visible::-webkit-slider-thumb{box-shadow:0 0 0 3px rgba(201,205,211,0.30);}
-  .vslab input[type=range].vfader::-moz-range-track{height:4px;border-radius:2px;background:var(--s0);box-shadow:inset 0 0 0 .5px rgba(255,255,255,0.06);}
-  .vslab input[type=range].vfader::-moz-range-progress{height:4px;border-radius:2px;background:var(--ink-2);}
-  .vslab input[type=range].vfader::-moz-range-thumb{width:11px;height:11px;border:none;border-radius:50%;background:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,0.55);}
-  @media (prefers-reduced-motion: reduce){ .vslab input[type=range].vfader::-webkit-slider-thumb{transition:none;} }
+  /* [R276b] Fuera el puntito, también aquí. El FOV del visor 3D era el último mando con el pulgar blanco a la
+     vista, y el resto del programa —inspector, efectos, cuadros de Compose— usa pista de 3 px y fill sin tirador.
+     El pulgar NO se elimina: se vuelve transparente conservando sus 11 px, que es lo que se agarra al arrastrar.
+     Borrarlo o dejarlo en 0 px haría el fader inarrastrable, no más limpio. El foco de teclado se traslada a la
+     pista, que es ahora lo único visible. */
+  .vslab input[type=range].vfader::-webkit-slider-runnable-track{height:3px;border-radius:2px;background:linear-gradient(90deg,var(--ink-2) 0 var(--pct,50%),var(--s0) var(--pct,50%) 100%);box-shadow:inset 0 0 0 .5px rgba(255,255,255,0.06),inset 0 1px 1px rgba(0,0,0,0.5);}
+  .vslab input[type=range].vfader::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:11px;height:11px;margin-top:-4px;border-radius:50%;background:transparent;box-shadow:none;border:none;}
+  .vslab input[type=range].vfader:hover::-webkit-slider-runnable-track{box-shadow:inset 0 0 0 .5px rgba(255,255,255,0.06),inset 0 1px 1px rgba(0,0,0,0.5),0 0 0 .5px rgba(255,255,255,0.10);}
+  .vslab input[type=range].vfader:focus-visible::-webkit-slider-runnable-track{box-shadow:inset 0 1px 1px rgba(0,0,0,0.5),0 0 0 2px rgba(201,205,211,0.30);}
+  .vslab input[type=range].vfader::-moz-range-track{height:3px;border-radius:2px;background:var(--s0);box-shadow:inset 0 0 0 .5px rgba(255,255,255,0.06);}
+  .vslab input[type=range].vfader::-moz-range-progress{height:3px;border-radius:2px;background:var(--ink-2);}
+  .vslab input[type=range].vfader::-moz-range-thumb{width:11px;height:11px;border:none;border-radius:50%;background:transparent;box-shadow:none;}
   .stage{flex:1;min-height:0;position:relative;overflow:hidden;background:#000;}
   /* [V2] Full Performance: the viewer takes over the whole window; everything else stays in the DOM, just covered */
   body.perfmode #stage{position:fixed !important;inset:0 !important;z-index:1000 !important;}
