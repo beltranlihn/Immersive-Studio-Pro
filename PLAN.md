@@ -53,6 +53,31 @@ Antes del arreglo, los dos primeros daban 467 px de banda muerta con la bandera 
 
 ---
 
+## ROUND 265b — «Aleatorio» del tejido se comía un clip
+
+Revisión desde el Mac de R255→R265. Las dos sondas de túnel y tejido pasan aquí tal cual, y las mías de
+R230/R231c/R234b no muestran regresión. Un defecto real, en el barajado.
+
+**El mapa de barajado se dimensionaba por el número de ELEMENTOS y se leía por índice de TIRA.** Con 8 tiras de 10
+clips, `ensureCompOrder` construía 80 entradas balanceadas —cada fuente 20 veces— y las mezclaba; pero el tejido
+asigna la fuente POR TIRA (`p._src`), así que sólo se leían las **8 primeras**. Ocho entradas de una baraja de 80
+son una **muestra al azar**, no un reparto.
+
+Medido con 8 tiras y 4 fuentes: `{0:2, 1:2, 2:3, 3:1}`. Y en otra tirada, una de las cuatro fuentes **no aparecía
+en ninguna tira**: activar «Aleatorio» dejaba fuera un clip del usuario, en silencio.
+
+El arreglo es de una línea de concepto: el mapa se dimensiona por el **dominio por el que se indexa**, no por el
+número de elementos. `compOrderCount(lay)` devuelve `max(_src)+1` cuando el reparto es por tira, y `lay.length`
+cuando es por elemento — que es el resto de composes, intactos.
+
+Verificado (`scratchpad/r265b-barajar.mjs`): 200 tiradas del tejido con desvío **0** entre fuentes y **cero**
+tiradas con una fuente ausente; y el domegrid sigue con el mapa del tamaño de sus elementos y reparto `{6,6,6,6}`.
+
+**Consecuencia para proyectos guardados:** un tejido con «Aleatorio» activo se **rebaraja una vez** al reabrirlo,
+porque el mapa guardado ya no tiene el tamaño esperado. El reparto nuevo es correcto, pero no idéntico al que se
+dejó. Se acepta: el guardado era el que estaba mal.
+
+
 ## ROUND 264/265 — El Giro del túnel (y por qué no se veía) · los mandos del tejido
 
 ### R264 · «¿Qué hace el twist? No veo ningún cambio»
