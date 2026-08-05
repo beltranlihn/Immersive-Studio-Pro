@@ -10791,18 +10791,46 @@ function fillLanesToViewport(base){ const sc=$('#tlscroll'); if(!sc)return false
   const hueco=tlHueco(sc); if(hueco<40||!state.lanes.length)return false; // [R244b] sin la regla — ver tlHueco
   let fijo=0, elastico=0;
   state.lanes.forEach((l,i)=>{ const h=(base&&base[i]!=null)?base[i]:laneH(i); if(l.collapsed)fijo+=laneH(i); else elastico+=h; });
-  if(elastico<=0)return false;                    // todas plegadas: no hay nada que repartir
-  const f=(hueco-fijo)/elastico; if(!(f>0))return false;
-  let cambio=false; const nuevas=new Map(); let suma=0, ultima=-1;
-  state.lanes.forEach((l,i)=>{ if(l.collapsed)return; const suelo=laneFloorH(l);
-    const b=(base&&base[i]!=null)?base[i]:laneH(i);
-    const nh=Math.max(suelo,Math.min(LANE_MAX_H,Math.round(b*f)));
-    nuevas.set(i,nh); suma+=nh; ultima=i; });
-  /* Redondear pista a pista deja una deriva de uno o dos píxeles, y basta ese píxel para que aparezca una barra
-     de scroll fantasma en un panel que SÍ cabe. El sobrante se le da a la última pista elástica, siempre que su
-     propio tope lo admita. */
-  if(ultima>=0){ const drift=(hueco-fijo)-suma;
-    if(drift){ const l=state.lanes[ultima]; const ajust=Math.max(laneFloorH(l),Math.min(LANE_MAX_H,nuevas.get(ultima)+drift)); nuevas.set(ultima,ajust); } }
+  /* [R267] TODAS plegadas y sobra panel: antes se devolvía `false` —«no hay nada que repartir»— y el gesto no
+     hacía nada; peor, el recorte automático devolvía el panel a la altura del contenido plegado, así que arrastrar
+     hacia arriba parecía no responder. Es el caso que reportó Beltrán: achicar todas con Alt+rueda —que las PLIEGA
+     al bajar del suelo (`wheelResizeLanes`)— y luego intentar dar aire a la línea de tiempo.
+     Pedir más alto con todo plegado sólo puede significar una cosa: despliégalas. Se hace únicamente cuando
+     SOBRA sitio (`hueco>fijo`), así que plegar y luego ACHICAR el panel no las reabre; y sólo cuando están
+     plegadas TODAS: si el usuario dejó algunas plegadas a mano y otras no, esas siguen como las dejó y el reparto
+     va a las demás, como hasta ahora. */
+  if(elastico<=0){
+    if(!(hueco>fijo+8))return false;              // no sobra sitio: nada que hacer
+    let alguna=false;
+    state.lanes.forEach((l,i)=>{ if(!l.collapsed)return; l.collapsed=false; l.h=laneFloorH(l); alguna=true; });
+    if(!alguna)return false;
+    fijo=0; elastico=0; base=null;                // las alturas de partida ya no valen: se reparte desde el suelo
+    state.lanes.forEach((l,i)=>{ elastico+=laneH(i); });
+    if(elastico<=0)return false; }
+  /* [R267] Reparto IGUAL, no proporcional. Hasta aquí se escalaba conservando la relación entre pistas, y el
+     sobrante del redondeo se le daba entero a la última: por eso salían siete a 82 y una a 85 — «no pueden haber
+     algunas delgadas y otras anchas» (Beltrán). Ahora el hueco se divide entre las elásticas y la diferencia
+     máxima entre dos de ellas es de UN píxel, el que no se puede repartir sin decimales.
+     Las que topan —suelo abajo, `LANE_MAX_H` arriba— se fijan y salen del reparto, y lo que les sobra o les falta
+     se vuelve a repartir entre las demás; por eso el bucle, en vez de una división y ya. Las plegadas siguen
+     midiendo lo suyo: plegar es una decisión explícita, no un alto. */
+  if(elastico<=0)return false;
+  const idx=[]; state.lanes.forEach((l,i)=>{ if(!l.collapsed)idx.push(i); });
+  if(!idx.length)return false;
+  const nuevas=new Map(); let libres=idx.slice(), restante=hueco-fijo;
+  for(let vuelta=0; vuelta<8 && libres.length; vuelta++){
+    const q=Math.floor(restante/libres.length);
+    const topadas=libres.filter(i=>{ const l=state.lanes[i]; return q<laneFloorH(l) || q>LANE_MAX_H; });
+    if(!topadas.length){                                   // todas caben: reparto exacto y el resto de a un píxel
+      let r=restante-q*libres.length;
+      for(const i of libres){ nuevas.set(i,q+(r>0?1:0)); if(r>0)r--; }
+      libres=[]; break; }
+    for(const i of topadas){ const l=state.lanes[i];
+      const v=(q<laneFloorH(l))?laneFloorH(l):LANE_MAX_H;
+      nuevas.set(i,v); restante-=v; }
+    libres=libres.filter(i=>!topadas.includes(i)); }
+  for(const i of libres){ const l=state.lanes[i]; nuevas.set(i,Math.max(laneFloorH(l),Math.min(LANE_MAX_H,Math.round(restante/Math.max(1,libres.length))))); } // salvavidas: nunca dejar una pista sin alto
+  let cambio=false;
   for(const [i,nh] of nuevas){ if(state.lanes[i].h!==nh){ state.lanes[i].h=nh; cambio=true; } }
   /* [R244b] El `markDirty()` iba AQUÍ y esto corre a ~60 Hz durante el arrastre: dos IPC al proceso principal
      (`setTitle`, `setUiState`) más `raInvalidate()` por cada movimiento, ~120 IPC/s para anotar un alto de pista.

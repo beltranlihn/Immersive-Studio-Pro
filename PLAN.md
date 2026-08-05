@@ -1,5 +1,45 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 267 — El divisor con TODAS las pistas plegadas, y el reparto pasa a ser igual para todas
+
+Dos peticiones de Beltrán sobre lo mismo, después de R266: «si achico todas las pistas con Alt+scroll y luego
+intento subir el contenedor, se agranda con todas las pistas en pequeño dejando vacío; ahí debería agrandar el
+tamaño de cada pista» y «todas las pistas se deben agrandar y achicar con la misma medida».
+
+### 1 · Con todas plegadas, el divisor no hacía nada
+
+La pista que faltaba estaba en `wheelResizeLanes`: al bajar del suelo **pliega** la pista. O sea que «achicar todas
+con Alt+rueda hasta el mínimo» no deja ocho pistas bajitas: deja ocho pistas **plegadas**. Y `fillLanesToViewport`
+se rendía ahí por decisión explícita —«todas plegadas: no hay nada que repartir»—, así que el gesto no repartía; y
+como el recorte automático devuelve el panel al alto del contenido plegado, arrastrar hacia arriba parecía no
+responder (medido antes del arreglo: el panel volvía a 233 px por mucho que se subiera).
+
+Pedir más alto con todo plegado sólo puede significar una cosa. Ahora se despliegan y se reparten. Con dos guardas
+para que no sea una sorpresa: sólo cuando **sobra** sitio —plegar y luego achicar el panel no las reabre— y sólo
+cuando están plegadas **todas**. Si el usuario dejó algunas plegadas a mano, ésas siguen plegadas y el reparto va
+a las demás, que es lo que ya hacía.
+
+### 2 · El reparto ya no es proporcional, es igual
+
+Escalaba conservando la relación entre pistas y le daba el sobrante del redondeo **entero a la última**: de ahí
+salían siete pistas a 82 px y una a 85. Ahora el hueco se divide entre las elásticas y la diferencia máxima entre
+dos de ellas es de **un píxel**, el que no se puede repartir sin decimales.
+
+Las que topan —suelo abajo, `LANE_MAX_H` arriba— se fijan, salen del reparto, y lo que les sobra o les falta se
+vuelve a repartir entre las demás. Por eso es un bucle y no una división: con una sola pasada, una pista topada
+dejaba el hueco descuadrado.
+
+### Verificado (`scratchpad/r267-*.mjs`)
+
+| | resultado |
+|---|---|
+| Alt+rueda hasta plegarlas todas, y subir el contenedor | se despliegan y quedan **83,83,83,82,82,82,82,82** · 0 px de banda muerta |
+| …y volver a achicar | **28,28,28,27,27,27,27,27** · 0 px · ninguna se re-pliega |
+| 3 pistas plegadas A MANO + crecer | las 3 siguen plegadas (24) y las otras cinco a **118,118,117,117,117** |
+| regresión: los tres caminos de R266 | siguen correctos |
+
+---
+
 ## ROUND 266 — El divisor de la línea de tiempo dejaba una banda muerta: dos causas, y una es una bandera que se quedaba encendida
 
 Beltrán grabó el fallo y añadió la pista que lo destapó: «creo que hizo ese glitch cuando achiqué al mínimo la
