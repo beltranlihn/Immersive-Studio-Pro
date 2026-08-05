@@ -1,5 +1,58 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 259 — La salida del atasco de R256 rompía las exportaciones de varias capas. Corregida sobre el proyecto real
+
+Al probar R256 sobre el **proyecto real de Beltrán** (44 clips, 32 en bucle, nidos anidados a 60 fps) apareció que
+**yo había roto algo peor de lo que arreglé**, y estaba desplegado.
+
+### Lo que se rompió
+
+`step()` salía del bloqueo mutuo contando **vueltas** de la propia función: 40 seguidas sin progreso. Cuarenta
+vueltas son unos 80 ms. Con varias capas pesadas simultáneas, **un fotograma legítimo tarda 300 ms o más**, así
+que la rama disparaba sobre exportaciones perfectamente sanas. Y cada disparo destruye y recrea un `VideoDecoder`:
+la tormenta de reinicios hacía que el driver **tirase el contexto gráfico entero**, y la app se recargaba sola a
+mitad de la exportación (guardando su autoguardado de emergencia, que es lo que permitió identificarlo).
+
+Medido sobre el nido «Ring 3» real, mismo lanzador en los dos casos, 6 fotogramas:
+
+| capas | pre-R256 | con R256 (por vueltas) | ahora |
+|---|---|---|---|
+| 3 | 343 ms/f | **contexto perdido, 1 de 6 fotogramas** | 329 ms/f |
+| 5 | 561 ms/f | **contexto perdido, 4 medios rendidos** | 576 ms/f |
+| 9 | — | contexto perdido | 979 ms/f |
+
+### El arreglo: una condición LÓGICA, no un plazo
+
+El bloqueo tiene una firma que no comparte con la lentitud: **el fotograma pedido es más viejo que todo lo que hay
+en la caché**. Es decir, ya se decodificó, ya se desalojó, y nada de lo que venga por delante va a traerlo de
+vuelta — sin reiniciar, no puede llegar. Un decodificador simplemente lento está en la situación contraria: espera
+fotogramas que aún no han salido, así que lo que tiene en caché es *anterior* al destino. **Por mucho que tarde,
+nunca cumple la condición.** Encima se pide que nada se mueva durante 400 ms y se topa el número de reinicios.
+
+Contar vueltas medía la impaciencia del observador; esto mide el estado del decodificador.
+
+### Verificado
+
+- **Bucle** (el caso que motivó R256): 62-136 ms/fotograma frente a los 914 de antes, sin rendiciones, y las 48
+  parejas *k*/*k+12* que deben repetirse se repiten.
+- **3, 5 y 9 capas** del nido real: sin pérdida de contexto, sin rendiciones, a la velocidad de antes de R256.
+- **Dos pasadas idénticas** en todos los casos: ningún fotograma por debajo de 90 dB (lo que difiere es un píxel
+  de 1/255, 108 dB, el redondeo de la GPU de siempre).
+
+### Lo que esto enseña, que es lo que más vale
+
+Verifiqué R256 con **un clip**. El fallo necesitaba **tres capas**. Una prueba sintética de un solo elemento no
+dice nada sobre el comportamiento bajo presión de recursos, y el recurso escaso aquí —el fondo de salida del
+decodificador— es exactamente lo que empezó todo esto en R256 y lo que tumbó la idea de R257. **Tres apariciones
+del mismo límite en tres rondas seguidas.**
+
+Y el probe casi me engaña otra vez: una versión anterior exportó 48 fotogramas idénticos entre sí de una secuencia
+vacía —el proyecto no había cargado— y el resultado parecía un aprobado impecable. Ahora `scratchpad/r259-real.mjs`
+**aborta** si el proyecto no trae medios, si la secuencia no tiene clips o bucles, si el tramo no cruza una vuelta
+según `srcT`, o si los fotogramas exportados son todos iguales entre sí.
+
+---
+
 ## ROUND 258 — El caché de render-ahead con material pesado: medido y descartado
 
 Quedaba en `NEXT` como «opcional»: encender el caché de render-ahead (`_raOn`) por defecto con medios pesados, para

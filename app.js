@@ -7191,7 +7191,7 @@ function makeClipDecoder(d,ex){
   const ensureBuf=async(i)=>{ const s=d.samples[i]; if(inBuf(s))return true; const a=s.offset;
     const data=await d.readRange(a, Math.max(s.size, READAHEAD)); if(!data)return false; bufData=data; bufStart=a; bufEnd=a+data.length; return inBuf(s); };
   const mkDec=()=>{ dec=new VideoDecoder({output:f=>{ if(closed){f.close();return;} const o=cache.get(f.timestamp); if(o&&o!==f){try{o.close();}catch(e){}} cache.set(f.timestamp,f); fails=0; }, error:e=>{ err=String((e&&e.message)||e); }}); dec.configure({codec:d.codec,description:d.description}); };
-  let resets=0, atasco=0;
+  let resets=0, atascoFirma='', atascoT0=0, atascoN=0;
   const resetTo=(di)=>{ resets++; if(dec){try{dec.close();}catch(e){}} for(const[,f]of cache){try{f.close();}catch(e){}} cache.clear(); mkDec(); feed=keyBefore(di); feedBase=feed; feedBasePts=d.samples[feed].pts; lastFedPts=-1; err=null; vaciando=false; vaciado=false; }; // el decodificador es NUEVO: su cola de reordenación vuelve a estar por vaciar
   const evict=()=>{ const lo=targetUs-BEHIND; for(const[ts,f]of cache){ if(ts<lo){try{f.close();}catch(e){} cache.delete(ts);} }
     if(cache.size>CAP){ const ks=[...cache.keys()].sort((a,b)=>a-b); for(const k of ks){ if(cache.size<=CAP)break; if(k<targetUs-frameDur){try{cache.get(k).close();}catch(e){} cache.delete(k);} } } };
@@ -7229,12 +7229,27 @@ function makeClipDecoder(d,ex){
        TODO el resto de la exportación de ese medio cae al camino <video>: 900 ms/fotograma frente a 35.
        Reiniciar en el fotograma clave anterior al destino rompe las dos trabas de golpe —cierra los fotogramas
        retenidos, que es lo que libera el fondo, y vuelve a alimentar desde donde toca.
-       Se exige que la situación se REPITA: un fotograma que sigue en la cola de reordenación llega en unas pocas
-       vueltas, y un bloqueo de verdad no se deshace nunca. `targetUs<lastFedPts` deja fuera el fin de archivo,
-       donde manda la rama de `vaciado` de `passed()`. */
-    if(n===0 && lastFedPts>=0 && targetUs<lastFedPts && !cache.has(targetUs)){
-      if(++atasco>=40){ atasco=0; resetTo(decIdxForTime(targetUs)); } }
-    else atasco=0;
+       [R259] La condición se mide en TIEMPO y por NO-PROGRESO, no contando vueltas de `step()`. Contar vueltas
+       fue un error caro: 40 vueltas son ~80 ms, y con varias capas pesadas un fotograma legítimo tarda 300 ms o
+       más, así que la rama disparaba sobre exportaciones sanas. Cada reinicio destruye y recrea un `VideoDecoder`,
+       y con 3-5 capas esa tormenta de reinicios hacía que el driver **tirase el contexto gráfico entero** y la
+       app se recargara sola a media exportación (medido: pre-R256 5 capas 561 ms/fotograma; con la versión por
+       vueltas, contexto perdido y 1 fotograma escrito de 6).
+       La condición que lo distingue es LÓGICA, no un plazo: en el bloqueo, el fotograma pedido es **más viejo que
+       todo lo que hay en la caché** (`el menor ts > targetUs`), o sea que ya se decodificó, se desalojó, y nada
+       de lo que venga por delante lo traerá de vuelta. Un decodificador simplemente LENTO está en la situación
+       contraria —espera fotogramas que aún no han salido, así que lo que tiene en caché es anterior al destino, o
+       no tiene nada—, y por eso nunca cumple esta condición por mucho que tarde.
+       Encima se pide que nada se mueva durante 400 ms y se topa `atascoN`: cinturón y tirantes, porque el precio
+       de equivocarse aquí ya se pagó una vez. */
+    if(n===0 && lastFedPts>=0 && targetUs<lastFedPts && !cache.has(targetUs) && cache.size>0){
+      let masViejo=Infinity; for(const ts of cache.keys()) if(ts<masViejo)masViejo=ts;
+      if(masViejo>targetUs){
+        const firma=targetUs+'|'+cache.size+'|'+feed+'|'+lastFedPts+'|'+(dec?dec.decodeQueueSize:-1);
+        if(firma!==atascoFirma){ atascoFirma=firma; atascoT0=performance.now(); }
+        else if(atascoN<12 && performance.now()-atascoT0>400){ atascoN++; atascoFirma=''; resetTo(decIdxForTime(targetUs)); }
+      } else atascoFirma=''; }
+    else atascoFirma='';
     /* Alimentadas TODAS las muestras, se pide el vaciado: hasta que resuelva, la cola de reordenación puede
        seguir guardando fotogramas y `passed()` no puede dar por cerrado el archivo. */
     if(feed>=N && dec && !vaciando && !vaciado){ vaciando=true;
