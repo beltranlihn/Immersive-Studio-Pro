@@ -1,5 +1,60 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 264/265 — El Giro del túnel (y por qué no se veía) · los mandos del tejido
+
+### R264 · «¿Qué hace el twist? No veo ningún cambio»
+
+Hacía algo, y se pudo decir exactamente qué: con 6 elementos y Giro 180° cada uno recibía un azimut fijo —0, 30,
+60, 90, 120, 150— que el camino de dibujo fulldome usa como **rotación alrededor del eje del domo**.
+
+No se veía por dos razones que se suman:
+
+1. **La fuente típica de un túnel es un anillo, y un anillo girado sobre su centro es idéntico a sí mismo.** Con
+   simetría radial, ninguna implementación de «girar sobre el eje» puede enseñar nada. No era un fallo.
+2. **Era estático.** Medido a lo largo del ciclo: el azimut valía 30 en el 0 %, en el 25 %, en el 50 % y en el
+   75 %; sólo cambiaba el tamaño. Un desfase fijo entre anillos, no un movimiento.
+
+Beltrán eligió tener **los dos efectos, con mandos separados**:
+
+- **Giro** → ahora son grados **por ciclo**: el elemento rota mientras se acerca. Sumado al desfase por elemento
+  que ya existía, el conjunto queda como un tirabuzón rígido que avanza. Sigue siendo invisible con un anillo
+  perfectamente simétrico, y el cuadro lo dice.
+- **Hélice** (nueva) → aparta los elementos del eje describiendo una espiral. **Esto sí se ve con cualquier
+  fuente**, porque lo que cambia es dónde está el elemento, no cómo está orientado.
+
+La hélice obligó a tocar el motor: el camino fulldome sólo sabía **girar y escalar** una fuente, así que un
+elemento sólo podía estar centrado. Se le añade `u_off`, un desplazamiento en unidades de disco que **se multiplica
+por la escala**: al acercarse, el elemento se separa más del eje, que es como se comporta una hélice en
+perspectiva. Se resta antes de rotar, así el giro queda sobre el centro del elemento y no sobre el del domo.
+Los dos van por props normales (`helix`, `helixAng`), o sea que se automatizan como cualquier otra cosa.
+
+Verificado (`scratchpad/r264-verif.mjs`): con Giro 360 la rotación va 0 → 90 → 180 → 270 a lo largo del ciclo (antes
+era constante); la dirección de la hélice da una vuelta entera por ciclo; con los dos a cero no queda ni un
+modificador de más y las props salen idénticas; y el cuadro los guarda y los restaura.
+
+### R265 · Los mandos del tejido
+
+De lo que pidió Beltrán, **la mitad ya estaba**: disposición (tejido/líneas ↔/líneas ↕), separación entre tiras —es
+el mismo mando que el ancho, por construcción: 100 % se tocan, menos deja hueco— y una velocidad por familia.
+Lo que faltaba de verdad:
+
+- **Barajar**: la fila sólo se ofrecía en el relleno de domo, y además el tejido **ni la miraba**, porque tomaba la
+  fuente por el índice de tira directo en vez de pasar por el mapa de barajado. Ahora reparte barajando **por
+  tira**, respetando la regla de R247: una sola fuente por tira, nunca mezcladas dentro de una.
+- **Dirección en tres opciones**: un sentido · el otro · intercalado (más quieto). Antes «el otro sentido» había
+  que conseguirlo combinando «a la vez» con una casilla «Invertir» aparte: dos mandos para una idea. La casilla
+  desaparece y lo guardado en proyectos viejos **se pliega** en la opción mostrada, así que se ve el sentido real y
+  volver a aplicar no cambia nada.
+- Y de paso, **los tres segmentados del tejido no se marcaban al reabrir**: la plantilla fijaba «on» en la primera
+  opción, así que un tejido guardado en modo ↕ se mostraba siempre como «Tejido». El mismo olvido del fundido del
+  túnel, en otro sitio.
+
+Verificado (`scratchpad/r265-tejido.mjs`): los cuatro sentidos dan el patrón correcto por tira (1,1,1,1 · −1,−1,−1,−1
+· 1,−1,1,−1 · 0,0,0,0); barajar cambia el reparto sin mezclar fuentes dentro de una tira; y el cuadro muestra
+disposición, lado, sentido, tiras y ancho guardados, con «a la vez + invertir» mostrado como «el otro sentido».
+
+---
+
 ## ROUND 263b — Los cuatro hallazgos del code review sobre R262/R263
 
 Los cuatro eran reales y tres estaban encadenados: al abrir el inspector a los tipos túnel y tejido (R263), quedaron

@@ -488,9 +488,15 @@ const quadVAO=gl.createVertexArray(); gl.bindVertexArray(quadVAO);
 (()=>{const vb=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,vb);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,-1,1,1,-1,1]),gl.STATIC_DRAW);gl.enableVertexAttribArray(LB.p);gl.vertexAttribPointer(LB.p,2,gl.FLOAT,false,0,0);})();
 gl.bindVertexArray(null);
 /* fulldome source: clip texture is already a fisheye/dome master → drawn 1:1 into the composite (no gnomonic patch warp) */
+/* [R264] u_off DESPLAZA el contenido dentro del disco, en unidades de disco. Hasta ahora este camino sólo sabía
+   girar y escalar una fuente fulldome, así que un elemento sólo podía estar centrado — y por eso el Giro del túnel
+   era invisible con anillos simétricos: girar un anillo sobre su propio centro no cambia nada. El desplazamiento
+   se multiplica por la escala a propósito: al acercarse, el elemento se separa más del eje, que es como se
+   comporta una hélice de verdad en perspectiva. Se resta ANTES de girar, así el giro queda sobre el centro del
+   elemento y no sobre el del domo. */
 const VSFD=`#version 300 es
-in vec2 a_p; uniform float u_mir,u_spin,u_scale; out vec2 v_uv; out vec2 v_p;
-void main(){ v_p=a_p; float s=sin(u_spin),c=cos(u_spin); vec2 pr=vec2(a_p.x*c-a_p.y*s, a_p.x*s+a_p.y*c); pr/=max(u_scale,0.05); v_uv=vec2((pr.x*u_mir)*0.5+0.5, pr.y*0.5+0.5); gl_Position=vec4(a_p,0.0,1.0); }`; // [N1] u_scale zooms the fulldome content (scale>1 = bigger); the disc clip stays via v_p=a_p
+in vec2 a_p; uniform float u_mir,u_spin,u_scale; uniform vec2 u_off; out vec2 v_uv; out vec2 v_p;
+void main(){ v_p=a_p; float s=sin(u_spin),c=cos(u_spin); vec2 q=a_p-u_off*max(u_scale,0.05); vec2 pr=vec2(q.x*c-q.y*s, q.x*s+q.y*c); pr/=max(u_scale,0.05); v_uv=vec2((pr.x*u_mir)*0.5+0.5, pr.y*0.5+0.5); gl_Position=vec4(a_p,0.0,1.0); }`; // [N1] u_scale zooms the fulldome content (scale>1 = bigger); the disc clip stays via v_p=a_p
 const FSFD=`#version 300 es
 precision highp float; in vec2 v_uv; in vec2 v_p; uniform sampler2D u_tex; uniform sampler2D u_maskTex; uniform float u_op,u_exp,u_con,u_sat,u_tmp,u_tnt,u_premul,u_mask,u_feather,u_blend,u_maskScale;
 uniform highp sampler3D u_lut; uniform float u_hasLut,u_lutMix; uniform vec3 u_lift,u_gamma,u_gain; uniform sampler2D u_curve; uniform float u_hasCurve; // [grade gap] wheels/curves/LUT parity with FSW
@@ -512,7 +518,7 @@ void main(){ if(length(v_p)>1.0) discard; if(v_uv.x<0.0||v_uv.x>1.0||v_uv.y<0.0|
   else if(u_blend>0.5){ o=vec4(mix(vec3(1.0),col,ef),1.0); }
   else { o=vec4(mix(col,col*ef,u_premul), ef); } }`;
 const PFD=prog(VSFD,FSFD);
-const LFD={p:gl.getAttribLocation(PFD,'a_p'),mir:gl.getUniformLocation(PFD,'u_mir'),spin:gl.getUniformLocation(PFD,'u_spin'),tex:gl.getUniformLocation(PFD,'u_tex'),op:gl.getUniformLocation(PFD,'u_op'),exp:gl.getUniformLocation(PFD,'u_exp'),con:gl.getUniformLocation(PFD,'u_con'),sat:gl.getUniformLocation(PFD,'u_sat'),tmp:gl.getUniformLocation(PFD,'u_tmp'),tnt:gl.getUniformLocation(PFD,'u_tnt'),premul:gl.getUniformLocation(PFD,'u_premul'),mask:gl.getUniformLocation(PFD,'u_mask'),feather:gl.getUniformLocation(PFD,'u_feather'),blend:gl.getUniformLocation(PFD,'u_blend'),maskTex:gl.getUniformLocation(PFD,'u_maskTex'),maskScale:gl.getUniformLocation(PFD,'u_maskScale'),scale:gl.getUniformLocation(PFD,'u_scale'),
+const LFD={p:gl.getAttribLocation(PFD,'a_p'),mir:gl.getUniformLocation(PFD,'u_mir'),spin:gl.getUniformLocation(PFD,'u_spin'),tex:gl.getUniformLocation(PFD,'u_tex'),op:gl.getUniformLocation(PFD,'u_op'),exp:gl.getUniformLocation(PFD,'u_exp'),con:gl.getUniformLocation(PFD,'u_con'),sat:gl.getUniformLocation(PFD,'u_sat'),tmp:gl.getUniformLocation(PFD,'u_tmp'),tnt:gl.getUniformLocation(PFD,'u_tnt'),premul:gl.getUniformLocation(PFD,'u_premul'),mask:gl.getUniformLocation(PFD,'u_mask'),feather:gl.getUniformLocation(PFD,'u_feather'),blend:gl.getUniformLocation(PFD,'u_blend'),maskTex:gl.getUniformLocation(PFD,'u_maskTex'),maskScale:gl.getUniformLocation(PFD,'u_maskScale'),scale:gl.getUniformLocation(PFD,'u_scale'),off:gl.getUniformLocation(PFD,'u_off'),
   lut:gl.getUniformLocation(PFD,'u_lut'),hasLut:gl.getUniformLocation(PFD,'u_hasLut'),lutMix:gl.getUniformLocation(PFD,'u_lutMix'),lift:gl.getUniformLocation(PFD,'u_lift'),gamma:gl.getUniformLocation(PFD,'u_gamma'),gain:gl.getUniformLocation(PFD,'u_gain'),curve:gl.getUniformLocation(PFD,'u_curve'),hasCurve:gl.getUniformLocation(PFD,'u_hasCurve')}; // [grade gap] wheels/curves/LUT
 const fdVAO=gl.createVertexArray(); gl.bindVertexArray(fdVAO);
 (()=>{const vb=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,vb);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,-1,1,1,-1,1]),gl.STATIC_DRAW);gl.enableVertexAttribArray(LFD.p);gl.vertexAttribPointer(LFD.p,2,gl.FLOAT,false,0,0);})();
@@ -1118,6 +1124,10 @@ function drawClip(c,m,t,xf){
   if(c.props.fulldome){ gl.useProgram(PFD); gl.bindVertexArray(fdVAO);
     const rotFD=evalR(c,'rot',t)||0;
     gl.uniform1f(LFD.op,op); gl.uniform1f(LFD.mir,c.props.mirror?-1:1); gl.uniform1f(LFD.spin, (az+rotFD)*D2R); gl.uniform1f(LFD.scale, Math.max(0.05, size/55)); // [N1] Size scales the fulldome content (55 = 1:1, the default → no change for existing clips); az/spin rotate it — so a compose nest behaves like a clip
+    /* [R264] HÉLICE: separa el elemento del eje del domo. `helix` es cuánto (en unidades de disco) y `helixAng`
+       hacia dónde (grados). Ambos son props normales, así que se automatizan y llevan modificadores como
+       cualquier otro; el túnel les pone los suyos. Sin ellos, offset (0,0) y todo se dibuja como siempre. */
+    { const hx=evalR(c,'helix',t)||0; if(hx){ const ha=(evalR(c,'helixAng',t)||0)*D2R; gl.uniform2f(LFD.off, hx*Math.cos(ha), hx*Math.sin(ha)); } else gl.uniform2f(LFD.off,0,0); }
     gl.uniform1f(LFD.exp,(evalP(c,'exposure',t)||0)/100); gl.uniform1f(LFD.con,(evalP(c,'contrast',t)||0)/100); gl.uniform1f(LFD.sat,(evalP(c,'saturation',t)||0)/100); gl.uniform1f(LFD.tmp,(evalP(c,'temperature',t)||0)/100*0.15); gl.uniform1f(LFD.tnt,(evalP(c,'tint',t)||0)/100*0.15);
     gl.uniform1f(LFD.mask, MASK_IDX[c.props.mask||'none']||0); gl.uniform1f(LFD.feather,(evalP(c,'feather',t)||0)/100); gl.uniform1f(LFD.maskScale, c.props.maskScale||1);
     bindClipLUT(c,LFD); // [grade gap] wheels + curves + LUT on the fulldome path (units 2/3), restores TEXTURE0 before the tex bind below
@@ -11402,7 +11412,10 @@ function weaveLayout(g){ const out=[];
       const q=Math.max(1,along/dens);                                 // paso entre clips de la tira
       const P=Math.max(2,Math.min(64,Math.ceil(200/q)+2));            // que cubran el lienzo más un paso, para la envoltura
       const c0=-100+p*(k+0.5);                                        // centro de la tira
-      const dir=(mov==='still')?0:(flip*((mov==='alternate'&&(k%2))?-1:1)); // alterna dentro de SU familia, así las dos empiezan igual
+      /* [R265] Tres sentidos explícitos, que es como se piensa: un sentido · el otro · intercalado (más quieto).
+         `rev` es lo que antes había que conseguir combinando «a la vez» con la casilla Invertir — dos mandos para
+         una sola idea. `flip` se sigue respetando para los proyectos que ya lo usan. */
+      const dir=(mov==='still')?0:(flip*((mov==='rev')?-1:((mov==='alternate'&&(k%2))?-1:1))); // alterna dentro de SU familia, así las dos empiezan igual
       for(let j=0;j<P;j++){ const a0=-100-q+q*j;
         out.push({ x:famH?a0:c0, y:famH?c0:a0, scale, rot,
                    _weave:1, _axis:famH?'x':'y', _step:q, _dir:dir, _spd:(famH?spdH:spdV), _src:kGlobal, _ar:AR }); } } }
@@ -11474,7 +11487,21 @@ function compTunnelAnim(g,phase){
      modificador ninguno: nada que evaluar en cada fotograma. */
   const fi=tunnelFadeIn(g), fo=tunnelFadeOut(g);
   if(fi>0||fo>0) an.push({id:uid(),param:'opacity',mode:'fade',speed:spd,amp:100,phase,fadeIn:fi,fadeOut:fo,on:true,_lay:1});
+  /* [R264] TIRABUZÓN. `twist` pasa de ser un desfase de rotación FIJO por elemento a ser grados **por ciclo**: el
+     elemento gira mientras se acerca. Sumado al desfase estático que ya pone el reparto (`az = i/n · twist`), el
+     conjunto queda como un tirabuzón rígido que avanza — cada elemento llega girado lo mismo que llegó el anterior.
+     Ojo: sigue siendo invisible si la fuente tiene simetría radial (un anillo girado sobre su centro es el mismo
+     anillo). Para eso está la hélice. */
+  const tw=(g.twist||0);
+  if(tw) an.push({id:uid(),param:'rot',mode:'linear',speed:tw*spd,amp:0,phase:0,on:true,_lay:1});
+  /* [R264] HÉLICE. La dirección del desvío da una vuelta entera por ciclo, así que el elemento describe una
+     espiral mientras se acerca y el conjunto forma una hélice que fluye hacia el espectador. Esto SÍ se ve con
+     anillos simétricos, porque lo que cambia es dónde está, no cómo está orientado. */
+  if(tunnelHelix(g)>0) an.push({id:uid(),param:'helixAng',mode:'linear',speed:360*spd,amp:0,phase:0,on:true,_lay:1});
   return an; }
+/* Cuánto se separa del eje, en unidades de disco. El mando va de 0 a 100 y medio disco es de sobra: más allá el
+   elemento se sale por el borde antes de llegar. */
+function tunnelHelix(g){ return Math.max(0,Math.min(100,(g.helix||0)))/100*0.5; }
 /* Un único sitio donde se decide cuánto entra y cuánto sale, para que el reparto de opacidad base (`compElProps`)
    y el modificador no puedan discrepar — que es justo como nacen los fundidos que no se apagan. */
 function tunnelFadeIn(g){ return Math.max(0,Math.min(1, g.fadeIn!=null?g.fadeIn:(g.fade===false?0:0.5))); }
@@ -11508,7 +11535,11 @@ function compElProps(g,p){ if(p.x!=null){
   /* [R262] La opacidad BASE es 0 cuando hay fundido, porque el modificador de envolvente suma de 0 a 100 (antes
      era base 50 con un seno de ±50: mismo resultado, pero con la envolvente nueva la cuenta es directa). Sin
      fundido, 100 y sin modificador. */
-  if(p._phase!=null) return { az:Math.round(p.az), el:90, size:Math.round(p.size), fulldome:true, mask:'none', opacity:(tunnelFadeIn(g)>0||tunnelFadeOut(g)>0)?0:100 };
+  if(p._phase!=null) return { az:Math.round(p.az), el:90, size:Math.round(p.size), fulldome:true, mask:'none',
+    opacity:(tunnelFadeIn(g)>0||tunnelFadeOut(g)>0)?0:100,
+    /* [R264] hélice: cuánto se separa del eje, y hacia dónde arranca cada elemento (una vuelta repartida entre
+       todos, para que el conjunto forme la espiral). El modificador de `helixAng` la hace avanzar. */
+    helix:tunnelHelix(g), helixAng:Math.round((p._phase||0)*360) };
   const noWarp=!!g.noWarp; // [N5] Dome Fill "flat tiles": place undeformed patches at the ring/segment centres instead of warped annular sectors
   const dome=(!noWarp&&p._secAz!=null)||(!noWarp&&g.tile&&(g.kind==='ring'||g.kind==='grid'));
   const pr={az:dome?p.az:Math.round(p.az), el:dome?p.el:Math.round(p.el), size:Math.round(p.size), mask:g.mask||'none'}; // keep centers EXACT in dome mode so adjacent sectors tile with no seam
@@ -11591,7 +11622,7 @@ function createComposition(opts){ pushUndo();
   // build the nest: one composed element per nest-lane (no same-lane overlap → no spurious crossfade), geometry from compLayout; media cycle across elements
   const nestLanes=lay.map((p,i)=>({id:uid(),name:'V'+(i+1),tag:'V'+(i+1),kind:'video'}));
   ensureCompOrder(g,lay.length,srcs.length);
-  const nestClips=lay.map((p,i)=>{ const src=srcs[(p._src!=null)?(p._src%srcs.length):compMediaIndex(g,i,srcs.length)]; /* [R247] el tejido asigna la fuente POR TIRA, no clip a clip */ const layP=compElProps(g,p); const c=makeClip(src,i,0,layP,{name:src.name+' ['+(i+1)+']',color:CLIP_COLORS[i%CLIP_COLORS.length]}); c.dur=dur; c.slot=i; c._layBase={...layP}; if(scope){ c.inP=scope.inP||0; if(scope.speed&&scope.speed!==1)c.speed=scope.speed; } return c; }); // [N4] _layBase = the layout baseline so later recomposes preserve the user's manual delta
+  const nestClips=lay.map((p,i)=>{ const src=srcs[compMediaIndex(g,(p._src!=null?p._src:i),srcs.length)]; /* [R247] el tejido asigna la fuente POR TIRA, no clip a clip */ const layP=compElProps(g,p); const c=makeClip(src,i,0,layP,{name:src.name+' ['+(i+1)+']',color:CLIP_COLORS[i%CLIP_COLORS.length]}); c.dur=dur; c.slot=i; c._layBase={...layP}; if(scope){ c.inP=scope.inP||0; if(scope.speed&&scope.speed!==1)c.speed=scope.speed; } return c; }); // [N4] _layBase = the layout baseline so later recomposes preserve the user's manual delta
   if(!flat && g.kind==='line'&&g.scroll) for(const cc of nestClips) cc.anim=[{id:uid(),param:'el',mode:'linear',speed:(g.scrollSpeed!=null?g.scrollSpeed:20),amp:0,phase:0,on:true,_lay:1}]; // dome infinite strip: scroll along the diameter (wrap makes it reappear)
   if(!flat && g.kind==='tunnel') nestClips.forEach((cc,i)=>{ cc.anim=compTunnelAnim(g,(lay[i]&&lay[i]._phase)||0); }); // [R246] cada anillo con su desfase en el ciclo
   if(g.kind==='weave') nestClips.forEach((cc,i)=>{ if(lay[i])cc.anim=compWeaveAnim(g,lay[i]); }); // [R247c] cada clip por su eje, con el sentido de su tira
@@ -11623,7 +11654,7 @@ function regenComposeNest(m){ if(!m||!m.comp)return false; const g=m.comp; const
   for(const c of prev)if(c.slot>=lay.length&&c.maskTex){try{gl.deleteTexture(c.maskTex);}catch(e){}} // free dropped slots' masks
   m.nestLanes=lay.map((p,i)=>({id:uid(),name:'V'+(i+1),tag:'V'+(i+1),kind:'video'}));
   ensureCompOrder(g,lay.length,srcs.length);
-  m.nestClips=lay.map((p,i)=>{ const src=srcs[(p._src!=null)?(p._src%srcs.length):compMediaIndex(g,i,srcs.length)]; const layP=compElProps(g,p); const ex=prev[i]; // [R247] ídem al recomponer
+  m.nestClips=lay.map((p,i)=>{ const src=srcs[compMediaIndex(g,(p._src!=null?p._src:i),srcs.length)]; const layP=compElProps(g,p); const ex=prev[i]; // [R247] ídem al recomponer
     if(ex && ex.mediaId===src.id){ // [N4] keep this element's manual tweaks (opacity/mask/fades/keyframes/fx) AND apply the new layout RELATIVE to the user's delta, so a hand-scaled item doesn't snap back to 0
       const base=ex._layBase||{};
       for(const k in layP){ if(typeof layP[k]==='number'){ const d=(typeof ex.props[k]==='number'&&typeof base[k]==='number')?(ex.props[k]-base[k]):0; ex.props[k]=layP[k]+d; } } // numeric positional props carry the user's offset; mask (string) is left as the user set it
@@ -11684,7 +11715,10 @@ function drawComposePreview(g,canvas){ if(!canvas)return; const x=canvas.getCont
       const r=R*(sz/55)*0.5; if(r<1.5)return;                       // size/55 = 1:1 en el shader; 55 llena el disco
       x.globalAlpha=fade?Math.max(0.06,fadeEnv(f,fin,fout)):0.92;   // [R263b] la MISMA envolvente que el render
       x.strokeStyle=CLIP_COLORS[i%CLIP_COLORS.length]; x.lineWidth=Math.max(1.5,R*0.055);
-      x.beginPath(); x.arc(cx,cy,Math.min(r,R*1.25),0,7); x.stroke();
+      /* [R264] La hélice se dibuja como lo que es: el elemento apartado del eje, más cuanto más cerca (el mismo
+         `off·escala` del shader). Así el esquema enseña la espiral antes de aplicar. */
+      const hx=tunnelHelix(g), ha=f*2*Math.PI, ex=hx?R*hx*(sz/55)*Math.cos(ha):0, ey=hx?R*hx*(sz/55)*Math.sin(ha):0;
+      x.beginPath(); x.arc(cx+ex,cy+ey,Math.min(r,R*1.25),0,7); x.stroke();
       if(r<R*0.98&&r>R*0.16){ x.globalAlpha=1; x.fillStyle=CLIP_COLORS[i%CLIP_COLORS.length]; x.font='700 10px Inter'; x.textAlign='center'; x.textBaseline='middle'; x.fillText(String(i+1),cx,cy-r); } });
     x.globalAlpha=1; return; }
   /* [R247c] TEJIDO: el esquema es del PLANO 1:1 donde se monta, no del disco — que es la idea entera. Se dibuja
@@ -11766,7 +11800,7 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
     <!-- [R202·tanda 5] «Flat tile» en la configuración del relleno de domo. El modo existía desde [N5] pero sólo se
          alcanzaba desde el inspector de una composición YA creada: al crearla no había forma de pedirlo. -->
     <div class="frow" data-only="domegrid"><label>${T('Tiles','Baldosas')}</label><label style="display:flex;align-items:center;gap:6px;flex:1;font-size:11px;color:var(--ink-2);cursor:pointer;" title="${T('Each tile keeps its real proportion instead of being stretched to fill its annular cell — rings of undeformed images, repeated up and down the dome.','Cada baldosa mantiene su proporción real en vez de estirarse hasta llenar su celda curvada — anillos de imágenes sin deformar, repetidos hacia arriba y hacia abajo del domo.')}"><input type="checkbox" id="cNoWarp"> ${T('Flat tile (keep the real proportion)','Baldosa plana (mantener la proporción real)')}</label></div>
-    <div class="frow" data-only="domegrid"><label>${T('Order','Orden')}</label><label style="display:flex;align-items:center;gap:6px;flex:1;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="cShuffle"> ${T('Randomize (shuffle media)','Aleatorizar (barajar medios)')}</label><button class="mbtn" id="cReshuffle" type="button" title="${T('Reshuffle','Rebarajar')}" style="height:24px;padding:0 9px;font-size:13px;">↻</button></div>
+    <div class="frow" data-only="shuffle"><label>${T('Order','Orden')}</label><label style="display:flex;align-items:center;gap:6px;flex:1;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="cShuffle"> ${T('Randomize (shuffle media)','Aleatorizar (barajar medios)')}</label><button class="mbtn" id="cReshuffle" type="button" title="${T('Reshuffle','Rebarajar')}" style="height:24px;padding:0 9px;font-size:13px;">↻</button></div>
     <div class="frow" data-only="line"><label>${T('Scroll','Desplazar')}</label><label style="display:flex;align-items:center;gap:6px;flex:1;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="cScroll"> ${T('Infinite strip','Tira infinita')}</label><input type="number" class="tnum" id="cScrollSpd" value="20" min="-120" max="120" title="${T('Scroll speed °/s (negative = down)','Velocidad °/s (negativo = abajo)')}" style="width:52px;"><span class="tnum" style="color:var(--ink-dim);">°/s</span></div>
     <div class="frow" data-only="spiralwave"><label>${T('Turns','Vueltas')}</label><input type="number" class="tnum" id="cTurns" value="3" min="1" max="12"></div>
     <div class="frow" data-only="grid"><label>${T('Columns','Columnas')}</label><input type="number" class="tnum" id="cCols" value="3" min="1" max="8"></div>
@@ -11784,7 +11818,12 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
     <div class="frow" data-only="tunnel"><label>${T('Speed','Velocidad')}</label><input type="range" id="cTSpeed" min="1" max="120" value="12" style="flex:1;height:20px;"><span class="tnum" id="cTSpeedV" style="width:52px;text-align:right;color:var(--ink-2);">0.12/s</span></div>
     <div class="frow" data-only="tunnel"><label>${T('Depth','Profundidad')}</label><input type="range" id="cTCurve" min="0" max="100" value="60" style="flex:1;height:20px;"><span class="tnum" id="cTCurveV" style="width:52px;text-align:right;color:var(--ink-2);">60%</span></div>
     <div class="frow" data-only="tunnel"><label></label><span class="tnum" style="color:var(--ink-dim);font-size:10px;line-height:1.4;">${T('0 = constant speed · 100 = strong perspective (elements bunch up in the distance)','0 = velocidad constante · 100 = perspectiva marcada (los elementos se agolpan al fondo)')}</span></div>
-    <div class="frow" data-only="tunnel"><label>${T('Twist','Giro')}</label><input type="number" class="tnum" id="cTTwist" value="0" min="0" max="360"><span class="tnum" style="color:var(--ink-dim);">°</span></div>
+    <!-- [R264] Dos efectos distintos y por eso dos mandos. El GIRO rota cada elemento sobre su propio centro
+         mientras se acerca (tirabuzón): no se ve si la fuente es un anillo perfectamente simétrico. La HÉLICE
+         separa los elementos del eje describiendo una espiral: eso sí se ve con cualquier fuente. -->
+    <div class="frow" data-only="tunnel"><label>${T('Twist','Giro')}</label><input type="range" id="cTTwist" min="0" max="720" value="0" style="flex:1;height:20px;"><span class="tnum" id="cTTwistV" style="width:60px;text-align:right;color:var(--ink-2);">0°/${T('cycle','ciclo')}</span></div>
+    <div class="frow" data-only="tunnel"><label>${T('Helix','Hélice')}</label><input type="range" id="cTHelix" min="0" max="100" value="0" style="flex:1;height:20px;"><span class="tnum" id="cTHelixV" style="width:60px;text-align:right;color:var(--ink-2);">0%</span></div>
+    <div class="frow" data-only="tunnel"><label></label><span class="tnum" style="color:var(--ink-dim);font-size:10px;line-height:1.4;">${T('Twist spins each element on itself — invisible with a perfectly symmetric ring. Helix moves them off the axis in a spiral — visible with anything.','El giro rota cada elemento sobre sí mismo: no se ve con un anillo perfectamente simétrico. La hélice los aparta del eje en espiral: eso se ve con cualquier fuente.')}</span></div>
     <!-- [R262] Entrada y salida INDEPENDIENTES, cada una con su cantidad. La cantidad es cuánto del ciclo dura la
          rampa: 50% = medio ciclo entrando (lo que hacía el fundido único). Desmarcar apaga esa mitad, y desmarcar
          las dos deja el elemento a opacidad plena de principio a fin. -->
@@ -11802,10 +11841,9 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
     <div class="frow" data-only="weave"><label></label><span class="tnum" style="color:var(--ink-dim);font-size:10px;line-height:1.4;">${T('100% = each clip starts where the previous one ends. Below, they leave air between them. They never overlap.','100% = cada clip empieza donde acaba el anterior. Por debajo dejan aire entre ellos. Nunca se solapan.')}</span></div>
     <div class="frow" data-only="weave"><label>${T('Long side','Lado largo')}</label><div class="kindseg" id="cWFit" style="flex:1;"><button data-f="across" class="on">${T('Across the strip','Cruzando la tira')}</button><button data-f="along">${T('Along the strip','A lo largo')}</button></div></div>
     <div class="frow" data-only="weave"><label></label><span class="tnum" style="color:var(--ink-dim);font-size:10px;line-height:1.4;">${T('The clip keeps its own proportions either way — this only picks which side fills the strip width.','El clip conserva su proporción en los dos casos: esto sólo elige qué lado ocupa el ancho de la tira.')}</span></div>
-    <div class="frow" data-only="weave"><label>${T('Motion','Movimiento')}</label><div class="kindseg" id="cWMov" style="flex:1;"><button data-m="alternate" class="on">${T('Alternate','Alterno')}</button><button data-m="same">${T('All one way','A la vez')}</button><button data-m="still">${T('Still','Quieto')}</button></div></div>
+    <div class="frow" data-only="weave"><label>${T('Motion','Movimiento')}</label><div class="kindseg" id="cWMov" style="flex:1;"><button data-m="same">${T('One way','Un sentido')}</button><button data-m="rev">${T('The other','El otro')}</button><button data-m="alternate" class="on">${T('Alternate','Intercalado')}</button><button data-m="still">${T('Still','Quieto')}</button></div></div>
     <div class="frow" data-only="weavh"><label>${T('Speed ↔','Velocidad ↔')}</label><input type="range" id="cWSpeed" min="0" max="60" value="12" style="flex:1;height:20px;"><span class="tnum" id="cWSpeedV" style="width:52px;text-align:right;color:var(--ink-2);">0.12/s</span></div>
     <div class="frow" data-only="weavv"><label>${T('Speed ↕','Velocidad ↕')}</label><input type="range" id="cWSpeedV2" min="0" max="60" value="12" style="flex:1;height:20px;"><span class="tnum" id="cWSpeedV2V" style="width:52px;text-align:right;color:var(--ink-2);">0.12/s</span></div>
-    <div class="frow" data-only="weave"><label>${T('Flip','Invertir')}</label><label style="display:flex;align-items:center;gap:6px;flex:1;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="cWFlip"> ${T('Reverse every direction','Invertir todos los sentidos')}</label></div>
     <div class="frow" data-only="weaveW"><label>${T('Interlace','Entrelazar')}</label><label style="display:flex;align-items:center;gap:6px;flex:1;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="cWInter" checked> ${T('Over and under at each crossing (basketry)','Por encima y por debajo en cada cruce (cestería)')}</label></div>
     <div class="frow" data-only="weave"><label></label><span class="tnum" style="color:var(--ink-dim);font-size:10px;line-height:1.4;">${T('Built flat, then curved into the dome as one piece. The Fisheye amount lives in the Inspector, like any other clip.','Se monta en plano y se curva al domo de una pieza. La cantidad de ojo de pez se ajusta en el inspector, como en cualquier otro clip.')}</span></div>
     </div>
@@ -11850,19 +11888,23 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
     if(!n)flashStatus(T('Already in the composition','Ya estaba en la composición')); };
   let _jit=(pre&&pre.jitter)||0, _rand=(pre&&pre.rand)?pre.rand.slice():[]; // R88: element-position randomize (jitter% + persisted seeds)
   let _wMode=(pre&&pre.weaveMode)||'weave', _wFit=(pre&&pre.fit)||'across', _wMov=(pre&&pre.motion)||'alternate'; // [R247d]
+  /* [R265] La casilla «Invertir» desaparece: decir «a la vez» + «invertir» era usar dos mandos para una idea que
+     ahora tiene su propio botón, «el otro sentido». Lo guardado en proyectos viejos se PLIEGA aquí, así que se ve
+     el sentido real y volver a aplicar no cambia nada. En intercalado, invertir sólo espeja qué tira va a dónde. */
+  if(pre&&pre.flip){ if(_wMov==='same')_wMov='rev'; else if(_wMov==='rev')_wMov='same'; }
   const readForm=()=>{ const ids=checkedIds(); const rings=+($('#cRings')?$('#cRings').value:3)||3, segs=+($('#cSegs')?$('#cSegs').value:8)||8;
     const wB=Math.max(1,Math.min(24,+($('#cWBands')?$('#cWBands').value:5)||5));
     const wD=(+($('#cWDens')?$('#cWDens').value:100)||100)/100;
     const _srcs=ids.map(mediaById).filter(Boolean);
     return { id:(pre&&pre.id)||0, kind, mediaIds:ids, mediaId:ids[0], count:kind==='domegrid'?Math.min(160,rings*segs):Math.max(2,Math.min(32,+$('#cN').value||6)), // [R247] el tejido no usa `count`: lo calcula el encaje, tira por tira
       bands:wB, density:wD, weaveMode:_wMode, fit:_wFit, motion:_wMov, // [R247d]
-      bandW:(+($('#cWBandW')?$('#cWBandW').value:100)||100), flip:($('#cWFlip')?$('#cWFlip').checked:false),
+      bandW:(+($('#cWBandW')?$('#cWBandW').value:100)||100), flip:false, // [R265] el sentido lo lleva ahora "motion" (un sentido / el otro / intercalado); "flip" se sigue respetando al dibujar, por los proyectos viejos
       speedV:((+($('#cWSpeedV2')?$('#cWSpeedV2').value:12)||0)/100),
       interlace:($('#cWInter')?$('#cWInter').checked:true),
       _aspect:compAspectOf(_srcs), _aspects:compAspectsOf(_srcs), cols:+$('#cCols').value||3, arc:+$('#cArc').value||140, el:+$('#cEl').value||30, elMin:+$('#cElMin').value||10, elMax:+$('#cElMax').value||60, size:+$('#cSize').value||40, turns:+($('#cTurns')?$('#cTurns').value:3)||3, lineRot:$('#cLineRot')?$('#cLineRot').checked:true, tile:$('#cTile')?$('#cTile').checked:false, band:+($('#cBand')?$('#cBand').value:30)||30, rings, segs, gapEl:+($('#cGapEl')?$('#cGapEl').value:0)||0, gapAz:+($('#cGapAz')?$('#cGapAz').value:0)||0, brick:$('#cBrick')?$('#cBrick').checked:false, shuffle:$('#cShuffle')?$('#cShuffle').checked:false, mask:$('#cMask').value, spin:(pre&&pre.spin)||0, rand:_rand, jitter:_jit, noWarp:$('#cNoWarp')?$('#cNoWarp').checked:false, infinite:($('#cInfinite')?$('#cInfinite').checked:_infinite),
       /* [R246] túnel */ sizeFrom:+($('#cTFrom')?$('#cTFrom').value:1)||1, sizeTo:+($('#cTTo')?$('#cTTo').value:200)||200,
       speed:(kind==='weave')?((+($('#cWSpeed')?$('#cWSpeed').value:12)||0)/100):((+($('#cTSpeed')?$('#cTSpeed').value:12)||12)/100), // [R247d] 0 es un valor válido: quieto
-      curve:+($('#cTCurve')?$('#cTCurve').value:60), twist:+($('#cTTwist')?$('#cTTwist').value:0)||0,
+      curve:+($('#cTCurve')?$('#cTCurve').value:60), twist:+($('#cTTwist')?$('#cTTwist').value:0)||0, helix:+($('#cTHelix')?$('#cTHelix').value:0)||0,
       /* [R262] entrada y salida por separado; la casilla apagada es cantidad 0 */
       fadeIn:(($('#cTFadeIn')&&$('#cTFadeIn').checked)?((+($('#cTFadeInA')?$('#cTFadeInA').value:50)||0)/100):0),
       fadeOut:(($('#cTFadeOut')&&$('#cTFadeOut').checked)?((+($('#cTFadeOutA')?$('#cTFadeOutA').value:50)||0)/100):0) }; };
@@ -11882,7 +11924,7 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
       preview(); return; }
     ov.querySelectorAll('[data-only]').forEach(el=>{ const mm=el.dataset.only; let show;
       if(mm==='ring')show=(kind==='ring'); else if(mm==='grid')show=(kind==='grid'); else if(mm==='spiralwave')show=(kind==='spiral'||kind==='wave'); else if(mm==='line')show=(kind==='line');
-      else if(mm==='domegrid')show=(kind==='domegrid'); else if(mm==='count')show=(kind!=='domegrid'&&kind!=='weave'); // [R247] el tejido deriva su conteo de tiras × clips × familias
+      else if(mm==='domegrid')show=(kind==='domegrid'); else if(mm==='shuffle')show=(kind==='domegrid'||kind==='weave'); // [R265] el tejido tambien baraja que fuente va a cada tira else if(mm==='count')show=(kind!=='domegrid'&&kind!=='weave'); // [R247] el tejido deriva su conteo de tiras × clips × familias
       else if(mm==='tile')show=(kind==='ring'||kind==='grid'); else if(mm==='tileband')show=(kind==='ring'&&tile);
       else if(mm==='tunnel')show=(kind==='tunnel'); // [R246]
       else if(mm==='weave')show=(kind==='weave');   // [R247]
@@ -11910,7 +11952,10 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
   { const sp=$('#cTSpeed'), spv=$('#cTSpeedV'), cv=$('#cTCurve'), cvv=$('#cTCurveV');
     if(sp)sp.oninput=()=>{ if(spv)spv.textContent=((+sp.value)/100).toFixed(2)+'/s'; preview(); };
     if(cv)cv.oninput=()=>{ if(cvv)cvv.textContent=cv.value+'%'; preview(); };
-    ['#cTFrom','#cTTo','#cTTwist'].forEach(id=>{ const el=ov.querySelector(id); if(el){ el.oninput=preview; el.onchange=preview; } });
+    { const tw=$('#cTTwist'), twv=$('#cTTwistV'), hx=$('#cTHelix'), hxv=$('#cTHelixV');
+      if(tw)tw.oninput=()=>{ if(twv)twv.textContent=tw.value+'°/ciclo'; preview(); };
+      if(hx)hx.oninput=()=>{ if(hxv)hxv.textContent=hx.value+'%'; preview(); }; }
+    ['#cTFrom','#cTTo'].forEach(id=>{ const el=ov.querySelector(id); if(el){ el.oninput=preview; el.onchange=preview; } });
     /* [R262] entrada y salida: la casilla enciende/apaga y el deslizador manda la cantidad */
     { const par=[['#cTFadeIn','#cTFadeInA','#cTFadeInV'],['#cTFadeOut','#cTFadeOutA','#cTFadeOutV']];
       for(const [ck,sl,out] of par){ const k=$(ck), s=$(sl), o=$(out);
@@ -11927,8 +11972,13 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
     const seg=(host,attr,set)=>{ const h=$(host); if(!h)return; h.querySelectorAll('button').forEach(b=>b.onclick=()=>{
       set(b.dataset[attr]); h.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); sync(); }); };
     seg('#cWMode','w',v=>_wMode=v); seg('#cWFit','f',v=>_wFit=v); seg('#cWMov','m',v=>_wMov=v);
+    /* [R265] Los tres segmentados llevaban 'on' fijo en su primera opcion, asi que al reabrir un tejido siempre
+       se veia «Tejido / Cruzando la tira / Intercalado» aunque estuviera guardado otra cosa: el mismo olvido que
+       el fundido del tunel, en otro sitio. */
+    { const marcar=(host,attr,val)=>{ const h=$(host); if(!h)return; h.querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset[attr]===val)); };
+      marcar('#cWMode','w',_wMode); marcar('#cWFit','f',_wFit); marcar('#cWMov','m',_wMov); }
     const wi=$('#cWInter'); if(wi)wi.onchange=preview;
-    const wfl=$('#cWFlip'); if(wfl)wfl.onchange=preview; }
+  }
   { const ci=$('#cInfinite'); if(ci){ ci.checked=_infinite; ci.onchange=()=>{ _infinite=ci.checked; preview(); }; } }
   { const cs=$('#cShuffle'); if(cs)cs.onchange=()=>{ reshuf=true; preview(); }; const crs=$('#cReshuffle'); if(crs)crs.onclick=()=>{ reshuf=true; if(pre)pre._orderR=true; if($('#cShuffle'))$('#cShuffle').checked=true; flashStatus(T('Order reshuffled — Apply to see it','Orden rebarajado — Aplica para verlo')); }; }
   if(pre){ $('#cKind').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x.dataset.k===kind));
@@ -11941,7 +11991,7 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
     const _put=(id,v)=>{ const el=$(id); if(el&&v!=null)el.value=v; };
     const _chk=(id,v)=>{ const el=$(id); if(el)el.checked=!!v; };
     _put('#cTFrom',pre.sizeFrom!=null?pre.sizeFrom:1); _put('#cTTo',pre.sizeTo!=null?pre.sizeTo:200);
-    _put('#cTCurve',pre.curve!=null?pre.curve:60); _put('#cTTwist',pre.twist||0);
+    _put('#cTCurve',pre.curve!=null?pre.curve:60); _put('#cTTwist',pre.twist||0); _put('#cTHelix',pre.helix||0);
     if(kind!=='weave')_put('#cTSpeed',Math.round((pre.speed!=null?pre.speed:0.12)*100));
     { const fi=tunnelFadeIn(pre), fo=tunnelFadeOut(pre);
       _chk('#cTFadeIn',fi>0); if(fi>0)_put('#cTFadeInA',Math.round(fi*100));
@@ -11950,10 +12000,10 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
     _put('#cWDens',Math.round((pre.density!=null?pre.density:1)*100));
     if(kind==='weave')_put('#cWSpeed',Math.round((pre.speed!=null?pre.speed:0.12)*100));
     _put('#cWSpeedV2',Math.round((pre.speedV!=null?pre.speedV:0.12)*100));
-    _chk('#cWFlip',pre.flip); _chk('#cWInter',pre.interlace!==false); _chk('#cInfinite',pre.infinite);
+    _chk('#cWInter',pre.interlace!==false); _chk('#cInfinite',pre.infinite);
     /* los rótulos de los deslizadores no se actualizan solos: se refrescan a mano para que no mientan */
     { const par=[['#cTSpeed','#cTSpeedV',v=>(v/100).toFixed(2)+'/s'],['#cTCurve','#cTCurveV',v=>v+'%'],
-        ['#cTFadeInA','#cTFadeInV',v=>v+'%'],['#cTFadeOutA','#cTFadeOutV',v=>v+'%'],
+        ['#cTTwist','#cTTwistV',v=>v+'°/ciclo'],['#cTHelix','#cTHelixV',v=>v+'%'],['#cTFadeInA','#cTFadeInV',v=>v+'%'],['#cTFadeOutA','#cTFadeOutV',v=>v+'%'],
         ['#cWSpeed','#cWSpeedV',v=>(v/100).toFixed(2)+'/s'],['#cWSpeedV2','#cWSpeedV2V',v=>(v/100).toFixed(2)+'/s'],
         ['#cWDens','#cWDensV',v=>v+'%'],['#cWBandW','#cWBandWV',v=>v+'%']];
       for(const [inp,out,f] of par){ const a=$(inp), b=$(out); if(a&&b)b.textContent=f(+a.value); } }
