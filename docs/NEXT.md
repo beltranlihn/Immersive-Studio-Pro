@@ -4,6 +4,13 @@
 > en `COMPONENTS.md` + una entrada en `PLAN.md` en el mismo commit, como manda el ritual de `/commit`).
 > Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: 2026-08-04.
 
+## 🔭 Abierto — el decodificador secuencial del export, dormido
+- [ ] `_exCD` **nunca se pone a true**, así que `_useCD`/`makeClipDecoder` (R108: lee cada muestra UNA vez en vez
+      de reposicionarse) no se usa en el export. Se desactivó porque el bucle de reproducción mataba de hambre a la
+      bomba de decodificación — motivo que en un export determinista no aplica. R188 midió que `seekExport` era el
+      **80 %** del tiempo de export. Encenderlo es candidato a una ronda **con medición**, con línea base antes y
+      después sobre el mismo proyecto; no a encenderlo a ciegas.
+
 ## ✅ Deshacer para medios y carpetas · CERRADO [R253c·d]
 - [x] **[R253d] Guardado contra el pisotón**: hacer restaurable el estado global lo hacía revertible por fotos que
       nunca lo capturaron (pilas por secuencia + medios globales, y cuatro mutadores sin `pushUndo`). Contador de

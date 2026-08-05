@@ -83,6 +83,22 @@ Orden en el fragment shader: exposure → contrast → saturation → temp/tint 
 → `mp4-muxer`. Sin FFmpeg → límites de códec de Chromium (ver ADR-0002). Opciones: `rangeT` (in/out), `isolateClips`
 (render-in-place), `opt.wall`/`opt.seqId` (export por-muro/piso de la sala).
 
+**El export NUNCA usa proxys, ni la caché de nests.** `runExport` pone `_exportQuality=true`, y con esa bandera
+`_vinstUrl` devuelve `m.srcUrl` (el ORIGINAL) y `ncUsable()` pasa a ser false. Es deliberado: se exporta a la
+calidad del máster. **Corolario que conviene tener claro: generar proxys NO acelera una exportación** — sólo la
+previsualización y el scrub. Lo que sí la acelera sin tocar la calidad es *hornear* (render-in-place / proxy de
+composición): se paga una vez el coste de decodificar y componer, y el export lee un único archivo.
+
+Dónde se va el tiempo, medido en R188 sobre el proyecto de Beltrán (anillo de 6 sobre 2 archivos): **`seekExport`
+era el 80 %** (498 ms de 625 por fotograma) con la GPU a 0 ms. Por eso se reposiciona UN decodificador por grupo de
+clips que piden el mismo medio en el mismo instante, y su fotograma se sube a la textura de los demás.
+
+> **Palanca dormida:** existe un decodificador SECUENCIAL por clip (`_useCD`/`makeClipDecoder`, R108) que lee cada
+> muestra una vez en vez de reposicionarse, pensado justamente para esto — pero `_exCD` **nunca se pone a true**,
+> así que hoy no se usa en el export. Se desactivó porque el bucle de reproducción mataba de hambre a la bomba de
+> decodificación; en un export determinista ese motivo no aplica. Candidato a una ronda CON MEDICIÓN, no a
+> encenderlo a ciegas.
+
 ## 7 · Conceptos transversales (arc42 §8)
 
 - **Binding manual `state → render()`.** No hay reactividad. Tras mutar `state`, hay que llamar al re-render que corresponda.
