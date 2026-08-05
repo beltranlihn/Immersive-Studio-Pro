@@ -9137,7 +9137,11 @@ function renameSequence(id){ const m=mediaById(id); if(!isSeqMedia(m))return; co
      Ctrl+Z ajeno le devolvia el nombre viejo -y encima renderSeqBar lo repintaba en la pestana, delante del
      usuario-. Ahora es una edicion como cualquier otra. */
   const _ren=nv=>{ pushUndo(); bumpMeta(); m.name=nv; renderSeqBar(); renderMedia(); projTitle(); markDirty(); };
-  if(!inlineEdit(el,m.name,_ren)) appPrompt(T('Sequence name:','Nombre de la secuencia:'),m.name,n=>{ if(n!=null)_ren(n); }); }
+  /* [R277] Con la pestana a ancho fijo, editar dentro de un rotulo recortado es escribir a ciegas. Mientras
+     dura la edicion se le devuelve el ancho automatico; al terminar, renderSeqBar la repinta a su medida. */
+  const tab=el&&el.closest('.seqtab'); if(tab){ tab.style.width='auto'; tab.style.flex='0 0 auto'; }
+  const _fin=nv=>{ if(tab){ tab.style.width=''; tab.style.flex=''; } _ren(nv); };
+  if(!inlineEdit(el,m.name,_fin)) appPrompt(T('Sequence name:','Nombre de la secuencia:'),m.name,n=>{ if(n!=null)_fin(n); else if(tab){ tab.style.width=''; tab.style.flex=''; } }); }
 function deleteSequenceMedia(id){ const m=mediaById(id); if(!isSeqMedia(m))return; if(state.media.filter(isSeqMedia).length<=1){ flashStatus(T('Keep at least one sequence','Mantén al menos una secuencia')); return; }
   const usedElsewhere=state.media.some(s=>isSeqMedia(s)&&s.id!==id&&(s.nestClips||[]).some(c=>c.mediaId===id));
   appConfirm(T('Delete this sequence?','¿Eliminar esta secuencia?')+(usedElsewhere?T(' It is nested inside another sequence.',' Está anidada dentro de otra secuencia.'):''), ok=>{ if(!ok)return;
@@ -9669,7 +9673,7 @@ function seqTabsReveal(){ const bar=$('#seqTabs'); if(!bar)return; const act=bar
   else if(r>bar.scrollLeft+bar.clientWidth) bar.scrollLeft=r-bar.clientWidth+4; }
 function renderSeqBar(){ const bar=$('#seqTabs'); if(!bar)return; const _sl=bar.scrollLeft; bar.innerHTML='';
   for(const id of (state.openSeqs||[])){ const m=mediaById(id); if(!isSeqMedia(m))continue; const on=(id===state.activeSeqId);
-    const t=document.createElement('div'); t.className='seqtab'+(on?' on':''); t.dataset.seq=id; t.title=T('Click to switch · double-click rename · right-click options','Clic para cambiar · doble-clic renombrar · clic-derecho opciones');
+    const t=document.createElement('div'); t.className='seqtab'+(on?' on':''); t.dataset.seq=id; t.title=m.name+'  ·  '+T('Click to switch · double-click rename · right-click options','Clic para cambiar · doble-clic renombrar · clic-derecho opciones');
     const lab=document.createElement('span'); lab.className='seqlab'; lab.textContent=m.name; t.appendChild(lab);
     const x=document.createElement('span'); x.className='seqx'; x.innerHTML='✕'; x.title=T('Close','Cerrar'); x.onclick=e=>{ e.stopPropagation(); closeSeqTab(id); }; t.appendChild(x);
     t.onpointerdown=e=>startSeqTabDrag(e,id); // [R3] drag to reorder
