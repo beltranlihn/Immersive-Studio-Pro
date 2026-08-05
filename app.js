@@ -11001,6 +11001,10 @@ window.addEventListener('keydown',e=>{ const tag=(e.target.tagName||'').toLowerC
   if(mod&&e.key.toLowerCase()==='c'&&state.autoSel&&state.autoSel.set&&state.autoSel.set.size){e.preventDefault();copyAutoSel();return;} // selected breakpoints → copy the curve slice, not the clip
   if(mod&&e.key.toLowerCase()==='v'&&state.hoverAuto&&state.kfClipboard&&state.kfClipboard.ks&&state.kfClipboard.ks.length){e.preventDefault();pasteAutoAt(state.hoverAuto, state.hoverAuto.t!=null?state.hoverAuto.t:state.playhead);return;} // [L5] pointer over an automation lane → paste the curve at the CURSOR position (not the playhead)
   if(mod&&e.key.toLowerCase()==='a'&&state.hoverAuto){e.preventDefault();selectAllAuto(state.hoverAuto);return;} // Ctrl+A over a lane = select all its breakpoints
+  /* [R278] Con Alt, copiar/pegar ATRIBUTOS. Van ANTES que Ctrl+C/V a proposito: comparten la tecla y el que
+     mira primero gana; puestos despues, el copiado de clip se los tragaria. */
+  if(mod&&e.altKey&&e.key.toLowerCase()==='c'){e.preventDefault();copyAttrs();return;}
+  if(mod&&e.altKey&&e.key.toLowerCase()==='v'){e.preventDefault();pasteAttrs();return;}
   if(mod&&e.key.toLowerCase()==='c'){e.preventDefault();copyClip();return;}
   if(mod&&e.key.toLowerCase()==='v'){e.preventDefault();pasteClip();return;}
   if(mod&&e.key.toLowerCase()==='d'){e.preventDefault(); if(selClip())duplicateClip(); else if(state.selLane!=null)duplicateLane(state.selLane); return;} // [R93] clip first (selection is now exclusive: track OR clip)
@@ -11101,6 +11105,76 @@ function duplicateClip(){ const c=selClip(); if(!c)return; pushUndo(); const n={
    capas lo reproduzca tal cual en otro punto de la línea de tiempo. */
 function selClipsAll(){ const ids=(state.selIds&&state.selIds.length)?state.selIds:(state.selId!=null?[state.selId]:[]);
   return ids.map(clipById).filter(Boolean); }
+/* ═══ [R278] COPIAR / PEGAR ATRIBUTOS ═══════════════════════════════════════════════════════════════════════
+   Petición de Beltrán: llevar de un clip a otro «los ajustes de transform, los efectos que tenga, las
+   automatizaciones, las configuraciones», incluso entre un clip normal y una composición, «porque el compose se
+   comporta como un clip dentro del main timeline». Con dos límites que él puso:
+     · NUNCA cambia la duración ni la posición del clip que recibe — «no pierdo mi editing»;
+     · la configuración de la composición NO viaja, porque es particular de cada una.
+
+   Se enumera lo que NO se copia, no lo que sí. Una lista de «copiar esto, esto y esto» envejece mal: el día que
+   se añada un parámetro al inspector nadie se acordará de apuntarlo aquí y el pegado saldría incompleto sin que
+   nada falle a la vista. Excluir es la lista corta y estable — identidad, sitio, duración, medio y composición. */
+const ATTR_FUERA=new Set([
+  'id','mediaId','lane','start','dur',      // identidad, sitio y duración: es justo lo que él NO quiere tocar
+  'name','color',                           // del medio de origen, no del clip
+  'comp',                                   // la configuración de la composición: su excepción explícita
+  'link','avRole',                          // el emparejado vídeo/audio pertenece a ESE par de clips
+  'group','groupId',                        // pertenecer a un grupo es una relación, no un atributo
+  'inP',                                    // qué trozo del archivo suena/se ve: es un montaje, y entre medios distintos no significa nada
+  'maskTex','peaks'                          // cachés de GPU/audio; se reconstruyen solas
+]);
+function attrsDeClip(c){ const o={};
+  for(const k in c){ if(ATTR_FUERA.has(k)||k.charAt(0)==='_')continue;   // '_' = estado efímero (_penCv, _penSel…)
+    const v=c[k]; if(typeof v==='function')continue;
+    o[k]=(v&&typeof v==='object')?JSON.parse(JSON.stringify(v)):v; }
+  return o; }
+function copyAttrs(){ const c=selClip(); if(!c){ flashStatus(T('Select a clip first','Selecciona un clip primero'),'err'); return; }
+  state.attrClip={ attrs:attrsDeClip(c), dur:c.dur, nombre:c.name||'' };
+  flashStatus(T('Attributes copied','Atributos copiados')); }
+/* El recorte de las automatizaciones. Los tiempos de `kf` son RELATIVOS al inicio del clip (`kfAt` lee
+   `playhead - c.start`), así que llevarlas a un clip más corto es quedarse con los puntos que caen dentro de su
+   duración — literalmente lo que pidió: «si copio de uno de cuarenta y pego en uno de quince, debiera alcanzar a
+   copiarse sólo la automatización que encajaba en esos quince segundos».
+   Un matiz que no está en la frase pero sin él el resultado sería falso: si el primer punto que sobrevive no está
+   en 0, el parámetro empezaría con el valor base del clip y daría un salto en ese punto. Se añade el valor
+   INTERPOLADO en 0 para que el tramo conservado arranque donde arrancaba. */
+function recortarKf(kf,dur){ if(!kf)return null; const out={};
+  for(const p in kf){ const pts=(kf[p]||[]).slice().sort((a,b)=>a.t-b.t);
+    if(!pts.length)continue;
+    const dentro=pts.filter(k=>k.t<=dur+1e-6);
+    if(!dentro.length)continue;                       // toda la automatización caía fuera: el clip se queda sin ella
+    if(dentro[0].t>1e-6){ const v0=kfEval(pts,0); if(v0!=null) dentro.unshift(Object.assign({},dentro[0],{t:0,v:v0})); }
+    out[p]=dentro.map(k=>Object.assign({},k)); }
+  return Object.keys(out).length?out:null; }
+/* Evaluación lineal de una curva en un instante; sólo se usa para el punto de arranque del recorte. */
+function kfEval(pts,t){ if(!pts.length)return null;
+  if(t<=pts[0].t)return pts[0].v; if(t>=pts[pts.length-1].t)return pts[pts.length-1].v;
+  for(let i=1;i<pts.length;i++){ if(pts[i].t>=t){ const a=pts[i-1],b=pts[i];
+    const f=(b.t-a.t)>1e-9?(t-a.t)/(b.t-a.t):0; return a.v+(b.v-a.v)*f; } }
+  return pts[pts.length-1].v; }
+function pasteAttrs(){ const cb=state.attrClip; if(!cb){ flashStatus(T('Copy attributes from a clip first','Copia antes los atributos de un clip'),'err'); return; }
+  const dest=selClipsAll(); if(!dest.length){ flashStatus(T('Select a clip first','Selecciona un clip primero'),'err'); return; }
+  pushUndo();
+  let recortados=0;
+  for(const c of dest){
+    const a=JSON.parse(JSON.stringify(cb.attrs));
+    /* El bucle es un atributo (él lo pidió: «como el que esté loopeado»), pero su longitud mide dentro del
+       ARCHIVO del destino, que puede ser más corto que el del origen. Se acota, o el bucle apuntaría más allá
+       del final y el clip se quedaría congelado. */
+    if(a.loopLen!=null){ const m=mediaById(c.mediaId); const tope=(m&&m.dur)?m.dur:a.loopLen;
+      if(a.loopLen>tope){ a.loopLen=tope; recortados++; } }
+    const kfRec=recortarKf(a.kf,c.dur);
+    if(a.kf&&Object.keys(a.kf).length&&(!kfRec||Object.keys(kfRec).length<Object.keys(a.kf).length||cb.dur>c.dur))recortados++;
+    delete a.kf;
+    Object.assign(c,a);
+    if(kfRec)c.kf=kfRec; else delete c.kf;
+    /* Las máscaras de pluma se rasterizan a una textura: copiar los puntos sin rehacerla deja la de antes. */
+    if(c.maskData||(c.penMasks&&c.penMasks.length)){ c.maskTex=null; if(typeof rebuildMaskTex==='function')rebuildMaskTex(c); }
+    if(c.penMasks&&c.penMasks.length&&typeof rasterizePenMasks==='function')rasterizePenMasks(c); }
+  markDirty(); renderTimeline(); renderInspector(); render(); updStatus();
+  flashStatus(T('Attributes pasted to ','Atributos pegados a ')+dest.length+(dest.length===1?T(' clip',' clip'):T(' clips',' clips'))
+    +(recortados?T(' · automation trimmed to fit',' · automatización recortada a la duración'):'')); }
 function copyClip(){ const cs=selClipsAll(); if(!cs.length)return;
   state.clipboard={ items:cs.map(c=>JSON.parse(JSON.stringify(c))), t0:Math.min(...cs.map(c=>c.start||0)) };
   if(cs.length>1)flashStatus(T('Copied ','Copiados ')+cs.length+T(' clips',' clips')); }
@@ -11220,6 +11294,7 @@ function openAppMenu(which,btn){ const r=btn.getBoundingClientRect(); const x=r.
     'sep',
     {label:T('Cut','Cortar'),key:'⌘X',fn:()=>{ copyClip(); deleteSel(); }},
     {label:T('Copy','Copiar'),key:'⌘C',fn:copyClip},
+    {label:T('Copy attributes','Copiar atributos'),key:'⌘⌥C',fn:copyAttrs}, {label:T('Paste attributes','Pegar atributos'),key:'⌘⌥V',fn:pasteAttrs},
     {label:T('Paste','Pegar'),key:'⌘V',fn:pasteClip},
     {label:T('Duplicate','Duplicar'),key:'⌘D',ico:'diamond',fn:duplicateClip},
     'sep',
@@ -11375,7 +11450,8 @@ $('#tracks').addEventListener('contextmenu',e=>{ const cd=e.target.closest('.cli
       return []; })(),
     {label:T('Split at playhead','Dividir en el cabezal'),ico:'split',fn:()=>{const c=clipById(id);if(c)razorClip(c,state.playhead);}},
     {label:T('Zoom to clip','Ampliar al clip'),ico:'zoomIn',fn:()=>{const c=clipById(id);if(c)zoomToClip(c);}}, // [T1]
-    {label:T('Duplicate','Duplicar'),key:'⌘D',ico:'diamond',fn:duplicateClip}, {label:T('Copy','Copiar'),key:'⌘C',fn:copyClip}, 'sep',
+    {label:T('Duplicate','Duplicar'),key:'⌘D',ico:'diamond',fn:duplicateClip}, {label:T('Copy','Copiar'),key:'⌘C',fn:copyClip},
+    {label:T('Copy attributes','Copiar atributos'),key:'⌘⌥C',fn:copyAttrs}, {label:T('Paste attributes','Pegar atributos'),key:'⌘⌥V',fn:pasteAttrs}, 'sep',
     {label:T('Set clip color…','Elegir color del clip…'),fn:()=>{ if(!state.selIds.includes(id)){state.selIds=[id];state.selId=id;} openClipColorPopup(e.clientX,e.clientY); }},
     {label:T('Change speed…','Cambiar velocidad…'),fn:()=>{const c=clipById(id);if(c)speedMenu(c);}},
     {label:(()=>{const c=clipById(id);return (c&&c.loop)?T('Loop: on ✓','Loop: activado ✓'):T('Loopable','Loopeable');})(),fn:()=>{const c=clipById(id);if(c)toggleLoop(c);}},

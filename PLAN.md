@@ -1,5 +1,22 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 277-278 — Pestanas de secuencia, y copiar/pegar atributos
+
+**R277 · Las pestanas.** Ancho fijo (90 px) en vez de dictado por el nombre, tres exactas a la vista y el resto por
+desplazamiento. El contenedor sale del ancho de la pestana —van en la misma variable a proposito— y mide 278 px, apenas por
+encima del panel lateral (292), que es la referencia que dio Beltran. El **«+» salio de la zona que se desplaza**: dentro,
+habia que reservarle ancho y ese sobrante era justo lo que dejaba asomar la cuarta pestana; quitarselo lo habria escondido al
+desplazar. Separador fino entre pestanas inactivas: se leian como una tira continua con un aspa suelta en medio.
+
+**R278 · Copiar/pegar atributos.** Ver la fila de `COMPONENTS.md`. Las dos decisiones que sostienen el resto: **excluir en vez
+de incluir** (una lista de «copiar esto y esto» envejece mal y falla en silencio), y **recortar la automatizacion** por la
+duracion del destino, que es posible porque los tiempos de `kf` son relativos al inicio del clip.
+
+Verificado por CDP (`scratchpad/r278-atributos.mjs`): de un clip de 40 s con transform, bucle, efecto y dos curvas a uno de
+15 s — sitio, duracion, pista, medio y `comp` del destino intactos; transform y efecto completos; `loopLen` 35 acotado a los
+20 s de su archivo; la curva de opacidad queda en los puntos 0 y 10 (30 y 38 fuera) y la de az, cuyos dos puntos caian fuera,
+desaparece; el clip origen, sin tocar.
+
 ## ROUND 276 — Los cuadros de Compose, bajo las reglas del inspector
 
 Punto 17 y último de la lista. Los diálogos de composición se habían quedado fuera del sistema de diseño: sliders
