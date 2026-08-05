@@ -10731,9 +10731,24 @@ gutter($('#gutterL'),$('#mediaPane'),'L'); gutter($('#gutterR'),$('#inspPane'),'
 /* [R244] `before` se ejecuta en el pointerdown, ANTES de mover nada: es donde el arrastre de la línea de tiempo
    decide, UNA sola vez por gesto, si las pistas lo van a acompañar. Decidirlo en cada movimiento no vale: al
    achicar, el contenido pasa a desbordar en el primer píxel y el acoplamiento se apagaría solo a mitad del gesto. */
-function hResize(handle,target,minH,maxH,after,before){ const hEl=$(handle); if(!hEl)return; hEl.addEventListener('pointerdown',e=>{ e.preventDefault(); const t=$(target); const h0=t.offsetHeight,y0=e.clientY; if(before)before();
+/* [R266] El final del gesto está GARANTIZADO, y no es un detalle: el que llama pone `_tlResizing=true` para que
+   el recorte automático no pelee con el ratón, y esa bandera sólo la apagaba un `pointerup` en la ventana. Si el
+   dedo se levantaba FUERA —o llegaba un `pointercancel`, o la ventana perdía el puntero— la bandera se quedaba
+   encendida para el resto de la sesión: `clampTimelineH` dejaba de recortar y el hueco muerto bajo la última pista
+   se quedaba ahí, creciendo al plegar o quitar pistas. Reproducido: 387 px de banda muerta y la bandera en true.
+   Se captura el puntero (así el `pointerup` llega aunque se suelte fuera) y se cierra también con `pointercancel`
+   y `lostpointercapture`. El cierre corre UNA vez, venga por donde venga. */
+function hResize(handle,target,minH,maxH,after,before,end){ const hEl=$(handle); if(!hEl)return; hEl.addEventListener('pointerdown',e=>{ e.preventDefault(); const t=$(target); const h0=t.offsetHeight,y0=e.clientY; if(before)before();
+  try{ hEl.setPointerCapture(e.pointerId); }catch(_){}
   const mv=ev=>{ const mx=(typeof maxH==='function')?maxH():maxH; let h=Math.max(minH,Math.min(mx,h0-(ev.clientY-y0))); t.style.height=h+'px'; if(after)after(); };
-  const up=()=>{window.removeEventListener('pointermove',mv);window.removeEventListener('pointerup',up);}; window.addEventListener('pointermove',mv);window.addEventListener('pointerup',up); }); }
+  let cerrado=false;
+  const up=()=>{ if(cerrado)return; cerrado=true;
+    window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up); window.removeEventListener('pointercancel',up); window.removeEventListener('blur',up);
+    hEl.removeEventListener('lostpointercapture',up);
+    try{ hEl.releasePointerCapture(e.pointerId); }catch(_){}
+    if(end)end(); };
+  window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); window.addEventListener('pointercancel',up); window.addEventListener('blur',up);
+  hEl.addEventListener('lostpointercapture',up); }); }
 /* [R156] La timeline no crece más allá de lo que ocupan sus pistas: estirarla dejaba un vacío debajo de la última
    y no aportaba nada. El tope es regla + suma de alturas + barra de zoom, y se recalcula en cada arrastre porque
    cambia al añadir/quitar/colapsar pistas o al escalarlas con Alt+rueda. Se deja un mínimo por si no hay ninguna.
@@ -10756,6 +10771,11 @@ function tlDragMaxH(){ return Math.max(170, Math.round(innerHeight*0.92)); }
    `.tlscroll` lleva `scrollbar-width:none` NO se veía: la última pista se recortaba en silencio. Se mide del DOM
    con `RULER_H` de reserva, para que no vuelva a desincronizarse si cambia el CSS. */
 function tlHueco(sc){ const rl=$('#ruler'); const rh=(rl&&rl.offsetHeight)||RULER_H; return (sc.clientHeight-rh); }
+/* [R266] Cuánta banda muerta hay AHORA MISMO bajo la última pista: hueco visible menos lo que ocupan las pistas.
+   Negativo = el contenido desborda (hay scroll, que es sano). Positivo = panel de sobra que nadie usa. */
+function tlHuecoMuerto(){ const sc=$('#tlscroll'); if(!sc||!state.lanes.length)return 0;
+  let total=0; state.lanes.forEach((l,i)=>total+=laneH(i));
+  return tlHueco(sc)-total; }
 function tlLanesFit(){ const sc=$('#tlscroll'); if(!sc||!state.lanes.length)return false;
   const hueco=tlHueco(sc); if(hueco<40)return false;
   let total=0; state.lanes.forEach((l,i)=>total+=laneH(i));
@@ -10791,17 +10811,30 @@ function fillLanesToViewport(base){ const sc=$('#tlscroll'); if(!sc)return false
 let _tlFillDrag=false, _tlFillBase=null, _tlFillCambio=false; // ¿este arrastre lleva las pistas consigo? + sus alturas al empezar + si llegó a cambiar alguna
 let _tlResizing=false;                   // [R244] mientras dura el arrastre manda el ratón, no el ajuste automático
 hResize('#tlResize','.timeline',170,tlDragMaxH,
-  ()=>{ _tlAltoManual=true; resize(); if(_tlFillDrag&&fillLanesToViewport(_tlFillBase))_tlFillCambio=true; renderTimeline(); try{renderVZoom();}catch(e){} }, // [R171] arrastrar el divisor marca la altura como manual (ver clampTimelineH) · [R244] y las pistas lo acompañan
+  ()=>{ _tlAltoManual=true; resize();
+    /* [R266] El acoplamiento se decidía UNA vez, en el `pointerdown`, y no cambiaba en todo el gesto. Eso está
+       bien mientras el contenido desborde —subir sólo enseña más pistas—, pero deja de estarlo en cuanto el panel
+       supera al contenido: a partir de ahí crece el hueco y NADIE lo rellena. Es lo que describió Beltrán:
+       «achiqué al mínimo la tira y después la volví a extender». Al achicar al mínimo las pistas se quedan en su
+       altura mínima; al volver a extender, el gesto arranca con ellas desbordando, decide que no las acompaña, y
+       el panel crece solo.
+       Ahora se comprueba en cada movimiento: si NO están acopladas y aparece banda muerta, se acoplan desde ese
+       instante, tomando como base las alturas de ese momento. Lo que no se hace es lo contrario —desacoplar a
+       mitad— que es el error que R244 evitó a propósito: al achicar el contenido desborda al primer píxel. */
+    if(!_tlFillDrag && tlHuecoMuerto()>1){ _tlFillDrag=true; _tlFillBase=state.lanes.map((l,i)=>laneH(i)); }
+    if(_tlFillDrag&&fillLanesToViewport(_tlFillBase))_tlFillCambio=true; renderTimeline(); try{renderVZoom();}catch(e){} }, // [R171] arrastrar el divisor marca la altura como manual (ver clampTimelineH) · [R244] y las pistas lo acompañan
   ()=>{ _tlFillDrag=tlLanesFit(); _tlFillBase=_tlFillDrag?state.lanes.map((l,i)=>laneH(i)):null;
     /* [R244] `renderTimeline` llama a `clampTimelineH`, que recorta el panel al alto del contenido. Durante el
        arrastre eso PELEA con el ratón: el reparto deja el contenido a un par de píxeles del hueco (redondeo por
        pista) y el recorte devolvía esa diferencia en cada movimiento, con el temblor correspondiente. Se aparta
        mientras dura el gesto y se suelta al levantar el dedo, donde un único ajuste ya no se nota. */
-    _tlResizing=true; _tlFillCambio=false;
-    const fin=()=>{ _tlResizing=false; window.removeEventListener('pointerup',fin);
-      if(_tlFillCambio){ _tlFillCambio=false; markDirty(); } // [R244b] una sola vez al soltar, no 60 por segundo
-      try{ clampTimelineH(); renderVZoom(); }catch(e){} };
-    window.addEventListener('pointerup',fin); });
+    _tlResizing=true; _tlFillCambio=false; },
+  /* [R266] El cierre ya no se cuelga de un `pointerup` propio: lo llama `hResize`, que garantiza que ocurre una
+     vez aunque el dedo se levante fuera de la ventana. Antes, ese `pointerup` que no llegaba dejaba `_tlResizing`
+     en true y el recorte automático muerto para el resto de la sesión. */
+  ()=>{ _tlResizing=false;
+    if(_tlFillCambio){ _tlFillCambio=false; markDirty(); } // [R244b] una sola vez al soltar, no 60 por segundo
+    try{ clampTimelineH(); renderTimeline(); renderVZoom(); }catch(e){} });
 /* [R171] `tlMaxH` sólo limitaba el ARRASTRE. La altura de partida está cableada en el CSS (402px) y no se
    recalcula al colapsar, quitar o escalar pistas, así que sobraba banda vacía debajo de la última. Esto la
    recorta al alto real de las pistas. Sólo hacia ABAJO: si el usuario la ha dejado más pequeña, se respeta. */

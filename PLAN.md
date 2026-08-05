@@ -1,5 +1,58 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 266 — El divisor de la línea de tiempo dejaba una banda muerta: dos causas, y una es una bandera que se quedaba encendida
+
+Beltrán grabó el fallo y añadió la pista que lo destapó: «creo que hizo ese glitch cuando achiqué al mínimo la
+tira y después la volví a extender». El vídeo se leyó extrayendo fotogramas: el panel crecido, las ocho pistas
+apiñadas arriba y un bloque muerto debajo.
+
+Reproducido en la app real disparando los eventos del divisor. **Eran dos fallos distintos**, y el primer intento
+de reproducción —arrastrar con muchas pistas— daba 0 px de banda muerta, o sea que la hipótesis obvia era falsa.
+
+### 1 · El acoplamiento se decidía una vez, y esa decisión caducaba
+
+R244 decide en el `pointerdown` si las pistas acompañan al divisor: si **caben**, van con él; si el contenido ya
+desborda, no se tocan y manda el scroll. Es correcto… mientras el contenido siga desbordando. En cuanto el panel
+supera al contenido, el hueco crece y **nadie lo rellena**.
+
+Es exactamente la secuencia que describió Beltrán: al achicar al mínimo las pistas quedan en su altura mínima; al
+volver a extender, el gesto arranca con ellas desbordando, decide que no las acompaña, y el panel crece solo.
+
+Ahora se comprueba en cada movimiento: si NO están acopladas y aparece banda muerta, **se acoplan desde ese
+instante**, con las alturas de ese momento como base. Lo que se sigue sin hacer es lo contrario —desacoplar a
+mitad del gesto—, que es el error que R244 evitó a propósito: al achicar, el contenido desborda al primer píxel.
+
+### 2 · Una bandera que se quedaba encendida para el resto de la sesión
+
+Ésta es la que hacía que el fallo **persistiera**, y la más fea. El gesto pone `_tlResizing=true` para que el
+recorte automático no pelee con el ratón, y esa bandera sólo la apagaba un `pointerup` **en la ventana**. Si el
+dedo se levantaba fuera —o llegaba un `pointercancel`, o la ventana perdía el puntero— la bandera se quedaba
+encendida: `clampTimelineH` dejaba de recortar **para siempre**, y la banda muerta se quedaba ahí y **crecía** al
+plegar o quitar pistas.
+
+Medido: gesto sin `pointerup` → bandera en `true`; plegar las ocho pistas después → **387 px** de banda muerta y el
+panel sin moverse.
+
+El arreglo va en `hResize`, que ahora **captura el puntero** —así el `pointerup` llega aunque se suelte fuera— y
+cierra igualmente con `pointercancel`, `lostpointercapture` y `blur`. El cierre corre **una vez**, venga por donde
+venga, y el que llama ya no cuelga su limpieza de un `pointerup` propio: se la pasa a `hResize` como gancho de
+final. Es el mismo patrón de red de seguridad que R243 puso para el scrub, aplicado donde faltaba.
+
+### Verificado (`scratchpad/r266-*.mjs`)
+
+Tres caminos, con los eventos que ocurren de verdad:
+
+| | banda muerta | bandera |
+|---|---|---|
+| gesto interrumpido (`pointercancel`) + plegar las 8 pistas | 0 px (el panel cae de 700 a 233) | apagada |
+| ídem interrumpido por `blur` (soltar fuera de la ventana) | 0 px | apagada |
+| achicar al mínimo y volver a extender | 0 px | apagada |
+| control: 2 pistas que sí caben al empezar (lo que R244 ya cubría) | 0 px | apagada |
+
+Antes del arreglo, los dos primeros daban 467 px de banda muerta con la bandera encendida.
+
+---
+
 ## ROUND 264/265 — El Giro del túnel (y por qué no se veía) · los mandos del tejido
 
 ### R264 · «¿Qué hace el twist? No veo ningún cambio»
