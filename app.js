@@ -969,8 +969,22 @@ function stopMotionPreview(){ if(_prevRaf){cancelAnimationFrame(_prevRaf);_prevR
 /* draw one clip into current FB */
 function fadeFactor(c,t){ const lt=t-c.start; let fi=c.fadeIn||0,fo=c.fadeOut||0; if(fi+fo>c.dur){const s=c.dur/(fi+fo);fi*=s;fo*=s;} let f=1; if(fi>0&&lt<fi)f*=Math.max(0,lt/fi); if(fo>0&&lt>c.dur-fo)f*=Math.max(0,(c.dur-lt)/fo); return f; }
 function srcT(c,t){ const raw=(t-c.start)*(c.speed||1); // timeline time → SOURCE-media time (R80: per-clip speed; R81: loopable clips wrap over [inP, inP+loopLen) so drawing/analysis/export all repeat automatically)
-  if(c.loop&&c.loopLen>0){ const L=c.loopLen; let ph=raw-Math.floor(raw/L)*L;
-    if(c.loopRev&&(Math.floor(raw/L)&1))ph=L-ph; // R88: ping-pong — odd cycles play backward (forward, back, forward, …)
+  if(c.loop&&c.loopLen>0){ const L=c.loopLen; let k=Math.floor(raw/L), ph=raw-k*L;
+    /* [R256] El módulo en coma flotante no vuelve a cero en todas las vueltas: con un bucle de 0,4 s, `1.2/0.4`
+       da 2,9999999999999996, así que el fotograma 36 se quedaba en 0,39999… — el ÚLTIMO del ciclo en vez del
+       primero. Resultado: un fotograma repetido en cada tercera vuelta, un tirón visible que además desalineaba
+       el ciclo entero a partir de ahí (medido: de 48 parejas que debían repetirse, 4 no lo hacían).
+       La tolerancia es de un nanosegundo: mil veces más fina que cualquier posición real y suficiente para
+       cazar el error del cociente. */
+    /* Y se redondea a nanosegundos ANTES de decidir la vuelta, porque el mismo punto del ciclo sale con distinto
+       error según el ciclo: en la vuelta 2 daba 4,2 exacto y en la 3 4,199999999999999. Parece lo mismo y no lo
+       es — `keyForTime` TRUNCA a microsegundos enteros (así elige `<video>`, R189), así que 4200000 y 4199999
+       son dos fotogramas DISTINTOS. Un nanosegundo de ruido decidía un fotograma. Un nanosegundo es cuatro
+       millones de veces más fino que el fotograma más corto que admite el programa: redondear ahí no puede
+       mover nada real. */
+    ph=Math.round(ph*1e9)/1e9;
+    if(ph>=L-1e-9){ ph=0; k++; } else if(ph<0){ ph+=L; k--; }
+    if(c.loopRev&&(k&1))ph=L-ph; // R88: ping-pong — odd cycles play backward (forward, back, forward, …)
     return (c.inP||0)+ph; }
   return raw+(c.inP||0); }
 function loopCycleSec(c){ return (c.loop&&c.loopLen>0)?(c.loopLen/(c.speed||1)):0; } // one loop cycle length in TIMELINE seconds
@@ -7177,7 +7191,7 @@ function makeClipDecoder(d,ex){
   const ensureBuf=async(i)=>{ const s=d.samples[i]; if(inBuf(s))return true; const a=s.offset;
     const data=await d.readRange(a, Math.max(s.size, READAHEAD)); if(!data)return false; bufData=data; bufStart=a; bufEnd=a+data.length; return inBuf(s); };
   const mkDec=()=>{ dec=new VideoDecoder({output:f=>{ if(closed){f.close();return;} const o=cache.get(f.timestamp); if(o&&o!==f){try{o.close();}catch(e){}} cache.set(f.timestamp,f); fails=0; }, error:e=>{ err=String((e&&e.message)||e); }}); dec.configure({codec:d.codec,description:d.description}); };
-  let resets=0;
+  let resets=0, atasco=0;
   const resetTo=(di)=>{ resets++; if(dec){try{dec.close();}catch(e){}} for(const[,f]of cache){try{f.close();}catch(e){}} cache.clear(); mkDec(); feed=keyBefore(di); feedBase=feed; feedBasePts=d.samples[feed].pts; lastFedPts=-1; err=null; vaciando=false; vaciado=false; }; // el decodificador es NUEVO: su cola de reordenación vuelve a estar por vaciar
   const evict=()=>{ const lo=targetUs-BEHIND; for(const[ts,f]of cache){ if(ts<lo){try{f.close();}catch(e){} cache.delete(ts);} }
     if(cache.size>CAP){ const ks=[...cache.keys()].sort((a,b)=>a-b); for(const k of ks){ if(cache.size<=CAP)break; if(k<targetUs-frameDur){try{cache.get(k).close();}catch(e){} cache.delete(k);} } } };
@@ -7203,6 +7217,24 @@ function makeClipDecoder(d,ex){
       try{ dec.decode(new EncodedVideoChunk({type:s.key?'key':'delta',timestamp:s.pts,data})); }catch(e){ err=String(e); }
       lastFedPts=s.pts; feed++; n++;
     }
+    /* [R256] BLOQUEO MUTUO tras un salto hacia atrás corto — lo que hace un CLIP EN BUCLE en cada vuelta.
+       El destino cae POR DETRÁS de lo ya alimentado pero DENTRO del GOP en curso, así que la rama de reinicio hacia
+       atrás no dispara (el destino no es anterior a `feedBasePts`) y el fotograma pedido, decodificado hace un
+       instante, ya fue desalojado. A partir de ahí se traban dos cosas a la vez:
+         · el bucle de alimentación no alimenta, porque `lastFedPts` ya va por delante de `targetUs+AHEAD`;
+         · y el decodificador tampoco avanza por su cuenta: los fotogramas que la caché retiene POR DELANTE del
+           destino agotan su fondo de salida, y `evict` no los suelta porque sólo tira lo anterior a destino−BEHIND.
+       Medido en el atasco real: destino 4,067 s, caché [4,367..4,600], cola de decodificación clavada en 9,
+       nada alimentado durante miles de vueltas. El export aguanta 10 s, se rinde y marca `_cdFail`, con lo que
+       TODO el resto de la exportación de ese medio cae al camino <video>: 900 ms/fotograma frente a 35.
+       Reiniciar en el fotograma clave anterior al destino rompe las dos trabas de golpe —cierra los fotogramas
+       retenidos, que es lo que libera el fondo, y vuelve a alimentar desde donde toca.
+       Se exige que la situación se REPITA: un fotograma que sigue en la cola de reordenación llega en unas pocas
+       vueltas, y un bloqueo de verdad no se deshace nunca. `targetUs<lastFedPts` deja fuera el fin de archivo,
+       donde manda la rama de `vaciado` de `passed()`. */
+    if(n===0 && lastFedPts>=0 && targetUs<lastFedPts && !cache.has(targetUs)){
+      if(++atasco>=40){ atasco=0; resetTo(decIdxForTime(targetUs)); } }
+    else atasco=0;
     /* Alimentadas TODAS las muestras, se pide el vaciado: hasta que resuelva, la cola de reordenación puede
        seguir guardando fotogramas y `passed()` no puede dar por cerrado el archivo. */
     if(feed>=N && dec && !vaciando && !vaciado){ vaciando=true;

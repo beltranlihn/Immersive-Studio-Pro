@@ -4,21 +4,32 @@
 > en `COMPONENTS.md` + una entrada en `PLAN.md` en el mismo commit, como manda el ritual de `/commit`).
 > Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: 2026-08-04.
 
-## 🔭 Abierto — caché del tramo del bucle en el export (medido en R254)
-- [ ] **Un clip en bucle cuesta ×1,7 por fotograma al exportar** (medido alternando A/B: 590 vs 1017 ms/fotograma,
-      rangos sin solapar). Al envolver, el tiempo de fuente salta hacia atrás y el decodificador secuencial se
-      reposiciona una vez por ciclo. **Los fotogramas del tramo se repiten**, así que cachearlos lo haría casi
-      gratis: un bucle de 0,4 s a 30 fps son doce fotogramas. Acotar la caché por número de fotogramas (no por
-      segundos) para no reventar la memoria con un bucle largo a 4096².
-      **Condición de aceptación, innegociable:** salida **idéntica bit a bit** contra la actual antes de mirar
-      siquiera el tiempo. R189 midió que aceptar un fotograma «suficientemente cercano» daba **másters distintos
-      entre pasadas** (PSNR 36-40 dB); un fotograma equivocado en el máster de la película es el peor fallo posible.
-      Sondas de partida: `scratchpad/r254b-bucle-ab.mjs` (A/B alternado) y `scratchpad/r254c-degradacion.mjs`.
+## ✅ Exportar con bucles · CERRADO [R256] — no era una optimización, eran dos fallos
+- [x] **El «×1,7 del bucle» de R254 era en realidad ×25, y por una avería.** Al envolver, el decodificador entraba
+      en **bloqueo mutuo** (los fotogramas retenidos por delante del destino agotan su fondo de salida y `evict` no
+      los suelta), aguantaba 10 s, se **rendía** y marcaba `_cdFail`: a partir de ahí TODO el export de ese medio
+      caía al camino `<video>`. Medido: **914 → 82-103 ms/fotograma** con un clip en bucle (sin bucle, 36).
+      Y ese camino de repliegue **entregaba fotogramas equivocados**, distintos en cada pasada (34-51 dB).
+- [x] **`srcT` no cerraba el ciclo.** `1.2/0.4` da 2,9999999999999996, así que una de cada tres vueltas repetía el
+      último fotograma en vez de volver al primero; y el mismo punto del ciclo salía como 4,2 o 4,199999999999999
+      según la vuelta, que `keyForTime` **trunca** a dos microsegundos distintos = dos fotogramas distintos.
+      Ahora las 48 parejas que deben repetirse se repiten, en las tres pasadas.
+- [ ] *Queda, ya como optimización real:* un bucle sigue costando **×2,5** frente al mismo clip sin bucle (90 vs 36
+      ms/fotograma) porque hay **un reinicio del decodificador por vuelta**. Retener los fotogramas del tramo lo
+      haría casi gratis. Se intentó en R255 y se retiró: retener sin resolver el bloqueo sólo lo adelantaba.
+      Acotar por número de fotogramas, no por segundos.
 
 > **Cómo medir aquí, que la mitad del trabajo es esto.** Los absolutos varían **5-10× entre pasadas** según la
 > caché de disco, y correr una lista de variantes en orden sesga **2×** a las últimas. Sirve sólo: alternar A/B,
 > repetir y tomar mediana, descartar la primera pasada, y afirmar la diferencia únicamente si los rangos no se
 > solapan. Un perfil por lista dio en R254 un «5× más lento» que era ruido de orden.
+>
+> **Y cómo NO comparar fotogramas: por el hash del PNG.** Dos pasadas idénticas del mismo código difieren en **un
+> píxel de 1/255** por redondeo de la GPU (PSNR 103-108 dB), así que el hash marca «distinto» sin que haya nada
+> distinto — con eso llegué a acusar a un cambio que no tenía culpa. El criterio es de **píxeles**: ningún
+> fotograma por debajo de 90 dB (un fotograma vecino da 20-45). Mejor todavía, cuando existe: una prueba
+> **intrínseca**, que no necesita referencia — en un bucle de 0,4 s a 30 fps, el fotograma *k* y el *k+12* son el
+> mismo instante y tienen que ser idénticos. Sondas: `scratchpad/r256-*.mjs`.
 
 ## ✅ Deshacer para medios y carpetas · CERRADO [R253c·d]
 - [x] **[R253d] Guardado contra el pisotón**: hacer restaurable el estado global lo hacía revertible por fotos que

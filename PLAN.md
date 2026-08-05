@@ -1,5 +1,68 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 256 — Exportar con clips en bucle: un bloqueo mutuo, un ciclo que no cerraba, y un criterio de medida que no valía
+
+Beltrán pidió seguir con `NEXT` y un export corto para revisar fotogramas. Lo que apareció por el camino es más
+grave que la optimización que iba a hacer, y afecta directamente al máster de su película.
+
+### 0 · Antes de nada: mi criterio de aceptación era falso
+
+Comparaba fotogramas por el **hash del PNG**. Con eso, dos pasadas del **mismo build** daban «24 de 90 distintos»,
+y estuve a punto de atribuírselo a un cambio inocente. Medido en píxeles, la diferencia es **un píxel con un valor
+de 1/255 en un canal** (PSNR 103-108 dB): redondeo de la GPU al leer el composite, invisible e inevitable. El
+criterio válido es de píxeles —ningún fotograma por debajo de 90 dB— y, cuando se puede, **intrínseco**: en un
+bucle de 0,4 s a 30 fps, el fotograma *k* y el *k+12* son el mismo instante de fuente y deben ser idénticos. Esa
+prueba no necesita ninguna referencia, que es justo lo que hacía falta cuando resultó que la referencia mentía.
+
+### 1 · El «×1,7 del bucle» de R254 era ×25, y era una avería
+
+Con un clip en bucle el decodificador secuencial **se rendía en todas las pasadas** (`_cdFail`), y a partir de ahí
+la exportación entera de ese medio caía al camino `<video>`: **914 ms/fotograma frente a 36 sin bucle**.
+
+El mecanismo, capturado instrumentando `step()` en el atasco real: destino 4,067 s, caché `[4,367..4,600]`, cola de
+decodificación clavada en 9, nada alimentado durante miles de vueltas. Al envolver, el destino cae **por detrás**
+de lo ya alimentado pero **dentro del GOP en curso**, así que la rama de reinicio hacia atrás no dispara, y el
+fotograma pedido ya fue desalojado. Entonces se traban dos cosas a la vez: el bucle de alimentación no alimenta
+(porque `lastFedPts` va por delante) y el decodificador tampoco avanza por su cuenta, porque los fotogramas que la
+caché retiene **por delante** del destino agotan su fondo de salida y `evict` no los suelta —sólo tira lo anterior
+a destino−BEHIND. Bloqueo mutuo perfecto.
+
+Se detecta por lo que el atasco **es** —no se alimentó nada, el fotograma exacto no está, el destino va por
+detrás— y se rompe reiniciando en el fotograma clave anterior, que cierra los retenidos (libera el fondo) y vuelve
+a alimentar. **914 → 82-103 ms/fotograma.**
+
+Mi primer intento falló, y por una razón que merece anotarse: había puesto `decodeQueueSize===0` como guarda «para
+no reaccionar a un fotograma que sigue en la cola de reordenación». Esa guarda era exactamente lo que tapaba el
+caso: en el atasco la cola vale 9 y nunca baja. La sustituye exigir que la situación **se repita** 40 vueltas.
+
+### 2 · Y el camino de repliegue entregaba fotogramas equivocados
+
+La comparación contra la salida «de referencia» `<video>` fallaba… **también contra sí misma**: de 48 parejas que
+debían repetirse, 8 no lo hacían, a 34-51 dB —un fotograma vecino, no redondeo— y cambiando de pasada en pasada.
+Es el fallo que R189 documentó y creía cerrado, vivo en el repliegue. Como ahora el bucle ya no cae ahí, deja de
+tocar la película; pero conviene saber que ese camino no es fiable al fotograma.
+
+### 3 · El bucle tampoco cerraba el ciclo
+
+Dos errores de coma flotante en `srcT`, ambos visibles en el máster:
+
+- `1.2/0.4` da **2,9999999999999996**, así que el fotograma 36 se quedaba en 0,39999… —el **último** del ciclo en
+  vez del primero—: un fotograma repetido en cada tercera vuelta.
+- El mismo punto del ciclo salía como **4,2** en una vuelta y **4,199999999999999** en otra. Parece lo mismo y no
+  lo es: `keyForTime` **trunca** a microsegundos enteros (así elige `<video>`, R189), y 4200000 y 4199999 son dos
+  fotogramas distintos. **Un nanosegundo de ruido decidía un fotograma.**
+
+Se corrigen redondeando la fase a nanosegundos —cuatro millones de veces más fino que el fotograma más corto que
+admite el programa— antes de decidir la vuelta. Resultado: **48 de 48** parejas coinciden, en las tres pasadas.
+
+### Lo que queda
+
+Un bucle sigue costando **×2,5** frente al mismo clip sin bucle (90 vs 36 ms/fotograma): hay un reinicio del
+decodificador por vuelta. Retener los fotogramas del tramo lo haría casi gratis, y ahora sí es una optimización
+limpia —queda en `NEXT`—, pero R255 ya enseñó que retener **sin** resolver el bloqueo sólo lo adelanta.
+
+---
+
 ## ROUND 254 — Perfilar la exportación: una afirmación falsa retirada, un coste medido y una hipótesis refutada
 
 Beltrán preguntó por qué una exportación iría más rápida con proxys si lo que quiere es máxima calidad. La pregunta
