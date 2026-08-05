@@ -6423,6 +6423,11 @@ function laneAutoP(lane,li){ const p=lane._autoP;
   return laneMotKeys(li).find(k=>laneHasKf(li,k))||laneFxKeys(li).find(k=>laneHasKf(li,k))||'opacity'; }
 /* [R143] addAutoLaneAt/addAutoLane (creaban sub-carriles apilados en lane._auto, ya sin render) ARCHIVADOS → _backup/deprecated/20260723-automation-sublanes-and-clip-auto.js */
 /* [R93] the Ableton chooser pair: device (Clip | fx type on this track) + parameter. Reused by the track header and every sub-lane header. */
+/* [R274] Cuantos elementos admite cada tipo. El tope general de 32 venia de los repartos sobre el domo, donde
+   pasar de ahí es ruido; pero en el TÚNEL la cantidad es OTRA COSA: los anillos se reparten por el ciclo, así que
+   más anillos = más nacimientos por segundo y se ven MÁS JUNTOS, sin tocar la velocidad. Era lo que pedía
+   Beltrán y lo que el tope le impedía. */
+function compCountMax(kind){ return kind==='tunnel'?96:(kind==='domegrid'?160:32); }
 const XFORM_P=TF.concat(TF_FLAT).filter((d,i,a)=>a.findIndex(x=>x[0]===d[0])===i); // transform group (dome + flat, 'rot' deduped) — se usa para VALIDAR/clasificar; el chooser lista sólo los del modo activo
 /* ===================== [R224] EL CHOOSER, REDISEÑADO (ítems 2-3 de la Etapa 2) =====================
    IZQUIERDA = tres CATEGORÍAS fijas (Transform · Clip · Color) + un DISPOSITIVO por cada Motion y cada Effect
@@ -11547,6 +11552,10 @@ function compLayout(g){ const out=[],n=g.count;
      decide, no esta función.
      La posición en el CICLO la lleva `_phase` = i/n, que se traduce a un diente de sierra desfasado — de ahí el
      chorro continuo. `twist` reparte además un giro por elemento, para que uno no se vea calcado del anterior. */
+  /* [R274] SEPARACIÓN del túnel. Los anillos se repartían siempre por todo el ciclo (`i/n`), así que la única
+     forma de verlos más juntos era añadir más. Ahora el reparto se puede comprimir: al 100 % es lo de siempre;
+     por debajo, la cadena ocupa esa fracción del ciclo y los anillos van más pegados unos a otros —a cambio de
+     que entre el último y el primero quede aire, que es la consecuencia inevitable de juntarlos sin añadir. */
   else if(g.kind==='tunnel'){ const twist=(g.twist||0); for(let i=0;i<n;i++){ const f=n>1?i/n:0;
       out.push({az:(((g.spin||0)+f*twist)%360+360)%360, el:90, size:Math.max(1,g.sizeFrom||1), _phase:f}); } }
   else { ensureRand(g); for(let i=0;i<n;i++){ const a=g.rand[i]; out.push({az:(a.a*360+g.spin)%360, el:g.elMin+(g.elMax-g.elMin)*a.e, size:g.size*(0.7+0.6*a.s)}); } }
@@ -12003,7 +12012,7 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
     const wB=Math.max(1,Math.min(24,+($('#cWBands')?$('#cWBands').value:5)||5));
     const wD=(+($('#cWDens')?$('#cWDens').value:100)||100)/100;
     const _srcs=ids.map(mediaById).filter(Boolean);
-    return { id:(pre&&pre.id)||0, kind, mediaIds:ids, mediaId:ids[0], count:kind==='domegrid'?Math.min(160,rings*segs):Math.max(2,Math.min(32,+$('#cN').value||6)), // [R247] el tejido no usa `count`: lo calcula el encaje, tira por tira
+    return { id:(pre&&pre.id)||0, kind, mediaIds:ids, mediaId:ids[0], count:kind==='domegrid'?Math.min(160,rings*segs):Math.max(2,Math.min(compCountMax(kind),+$('#cN').value||6)), // [R247] el tejido no usa `count`: lo calcula el encaje, tira por tira
       bands:wB, density:wD, weaveMode:_wMode, fit:_wFit, motion:_wMov, // [R247d]
       bandW:(+($('#cWBandW')?$('#cWBandW').value:100)||100), flip:false, // [R265] el sentido lo lleva ahora "motion" (un sentido / el otro / intercalado); "flip" se sigue respetando al dibujar, por los proyectos viejos
       speedV:((+($('#cWSpeedV2')?$('#cWSpeedV2').value:12)||0)/100),
@@ -12031,6 +12040,7 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
        pre-rellenado del cuadro ocurre DESPUÉS de cablear los mandos: comprobándolo allí se leía la máscara por
        defecto («ninguna») y la fila salía escondida aunque la composición guardada llevara una. */
     { const r=$('#cMaskSzRow'), mk=$('#cMask'); if(r)r.style.display=(mk&&mk.value!=='none')?'flex':'none'; }
+    { const cn=$('#cN'); if(cn){ cn.max=String(compCountMax(kind)); if(+cn.value>compCountMax(kind))cn.value=compCountMax(kind); } } // [R274] el tope de cantidad depende del tipo
     if(_flatComp){ // flat/room: no dome params — only Count, Columns (grid), Scale, Infinite (room), Mask
       ov.querySelectorAll('[data-only]').forEach(el=>{ const mm=el.dataset.only; el.style.display=(mm==='count'||(mm==='flatinf'&&isRoom()))?'flex':'none'; });
       const colRow=$('#cCols')&&$('#cCols').closest('.frow'); if(colRow)colRow.style.display=(kind==='grid')?'flex':'none';
@@ -12766,6 +12776,29 @@ precision highp float; in vec2 v_uv; out vec4 o; uniform sampler2D u_tex; unifor
 const FXCATS={distort:['Distort','Distorsión'],stylize:['Stylize','Estilizar'],color:['Color','Color'],feedback:['Feedback','Realimentación'],dome:['Dome','Domo']};
 const FXTYPES=[
  /* ---- COLOR ---- */
+ /* [R274] Dos reactivos de GEOMETRÍA, que era lo que faltaba: hasta ahora la cadena sólo teñía o distorsionaba
+    píxeles, así que un golpe de bombo no podía dar un empujón de tamaño ni un giro. Los dos van en el espacio de
+    la textura del clip (la cadena corre antes de colocarlo en el domo), y los dos corrigen la PROPORCIÓN con
+    `u_res`: sin eso, girar una textura 16:9 la deforma al pasar por el cuadrado. Fuera del borde no se estira: se
+    deja transparente, que es lo que se espera de un pulso que se agranda. */
+ {key:'pulsescale',cat:'distort',label:['Scale Pulse','Pulso de escala'],
+  params:[{k:'depth',label:['Amount','Cantidad'],min:-100,max:100,def:35,unit:'%'}],
+  frag:_FH+`uniform float u_depth; void main(){
+   float k=1.0/max(0.05, 1.0 + u_amt*(u_depth*0.01));      // amt 0 = k 1 = sin tocar · cantidad negativa = encoge
+   vec2 uv=(v_uv-0.5)*k+0.5;
+   if(uv.x<0.0||uv.x>1.0||uv.y<0.0||uv.y>1.0){ o=vec4(0.0); return; }
+   o=texture(u_tex,uv); }`},
+ {key:'pulserot',cat:'distort',label:['Rotate','Rotación'],
+  params:[{k:'deg',label:['Angle','Ángulo'],min:-360,max:360,def:90,unit:'°'},
+          {k:'spin',label:['Spin','Giro continuo'],min:-200,max:200,def:0,unit:'°/s'}],
+  frag:_FH+`uniform float u_deg,u_spin; void main(){
+   float a=radians(u_amt*u_deg + u_t*u_spin);              // reactivo + un giro constante opcional
+   float ar=max(0.0001,u_res.x)/max(0.0001,u_res.y);
+   vec2 p=(v_uv-0.5)*vec2(ar,1.0);                          // a cuadrado, para que el giro no deforme
+   float s=sin(a),c=cos(a); p=vec2(p.x*c-p.y*s, p.x*s+p.y*c);
+   vec2 uv=vec2(p.x/ar,p.y)+0.5;
+   if(uv.x<0.0||uv.x>1.0||uv.y<0.0||uv.y>1.0){ o=vec4(0.0); return; }
+   o=texture(u_tex,uv); }`},
  {key:'rgbsplit',cat:'color',label:['RGB Split','RGB Split'],
   params:[{k:'angle',label:['Angle','Ángulo'],min:0,max:360,def:0,unit:'°'},{k:'spread',label:['Spread','Separación'],min:0,max:100,def:50,unit:''}],
   frag:_FH+`uniform float u_angle,u_spread; void main(){ float ph=radians(u_angle); vec2 dir=vec2(cos(ph),sin(ph)); vec2 off=dir*(u_amt*u_spread*0.003);
