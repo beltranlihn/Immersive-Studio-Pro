@@ -55,11 +55,19 @@ Dos errores de coma flotante en `srcT`, ambos visibles en el máster:
 Se corrigen redondeando la fase a nanosegundos —cuatro millones de veces más fino que el fotograma más corto que
 admite el programa— antes de decidir la vuelta. Resultado: **48 de 48** parejas coinciden, en las tres pasadas.
 
-### Lo que queda
+### Lo que queda — y lo que se probó y NO compensa [R257]
 
-Un bucle sigue costando **×2,5** frente al mismo clip sin bucle (90 vs 36 ms/fotograma): hay un reinicio del
-decodificador por vuelta. Retener los fotogramas del tramo lo haría casi gratis, y ahora sí es una optimización
-limpia —queda en `NEXT`—, pero R255 ya enseñó que retener **sin** resolver el bloqueo sólo lo adelanta.
+Un bucle cuesta **×1,7-1,8** frente al mismo clip sin bucle (47 vs 30 · 34 vs 19 · 35 vs 20 ms/fotograma, en tres
+fuentes distintas), por el reinicio del decodificador en cada vuelta. Retener los fotogramas del tramo se
+implementó y **volvió a producir la rendición**: 980 ms/fotograma. La causa es el límite duro que ya había
+aparecido en el bloqueo — cada `VideoFrame` retenido ocupa una plaza del **fondo de salida del decodificador**, y
+reteniendo un ciclo entero no queda ninguna libre para emitir. Sujetando `VideoFrame` no se puede; habría que
+copiarlos fuera, y a 4096² esa copia cuesta lo que se ahorra. Retirado, y anotado el porqué.
+
+Para un clip muy loopeado la respuesta ya existe y es otra: **hornearlo** (clic-derecho → *Render in place*).
+
+De paso quedó comprobado que **HEVC 10 bits, incluso a 7196×912, va por el camino rápido sin rendirse**: el
+repliegue `<video>` —el que sí entrega fotogramas equivocados— no lo toca el material de masterización.
 
 ---
 

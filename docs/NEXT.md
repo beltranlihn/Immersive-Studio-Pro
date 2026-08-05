@@ -23,10 +23,15 @@
       último fotograma en vez de volver al primero; y el mismo punto del ciclo salía como 4,2 o 4,199999999999999
       según la vuelta, que `keyForTime` **trunca** a dos microsegundos distintos = dos fotogramas distintos.
       Ahora las 48 parejas que deben repetirse se repiten, en las tres pasadas.
-- [ ] *Queda, ya como optimización real:* un bucle sigue costando **×2,5** frente al mismo clip sin bucle (90 vs 36
-      ms/fotograma) porque hay **un reinicio del decodificador por vuelta**. Retener los fotogramas del tramo lo
-      haría casi gratis. Se intentó en R255 y se retiró: retener sin resolver el bloqueo sólo lo adelantaba.
-      Acotar por número de fotogramas, no por segundos.
+- [x] *Y la optimización que quedaba: **descartada con motivo medido** [R257].* Un bucle cuesta **×1,7-1,8** frente
+      al mismo clip sin bucle (47 vs 30 · 34 vs 19 · 35 vs 20 ms/fotograma, tres fuentes distintas), por el
+      reinicio del decodificador en cada vuelta. Retener los fotogramas del tramo se implementó y **volvió a
+      producir la rendición** (980 ms/fotograma): cada `VideoFrame` retenido ocupa una plaza del **fondo de salida
+      del decodificador**, y reteniendo un ciclo entero no queda ninguna para emitir. Ése es el límite duro, y es
+      el mismo que causaba el bloqueo de R256. Retener no es viable sujetando `VideoFrame`; habría que **copiarlos
+      fuera** (ImageBitmap o textura), y a 4096² esa copia cuesta lo mismo que se ahorra.
+      **Para un clip muy loopeado, la respuesta que ya existe es hornearlo:** clic-derecho → *Render in place*.
+      Probado de paso: HEVC 10 bits, incluso a **7196×912**, va por el camino rápido sin rendirse.
 
 > **Cómo medir aquí, que la mitad del trabajo es esto.** Los absolutos varían **5-10× entre pasadas** según la
 > caché de disco, y correr una lista de variantes en orden sesga **2×** a las últimas. Sirve sólo: alternar A/B,
