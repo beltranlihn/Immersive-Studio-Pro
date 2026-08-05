@@ -39,6 +39,21 @@ Contar vueltas medía la impaciencia del observador; esto mide el estado del dec
 - **Dos pasadas idénticas** en todos los casos: ningún fotograma por debajo de 90 dB (lo que difiere es un píxel
   de 1/255, 108 dB, el redondeo de la GPU de siempre).
 
+### [R260] Y un tope que ninguna prueba podía cazar
+
+Releyendo el arreglo apareció otra cosa: había puesto un tope de **12 reinicios por decodificador**, de cinturón.
+Pero un bucle necesita **uno por vuelta**, y en una película un bucle de 10 s da cientos de vueltas — pasadas las
+doce, el medio se habría degradado al camino `<video>` durante el resto de la exportación. Ninguna de mis pruebas
+podía verlo: todas tenían cinco vueltas.
+
+Se quita. Lo que impide una tormenta de reinicios no es el tope, es la exigencia de 400 ms congelados: para volver
+a reiniciar, el decodificador tiene que estar otra vez inmóvil ese tiempo entero. Verificado con **15 vueltas**
+(180 fotogramas): sin rendiciones, **sin degradación** —33 ms/fotograma en la primera mitad, 31 en la segunda,
+justo donde el tope habría mordido— y las 168 parejas *k*/*k+12* idénticas bit a bit.
+
+También quedó probada la rama de **ping-pong** (`loopRev`), que R256 tocó y no se había verificado: la ida coincide
+con el bucle normal y la vuelta es su espejo, descendente.
+
 ### Lo que esto enseña, que es lo que más vale
 
 Verifiqué R256 con **un clip**. El fallo necesitaba **tres capas**. Una prueba sintética de un solo elemento no

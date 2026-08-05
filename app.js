@@ -7191,7 +7191,7 @@ function makeClipDecoder(d,ex){
   const ensureBuf=async(i)=>{ const s=d.samples[i]; if(inBuf(s))return true; const a=s.offset;
     const data=await d.readRange(a, Math.max(s.size, READAHEAD)); if(!data)return false; bufData=data; bufStart=a; bufEnd=a+data.length; return inBuf(s); };
   const mkDec=()=>{ dec=new VideoDecoder({output:f=>{ if(closed){f.close();return;} const o=cache.get(f.timestamp); if(o&&o!==f){try{o.close();}catch(e){}} cache.set(f.timestamp,f); fails=0; }, error:e=>{ err=String((e&&e.message)||e); }}); dec.configure({codec:d.codec,description:d.description}); };
-  let resets=0, atascoFirma='', atascoT0=0, atascoN=0;
+  let resets=0, atascoFirma='', atascoT0=0;
   const resetTo=(di)=>{ resets++; if(dec){try{dec.close();}catch(e){}} for(const[,f]of cache){try{f.close();}catch(e){}} cache.clear(); mkDec(); feed=keyBefore(di); feedBase=feed; feedBasePts=d.samples[feed].pts; lastFedPts=-1; err=null; vaciando=false; vaciado=false; }; // el decodificador es NUEVO: su cola de reordenación vuelve a estar por vaciar
   const evict=()=>{ const lo=targetUs-BEHIND; for(const[ts,f]of cache){ if(ts<lo){try{f.close();}catch(e){} cache.delete(ts);} }
     if(cache.size>CAP){ const ks=[...cache.keys()].sort((a,b)=>a-b); for(const k of ks){ if(cache.size<=CAP)break; if(k<targetUs-frameDur){try{cache.get(k).close();}catch(e){} cache.delete(k);} } } };
@@ -7240,14 +7240,17 @@ function makeClipDecoder(d,ex){
        de lo que venga por delante lo traerá de vuelta. Un decodificador simplemente LENTO está en la situación
        contraria —espera fotogramas que aún no han salido, así que lo que tiene en caché es anterior al destino, o
        no tiene nada—, y por eso nunca cumple esta condición por mucho que tarde.
-       Encima se pide que nada se mueva durante 400 ms y se topa `atascoN`: cinturón y tirantes, porque el precio
-       de equivocarse aquí ya se pagó una vez. */
+       Encima se pide que nada se mueva durante 400 ms, porque el precio de equivocarse aquí ya se pagó una vez.
+       [R260] NO se topa el número total de reinicios: un bucle necesita uno POR VUELTA, y en una película un
+       bucle de 10 s da cientos de vueltas — un tope de doce habría degradado el medio al camino `<video>` a
+       mitad de la exportación. Lo que impide una tormenta no es el tope, es la exigencia de 400 ms congelados:
+       para volver a reiniciar, el decodificador tiene que estar otra vez inmóvil ese tiempo entero. */
     if(n===0 && lastFedPts>=0 && targetUs<lastFedPts && !cache.has(targetUs) && cache.size>0){
       let masViejo=Infinity; for(const ts of cache.keys()) if(ts<masViejo)masViejo=ts;
       if(masViejo>targetUs){
         const firma=targetUs+'|'+cache.size+'|'+feed+'|'+lastFedPts+'|'+(dec?dec.decodeQueueSize:-1);
         if(firma!==atascoFirma){ atascoFirma=firma; atascoT0=performance.now(); }
-        else if(atascoN<12 && performance.now()-atascoT0>400){ atascoN++; atascoFirma=''; resetTo(decIdxForTime(targetUs)); }
+        else if(performance.now()-atascoT0>400){ atascoFirma=''; resetTo(decIdxForTime(targetUs)); }
       } else atascoFirma=''; }
     else atascoFirma='';
     /* Alimentadas TODAS las muestras, se pide el vaciado: hasta que resuelva, la cola de reordenación puede
