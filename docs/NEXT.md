@@ -4,6 +4,12 @@
 > en `COMPONENTS.md` + una entrada en `PLAN.md` en el mismo commit, como manda el ritual de `/commit`).
 > Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: 2026-08-04.
 
+## 🔭 Abierto — deshacer para los cambios de MEDIO (destapado en R253b)
+- [ ] `snapshot()` no serializa `state.media`, así que **renombrar un medio o moverlo de carpeta no son deshacibles**
+      pese a llamar a `pushUndo` (desde mucho antes de esta tanda): el Ctrl+Z se come la edición ANTERIOR. R253b
+      lo resolvió sólo para las marcas de origen (`mcut` en el snapshot). Decidir qué campos del medio deben ser
+      deshacibles —nombre, carpeta, marcas, ¿color?— es decisión de diseño, no parche.
+
 ## ✅ Auditoría 2026-08b y su plan · CERRADOS [R253]
 - [x] **Veredicto: se puede actualizar sin romper nada, y sin migración de datos** (informe en `AUDITORIA-2026-08b.md`).
 - [x] Ejecutadas las 7 acciones del plan: despliegue de Program Files **con verificación de sha1**, el maestro de

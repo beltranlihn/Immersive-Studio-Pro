@@ -1,5 +1,62 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 253b — Los cuatro hallazgos de la revisión del diff de R253
+
+La revisión del propio diff de anoche encontró cuatro cosas, y las cuatro eran reales. Dos son de la clase que más
+me interesa: **código que hacía lo contrario de lo que su comentario prometía**.
+
+### 1 · Un Escape que se comía el siguiente
+
+La guardia del «un solo diálogo» quitaba el velo, el enganche del arrastre y la clase del panel — tres de los
+cuatro pasos del cierre. El cuarto era `window.removeEventListener('keydown', esc, true)`, y ese escuchador está en
+**fase de captura**: sobrevivía al cuadro y se comía el siguiente Escape del usuario con `preventDefault` +
+`stopPropagation`, antes de que llegara a la hoja de export, al cierre genérico de overlays o a un `appConfirm`.
+
+Arreglo: guardar el cierre del diálogo abierto en `_cerrarComp` y **llamarlo**, en vez de replicar sus pasos. La
+lección se repite: cuando ya existe un camino de cierre, invocarlo; copiar tres cuartas partes de él es una fuga
+esperando.
+
+### 2 · Un `pushUndo` que hacía daño en vez de nada
+
+`smCommitMarks` empujaba deshacer al marcar entrada/salida… pero **`snapshot()` no serializa `state.media`**. La
+foto salía idéntica a la actual, así que el primer Ctrl+Z parecía no hacer nada (las marcas seguían) y **el
+segundo deshacía una edición anterior del usuario, sin relación**. Peor que no tener deshacer: destructivo y
+silencioso. Y el comentario de R253 afirmaba justo lo contrario.
+
+Se podía retirar la promesa o hacerla cierta. Como el arreglo era contenido y aditivo, se hizo cierta: el snapshot
+lleva ahora `mcut`, las marcas de **cada** medio (la lista entera, no sólo los marcados — deshacer también tiene
+que poder QUITAR una marca recién puesta), y `restore` las devuelve. Los snapshots anteriores no traen la clave y
+se saltan solos.
+
+Verificado con el escenario completo: editar → marcar → Ctrl+Z **quita las marcas y deja la edición intacta** →
+Ctrl+Z deshace ya la edición.
+
+> **Queda anotado, y NO es de esta ronda:** `state.media` sigue sin viajar en el snapshot, así que **renombrar un
+> medio o moverlo de carpeta tampoco son deshacibles**, y también llaman a `pushUndo` desde mucho antes. Es el
+> mismo agujero, más ancho. Va a `docs/NEXT.md` porque decidir qué campos del medio son deshacibles es una
+> decisión de diseño, no un parche de madrugada.
+
+### 3 · El maestro de intensidad, ahora también con teclado
+
+Mover la reconstrucción de `oninput` a `onchange` arregló el arrastre con ratón pero no el teclado: una flecha
+sobre un `range` dispara `input` **y** `change`, así que la lista se rehacía igual y destruía el control con el
+foco tras un solo paso — las flechas siguientes se iban a los atajos globales. El arreglo bueno era más simple:
+**no reconstruir nunca desde ahí**. Lo único que cambia son las cifras de amplitud, y ésas ya se refrescan en su
+sitio. Medido: cinco flechas suman cinco, el deslizador sigue vivo y con el foco.
+
+### 4 · El gemelo olvidado, otra vez
+
+El distintivo de «este archivo entra recortado» se añadió sólo a la fila de la lista. En **cuadrícula** no había
+nada. Es exactamente el patrón que ya me mordió en R245 —un camino cubierto y su gemelo olvidado— y que
+`COMPONENTS.md` existe para evitar. Ahora está en las dos vistas.
+
+### Verificado (sobre el `.exe`, RTX 4060)
+
+`scratchpad/r253b-review.mjs` cubre los cuatro con gestos y teclas reales: **los cuatro OK**. Y sin regresión:
+`aud8b-gestos.mjs` sigue en TODOS OK y `aud8b-compara.mjs` sigue dando **TODO IDÉNTICO viejo→nuevo**.
+
+---
+
 ## ROUND 253 — El plan de la auditoría 2026-08b, ejecutado
 
 Fable auditó de madrugada el delta R242→R252b con la pregunta que importaba: **¿puede Beltrán actualizar y abrir

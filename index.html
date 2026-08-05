@@ -721,8 +721,10 @@
   #srcMon .smnum{font:400 11px ui-monospace,monospace;font-variant-numeric:tabular-nums;color:var(--ink-2);white-space:nowrap;}
   /* [R253] anchos FIJOS: el rotulo del rango cambia de texto al marcar («Clip entero» → «Rango 00:00:06»), y sin ancho reservado empujaba los botones [ ] ⌫ a otro sitio a mitad de gesto — la sonda de la auditoria pulso ⌫ queriendo pulsar ] */
   #srcMon .smnum[data-n="t"]{min-width:104px;} #srcMon .smnum[data-n="r"]{min-width:78px;text-align:right;}
-  /* [R253] «este archivo entra recortado» en la ficha del panel de medios */
+  /* [R253] «este archivo entra recortado», en las DOS vistas del panel: la fila (.mrange) y el mosaico (.tcut) */
   .mmeta .mrange{color:var(--ink-2);font-variant-numeric:tabular-nums;}
+  .mtile .tcut{position:absolute;left:4px;bottom:4px;padding:1px 4px;border-radius:2px;background:rgba(6,7,9,0.78);
+    color:var(--ink-2);font:400 9px ui-monospace,monospace;font-variant-numeric:tabular-nums;pointer-events:none;}
   #srcMon .smnum b{color:var(--ink);font-weight:400;}
   #srcMon .smgrip{position:absolute;right:0;bottom:0;width:15px;height:15px;cursor:nwse-resize;}
   #srcMon .smgrip::after{content:"";position:absolute;right:3px;bottom:3px;width:7px;height:7px;border-right:1.5px solid rgba(255,255,255,0.28);border-bottom:1.5px solid rgba(255,255,255,0.28);}

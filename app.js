@@ -3046,7 +3046,11 @@ function makeMediaTile(m){ const seq=isSeqMedia(m), isNdi=(m.kind==='ndi'||m.kin
   const isAdj=(m.kind==='adjust'); const dur=isNdi?'NDI':(seq?'SEQ':(isAdj?'ADJ':(m.kind==='image'?'IMG':fmtDur(m.dur))));
   const px=(m.kind==='video'&&!m.proxyReady&&m.proxyPct>0)?`<div class="tpbar"><i style="width:${m.proxyPct}%"></i></div>`:'';
   const tbg=isAdj?'repeating-linear-gradient(45deg,rgba(180,186,193,0.30) 0 9px,rgba(180,186,193,0.10) 9px 18px)':(m.thumb?`url(${m.thumb})`:'none');
-  d.innerHTML=`<div class="tthumb${seq?' mseq':''}" style="background-image:${tbg};"><span class="tdur">${dur}</span>${m.kind==='video'&&m.proxyReady?'<span class="tprox">⚡</span>':''}${px}</div><div class="tlbl" style="border-top:2px solid ${m.color};">${m.name}</div>`;
+  /* [R253b] el mismo distintivo que la fila de la lista: en cuadricula un archivo marcado tambien suelta un clip
+     recortado, y sin esto no habia NADA en pantalla que lo explicara. Es el patron que ya me mordio en R245: un
+     camino cubierto y su gemelo olvidado. */
+  const _rg=srcRange(m);
+  d.innerHTML=`<div class="tthumb${seq?' mseq':''}" style="background-image:${tbg};"><span class="tdur">${dur}</span>${m.kind==='video'&&m.proxyReady?'<span class="tprox">⚡</span>':''}${px}${_rg?'<span class="tcut" title="'+T('Drags in trimmed: ','Entra recortado: ')+fmtTime(_rg.inP)+' → '+fmtTime(_rg.inP+_rg.dur)+'">['+fmtDur(_rg.dur)+']</span>':''}</div><div class="tlbl" style="border-top:2px solid ${m.color};">${m.name}</div>`;
   d.addEventListener('dblclick',()=>{ if(_composeDrop){ _composeDrop([m.id]); return; } /* [R248] con la composición abierta el doble clic la alimenta a ELLA */ if(seq)openSeq(m.id); else openSourceMonitor(m); }); // [R249] modelo Premiere: el doble clic ABRE el material en el monitor de origen, no lo suelta en la línea de tiempo (para eso se arrastra)
   d.addEventListener('pointerdown',e=>{ if(e.button===0){ const multi=e.shiftKey||e.ctrlKey||e.metaKey; if(multi||!selectedMediaIds().includes(m.id))selectMedia(m.id,e); if(!multi)startMediaDrag(e,m); } }); // press on an already-selected tile keeps the multi-selection (drag the whole set)
   d.addEventListener('contextmenu',e=>{ if(!selectedMediaIds().includes(m.id))selectMedia(m.id); openMediaCtx(e,m); });
@@ -5257,6 +5261,7 @@ function applyToolCursor(){ const cur={select:'default',trackselect:'e-resize',h
   const sel=(state.tl.tool==='select'); $$('.clip').forEach(c=>c.style.cursor=sel?'grab':cur); } // [R155] el clip siempre se agarra // select: body = arrow (the .tt headband keeps grab via CSS → hand only on the title bar) · [R94c] simple-clip view: the whole block grabs (inline style beats the CSS rule, so it must be set here)
 
 /* media drag to timeline */
+let _cerrarComp=null;  // [R253b] cierre del dialogo de composicion abierto (retira tambien su Escape de captura)
 let _composeDrop=null; // [R248] fijado mientras el dialogo de composicion esta abierto: recibe los medios que se le suelten
 /* [R249] `rango` llega desde el monitor de origen. Cuando no llega, se mira si el MEDIO tiene marcas: son suyas,
    así que un archivo ya marcado entra recortado se arrastre desde donde se arrastre — que es como se porta
@@ -6109,9 +6114,13 @@ function buildAnimList(c){ const host=$('#animList'); if(!host)return; host.inne
        `host.innerHTML=''`, así que el propio deslizador que se está arrastrando desaparece del DOM al primer paso
        y el arrastre muere ahí (apuntando al 200 % se quedaba en el 109 %). Al vivo sólo se refrescan las cifras de
        amplitud de los miembros, en su sitio; la lista se rehace al SOLTAR. */
+    /* [R253b] NUNCA se reconstruye la lista desde aqui, ni en `oninput` ni en `onchange`. Con el teclado, una
+       flecha sobre el deslizador dispara `input` Y `change`, asi que rehacerla en `change` destruia igualmente el
+       control con el foco tras un solo paso y las flechas siguientes se iban a los atajos globales. Lo unico que
+       cambia ahi abajo son las cifras de amplitud, y esas se refrescan en su sitio. */
     sl.oninput=()=>{ const cc=selClip(); if(!cc)return; out.textContent=sl.value+'%';
       setAnimGroupInt(cc,g.gid,(+sl.value)/100); refreshAnimAmps(cc); render(); startMotionPreview(); };
-    sl.onchange=()=>{ const cc=selClip(); if(cc)buildAnimList(cc); markDirty(); };
+    sl.onchange=()=>markDirty();
     host.appendChild(gr); }
   c.anim.forEach((a,i)=>{ const item=document.createElement('div'); item.dataset.ai=i; item.style.cssText='display:flex;flex-direction:column;gap:4px;background:#1b1e24;border:.5px solid rgba(255,255,255,0.09);border-radius:2px;padding:5px 6px;';
     const isWave=a.mode==='wave'; const wetPct=Math.round(Math.max(0,Math.min(1,evalWet(c,a,state.playhead)))*100);
@@ -10073,7 +10082,13 @@ function clearAllUndo(){ for(const k in _undoBySeq)delete _undoBySeq[k]; }
    otra acción el campo no existe y el snapshot es byte por byte el de siempre. Sin esto, deshacer un reorden de
    muros devolvía los clips a su sitio VIEJO dejando los muros en el NUEVO — justo el descuadre que R232c vino a
    arreglar, pero provocado por el propio Ctrl+Z. */
-function snapshot(trashIds,room){ return JSON.stringify({room:room||undefined,clips:state.clips.map(serClip),lanes:state.lanes,selId:state.selId,selIds:state.selIds,selLane:state.selLane,markers:state.markers,selMarkerId:state.selMarkerId,groups:state.groups,selGroupId:state.selGroupId,reactive:state.reactive||null,autoItems:state.autoItems||{},trashIds:trashIds||undefined}); } // [R95·D2] items are undoable state too: editing a pooled curve rewrites the item · [R212] trashIds: media ids this action just sent to state.mediaTrash — restore() must revive them even if no clip references them (unused media deleted from the panel)
+/* [R253b] `mcut` = las marcas de origen de CADA medio (null cuando no tiene). Se apunta la lista entera, no solo
+   los marcados, porque deshacer tambien tiene que poder QUITAR una marca recien puesta. Sin esto, el pushUndo de
+   smCommitMarks empujaba una foto identica a la actual: Ctrl+Z parecia no hacer nada y el siguiente deshacia la
+   edicion anterior del usuario, sin relacion. Lo cazo la revision del diff de R253.
+   Ojo: state.media SIGUE sin viajar entero en el snapshot, asi que renombrar un medio o moverlo de carpeta -que
+   tambien llaman a pushUndo, desde antes de esta ronda- siguen sin ser deshacibles. Anotado en NEXT.md. */
+function snapshot(trashIds,room){ return JSON.stringify({room:room||undefined,clips:state.clips.map(serClip),lanes:state.lanes,mcut:state.media.map(m=>[m.id,(m.srcIn!=null?m.srcIn:null),(m.srcOut!=null?m.srcOut:null)]),selId:state.selId,selIds:state.selIds,selLane:state.selLane,markers:state.markers,selMarkerId:state.selMarkerId,groups:state.groups,selGroupId:state.selGroupId,reactive:state.reactive||null,autoItems:state.autoItems||{},trashIds:trashIds||undefined}); } // [R95·D2] items are undoable state too: editing a pooled curve rewrites the item · [R212] trashIds: media ids this action just sent to state.mediaTrash — restore() must revive them even if no clip references them (unused media deleted from the panel)
 function pushUndo(trashIds,roomSnap){ if(_demoBatch)return; // [R228] construyendo un proyecto demo: no hay nada que deshacer (`_demoFinish` limpia el historial de todos modos) y cada snapshot de un lote de 8 clips es caro
   const st=_ustk(); const s=snapshot(trashIds,roomSnap); st.u.push(s); st.bytes+=s.length; st.r.length=0;
   let total=0,count=0; for(const k in _undoBySeq){ total+=_undoBySeq[k].bytes; count+=_undoBySeq[k].u.length; }
@@ -10088,6 +10103,9 @@ function restore(s){ const o=JSON.parse(s);
       _roomGeo=null; _roomGeoSeq=null; _arCache=null; try{raInvalidate();}catch(e){} try{resize();}catch(e){} } }
   state.clips=o.clips.map(c=>({...c,maskTex:null})); state.lanes=o.lanes; state.autoSel=null; state.hoverAuto=null; state.shapeBox=null; /* [R95·B1] the box holds live keyframe refs — undo/sequence switch replaces those objects, so it must go with them */ state.selId=o.selId; state.selIds=Array.isArray(o.selIds)?o.selIds:(o.selId!=null?[o.selId]:[]); state.selLane=o.selLane??null; if(o.markers)state.markers=o.markers; state.selMarkerId=o.selMarkerId??null; state.groups=o.groups||[]; state.selGroupId=o.selGroupId??null; if(o.reactive!==undefined){state.reactive=o.reactive;} if(o.autoItems!==undefined)state.autoItems=o.autoItems; /* [R95·D2] */ _arCache=null; _fxEnvCache.clear(); for(const c of state.clips)if(c.maskData||(c.penMasks&&c.penMasks.length))rebuildMaskTex(c);
   if(state.mediaTrash){ const need=new Set(); for(const s of state.media)if(isSeqMedia(s)){ const arr=(s.id===state.activeSeqId?state.clips:s.nestClips)||[]; for(const c of arr)need.add(c.mediaId); } for(const c of state.clips)need.add(c.mediaId); if(Array.isArray(o.trashIds))for(const id of o.trashIds)need.add(id); /* [R212] media deleted from the panel with no clip using it — revive it anyway, undo means undo */ for(const id in state.mediaTrash){ if(need.has(+id)){ if(!mediaById(+id)){ const tm=state.mediaTrash[id]; state.media.push(tm); if(tm._trashed){ delete tm._trashed; tm.missing=false; tm._loading=true; try{ reloadMedia(tm); }catch(e){} } } delete state.mediaTrash[id]; } } renderMedia(); }
+  if(Array.isArray(o.mcut)){ for(const e of o.mcut){ const mm=mediaById(e[0]); if(!mm)continue; // [R253b] las marcas de origen vuelven con el deshacer; los snapshots viejos no traen la clave y se saltan solos
+      if(e[1]==null)delete mm.srcIn; else mm.srcIn=e[1];
+      if(e[2]==null)delete mm.srcOut; else mm.srcOut=e[2]; } renderMedia(); }
   saveActiveSeq(); markDirty(); // re-heal the state.clips ⇄ activeSeq().nestClips alias (stale nestClips broke seqDur/seqReaches after undo) + an undone edit IS an unsaved change
   renderTimeline();renderInspector();render();updStatus(); reschedAudio(); }
 function undo(){ const st=_ustk(); if(!st.u.length)return; st.r.push(snapshot()); const s=st.u.pop(); st.bytes-=s.length; restore(s); }
@@ -11545,8 +11563,12 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
      apuntando sólo al último, así que arrastrar un medio alimentaba la cesta de un diálogo distinto del que se
      estaba mirando. Se cierra el anterior por el mismo camino que su botón: velo fuera, enganche de arrastre
      limpio y el panel de Medios devuelto a su sitio. */
-  { const prev=document.getElementById('compOv');
-    if(prev){ _composeDrop=null; document.body.classList.remove('composing'); prev.remove(); } }
+  /* [R253b] Cerrar POR SU CAMINO, no replicando pasos: el cierre tambien retira el escuchador de Escape que el
+     dialogo puso en window EN FASE DE CAPTURA. Replicando solo tres de los cuatro pasos, ese escuchador sobrevivia
+     al cuadro y se comia el siguiente Escape del usuario -el de la hoja de export, el del cierre generico de
+     overlays o el de un appConfirm- con preventDefault+stopPropagation. Lo cazo la revision del diff. */
+  if(_cerrarComp)_cerrarComp();
+  else { const prev=document.getElementById('compOv'); if(prev){ _composeDrop=null; document.body.classList.remove('composing'); prev.remove(); } }
   const vids=state.media.filter(m=>m.kind!=='audio'&&!isSeqMedia(m)); if(!vids.length){flashStatus(T('Import images or videos first.','Primero importa imágenes o vídeos.'),'err');return;} // [R94-UT3·U-21] // scopeClip (R82): compose from ONE clip's cut portion → the result is a NEW media on a NEW track, only that clip's length. preselIds (R88): pre-check several media (compose from a media multi-selection)
   const pre=editGroup||(nestMedia&&nestMedia.comp)||null; const _flatComp=isFlat();
   let kind=(pre&&pre.kind)||initialKind||(_flatComp?'grid':'ring'); if(_flatComp&&!FLAT_COMP_KINDS.includes(kind))kind='grid';
@@ -11625,7 +11647,8 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
   /* Antes se cerraba pinchando el velo. Con el velo transparente al ratón eso ya no puede ocurrir —el clic va al
      panel de debajo—, así que la salida rápida pasa a ser Escape, que además es lo que espera cualquiera. */
   const esc=e=>{ if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); cerrarComp(); } };
-  const cerrarComp=()=>{ _composeDrop=null; document.body.classList.remove('composing'); window.removeEventListener('keydown',esc,true); ov.remove(); };
+  const cerrarComp=()=>{ _composeDrop=null; _cerrarComp=null; document.body.classList.remove('composing'); window.removeEventListener('keydown',esc,true); ov.remove(); };
+  _cerrarComp=cerrarComp; // [R253b] queda a mano para que otra apertura pueda cerrar ESTE cuadro entero, escuchador incluido
   window.addEventListener('keydown',esc,true);
   $('#cCancel').onclick=cerrarComp;
   _composeDrop=ids=>cestaAnadir(ids); // [R248] mientras el diálogo esté abierto, arrastrar un medio lo añade a la cesta
