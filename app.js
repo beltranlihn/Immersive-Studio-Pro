@@ -5617,7 +5617,7 @@ const propLabel=p=>{const m=PLABELS[p];return m?T(m[0],m[1]):p;};
      y sus seis call-sites (preview, NDI, Spout, export, saveActiveSeq, loadSeqIntoState).
    Un `grade` guardado en un .isp viejo simplemente se ignora al abrir (no rompe nada). Para restaurarlo hacen
    falta LOS DOS archivos: primero el motor, después la UI. */
-function renderInspector(){ try{ _renderInspectorMain(); }catch(e){ console.error('inspector',e); } try{ renderReactivePanel(); }catch(e){} applyInspTab(); }
+function renderInspector(){ try{ _renderInspectorMain(); }catch(e){ console.error('inspector',e); } try{ renderReactivePanel(); }catch(e){} applyInspTab(); pintarRangos(); /* [R276c] los mandos recién creados nacen sin --pct: sin esto la pista saldría vacía */ }
 function _renderInspectorMain(){
   const g=state.selGroupId!=null?groupById(state.selGroupId):null;
   if(g){ $('#insEmpty').style.display='none'; $('#insCtl').style.display='none'; $('#insGroup').style.display='block'; renderGroupInspector(g); return; }
@@ -10643,6 +10643,15 @@ function faderFill(el){ if(!el)return; const mn=+el.min||0,mx=+el.max||1,v=+el.v
 $('#fovRange').oninput=e=>{state.view.cam.fov=+e.target.value;$('#fovLbl').textContent=Math.round(+e.target.value)+'°';faderFill(e.target);render();};
 $('#dollyRange').oninput=e=>{state.view.cam.back=+e.target.value;$('#dollyLbl').textContent=(+e.target.value).toFixed(1);faderFill(e.target);render();};
 { const dr=$('#distRange'); if(dr)dr.oninput=e=>{state.view.cam.dist=+e.target.value;const dl=$('#distLbl');if(dl)dl.textContent=(+e.target.value).toFixed(1);faderFill(e.target);render();}; }
+/* [R276c] Al quitarle el puntito a los sliders, la pista pasa a ser lo ÚNICO que dice dónde está el valor — y la
+   pinta `--pct`, que hasta ahora sólo se ponía a mano en los cuatro faders de cámara. Sin esto, los seis del
+   inspector (máscara, LUT, ecualizador, ojo de pez, pincel y los de grupo) se quedarían mudos: pista vacía con el
+   valor real en cualquier parte. Dos frentes, porque hay dos formas de quedarse desfasado:
+     · el delegado en CAPTURA repinta al arrastrar, sea cual sea el `oninput` que ya tuviera cada uno;
+     · `pintarRangos()` repinta tras cada reconstrucción del inspector, que rehace su HTML entero y estrena mandos.
+   Es barato: son unas decenas de nodos y `renderInspector` no corre por fotograma. */
+function pintarRangos(raiz){ try{ (raiz||document).querySelectorAll('input[type=range]').forEach(faderFill); }catch(e){} }
+document.addEventListener('input',e=>{ const t=e.target; if(t&&t.tagName==='INPUT'&&t.type==='range')faderFill(t); },true);
 $('#vzIn').onclick=()=>{const st=vpFocusState();st.zoom=Math.min(12,st.zoom*1.2);vzLbl();render();};
 $('#vzOut').onclick=()=>{const st=vpFocusState();st.zoom=Math.max(0.2,st.zoom/1.2);vzLbl();render();};
 $('#vzReset').onclick=()=>{vpFit();vzLbl();render();};

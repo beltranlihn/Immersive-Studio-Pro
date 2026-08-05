@@ -93,9 +93,16 @@
   ::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,0.22);}
   /* slim monochrome range sliders (FOV / dolly / volume / etc.) — match the .prow fader look */
   input[type=range]{-webkit-appearance:none;appearance:none;height:12px;background:transparent;cursor:pointer;}
-  input[type=range]::-webkit-slider-runnable-track{height:3px;border-radius:2px;background:var(--bg-0);box-shadow:inset 0 1px 2px rgba(0,0,0,0.55);}
-  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:11px;height:11px;border-radius:50%;background:var(--ink);border:none;margin-top:-4px;box-shadow:0 1px 2px rgba(0,0,0,0.5);}
-  input[type=range]:hover::-webkit-slider-thumb{background:#FFFFFF;}
+  /* [R276c] Los sliders que quedaban en el inspector (tamaño de máscara, mezcla de LUT, pitch del ecualizador,
+     ojo de pez, expansión de pincel y los de grupo) pasan al mismo lenguaje que el resto: pista teñida y sin
+     puntito. El relleno sale de `--pct`, que pinta `pintarRangos()`, y el TONO de `--pc` — la misma variable que
+     ya lleva la fila `.prow`, así que cada parámetro hereda su color sin tocar el HTML de ninguna fila.
+     El pulgar conserva sus 11 px transparentes: es lo que se agarra al arrastrar. */
+  input[type=range]::-webkit-slider-runnable-track{height:3px;border-radius:2px;background:linear-gradient(90deg,var(--pc,#9AA0A8) 0 var(--pct,0%),var(--bg-0) var(--pct,0%) 100%);box-shadow:inset 0 1px 2px rgba(0,0,0,0.55);}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:11px;height:11px;border-radius:50%;background:transparent;border:none;margin-top:-4px;box-shadow:none;}
+  input[type=range]:hover::-webkit-slider-runnable-track{box-shadow:inset 0 1px 2px rgba(0,0,0,0.55),0 0 0 .5px rgba(255,255,255,0.10);}
+  input[type=range]:focus{outline:none;}
+  input[type=range]:focus-visible::-webkit-slider-runnable-track{box-shadow:inset 0 1px 2px rgba(0,0,0,0.55),0 0 0 2px rgba(201,205,211,0.30);}
   button{font-family:inherit;color:inherit;padding:0;}
   button:focus-visible,input:focus-visible,select:focus-visible{outline:1.5px solid var(--ink-2);outline-offset:1px;}
   [tabindex]:focus-visible{outline:1px solid var(--ink-2);outline-offset:-1px;} /* [R94-UT5·U-10b] inset ring for keyboard-focused clips / track headers */
