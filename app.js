@@ -5164,7 +5164,11 @@ function razorClip(c,tAbs){ if(tAbs<=c.start+0.02||tAbs>=c.start+c.dur-0.02)retu
     /* si la pareja no se pudo partir (el corte cae en su borde), la mitad derecha se queda SUELTA en vez de
        compartir enlace con dos clips: tres clips con el mismo `link` harían que linkPartner eligiera al azar */
     else { delete dch.link; delete dch.avRole; } }
-  renderTimeline(); render(); reschedAudio(); }
+  /* [R272] `scrubRender` y no `render`: la mitad derecha nace con un IDENTIFICADOR NUEVO, así que no tiene
+     instancia de vídeo asociada y se dibuja con la textura vacía —el fotograma 0— hasta que algo la coloque. Por
+     eso al cortar un nido o un compose saltaba TODO al principio y al dar play volvía a su sitio: el play era lo
+     único que reposicionaba. `scrubRender` reposiciona lo que hay bajo el cabezal y luego dibuja. */
+  renderTimeline(); scrubRender(); reschedAudio(); }
 /* Ctrl+E — Ableton-style Split: cut every clip crossing the time-selection boundaries (or the playhead if no range) */
 function splitAtSelection(){ const s=state.tl; const hasRange=s.selA!=null&&s.selB!=null&&Math.abs(s.selB-s.selA)>1e-3; const hasInsert=s.selA!=null&&!hasRange;
   const times=hasRange?[Math.min(s.selA,s.selB),Math.max(s.selA,s.selB)]:(hasInsert?[s.selA]:[state.playhead]); // range → cut both edges; single insert line → cut there; nothing selected → cut at the playhead
@@ -5172,7 +5176,7 @@ function splitAtSelection(){ const s=state.tl; const hasRange=s.selA!=null&&s.se
   const crosses=(c,t)=>t>c.start+0.02&&t<c.start+c.dur-0.02&&(!laneSet||laneSet.has(c.lane));
   if(!times.some(t=>state.clips.some(c=>crosses(c,t)))){ flashStatus(T('Nothing to split here','Nada que cortar aquí')); return; }
   pushUndo(); let n=0; for(const t of times){ for(const c of state.clips.filter(x=>crosses(x,t))){ if(razorCore(c,t))n++; } }
-  renderTimeline(); render(); markDirty(); reschedAudio(); flashStatus(n+' '+(n===1?T('cut','corte'):T('cuts','cortes'))); }
+  renderTimeline(); scrubRender(); markDirty(); reschedAudio(); flashStatus(n+' '+(n===1?T('cut','corte'):T('cuts','cortes'))); } // [R272] ver la nota de razorClip: los clips nuevos hay que colocarlos antes de dibujar
 function tlZoomAt(e,dir){ const sc=$('#tlscroll'); const rect=sc.getBoundingClientRect(); const off=e.clientX-rect.left; const tt=(off+sc.scrollLeft)/state.tl.pxPerSec;
   state.tl.pxPerSec=Math.max(TL_PPS_MIN,Math.min(TL_PPS_MAX,state.tl.pxPerSec*(dir>0?1.25:0.8))); // 0.1 floor: zoom out far enough to fit a whole feature-length clip (R82); 2400 ceiling: deep enough for per-frame trim [T2]
   const nx=Math.max(0,tt*state.tl.pxPerSec-off);
@@ -5348,7 +5352,7 @@ function startMediaDrag(e,m,rango){ const ghost=e.currentTarget.cloneNode(true);
         else { let start=L.start; for(const mm of sel){ const rr=srcRange(mm); addClip(mm,L.li,start,rr); start+=(rr?rr.dur:(mm.dur||6)); } } } // [R249] cada uno con SUS marcas, y el siguiente empieza donde acaba el anterior de verdad
       else addClip(m,L.li,L.start,rango);
       cutOverlapsOnDrop(state.clips.filter(x=>!before.has(x.id)).map(x=>x.id)); // [R223] soltar sobre un clip existente = corte, igual que mover uno ya en la línea de tiempo
-      renderTimeline(); render(); reschedAudio(); return; }
+      renderTimeline(); scrubRender(); reschedAudio(); return; } // [R272] ídem que el corte: un clip recién soltado también nace sin colocar, y se dibujaba en su fotograma 0
     { const t=_dropTargetAt(ev); if(t){ const ids=selectedMediaIds().includes(m.id)?selectedMediaIds():[m.id]; const dest=t.path||null; if(ids.some(id=>{const mm=mediaById(id);return mm&&(mm.folder||null)!==dest;}))moveMediaTo(ids,dest); return; } } // R88: dropped on a folder / back / grid bg → file the (multi-)selection there
     if(m.kind==='audio'){ const el2=document.elementFromPoint(ev.clientX,ev.clientY); if(el2&&el2.closest('#tlscroll')){ const tr=tracks.getBoundingClientRect(); let start=Math.max(0,(ev.clientX-tr.left)/state.tl.pxPerSec); const sn=applySnap(start,null); start=Math.max(0,sn.val); addClip(m,null,start); } } }; // audio dropped without an audio track → auto-create one and drop there
   window.addEventListener('pointermove',mv);window.addEventListener('pointerup',up); }
