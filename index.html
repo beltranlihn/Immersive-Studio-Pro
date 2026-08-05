@@ -98,7 +98,10 @@
      puntito. El relleno sale de `--pct`, que pinta `pintarRangos()`, y el TONO de `--pc` — la misma variable que
      ya lleva la fila `.prow`, así que cada parámetro hereda su color sin tocar el HTML de ninguna fila.
      El pulgar conserva sus 11 px transparentes: es lo que se agarra al arrastrar. */
-  input[type=range]::-webkit-slider-runnable-track{height:3px;border-radius:2px;background:linear-gradient(90deg,var(--pc,#9AA0A8) 0 var(--pct,0%),var(--bg-0) var(--pct,0%) 100%);box-shadow:inset 0 1px 2px rgba(0,0,0,0.55);}
+  /* [R278b] El relleno va de --pa a --pb, no de 0 al valor: asi un mando bipolar (pitch, luminancia, giro)
+     rellena DESDE EL CERO hacia el lado que toque y no confunde «cero» con «a la mitad». En los normales
+     --pa vale 0 y sale exactamente lo de antes. */
+  input[type=range]::-webkit-slider-runnable-track{height:3px;border-radius:2px;background:linear-gradient(90deg,var(--bg-0) 0 var(--pa,0%),var(--pc,#9AA0A8) var(--pa,0%) var(--pb,var(--pct,0%)),var(--bg-0) var(--pb,var(--pct,0%)) 100%);box-shadow:inset 0 1px 2px rgba(0,0,0,0.55);}
   input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:11px;height:11px;border-radius:50%;background:transparent;border:none;margin-top:-4px;box-shadow:none;}
   input[type=range]:hover::-webkit-slider-runnable-track{box-shadow:inset 0 1px 2px rgba(0,0,0,0.55),0 0 0 .5px rgba(255,255,255,0.10);}
   input[type=range]:focus{outline:none;}
@@ -253,7 +256,7 @@
      El pulgar NO se elimina: se vuelve transparente conservando sus 11 px, que es lo que se agarra al arrastrar.
      Borrarlo o dejarlo en 0 px haría el fader inarrastrable, no más limpio. El foco de teclado se traslada a la
      pista, que es ahora lo único visible. */
-  .vslab input[type=range].vfader::-webkit-slider-runnable-track{height:3px;border-radius:2px;background:linear-gradient(90deg,var(--ink-2) 0 var(--pct,50%),var(--s0) var(--pct,50%) 100%);box-shadow:inset 0 0 0 .5px rgba(255,255,255,0.06),inset 0 1px 1px rgba(0,0,0,0.5);}
+  .vslab input[type=range].vfader::-webkit-slider-runnable-track{height:3px;border-radius:2px;background:linear-gradient(90deg,var(--s0) 0 var(--pa,0%),var(--ink-2) var(--pa,0%) var(--pb,var(--pct,50%)),var(--s0) var(--pb,var(--pct,50%)) 100%);box-shadow:inset 0 0 0 .5px rgba(255,255,255,0.06),inset 0 1px 1px rgba(0,0,0,0.5);}
   .vslab input[type=range].vfader::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:11px;height:11px;margin-top:-4px;border-radius:50%;background:transparent;box-shadow:none;border:none;}
   .vslab input[type=range].vfader:hover::-webkit-slider-runnable-track{box-shadow:inset 0 0 0 .5px rgba(255,255,255,0.06),inset 0 1px 1px rgba(0,0,0,0.5),0 0 0 .5px rgba(255,255,255,0.10);}
   .vslab input[type=range].vfader:focus-visible::-webkit-slider-runnable-track{box-shadow:inset 0 1px 1px rgba(0,0,0,0.5),0 0 0 2px rgba(201,205,211,0.30);}
@@ -977,6 +980,8 @@
   .frow .cfield{flex:1;display:flex;align-items:center;height:20px;cursor:ew-resize;min-width:60px;}
   .frow .cfield .ctrack{flex:1;height:3px;border-radius:2px;background:var(--s0);box-shadow:inset 0 1px 2px rgba(0,0,0,0.55);position:relative;overflow:hidden;}
   .frow .cfield .ctrack>i{position:absolute;left:0;top:0;bottom:0;background:var(--pc,#9AA0A8);display:block;}
+  .frow .cfield:focus{outline:none;}
+  .frow .cfield:focus-visible .ctrack{box-shadow:inset 0 1px 2px rgba(0,0,0,0.55),0 0 0 2px rgba(201,205,211,0.30);}
   .frow .cfield:hover .ctrack{box-shadow:inset 0 1px 2px rgba(0,0,0,0.55),0 0 0 .5px rgba(255,255,255,0.10);}
   /* el número que acompaña al fader pasa a ser un recuadro, como el `.box` del inspector */
   .frow .cfield + .tnum{min-width:52px;display:inline-flex;align-items:baseline;justify-content:flex-end;gap:2px;

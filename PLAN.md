@@ -1,5 +1,34 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 278b — Auditoría independiente (Fable) y sus doce arreglos
+
+Beltrán pidió que la ronda la auditase **otro**, no yo, y que aplicase todo sin consultarle. Informe completo en
+`AUDITORIA-2026-08-06.md`. Lo que importó:
+
+**El grave.** `pasteAttrs` copiaba `slot`. Dejé fuera `group`/`groupId` razonando que «pertenecer a un grupo es una
+relación, no un atributo» — y `slot` es la OTRA MITAD de esa misma relación. Pegado sobre una composición más
+pequeña, el siguiente re-layout **borraba el clip en silencio**. Sin re-layout de por medio no se veía: quedaba
+latente en el proyecto guardado.
+
+**El vergonzoso.** Añadí copiar/pegar atributos sin darme cuenta de que el programa YA los tenía desde R80, y
+quedaron los dos en el mismo menú con el mismo rótulo. El viejo fusiona propiedades y no recorta la
+automatización: elegir mal daba justo lo que la ronda decía haber impedido. Retirado a `_backup/deprecated/`.
+
+**El sutil.** El pegado era asimétrico: asignar sólo pisa lo que el origen trae, y las claves opcionales
+—máscaras, bucle, velocidad— sobrevivían en el destino. Ni reemplazo ni fusión. Ahora se retira todo lo que SÍ
+es atributo antes de asignar.
+
+Los otros nueve, en la tabla del informe. Dos merecen mención propia: **`React to audio` quedó encendido sin
+apagador** (quité su fila pero el motor lo seguía leyendo, así que un proyecto guardado con eso puesto seguía
+pulsando sin forma de pararlo — el motor deja de leerlo), y **los mandos bipolares** (pitch, luminancia, giro del
+tejido) donde, al quitar el puntito, «cero» se leía como «a la mitad»: el relleno sale ahora del cero.
+
+También me corrigió un comentario que era **falso**: escribí que Ctrl+Alt+C/V ganaban «por mirar primero», y
+delante había tres manejadores de puntos de curva que no miraban Alt.
+
+Verificado con `scratchpad/r278b-auditoria.mjs`, que reproduce el escenario de cada hallazgo, más las tres pruebas
+de la ronda repasadas para comprobar que arreglar no rompió nada.
+
 ## ROUND 277-278 — Pestanas de secuencia, y copiar/pegar atributos
 
 **R277 · Las pestanas.** Ancho fijo (90 px) en vez de dictado por el nombre, tres exactas a la vista y el resto por

@@ -1114,7 +1114,10 @@ function drawClip(c,m,t,xf){
   if(hasFx(c)) ntex=applyChain(ntex, fxChainSize(), c, t); // Reactive FX: run the audio-reactive chain on the clip texture before dome/2D placement (dome+flat agnostic; deterministic in export)
   if(c.props.blackKey) ntex=applyBlackKey(ntex, fxChainSize(), c); // R85: luma-key the black background → real transparency (after FX so it keys the final look)
   if(_drawFlat){ const opf=Math.max(0,Math.min(1,evalR(c,'opacity',t)/100))*fadeFactor(c,t)*(xf==null?1:xf); drawClipFlat(c,m,t,xf,ntex,opf); return; } // FLAT (2D) sequence: place clip as a rectangle (x/y/scale/rot), no dome projection
-  const spin=evalR(c,'spin',t); let az=evalR(c,'az',t)+spin, el=evalR(c,'el',t); let size=Math.max(1,evalR(c,'size',t)); if(c.props.react==='audio')size*=(1+audioLevelAt(t)*(c.props.reactAmt||0)/100*1.5);
+  const spin=evalR(c,'spin',t); let az=evalR(c,'az',t)+spin, el=evalR(c,'el',t); let size=Math.max(1,evalR(c,'size',t)); /* [R278b] `props.react` RETIRADO del motor. Su fila del inspector se quito en R276c -la sustituye la pestana
+   Reactive FX entera- y con ella desaparecio el unico sitio que lo escribia: un clip guardado con
+   react:'audio' seguia pulsando SIN NINGUNA FORMA de apagarlo. Una funcion que no se puede desactivar es
+   peor que una que no esta. El dato sigue en el .isp por si hubiera que revivirlo; solo deja de leerse. */
   let op=Math.max(0,Math.min(1,evalR(c,'opacity',t)/100))*fadeFactor(c,t)*(xf==null?1:xf);
   if(c.props.equirect){ gl.useProgram(PEQ); gl.bindVertexArray(eqVAO); // [F7] equirectangular 360° source → dome: az (Azimuth+Spin) = yaw (rotate the camera), eqPitch tilts
     gl.uniform1f(LEQ.op,op); gl.uniform1f(LEQ.mir,c.props.mirror?-1:1); gl.uniform1f(LEQ.covHalf, curCovHalf()); gl.uniform1f(LEQ.yaw, az*D2R); gl.uniform1f(LEQ.pitch, (c.props.eqPitch||0)*D2R);
@@ -6163,7 +6166,11 @@ function buildPenMaskUI(host,c){ if(!c)return; const masks=c.penMasks||(c.penMas
         e.currentTarget.classList.toggle('on',!!mk.invert); e.currentTarget.setAttribute('aria-checked',mk.invert?'true':'false'); commit(); };
       row.querySelector('.penDel').onclick=()=>{ pushUndo(); c.penMasks.splice(mi,1); if(c._penSel>=c.penMasks.length)c._penSel=c.penMasks.length-1;
         if(!c.penMasks.length){ _maskEdit=null; _maskDrag=null; setVpCursor(); } // sin máscaras no hay nada que editar en el lienzo (sin renderInspector: estamos DENTRO del panel que reconstruiría)
-        if(!penMaskActive(c)&&c.props.mask==='pen')c.props.mask='none'; rebuildList(); syncFe(); syncVis(); commit(); }; }); };
+        if(!penMaskActive(c)&&c.props.mask==='pen'){ c.props.mask='none';
+          /* [R278b] ...y el desplegable de Mascara hay que ponerlo al dia A MANO: estamos dentro del panel
+             que reconstruiria renderInspector, asi que no se puede llamar, y el select se quedaba
+             diciendo «Pen» sobre un clip que ya no tiene ninguna. */
+          const sel=document.querySelector('#maskSel'); if(sel)sel.value='none'; } rebuildList(); syncFe(); syncVis(); commit(); }; }); };
   wrap.querySelector('#penAdd').onclick=()=>{ pushUndo(); c.penMasks=c.penMasks||[]; c.penMasks.push({pts:[[0.35,0.35],[0.65,0.35],[0.65,0.65],[0.35,0.65]],feather:0,invert:false,on:true}); c._penSel=c.penMasks.length-1;
     rasterizePenMasks(c); markDirty(); startMaskEdit(c,c._penSel); }; // crear una máscara entra directo al lienzo: es donde se dibuja
   wrap.querySelector('#penEdit').onclick=()=>{ if(maskEditClip()===c)endMaskEdit(); else startMaskEdit(c,c._penSel); };
@@ -6187,7 +6194,7 @@ function animToggleWetKf(a,c){ const key=motKeyFor(a), cur=Math.max(0,Math.min(1
   if(ex){ c.kf[key]=c.kf[key].filter(k=>k!==ex); if(!c.kf[key].length){ delete c.kf[key]; c.props[key]=cur; } } // al quitar el último punto el valor se congela donde estaba (mismo trato que el diamante del inspector)
   else setKf(c,key,state.playhead,cur,curEase()); }
 /* keep the Mix sliders / keyframe dots in sync with the playhead (called from refreshInspector on scrub) */
-function refreshMotionWet(){ const c=selClip(); const host=$('#animList'); if(!c||!c.anim||!host)return; host.querySelectorAll('[data-ai]').forEach(it=>{ const a=c.anim[+it.dataset.ai]; if(!a)return; const p=Math.round(Math.max(0,Math.min(1,evalWet(c,a,state.playhead)))*100); const r=it.querySelector('.awet'), v=it.querySelector('.awetv'), kb=it.querySelector('.awetkf'); const hasWK=animHasWetKf(a,c); if(r&&document.activeElement!==r)r.value=p; if(v)v.textContent=p+'%'+(hasWK?' ◆':''); if(kb){ const kfHere=!!animWetKfAt(a,c); kb.style.color=hasWK?(kfHere?'#FFFFFF':'#C9CDD3'):'#5A6069'; } }); } // [R224] `hasWK` lee el parámetro mot:…:mix (antes a.wetKf, y la variable local se llamaba `hasKf` — tapaba la función global del mismo nombre)
+function refreshMotionWet(){ const c=selClip(); const host=$('#animList'); if(!c||!c.anim||!host)return; /* [R278b] escribir .value NO dispara `input`: hay que repintar a mano o el relleno se queda clavado */ host.querySelectorAll('[data-ai]').forEach(it=>{ const a=c.anim[+it.dataset.ai]; if(!a)return; const p=Math.round(Math.max(0,Math.min(1,evalWet(c,a,state.playhead)))*100); const r=it.querySelector('.awet'), v=it.querySelector('.awetv'), kb=it.querySelector('.awetkf'); const hasWK=animHasWetKf(a,c); if(r&&document.activeElement!==r){ r.value=p; faderFill(r); } if(v)v.textContent=p+'%'+(hasWK?' ◆':''); if(kb){ const kfHere=!!animWetKfAt(a,c); kb.style.color=hasWK?(kfHere?'#FFFFFF':'#C9CDD3'):'#5A6069'; } }); } // [R224] `hasWK` lee el parámetro mot:…:mix (antes a.wetKf, y la variable local se llamaba `hasKf` — tapaba la función global del mismo nombre)
 /* [R253] Refresca EN SU SITIO las cifras de amplitud de los modificadores, sin rehacer la lista. Lo usa el maestro
    de intensidad mientras se arrastra: reconstruir el DOM ahí destruiría el propio deslizador que se está usando.
    Se respeta el campo que tenga el foco, para no pisarle a nadie lo que está escribiendo. */
@@ -6255,6 +6262,10 @@ function buildAnimList(c){ const host=$('#animList'); if(!host)return; host.inne
     wetR.onchange=()=>markDirty();
     item.querySelector('.awetkf').onclick=()=>{ pushUndo(); animToggleWetKf(a,c); focusAutoParam(c,motKeyFor(a)); buildAnimList(selClip()); render(); renderTimeline(); startMotionPreview(); markDirty(); };
     host.appendChild(item); });
+  /* [R278b] Esta lista se reconstruye desde sus propios manejadores (anadir, on/off, cambiar modo, borrar),
+     sin pasar por renderInspector, que es quien pinta los faders. Sin esto los mandos recien creados
+     salian con la pista VACIA mientras la cifra de al lado decia otra cosa. */
+  pintarRangos(host);
 }
 function fadeDrag(box,key){ box.addEventListener('pointerdown',e=>{e.preventDefault();const c=selClip();const x0=e.clientX,v0=c[key]||0;pushUndo();
   const mv=ev=>{c[key]=Math.max(0,Math.min(c.dur/2,v0+(ev.clientX-x0)*0.02));box.querySelector('.num').textContent=c[key].toFixed(1);renderTimeline();render();};
@@ -9140,8 +9151,13 @@ function renameSequence(id){ const m=mediaById(id); if(!isSeqMedia(m))return; co
   /* [R277] Con la pestana a ancho fijo, editar dentro de un rotulo recortado es escribir a ciegas. Mientras
      dura la edicion se le devuelve el ancho automatico; al terminar, renderSeqBar la repinta a su medida. */
   const tab=el&&el.closest('.seqtab'); if(tab){ tab.style.width='auto'; tab.style.flex='0 0 auto'; }
-  const _fin=nv=>{ if(tab){ tab.style.width=''; tab.style.flex=''; } _ren(nv); };
-  if(!inlineEdit(el,m.name,_fin)) appPrompt(T('Sequence name:','Nombre de la secuencia:'),m.name,n=>{ if(n!=null)_fin(n); else if(tab){ tab.style.width=''; tab.style.flex=''; } }); }
+  /* [R278b] La anchura se devuelve al PERDER EL FOCO, no en el commit: `inlineEdit` solo llama al commit
+     si hay valor nuevo y valido, asi que con Escape -o dejando el nombre igual- la pestana se quedaba
+     ancha y rompia el «tres exactas» hasta el siguiente repintado. El blur ocurre en los dos casos. */
+  const _estrecha=()=>{ if(tab){ tab.style.width=''; tab.style.flex=''; } };
+  if(el)el.addEventListener('blur',_estrecha,{once:true});
+  const _fin=nv=>{ _estrecha(); _ren(nv); };
+  if(!inlineEdit(el,m.name,_fin)) appPrompt(T('Sequence name:','Nombre de la secuencia:'),m.name,n=>{ if(n!=null)_fin(n); else _estrecha(); }); }
 function deleteSequenceMedia(id){ const m=mediaById(id); if(!isSeqMedia(m))return; if(state.media.filter(isSeqMedia).length<=1){ flashStatus(T('Keep at least one sequence','Mantén al menos una secuencia')); return; }
   const usedElsewhere=state.media.some(s=>isSeqMedia(s)&&s.id!==id&&(s.nestClips||[]).some(c=>c.mediaId===id));
   appConfirm(T('Delete this sequence?','¿Eliminar esta secuencia?')+(usedElsewhere?T(' It is nested inside another sequence.',' Está anidada dentro de otra secuencia.'):''), ok=>{ if(!ok)return;
@@ -10672,7 +10688,14 @@ restoreRoomVpPrefs(); // [R230] divisor y visibilidad del piso del visor de sala
 /* [R180] Mismo interruptor, para los cachés de composición. disposeAllVinst() es obligatorio: las instancias
    enlazadas al archivo del caché tienen que soltarlo para volver a componer desde las fuentes, y al revés. */
 { const nb=$('#nestCacheToggle button'); if(nb)nb.onclick=()=>{ state.view.useNestCache=(state.view.useNestCache===false); nb.classList.toggle('on',state.view.useNestCache!==false); disposeAllVinst(); scrubRender(); render(); renderTimeline(); flashStatus(state.view.useNestCache!==false?T('Compositions: proxy (fast)','Composiciones: proxy (rápido)'):T('Compositions: rebuilt from sources','Composiciones: recompuestas desde las fuentes')); }; }
-function faderFill(el){ if(!el)return; const mn=+el.min||0,mx=+el.max||1,v=+el.value; el.style.setProperty('--pct',(mx>mn?((v-mn)/(mx-mn))*100:0).toFixed(1)+'%'); } // [T4] paint the fader's filled portion (left of the thumb) via the --pct CSS var
+function faderFill(el){ if(!el)return; const mn=+el.min||0,mx=+el.max||1,v=+el.value;
+  const p=(mx>mn?((v-mn)/(mx-mn))*100:0); el.style.setProperty('--pct',p.toFixed(1)+'%');
+  /* [R278b] El relleno va de --pa a --pb. En un mando normal eso es de 0 al valor, como siempre; en uno
+     BIPOLAR (minimo negativo: pitch -90..90, luminancia -100..100, giro del tejido -180..180) va del CERO al
+     valor, hacia el lado que toque. Con el pulgar retirado la pista es el unico indicador, y rellenar siempre
+     desde la izquierda hacia leer «cero» como «a la mitad», que es justo el punto mas usado. */
+  const z=(mn<0&&mx>0)?((0-mn)/(mx-mn))*100:0;
+  el.style.setProperty('--pa',Math.min(z,p).toFixed(1)+'%'); el.style.setProperty('--pb',Math.max(z,p).toFixed(1)+'%'); } // [T4] paint the fader's filled portion (left of the thumb) via the --pct CSS var
 $('#fovRange').oninput=e=>{state.view.cam.fov=+e.target.value;$('#fovLbl').textContent=Math.round(+e.target.value)+'°';faderFill(e.target);render();};
 $('#dollyRange').oninput=e=>{state.view.cam.back=+e.target.value;$('#dollyLbl').textContent=(+e.target.value).toFixed(1);faderFill(e.target);render();};
 { const dr=$('#distRange'); if(dr)dr.oninput=e=>{state.view.cam.dist=+e.target.value;const dl=$('#distLbl');if(dl)dl.textContent=(+e.target.value).toFixed(1);faderFill(e.target);render();}; }
@@ -10998,11 +11021,12 @@ window.addEventListener('keydown',e=>{ const tag=(e.target.tagName||'').toLowerC
   if(mod&&e.key.toLowerCase()==='f'){e.preventDefault(); if(state.prefs&&state.prefs.mediaCollapsed){ state.prefs.mediaCollapsed=false; setPaneCollapsed('#mediaPane',false); } showMediaSearch(true); return;} // [R92-T5] Ctrl+F = media search · [AUDITORÍA Rev1] revela el campo (y abre el panel si estaba plegado)
   if(mod&&e.key.toLowerCase()==='o'){e.preventDefault();openProject();return;}
   if(mod&&e.key.toLowerCase()==='z'){e.preventDefault();e.shiftKey?redo():undo();return;}
-  if(mod&&e.key.toLowerCase()==='c'&&state.autoSel&&state.autoSel.set&&state.autoSel.set.size){e.preventDefault();copyAutoSel();return;} // selected breakpoints → copy the curve slice, not the clip
-  if(mod&&e.key.toLowerCase()==='v'&&state.hoverAuto&&state.kfClipboard&&state.kfClipboard.ks&&state.kfClipboard.ks.length){e.preventDefault();pasteAutoAt(state.hoverAuto, state.hoverAuto.t!=null?state.hoverAuto.t:state.playhead);return;} // [L5] pointer over an automation lane → paste the curve at the CURSOR position (not the playhead)
-  if(mod&&e.key.toLowerCase()==='a'&&state.hoverAuto){e.preventDefault();selectAllAuto(state.hoverAuto);return;} // Ctrl+A over a lane = select all its breakpoints
-  /* [R278] Con Alt, copiar/pegar ATRIBUTOS. Van ANTES que Ctrl+C/V a proposito: comparten la tecla y el que
-     mira primero gana; puestos despues, el copiado de clip se los tragaria. */
+  if(mod&&!e.altKey&&e.key.toLowerCase()==='c'&&state.autoSel&&state.autoSel.set&&state.autoSel.set.size){e.preventDefault();copyAutoSel();return;} // selected breakpoints → copy the curve slice, not the clip
+  if(mod&&!e.altKey&&e.key.toLowerCase()==='v'&&state.hoverAuto&&state.kfClipboard&&state.kfClipboard.ks&&state.kfClipboard.ks.length){e.preventDefault();pasteAutoAt(state.hoverAuto, state.hoverAuto.t!=null?state.hoverAuto.t:state.playhead);return;} // [L5] pointer over an automation lane → paste the curve at the CURSOR position (not the playhead)
+  if(mod&&!e.altKey&&e.key.toLowerCase()==='a'&&state.hoverAuto){e.preventDefault();selectAllAuto(state.hoverAuto);return;} // Ctrl+A over a lane = select all its breakpoints
+  /* [R278] Con Alt, copiar/pegar ATRIBUTOS. [R278b] Ponerlos antes que Ctrl+C/V NO bastaba: delante habia
+     tres manejadores de breakpoints que no miraban Alt, y con puntos de una curva seleccionados el
+     Ctrl+Alt+C se iba a copiar el tramo de curva. Ahora esos tres exigen que Alt NO este pulsado. */
   if(mod&&e.altKey&&e.key.toLowerCase()==='c'){e.preventDefault();copyAttrs();return;}
   if(mod&&e.altKey&&e.key.toLowerCase()==='v'){e.preventDefault();pasteAttrs();return;}
   if(mod&&e.key.toLowerCase()==='c'){e.preventDefault();copyClip();return;}
@@ -11120,7 +11144,10 @@ const ATTR_FUERA=new Set([
   'name','color',                           // del medio de origen, no del clip
   'comp',                                   // la configuración de la composición: su excepción explícita
   'link','avRole',                          // el emparejado vídeo/audio pertenece a ESE par de clips
-  'group','groupId',                        // pertenecer a un grupo es una relación, no un atributo
+  'group','groupId','slot',                // `slot` es la OTRA MITAD de la relacion de grupo (el indice del miembro). Pegado sobre una
+                                            // composicion mas pequena, el siguiente re-layout BORRABA el clip en silencio:
+                                            // filter(c=>c.groupId!==g.id||c.slot<lay.length). Lo cazo la auditoria de Fable.
+  'oldgroup','oldgroupId',                        // pertenecer a un grupo es una relación, no un atributo
   'inP',                                    // qué trozo del archivo suena/se ve: es un montaje, y entre medios distintos no significa nada
   'maskTex','peaks'                          // cachés de GPU/audio; se reconstruyen solas
 ]);
@@ -11165,14 +11192,33 @@ function pasteAttrs(){ const cb=state.attrClip; if(!cb){ flashStatus(T('Copy att
     if(a.loopLen!=null){ const m=mediaById(c.mediaId); const tope=(m&&m.dur)?m.dur:a.loopLen;
       if(a.loopLen>tope){ a.loopLen=tope; recortados++; } }
     const kfRec=recortarKf(a.kf,c.dur);
-    if(a.kf&&Object.keys(a.kf).length&&(!kfRec||Object.keys(kfRec).length<Object.keys(a.kf).length||cb.dur>c.dur))recortados++;
+    /* [R278b] El aviso sólo si de verdad se ha perdido algo. Antes bastaba con que el origen fuese más largo,
+       aunque todos los puntos cupieran: un aviso falso enseña a desconfiar de los avisos. */
+    if(a.kf) for(const k in a.kf){ const orig=(a.kf[k]||[]).length, queda=(kfRec&&kfRec[k]||[]).length;
+      if(queda<orig){ recortados++; break; } }
     delete a.kf;
+    /* [R278b] Reemplazo SIMÉTRICO. `Object.assign` sólo pisa las claves que el origen trae, y las opcionales
+       -penMasks, maskData, loop, speed, anim, mod...- sólo existen si alguna vez se usaron: pegar un clip
+       «limpio» sobre uno con máscara y bucle le dejaba la máscara huérfana y el bucle puesto. Ni reemplazo ni
+       fusión: una mezcla de dos clips. Se retira antes todo lo que SÍ es atributo, y luego se asigna. */
+    for(const k in c){ if(ATTR_FUERA.has(k)||k.charAt(0)==='_')continue;
+      if(typeof c[k]==='function')continue; if(!(k in a))delete c[k]; }
     Object.assign(c,a);
     if(kfRec)c.kf=kfRec; else delete c.kf;
     /* Las máscaras de pluma se rasterizan a una textura: copiar los puntos sin rehacerla deja la de antes. */
     if(c.maskData||(c.penMasks&&c.penMasks.length)){ c.maskTex=null; if(typeof rebuildMaskTex==='function')rebuildMaskTex(c); }
     if(c.penMasks&&c.penMasks.length&&typeof rasterizePenMasks==='function')rasterizePenMasks(c); }
-  markDirty(); renderTimeline(); renderInspector(); render(); updStatus();
+  /* [R278b] Reemplazar `c.kf` deja colgando las referencias VIVAS a keyframes que guardan la selección de
+     puntos y la caja de forma: apuntarían a objetos que ya no están en ninguna curva. */
+  state.autoSel=null; state.shapeBox=null;
+  /* [R278b] Y hay que reprogramar lo que depende de velocidad, volumen, bucle y fundidos. Sin esto, pegar
+     atributos sobre un clip que está sonando lo deja reproduciéndose con los valores viejos hasta que otra
+     acción cualquiera reprograme. Es la secuencia que ya usaba `setClipSpeed`. */
+  if(typeof disposeAllVinst==='function')disposeAllVinst();
+  markDirty(); renderTimeline(); renderInspector();
+  if(typeof scheduleWaves==='function')scheduleWaves();
+  render(); updStatus();
+  if(typeof reschedAudio==='function')reschedAudio();
   flashStatus(T('Attributes pasted to ','Atributos pegados a ')+dest.length+(dest.length===1?T(' clip',' clip'):T(' clips',' clips'))
     +(recortados?T(' · automation trimmed to fit',' · automatización recortada a la duración'):'')); }
 function copyClip(){ const cs=selClipsAll(); if(!cs.length)return;
@@ -11421,19 +11467,8 @@ function toggleDisable(){ const a=state.tl.selA,b=state.tl.selB; const hasRange=
   const sel=state.selIds.map(clipById).filter(Boolean); if(!sel.length){ flashStatus(T('Select a clip (or a range) first','Selecciona un clip (o un rango) primero')); return; }
   pushUndo(); const anyOn=sel.some(c=>!c.disabled); for(const c of sel)c.disabled=anyOn;
   renderTimeline(); render(); markDirty(); reschedAudio(); flashStatus(anyOn?T('Clip disabled','Clip desactivado'):T('Clip enabled','Clip activado')); }
-/* ---- R80-3: copy/paste attributes (props/fx/kf/anim; fx ids re-minted + kf keys remapped) ---- */
-let _attrClip=null;
-function copyAttributes(c){ _attrClip=JSON.parse(JSON.stringify({props:c.props||{},fx:c.fx||[],kf:c.kf||{},anim:c.anim||null,speed:c.speed||null})); flashStatus(T('Attributes copied','Atributos copiados')); }
-function pasteAttributes(){ if(!_attrClip){ flashStatus(T('Copy attributes from a clip first','Copia primero los atributos de un clip')); return; }
-  const sel=state.selIds.map(clipById).filter(Boolean); if(!sel.length){ flashStatus(T('Select target clips','Selecciona clips de destino')); return; }
-  pushUndo();
-  for(const c of sel){ const src=JSON.parse(JSON.stringify(_attrClip)); const idMap={};
-    for(const f of src.fx){ const nid=uid(); idMap[f.id]=nid; f.id=nid; }
-    const remap=k=>{ const mm=/^fx:(\d+):(.*)$/.exec(k); return (mm&&idMap[+mm[1]]!=null)?('fx:'+idMap[+mm[1]]+':'+mm[2]):k; };
-    const nkf={}; for(const k of Object.keys(src.kf))nkf[remap(k)]=src.kf[k];
-    c.props=Object.assign({},c.props,src.props); c.fx=src.fx; c.kf=nkf;
-    if(src.anim)c.anim=src.anim; if(src.speed)c.speed=src.speed; else delete c.speed; }
-  disposeAllVinst(); renderTimeline(); renderInspector(); render(); markDirty(); flashStatus(T('Attributes pasted to ','Atributos pegados en ')+sel.length+' clip(s)'); }
+/* [R278b] Aqui vivia el par copyAttributes/pasteAttributes de R80-3, retirado tras la auditoria: duplicaba la
+   funcion con otra semantica bajo el mismo rotulo. Archivado en _backup/deprecated/. */
 $('#tracks').addEventListener('contextmenu',e=>{ const cd=e.target.closest('.clip');
   if(!cd){ e.preventDefault(); const ln=e.target.closest('.lane'); const li=ln?+ln.dataset.lane:null; const knd=(li!=null&&state.lanes[li])?state.lanes[li].kind:undefined; openMenu(e.clientX,e.clientY,trackCreateItems(knd)); return; } // [R110b] right-click on a track row filters create-track by that row's kind
   /* [T1] a `//` comment here used to swallow this whole body → the clip menu never got `id`/preventDefault and broke. */
@@ -11457,8 +11492,7 @@ $('#tracks').addEventListener('contextmenu',e=>{ const cd=e.target.closest('.cli
     {label:(()=>{const c=clipById(id);return (c&&c.loop)?T('Loop: on ✓','Loop: activado ✓'):T('Loopable','Loopeable');})(),fn:()=>{const c=clipById(id);if(c)toggleLoop(c);}},
     {label:(()=>{const c=clipById(id);return (c&&c.loopRev)?T('Loop reverse: on ✓','Loop inverso: activado ✓'):T('Loop reverse (ping-pong)','Loop inverso (ping-pong)');})(),fn:()=>{const c=clipById(id);if(c)toggleLoopReverse(c);}},
     {label:(()=>{const c=clipById(id);return (c&&c.disabled)?T('Enable','Activar'):T('Disable','Desactivar');})(),key:'0',fn:()=>{const c=clipById(id);if(c)toggleDisable();}},
-    {label:T('Copy attributes','Copiar atributos'),fn:()=>{const c=clipById(id);if(c)copyAttributes(c);}},
-    {label:T('Paste attributes','Pegar atributos'),fn:pasteAttributes}, 'sep',
+    'sep',
     ...((()=>{const cc=clipById(id),mm=cc&&mediaById(cc.mediaId);return (mm&&mm.kind!=='audio'&&!isSeqMedia(mm))?[{label:T('Create composition from clip…','Crear composición desde el clip…'),ico:'ring',fn:()=>{const c2=clipById(id);if(c2)openCompose('ring',null,null,c2);}}]:[];})()),
     {label:T('Nest selection','Anidar selección'),ico:'ring',fn:nestSelection},
     ...((()=>{const cc=clipById(id),mm=cc&&mediaById(cc.mediaId);return (mm&&isSeqMedia(mm))?[{label:T('Open sequence','Abrir secuencia'),ico:'panel',fn:()=>openSeq(mm.id)},{label:T('Make unique','Convertir en único'),ico:'ring',fn:()=>{const c2=clipById(id);if(c2)makeClipUnique(c2);}}]:[];})()),
@@ -12302,13 +12336,26 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
     f.style.setProperty('--pc', autoColor('fxt:'+(rng.id||'x')+':v'));
     rng.parentNode.insertBefore(f, rng.nextSibling);
     const barra=f.querySelector('i');
+    /* [R278b] Igual que en el inspector: en un mando BIPOLAR el relleno sale del cero, no del borde. Aqui el
+       caso es el giro del tejido (-180..180), donde «sin giro» se leia como «medio giro». */
     const pinta=()=>{ const mn=+rng.min||0, mx=(rng.max!==''&&rng.max!=null)?+rng.max:100;
-      barra.style.width=Math.max(0,Math.min(100,((+rng.value-mn)/((mx-mn)||1))*100))+'%'; };
+      const p=Math.max(0,Math.min(100,((+rng.value-mn)/((mx-mn)||1))*100));
+      const z=(mn<0&&mx>0)?((0-mn)/((mx-mn)||1))*100:0;
+      barra.style.left=Math.min(z,p)+'%'; barra.style.width=Math.abs(p-z)+'%'; };
     const alPunto=(cx)=>{ const r=f.querySelector('.ctrack').getBoundingClientRect();
       const mn=+rng.min||0, mx=(rng.max!==''&&rng.max!=null)?+rng.max:100;
       const paso=+rng.step||1, k=Math.max(0,Math.min(1,(cx-r.left)/(r.width||1)));
       const v=mn+(mx-mn)*k; rng.value=String(Math.round(v/paso)*paso);
       pinta(); rng.dispatchEvent(new Event('input',{bubbles:true})); };
+    /* [R278b] El fader recupera el TECLADO. Al ocultar el `input[type=range]` original se perdio algo que el
+       slider nativo si tenia: flechas para ajustar fino y foco visible. Se le devuelve al sustituto. */
+    f.tabIndex=0; f.setAttribute('role','slider'); if(rng.id)f.setAttribute('aria-label',rng.id);
+    f.addEventListener('keydown',e=>{ const paso=(+rng.step||1)*(e.shiftKey?10:1);
+      const d=(e.key==='ArrowRight'||e.key==='ArrowUp')?paso:(e.key==='ArrowLeft'||e.key==='ArrowDown')?-paso:0;
+      if(!d)return; e.preventDefault();
+      const mn=+rng.min||0, mx=(rng.max!==''&&rng.max!=null)?+rng.max:100;
+      rng.value=String(Math.max(mn,Math.min(mx,(+rng.value)+d)));
+      pinta(); rng.dispatchEvent(new Event('input',{bubbles:true})); rng.dispatchEvent(new Event('change',{bubbles:true})); });
     f.addEventListener('pointerdown',e=>{ if(e.button!==0)return; e.preventDefault();
       try{ f.setPointerCapture(e.pointerId); }catch(_){}
       alPunto(e.clientX);
