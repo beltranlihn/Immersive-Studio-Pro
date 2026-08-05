@@ -58,6 +58,17 @@
 > **intrínseca**, que no necesita referencia — en un bucle de 0,4 s a 30 fps, el fotograma *k* y el *k+12* son el
 > mismo instante y tienen que ser idénticos. Sondas: `scratchpad/r256-*.mjs`.
 
+## 🍎 Lista del Mac — 2026-08-05 · CERRADA ✅ [R254b]
+> Ejecutada en un MacBook Apple Silicon (macOS 26.5.2). Detalle y tabla del codificador en `docs/MACOS.md`.
+- [x] ~~**Reabrir desde el Dock** ([R242], escrito a ciegas)~~ — funciona: 0 ventanas tras cerrar, 1 ventana
+      **visible** tras `activate`. Probado por el inspector del proceso principal (`--inspect`), no por AppleScript.
+- [x] ~~**Rutas del proxy de composición** ([R242], escrito a ciegas)~~ — `PSEP` = `/`; la carpeta `nest proxies`
+      sale DENTRO de la del proyecto y sin barra invertida en el nombre.
+- [x] ~~**Techo de H.264**~~ — medido: cuadrado topa en **3072²** (4096² NO), HEVC llega a 4096²; 7680×1080 sí,
+      7680×2160 no. **Al revés de la hipótesis: aquí aguanta MENOS que NVENC.** No hay umbral cableado que tocar.
+- [ ] **Al planificar entregas desde el Mac:** un máster cuadrado de 4096 no sale en H.264 → HEVC o secuencia PNG.
+
+
 ## ✅ Deshacer para medios y carpetas · CERRADO [R253c·d]
 - [x] **[R253d] Guardado contra el pisotón**: hacer restaurable el estado global lo hacía revertible por fotos que
       nunca lo capturaron (pilas por secuencia + medios globales, y cuatro mutadores sin `pushUndo`). Contador de
@@ -194,7 +205,7 @@
       habría reproducido la puerta muda.
 - [x] **Cola de export:** pendiente **cerrado**. Con [D2] retirado no se edita mientras exporta, así que la UI
       mínima de R216 es suficiente: no hay cola que administrar en paralelo.
-- [ ] **Pendiente de Mac:** verificar allí el arreglo del Dock y las rutas de `ncBuild` (más el tope H.264 de
+- [x] ~~**Pendiente de Mac:** verificar allí el arreglo del Dock y las rutas de `ncBuild`~~ — **hecho en [R254b]**, los dos funcionan; el tope de H.264 del Mac también quedó medido (cuadrado 3072², no 4096²). Ver la lista del Mac más arriba (más el tope H.264 de
       VideoToolbox que `docs/MACOS.md` ya marca como sin medir). No hay máquina disponible.
       **Lista de comprobación con pasos exactos y qué cuenta como «bien»: `docs/MACOS.md` › «Pendiente de
       verificar EN un Mac».** Son ~10 minutos; los dos arreglos se escribieron a ciegas.

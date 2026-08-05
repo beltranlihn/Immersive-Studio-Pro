@@ -102,7 +102,41 @@ carpeta entera, se abre y funciona sin tocar nada.
 - Si algo queda en rojo (porque no viajó), clic derecho sobre el medio → **«Localizar archivo…»**, o arrastra los
   archivos al panel de Medios: se reenganchan solos por nombre + tamaño.
 
-## ⚠️ Pendiente de verificar EN un Mac (2026-08-04)
+## ✅ Verificado EN un Mac (2026-08-05) — MacBook Apple Silicon, macOS 26.5.2
+
+Los tres puntos de la lista, ejecutados. **Las dos correcciones a ciegas funcionan.** Detalle abajo; el texto
+original del encargo se conserva a continuación por si hay que repetir las pruebas.
+
+| # | Qué | Resultado |
+|---|---|---|
+| 1 | Reabrir desde el Dock ([R242]) | **BIEN.** Con la ventana cerrada quedan 0 ventanas y la app sigue viva; al emitir `activate` vuelve 1 ventana **visible** (1600×932). Probado por el inspector del proceso principal (`--inspect=9229`), que es donde vive el arreglo — AppleScript no valía porque el terminal no tiene permiso de accesibilidad. |
+| 2 | Rutas del proxy de composición ([R242]) | **BIEN.** `PSEP` resuelve a `/` (el puente `DSP.sep` lo entrega bien), `pjoin` compone `/Users/x/Proyectos/nest proxies/a.mp4`, y la ruta que arma `ncBuild` para un proyecto en el Escritorio sale `/Users/…/Desktop/nest proxies` — dentro de la carpeta del proyecto y sin barra invertida en el nombre. |
+| 3 | Techo de H.264 (nunca medido) | **Medido.** Ver la tabla siguiente. |
+
+### El techo del codificador en Apple Silicon (VideoToolbox)
+
+Sondeado con `VideoEncoder.isConfigSupported`, cadena de perfiles de mayor a menor:
+
+| Tamaño | H.264 | HEVC |
+|---|---|---|
+| 2048² | sí | sí |
+| **3072²** | **sí** | sí |
+| **4096²** | **NO** | **sí** |
+| 5120² y más | no | no |
+
+Rectangulares en H.264: 3840×2160 **sí** · 7680×1080 **sí** · 7680×2160 **no**.
+
+**La hipótesis del encargo era que en Apple Silicon podría aguantar más que en Windows. Es al revés:** el techo
+cuadrado de H.264 aquí es **3072²**, por debajo del ~4096² de NVENC. HEVC sí llega a 4096². La aceleración por
+hardware se confirma disponible (`prefer-hardware` a 3840×2160 → soportado).
+
+**No hace falta tocar código:** el export no lleva ningún umbral cableado — `pickCodec` sondea con
+`isConfigSupported` y degrada solo al siguiente de la lista. Lo que sí conviene saber al planificar una entrega
+desde el Mac: **un máster cuadrado de 4096 no saldrá en H.264**; hay que ir a HEVC o a secuencia PNG.
+
+---
+
+## ⚠️ El encargo original (2026-08-04) — se conserva para poder repetir las pruebas
 
 Tres cosas están razonadas sobre el código pero **nunca se han ejecutado en macOS**. Las dos primeras son
 correcciones de la auditoría de agosto escritas *a ciegas*: el razonamiento es inequívoco, pero hasta que alguien
