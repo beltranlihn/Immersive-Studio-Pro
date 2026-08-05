@@ -5748,11 +5748,14 @@ function _renderInspectorMain(){
     <button class="kf" id="maskUp" title="${T('Import mask PNG','Importar máscara PNG')}" style="width:20px;height:20px;color:var(--ink-2);cursor:pointer;">${ICO('upload',14)}</button>`;
   $('#fxRows').appendChild(mrow);
   // Mask size (resize the shape mask — the aspect-corrected circle stays a perfect circle)
-  const msrow=document.createElement('div'); msrow.className='prow';
-  msrow.innerHTML=`<span class="kf" style="cursor:default;"></span><span class="lab">${T('Mask size','Tamaño máscara')}</span><input type="range" id="maskScaleR" min="20" max="200" value="${Math.round((c.props.maskScale||1)*100)}" style="flex:1;height:20px;"><span class="tnum" id="maskScaleV" style="width:40px;text-align:right;color:var(--ink-2);">${Math.round((c.props.maskScale||1)*100)}%</span>`;
+  /* [R276c] Esta fila se construye a mano y se le habían quedado dos cosas que la delataban al lado de las que
+     hace `buildRows`: la pista gris —le faltaba el `--pc` del que sale el color por parámetro— y el valor suelto
+     en vez de dentro del recuadro `.box`. Se ve comparándola con Opacity o Blur en la misma columna. */
+  const msrow=document.createElement('div'); msrow.className='prow'; msrow.style.setProperty('--pc',autoColor('maskScale'));
+  msrow.innerHTML=`<span class="kf" style="cursor:default;"></span><span class="lab">${T('Mask size','Tamaño máscara')}</span><input type="range" id="maskScaleR" min="20" max="200" value="${Math.round((c.props.maskScale||1)*100)}" style="flex:1;height:20px;"><div class="box"><span class="num" id="maskScaleV">${Math.round((c.props.maskScale||1)*100)}</span><span class="u">%</span></div>`;
   $('#fxRows').appendChild(msrow);
   const msShow=()=>{ const mk=(selClip()||c).props.mask||'none'; msrow.style.display=(mk!=='none'&&mk!=='custom')?'flex':'none'; };
-  msrow.querySelector('#maskScaleR').oninput=e=>{ const cc=selClip(); if(!cc)return; cc.props.maskScale=Math.max(0.2,(+e.target.value)/100); msrow.querySelector('#maskScaleV').textContent=(+e.target.value)+'%'; render(); };
+  msrow.querySelector('#maskScaleR').oninput=e=>{ const cc=selClip(); if(!cc)return; cc.props.maskScale=Math.max(0.2,(+e.target.value)/100); msrow.querySelector('#maskScaleV').textContent=(+e.target.value);   /* [R276c] el '%' vive ya en su propio <span class="u">, como en el resto de filas */ render(); };
   msrow.querySelector('#maskScaleR').onchange=()=>markDirty();
   mrow.querySelector('#maskSel').value=c.props.mask||'none';
   mrow.querySelector('#maskSel').onchange=e=>{const cc=selClip();if(cc){pushUndo();cc.props.mask=e.target.value;render();} msShow();};
@@ -5772,15 +5775,10 @@ function _renderInspectorMain(){
   $('#fxRows').appendChild(brow);
   brow.querySelector('#blendSel').value=c.props.blend||'normal';
   brow.querySelector('#blendSel').onchange=e=>{const cc=selClip();if(cc){pushUndo();cc.props.blend=e.target.value;render();}};
-  // React to audio (deterministic envelope — also bakes into export)
-  const rrow=document.createElement('div'); rrow.className='prow';
-  rrow.innerHTML=`<span class="kf" style="cursor:default;"></span><span class="lab">${T('React to audio','Reaccionar al audio')}</span>
-    <select class="selsel" id="reactSel" style="flex:1;height:18px;"><option value="none">${T('Off','No')}</option><option value="audio">${T('Pulse size','Pulsar tamaño')}</option></select>
-    <input type="number" id="reactAmt" value="${c.props.reactAmt!=null?c.props.reactAmt:60}" min="0" max="100" title="${T('Amount','Cantidad')}" style="width:50px;height:18px;background:var(--s2);border:.5px solid rgba(255,255,255,0.12);border-radius:2px;color:var(--ink);text-align:center;">`;
-  $('#fxRows').appendChild(rrow);
-  rrow.querySelector('#reactSel').value=c.props.react||'none';
-  const reReact=()=>{const cc=selClip();if(cc){pushUndo();cc.props.react=$('#reactSel').value;cc.props.reactAmt=+$('#reactAmt').value||0;render();}};
-  rrow.querySelector('#reactSel').onchange=reReact; rrow.querySelector('#reactAmt').onchange=reReact;
+  /* [R276c] RETIRADA la fila «React to audio». Beltran: «no lo estabamos usando porque tenemos toda una
+     pestana de Reactive FX». El motor sigue leyendo c.props.react, asi que un proyecto viejo que lo tuviera
+     puesto se sigue viendo igual; lo que desaparece es el mando duplicado. El original queda en
+     _backup/deprecated/react-to-audio-row.js por si hubiera que devolverlo. */
   // Fulldome source toggle — source is already a fisheye/dome master → fills the dome 1:1 (no patch warp). Dome-only.
   if(!isFlat()){
     /* [AUDITORÍA Rev1 · §4] Source pasa de checkboxes nativos a los TOGGLES del diseño (26×15, verde al on —
@@ -6113,44 +6111,65 @@ function buildAudioInspector(c,m){ const host=$('#insAudio'); if(!host)return; c
    la lista de máscaras (seleccionar · invertir · suavizar · borrar), Expand, «Add mask» y el botón que enciende
    la edición en el lienzo. El mini-editor de 220 px está archivado en
    `_backup/deprecated/20260730-pen-mask-inspector-canvas.js` (ADR-0007). */
+/* [R276c] El panel se rehace con la GRAMÁTICA del inspector: una fila = etiqueta a la izquierda, mando al
+   centro, valor en recuadro a la derecha. Antes era una maraña de estilos en línea —el suavizado metido dentro
+   de la fila de cada máscara junto a su casilla y su aspa, todo apretado en 317 px— y no se parecía a nada de
+   lo que hay encima. Dos decisiones de diseño:
+     · La LISTA sólo identifica y ordena (rombo activo · nombre · invertir · borrar). Los parámetros no viven ahí.
+     · El SUAVIZADO pasa a fila propia y aplica a la máscara SELECCIONADA, que es justo lo que ya significaba el
+       rombo. Así cada parámetro ocupa una fila entera y se lee como Opacity o Blur, en vez de un mando de 24 px.
+   Lo que NO cambia: los datos, los manejadores y el orden de las llamadas (pushUndo → mutar → rasterizar →
+   render → markDirty). */
 function buildPenMaskUI(host,c){ if(!c)return; const masks=c.penMasks||(c.penMasks=[]);
   if(c._penSel==null||c._penSel>=masks.length) c._penSel=masks.length?masks.length-1:-1;
   const editing=(maskEditClip()===c);
-  const wrap=document.createElement('div'); wrap.className='prow'; wrap.style.cssText='flex-direction:column;align-items:stretch;gap:6px;';
-  wrap.innerHTML=`<div style="display:flex;align-items:center;gap:6px;">
-      <span class="lab" style="width:auto;color:var(--ink-2);">${T('Point mask','Máscara de puntos')}</span><span style="flex:1"></span>
+  const wrap=document.createElement('div'); wrap.className='prow'; wrap.style.cssText='flex-direction:column;align-items:stretch;gap:4px;';
+  wrap.style.setProperty('--pc',autoColor('penFeather'));
+  wrap.innerHTML=`<div style="display:flex;align-items:center;gap:6px;min-height:24px;">
+      <span class="lab" style="width:auto;">${T('Point mask','Máscara de puntos')}</span><span style="flex:1"></span>
       <button class="mbtn" id="penAdd" style="height:18px;padding:0 8px;">${ICO('plus',11)} ${T('Add mask','Añadir máscara')}</button></div>
-    <div id="penList" style="display:flex;flex-direction:column;gap:3px;"></div>
+    <div id="penList" style="display:flex;flex-direction:column;gap:1px;"></div>
     <button class="mbtn${editing?' on':''}" id="penEdit" style="height:22px;display:${masks.length?'inline-flex':'none'};justify-content:center;">${editing?T('Done','Terminar'):T('Edit on canvas','Editar en el lienzo')}</button>
-    <div class="prow" id="penExpRow" style="padding:0;gap:6px;display:${masks.length?'flex':'none'};"><span class="lab" style="width:auto;color:var(--ink-3);">${T('Expand','Expandir')}</span><input type="range" id="penExp" min="20" max="200" value="${Math.round((c.penExpand||1)*100)}" style="flex:1;"><span class="tnum" id="penExpV" style="width:38px;text-align:right;color:var(--ink-dim);">${Math.round((c.penExpand||1)*100)}%</span></div>
+    <div class="prow" id="penFeRow" style="padding:0;display:${masks.length?'flex':'none'};"><span class="lab" title="${T('Feather of the selected point mask','Suavizado de la máscara de puntos seleccionada')}">${T('Mask feather','Suav. máscara')}</span><input type="range" id="penFe" min="0" max="60" value="0"><div class="box"><span class="num" id="penFeV">0</span><span class="u">px</span></div></div>
+    <div class="prow" id="penExpRow" style="padding:0;display:${masks.length?'flex':'none'};"><span class="lab">${T('Expand','Expandir')}</span><input type="range" id="penExp" min="20" max="200" value="${Math.round((c.penExpand||1)*100)}"><div class="box"><span class="num" id="penExpV">${Math.round((c.penExpand||1)*100)}</span><span class="u">%</span></div></div>
     <span style="font-size:11px;color:var(--ink-dim);line-height:1.35;display:${masks.length?'block':'none'}" id="penHint">${editing
       ? T('On the viewer: click the outline to add a point · drag to move · double-click to remove · Esc to finish.','En el visor: clic en el contorno para añadir un punto · arrastra para mover · doble clic para quitar · Esc para terminar.')
       : T('Edit the points on the viewer canvas, right over the clip.','Los puntos se editan en el lienzo del visor, sobre el clip.')}</span>`;
   host.appendChild(wrap);
   const syncVis=()=>{ const on=!!(c.penMasks&&c.penMasks.length);
     wrap.querySelector('#penEdit').style.display=on?'inline-flex':'none';
+    wrap.querySelector('#penFeRow').style.display=on?'flex':'none';
     wrap.querySelector('#penExpRow').style.display=on?'flex':'none';
     wrap.querySelector('#penHint').style.display=on?'block':'none'; };
   const commit=()=>{ rasterizePenMasks(c); render(); markDirty(); };
+  /* El suavizado de la fila propia sigue SIEMPRE a la máscara del rombo: al cambiar de selección hay que
+     recargarlo, o el mando estaría enseñando el valor de otra. */
+  const syncFe=()=>{ const mk=(c.penMasks||[])[c._penSel]; const r=wrap.querySelector('#penFe'); if(!mk||!r)return;
+    r.value=Math.round(mk.feather||0); wrap.querySelector('#penFeV').textContent=r.value; faderFill(r); };
   const rebuildList=()=>{ const L=wrap.querySelector('#penList'); L.innerHTML='';
-    (c.penMasks||[]).forEach((mk,mi)=>{ const row=document.createElement('div'); row.style.cssText='display:flex;align-items:center;gap:5px;font-size:11px;padding:2px 3px;border-radius:2px;background:'+(mi===c._penSel?'rgba(79,195,232,0.14)':'transparent')+';';
-      row.innerHTML=`<button class="penSel" title="${T('Edit this mask','Editar esta máscara')}" style="width:15px;height:15px;border:none;background:none;color:${mi===c._penSel?'#4FC3E8':'var(--ink-3)'};cursor:pointer;font-size:10px;">◆</button>
-        <span style="flex:0 0 auto;color:var(--ink-2);">${T('Mask','Máscara')} ${mi+1}</span>
-        <label style="display:flex;align-items:center;gap:3px;color:var(--ink-3);cursor:pointer;"><input type="checkbox" class="penInv" ${mk.invert?'checked':''}> ${T('Invert','Invertir')}</label>
-        <span style="color:var(--ink-3);flex-shrink:0;">${T('Feather','Suavizar')}</span><input type="range" class="penFe" min="0" max="60" value="${Math.round(mk.feather||0)}" style="flex:1;min-width:24px;">
-        <button class="penDel" title="${T('Delete mask','Eliminar máscara')}" style="width:15px;height:15px;border:none;background:none;color:var(--ink-3);cursor:pointer;">✕</button>`;
+    (c.penMasks||[]).forEach((mk,mi)=>{ const act=(mi===c._penSel); const row=document.createElement('div');
+      row.style.cssText='display:flex;align-items:center;gap:6px;font-size:11px;min-height:22px;padding:0 4px;border-radius:2px;background:'+(act?'rgba(255,255,255,0.05)':'transparent')+';';
+      row.innerHTML=`<button class="penSel" title="${T('Edit this mask','Editar esta máscara')}" style="width:14px;height:14px;border:none;background:none;padding:0;color:${act?'var(--pc,#9AA0A8)':'var(--ink-faint)'};cursor:pointer;font-size:9px;line-height:1;">◆</button>
+        <span style="flex:1;min-width:0;color:${act?'var(--ink)':'var(--ink-2)'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${T('Mask','Máscara')} ${mi+1}</span>
+        <button class="penInv iosw${mk.invert?' on':''}" role="switch" aria-checked="${mk.invert?'true':'false'}" title="${T('Invert','Invertir')}"><i></i></button>
+        <button class="penDel" title="${T('Delete mask','Eliminar máscara')}" style="width:14px;height:14px;border:none;background:none;padding:0;color:var(--ink-faint);cursor:pointer;line-height:1;">✕</button>`;
       L.appendChild(row);
-      row.querySelector('.penSel').onclick=()=>{ c._penSel=mi; rebuildList(); render(); }; // render(): el polígono activo se resalta en el visor
-      row.querySelector('.penInv').onchange=e=>{ pushUndo(); mk.invert=e.target.checked; commit(); };
-      const fe=row.querySelector('.penFe'); fe.oninput=e=>{ mk.feather=+e.target.value; rasterizePenMasks(c); render(); }; fe.onpointerdown=()=>pushUndo(); fe.onchange=()=>markDirty();
+      row.querySelector('.penSel').onclick=()=>{ c._penSel=mi; rebuildList(); syncFe(); render(); }; // render(): el polígono activo se resalta en el visor
+      row.querySelector('.penInv').onclick=e=>{ pushUndo(); mk.invert=!mk.invert;
+        e.currentTarget.classList.toggle('on',!!mk.invert); e.currentTarget.setAttribute('aria-checked',mk.invert?'true':'false'); commit(); };
       row.querySelector('.penDel').onclick=()=>{ pushUndo(); c.penMasks.splice(mi,1); if(c._penSel>=c.penMasks.length)c._penSel=c.penMasks.length-1;
         if(!c.penMasks.length){ _maskEdit=null; _maskDrag=null; setVpCursor(); } // sin máscaras no hay nada que editar en el lienzo (sin renderInspector: estamos DENTRO del panel que reconstruiría)
-        if(!penMaskActive(c)&&c.props.mask==='pen')c.props.mask='none'; rebuildList(); syncVis(); commit(); }; }); };
+        if(!penMaskActive(c)&&c.props.mask==='pen')c.props.mask='none'; rebuildList(); syncFe(); syncVis(); commit(); }; }); };
   wrap.querySelector('#penAdd').onclick=()=>{ pushUndo(); c.penMasks=c.penMasks||[]; c.penMasks.push({pts:[[0.35,0.35],[0.65,0.35],[0.65,0.65],[0.35,0.65]],feather:0,invert:false,on:true}); c._penSel=c.penMasks.length-1;
     rasterizePenMasks(c); markDirty(); startMaskEdit(c,c._penSel); }; // crear una máscara entra directo al lienzo: es donde se dibuja
   wrap.querySelector('#penEdit').onclick=()=>{ if(maskEditClip()===c)endMaskEdit(); else startMaskEdit(c,c._penSel); };
-  const expR=wrap.querySelector('#penExp'); if(expR){ expR.onpointerdown=()=>pushUndo(); expR.oninput=()=>{ c.penExpand=Math.max(0.2,(+expR.value)/100); wrap.querySelector('#penExpV').textContent=(+expR.value)+'%'; rasterizePenMasks(c); render(); }; expR.onchange=()=>markDirty(); }
-  rebuildList();
+  { const fe=wrap.querySelector('#penFe');
+    fe.onpointerdown=()=>pushUndo();
+    fe.oninput=e=>{ const mk=(c.penMasks||[])[c._penSel]; if(!mk)return; mk.feather=+e.target.value;
+      wrap.querySelector('#penFeV').textContent=+e.target.value; rasterizePenMasks(c); render(); };
+    fe.onchange=()=>markDirty(); }
+  const expR=wrap.querySelector('#penExp'); if(expR){ expR.onpointerdown=()=>pushUndo(); expR.oninput=()=>{ c.penExpand=Math.max(0.2,(+expR.value)/100); wrap.querySelector('#penExpV').textContent=(+expR.value); rasterizePenMasks(c); render(); }; expR.onchange=()=>markDirty(); }
+  rebuildList(); syncFe();
 }
 /* build the per-clip list of active motion modifiers into #animList */
 /* [R224] Los tres ayudantes del Mix pasan a operar sobre el parámetro `mot:<param>:mix` (c.kf / c.props, 0-100 %) en vez
@@ -6364,7 +6383,8 @@ const CURVE_PARAMS=TF.concat(TF_FLAT).concat(FX);
 /* [R95·E1] every parameter owns a HUE — never grey/white: the colour is what ties the header bar, the clip overlay and
    the sub-lane together (Blender's channel-swatch model). opacity/crop/contrast used to be greys, so their curve read as
    "no colour" and broke the mapping. Warm = transform · cool = optics · magenta/gold = colour grade. */
-const PCOLOR={ az:'#E0954B', el:'#D8C24B', size:'#E0645C', rot:'#C58BD0', x:'#E0954B', y:'#D8C24B', scale:'#E0645C',
+const PCOLOR={ maskScale:'#7FB6A8', penFeather:'#B9A05E', /* [R276c] sin entrada aqui, autoColor devolvia el gris neutro y la fila desentonaba al lado de Opacity o Blur */
+  az:'#E0954B', el:'#D8C24B', size:'#E0645C', rot:'#C58BD0', x:'#E0954B', y:'#D8C24B', scale:'#E0645C',
   opacity:'#7FB2E8', blur:'#4FB3C9', feather:'#6FBF95', crop:'#8FA8C0',
   exposure:'#E8C84B', contrast:'#B0C4DE', saturation:'#D06FB0', temperature:'#E08A4B', tint:'#B08AD0', glow:'#F0E68C', chroma:'#5FC9A8' };
 /* [2] "Curves" no longer opens a window — it toggles the inline automation sub-lanes shown under the clips */
