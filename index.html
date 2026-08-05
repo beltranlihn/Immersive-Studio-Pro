@@ -276,10 +276,24 @@
   .sechead{width:100%;display:flex;align-items:center;gap:6px;height:24px;padding:0 12px;border:none;background:transparent;cursor:pointer;} /* [AUDITORÍA R154] 20→24px (RevDomo:278) */
   .fxhdr .fxtog,.fxhdr .fxcol,.fxhdr .fxdel{background:none;border:none;} .fxhdr .fxtog:hover,.fxhdr .fxcol:hover,.fxhdr .fxdel:hover{background:var(--surface-3);} .fxhdr .fxdel:hover{color:var(--ink-2) !important;}
   /* [X2] reactive-FX card body: grouped into labelled sections (Routing / Response / Parameters) so each effect box reads as ordered blocks, not a flat stack */
-  .fxbody{padding:5px 8px 7px;display:flex;flex-direction:column;gap:4px;}
-  .fxseg{display:flex;gap:4px;margin-bottom:1px;}
-  .fxsec{font-family:'Geist',system-ui,sans-serif;font-size:8.5px;font-weight:600;letter-spacing:0.02em;color:var(--ink-3);padding:5px 1px 1px;user-select:none;} /* [Rev1] sin uppercase */
-  .fxsec:first-child{padding-top:1px;}
+  /* [R270] El cuerpo de un efecto se rige por las MISMAS medidas del inspector. Antes tenía sangría propia (8px
+     frente a 12), separación propia y subtítulos de 8.5px cuando los títulos de sección del inspector son de 11:
+     las etiquetas no alineaban con las de arriba y la jerarquía no se leía. Las filas ya son `.prow`, así que
+     basta con no pelearse con ellas: sin padding lateral propio (lo pone `.prow`) y sin gap que las separe. */
+  .fxbody{padding:2px 0 6px;display:flex;flex-direction:column;gap:0;}
+  .fxseg{display:flex;gap:4px;margin:2px 12px 3px;}
+  .fxsec{font-family:'Geist',system-ui,sans-serif;font-size:10px;font-weight:600;letter-spacing:0.01em;color:var(--ink-3);padding:7px 12px 3px;user-select:none;} /* [R270] 8.5→10px y la sangría del inspector */
+  .fxsec:first-child{padding-top:4px;}
+  /* la fila de un efecto es la fila del inspector: misma altura, mismo separador, misma etiqueta */
+  .prow.fxrow .lab{width:66px;}
+  .fxcard .prow{padding-left:10px;padding-right:10px;}
+  .fxcard .prow:last-child{border-bottom:none;}
+  /* [R270] El recuadro del valor se perdía dentro de la tarjeta: la tarjeta usaba `--s0` (pozo) y el recuadro
+     también, así que los números quedaban flotando sin el ancla que sí tienen en el inspector. Se invierte la
+     jerarquía para que coincida con el resto del panel: la tarjeta es PANEL (`--s1`) y el recuadro, POZO. */
+  .fxcard{background:var(--s1) !important;}
+  .fxcard .fxhdr{background:var(--s2) !important;}
+  .fxcard .prow .box{background:var(--s0);}
   .aselect{appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%239EA5AD' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6 6-6'/></svg>");background-repeat:no-repeat;background-position:right 4px center;padding-right:15px;}
   .sechead .t{font-family:'Geist',system-ui,sans-serif;font-size:11px;font-weight:600;letter-spacing:-0.005em;color:var(--ink);} /* [Rev1] Title Case, no uppercase (design §4) */
   .sechead .ln{flex:1;height:.5px;background:rgba(255,255,255,0.09);}

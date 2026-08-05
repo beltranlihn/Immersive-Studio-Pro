@@ -12992,11 +12992,21 @@ function startFxFader(e,host,fx,k,mn,mx){ e.preventDefault(); const field=e.curr
   const mv=ev=>{ let sp=span/300; if(ev.shiftKey)sp/=5; if(ev.altKey)sp*=4; let nv=Math.max(mn,Math.min(mx,v0+(ev.clientX-x0)*sp)); nv=Math.round(nv*100)/100; if(!pushed){pushUndo();pushed=true;} setFxParam(host,fx,k,nv); if(bar)bar.style.width=((nv-mn)/span*100)+'%'; if(num)num.textContent=Math.round(nv*10)/10; if(_raOn)raInvalidate(); render(); };
   const up=()=>{ pushed=false; markDirty(); window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up); }; window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); }
 function fxEditVal(host,fx,k,field,reRender){ const mn=+field.dataset.mn,mx=+field.dataset.mx; appPrompt(field.dataset.lbl||T('Value','Valor'),String(fxParamVal(fx,k)),v=>{ if(v==null)return; const nv=parseFloat(String(v).replace(',','.')); if(isNaN(nv))return; pushUndo(); setFxParam(host,fx,k,Math.max(mn,Math.min(mx,nv))); markDirty(); if(_raOn)raInvalidate(); (reRender||renderInspector)(); render(); }); } // reRender = the host panel's scoped rebuild (renderReactivePanel or renderMotionFx)
+/* [R270] La fila de un parámetro de efecto es AHORA la misma fila del inspector, no una parecida. Antes traía su
+   propia separación en línea (`gap:6px` frente a los 8 del resto), otro icono de keyframe (`kfEmpty`/`kfFull` en
+   vez del rombo) y —lo que más molestaba— NINGÚN color: `--pc` es lo que tiñe el relleno del fader y el rombo en
+   el inspector, y sin él los treinta faders de la zona de efectos salían idénticos. `autoColor` ya sabía dar un
+   tono estable a las claves `fx:`/`fxt:`/`mot:` desde R92; simplemente no se le preguntaba aquí.
+   La clase `.auto` la usa el inspector para resaltar el nombre de un parámetro que lleva automatización: misma
+   señal, mismo sitio. */
 function fxFaderRow(host,fx,k,label,mn,mx,unit,showKf){ const v=fxParamVal(fx,k), pct=Math.max(0,Math.min(100,(v-mn)/((mx-mn)||1)*100)), kfOn=showKf&&fxHasKf(host,fx,k);
-  return `<div class="prow fxrow" data-k="${k}" style="gap:6px;">
-    ${showKf?`<button class="kf ${kfOn?'on':''}" data-kf title="${T('Animate','Animar')}">${ICO(kfOn?'kfFull':'kfEmpty',12)}</button>`:`<span class="kf" style="cursor:default;visibility:hidden;"></span>`}
+  const tono=autoColor(fxKey(fx,k));
+  /* Mismo ORDEN que las filas del inspector: etiqueta · fader · rombo A LA DERECHA (bloque `.nav`). El rombo
+     estaba a la izquierda, así que las dos zonas del panel leían al revés la una de la otra. */
+  return `<div class="prow fxrow${kfOn?' auto':''}" data-k="${k}" style="--pc:${tono};">
     <span class="lab">${label}</span>
     <div class="field" data-k="${k}" data-mn="${mn}" data-mx="${mx}" data-lbl="${label}"><div class="track"><i style="width:${pct}%"></i></div><div class="box"><span class="num">${Math.round(v*10)/10}</span><span class="u">${unit}</span></div></div>
+    <div class="nav">${showKf?`<button class="kf ${kfOn?'on':''}" data-kf title="${T('Animate','Animar')}">${ICO('diamond',12)}</button>`:`<span class="kf" style="cursor:default;visibility:hidden;"></span>`}</div>
   </div>`; }
 /* audio-engine fader (same look), bound to state.reactive[prop] */
 function arFaderRow(prop,label,mn,mx,val,unit){ const pct=Math.max(0,Math.min(100,(val-mn)/((mx-mn)||1)*100)); return `<div class="prow" style="gap:8px;"><span class="kf" style="cursor:default;visibility:hidden;"></span><span class="lab">${label}</span><div class="field arfld" data-prop="${prop}" data-mn="${mn}" data-mx="${mx}" data-lbl="${label}"><div class="track"><i style="width:${pct}%"></i></div><div class="box"><span class="num">${Math.round(val)}</span><span class="u">${unit}</span></div></div></div>`; }
@@ -13035,11 +13045,16 @@ function fxCardHtml(c,f,reactive){ reactive=(reactive!==false); const def=FXBY[f
       ${paramsHtml}
     </div>`; // Motion view: static intensity + params only (all keyframable)
   const ib='width:16px;height:16px;display:flex;align-items:center;justify-content:center;border-radius:2px;padding:0;cursor:pointer;';
+  /* [R270] Cada efecto lleva SU color, tomado de su tipo, en una pestaña a la izquierda de la cabecera. Era la
+     queja concreta de Beltrán: «como todos tienen el mismo color, me cuesta reconocer cuál efecto es cuál». El
+     tono sale de `autoColor` sobre la clave del tipo, así que es el MISMO que tendrán sus faders y sus curvas en
+     la línea de tiempo: el efecto se reconoce por color en los tres sitios. */
+  const tonoFx=autoColor('fxt:'+f.type+':int');
   return `<div class="fxcard${on?'':' fxoff'}" data-fx="${f.id}" style="margin:0 10px 5px;border:.5px solid rgba(255,255,255,0.10);border-radius:2px;background:var(--s0);overflow:hidden;${on?'':'opacity:.5;'}">
-    <div class="fxhdr" style="display:flex;align-items:center;gap:2px;padding:3px 5px 3px 3px;background:var(--s1);">
-      <span class="fxdrag" title="${T('Drag to reorder','Arrastra para reordenar')}" style="cursor:grab;color:#565C66;display:flex;padding:0 1px;">${ICO('grip',12)}</span>
+    <div class="fxhdr" style="display:flex;align-items:center;gap:2px;padding:3px 5px 3px 0;background:var(--s1);border-left:2px solid ${on?tonoFx:'#3A3F47'};">
+      <span class="fxdrag" title="${T('Drag to reorder','Arrastra para reordenar')}" style="cursor:grab;color:#565C66;display:flex;padding:0 1px 0 3px;">${ICO('grip',12)}</span>
       <button class="fxtog" title="${on?T('Bypass effect','Omitir efecto'):T('Enable effect','Activar efecto')}" style="${ib}color:${on?'#C9CDD3':'#565C66'};">${ICO('power',11)}</button>
-      <span class="fxname" title="${T('Collapse / expand','Contraer / expandir')}" style="flex:1;min-width:0;font-size:11px;color:${on?'#DEE1E5':'#8b929c'};font-weight:600;letter-spacing:.01em;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${nm}</span>
+      <span class="fxname" title="${T('Collapse / expand','Contraer / expandir')}" style="flex:1;min-width:0;font-size:11px;color:${on?'var(--ink)':'#8b929c'};font-weight:600;letter-spacing:-0.005em;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${nm}</span>
       <span class="fxauto" title="${T('This effect has automation — right-click the header to show it','Este efecto tiene automatización — clic derecho en la cabecera para verla')}" style="flex-shrink:0;font-size:10px;color:var(--auto-live);${autod?'':'display:none;'}">◆</span>
       ${reactive?`<i class="fxsig" data-fxid="${f.id}" title="${T('Live modulation level','Nivel de modulación en vivo')}" style="width:26px;height:4px;border-radius:2px;background:#23262B;overflow:hidden;display:block;position:relative;margin:0 2px;"><b style="position:absolute;left:0;top:0;bottom:0;width:0%;background:var(--ink);display:block;"></b></i>`:''}
       <button class="fxcol" title="${open?T('Collapse','Contraer'):T('Expand','Expandir')}" style="${ib}color:var(--ink-3);"><span style="display:inline-flex;transform:rotate(${open?0:-90}deg);">${ICO('chevDown',11)}</span></button>
