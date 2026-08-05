@@ -11478,18 +11478,25 @@ function weaveLayout(g){ const out=[];
   const across=(g.fit||'across')==='across';
   const dens=Math.max(0.25,Math.min(1,(g.density!=null?g.density:1))); // [R247d] tope en 1: dentro de una tira un clip empieza donde acaba el anterior, NUNCA se cortan (petición de Beltrán)
   const asp=(g._aspects&&g._aspects.length)?g._aspects:[Math.max(0.01,g._aspect||1)];
-  const p=200/B;                                                      // paso entre tiras (centro a centro)
+  /* [R275] SEPARACIÓN entre tiras, que NO es el ancho. El ancho (`bandW`) adelgaza la tira, y con ella el clip:
+     para separar había que encoger. Ahora el paso puede crecer por su cuenta mientras el grosor se sigue midiendo
+     sobre el paso BASE, así que las tiras se apartan y el clip conserva su tamaño. A cambio, el conjunto ocupa
+     más que el lienzo y las tiras de los extremos se salen — es la consecuencia inevitable de separar sin encoger.
+     Con separación 0 la cuenta es la de siempre, hasta el centrado. */
+  const pBase=200/B;
+  const sepTiras=Math.max(0,Math.min(150,(g.gap!=null?g.gap:0)))/100;
+  const p=pBase*(1+sepTiras);                                         // paso entre tiras (centro a centro)
   const entrelazar=(modo==='weave'&&g.interlace!==false);
   /* [R247d] GROSOR de la tira, en % del paso. Es el mando que abre el abanico entero: al 100 las tiras van
      contiguas y el tejido llena el domo; por debajo dejan hueco transparente entre ellas, y con pocas tiras y poco
      grosor salen dos líneas sueltas cruzando el domo. Separación y ancho son la misma cosa vista al derecho y al
      revés (hueco = paso − grosor), así que un solo mando los da los dos sin que puedan contradecirse. */
-  const th=p*Math.max(0.05,Math.min(1,(g.bandW!=null?g.bandW:100)/100));
+  const th=pBase*Math.max(0.05,Math.min(1,(g.bandW!=null?g.bandW:100)/100)); // [R275] sobre el paso BASE: separar no adelgaza
   /* [R247d] MOVIMIENTO: alterno (tiras contiguas en contra) · a la vez (todas al mismo lado) · quieto.
      `flip` invierte el conjunto. Cada familia lleva su propia velocidad. */
   const mov=g.motion||'alternate', flip=g.flip?-1:1;
   const spdH=(g.speed!=null?g.speed:0.12), spdV=(g.speedV!=null?g.speedV:spdH);
-  let kGlobal=0;
+  let kGlobal=0, kElem=0;
   for(const fam of fams){
     const famH=(fam==='h');                                           // 'h' = la tira corre en x, apiladas en y
     for(let k=0;k<B;k++,kGlobal++){
@@ -11505,14 +11512,20 @@ function weaveLayout(g){ const out=[];
       const rot=((wantVert!==(ca<1))?90:0);                           // girar 90° no deforma: sólo cambia hacia dónde mira
       const q=Math.max(1,along/dens);                                 // paso entre clips de la tira
       const P=Math.max(2,Math.min(64,Math.ceil(200/q)+2));            // que cubran el lienzo más un paso, para la envoltura
-      const c0=-100+p*(k+0.5);                                        // centro de la tira
+      const c0=-(B*p)/2+p*(k+0.5);   // [R275] centrado con el paso real, no con 200                                        // centro de la tira
       /* [R265] Tres sentidos explícitos, que es como se piensa: un sentido · el otro · intercalado (más quieto).
          `rev` es lo que antes había que conseguir combinando «a la vez» con la casilla Invertir — dos mandos para
          una sola idea. `flip` se sigue respetando para los proyectos que ya lo usan. */
       const dir=(mov==='still')?0:(flip*((mov==='rev')?-1:((mov==='alternate'&&(k%2))?-1:1))); // alterna dentro de SU familia, así las dos empiezan igual
       for(let j=0;j<P;j++){ const a0=-100-q+q*j;
-        out.push({ x:famH?a0:c0, y:famH?c0:a0, scale, rot,
-                   _weave:1, _axis:famH?'x':'y', _step:q, _dir:dir, _spd:(famH?spdH:spdV), _src:kGlobal, _ar:AR }); } } }
+        const _e=kElem++;
+        /* [R275] Con «Aleatorio» el reparto pasa a ser POR ELEMENTO, no por tira: es lo que pidió Beltrán, que los
+           clips elegidos aparezcan en orden aleatorio DENTRO de cada tira. Sin barajar sigue mandando la tira, que
+           es la regla de R247 (una fuente por tira). Como `compOrderCount` dimensiona el mapa por el dominio de
+           `_src`, cambiar lo que se guarda aquí basta: el mapa sale del tamaño correcto solo. */
+        const _rd=(g.rotDir==='alt')?((k%2)?-1:1):(g.rotDir==='rand')?((Math.sin((_e+1)*12.9898)*43758.5453)%1>0?1:-1):1;
+        out.push({ x:famH?a0:c0, y:famH?c0:a0, scale, rot, _rdir:_rd, _elem:_e,
+                   _weave:1, _axis:famH?'x':'y', _step:q, _dir:dir, _spd:(famH?spdH:spdV), _src:(g.shuffle?_e:kGlobal), _ar:AR }); } } }
   /* El entrelazado: basta con recortar UNA de las dos familias a la mitad de los cruces —la rejilla de celdas,
      quieta en el lienzo— para que en cada casilla mande una u otra. Cada tira se ve entonces a trozos, apareciendo
      y desapareciendo bajo la que la cruza: es exactamente el aspecto de una cestería, y como la rejilla no viaja
@@ -11611,10 +11624,16 @@ function tunnelFadeOut(g){ return Math.max(0,Math.min(1, g.fadeOut!=null?g.fadeO
    ya estaba en el motor desde el túnel (R246). Nadie desaparece nunca, que era la queja.
    El sentido se alterna por tira — las flechas del boceto de Beltrán: tiras contiguas viajando en contra.
    Velocidad en unidades de lienzo por segundo; el lienzo son 200, así que 0,12 avanza un 6% cada segundo. */
-function compWeaveAnim(g,p){ const v=Math.max(0,(p._spd!=null?p._spd:0.12))*100*(p._dir||0);
-  if(!v)return [];                                                   // [R247d] quieto (o velocidad 0): sin modificador, y así el preview no gasta reloj
+function compWeaveAnim(g,p){ const out=[];
+  const v=Math.max(0,(p._spd!=null?p._spd:0.12))*100*(p._dir||0);
   const step=Math.max(0.01,p._step||1);
-  return [{id:uid(),param:(p._axis||'x'),mode:'saw',speed:v/step,amp:step,phase:0,curve:0,on:true,_lay:1}]; }
+  if(v)out.push({id:uid(),param:(p._axis||'x'),mode:'saw',speed:v/step,amp:step,phase:0,curve:0,on:true,_lay:1}); // [R247d] quieto (o velocidad 0): sin modificador, y así el preview no gasta reloj
+  /* [R275] ROTACIÓN de los clips del tejido, en grados por segundo. El sentido lo decide `rotDir`: todos igual,
+     alterno por tira, o aleatorio —y ese aleatorio es DETERMINISTA (sale del número de elemento), así que el
+     tejido se ve igual cada vez que se abre el proyecto y en cada fotograma del export. */
+  const rv=(g.rotSpeed||0);
+  if(rv)out.push({id:uid(),param:'rot',mode:'linear',speed:rv*(p._rdir||1),amp:0,phase:0,on:true,_lay:1});
+  return out; }
 /* [R247] La proporción del material entra en el CÁLCULO del tejido (decide el tamaño y hacia dónde mira el clip),
    así que hay que conocerla antes de repartir. Se toma la del primer medio con dimensiones reales; con fuentes de
    proporciones distintas conviven todas sin estirarse —cada parche deriva su alto de su propio `h/w`—, y esto sólo
@@ -11953,6 +11972,11 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
     <div class="frow" data-only="weave"><label>${T('Strips','Tiras')}</label><input type="number" class="tnum" id="cWBands" value="5" min="1" max="24" style="width:64px;"><span class="tnum" style="color:var(--ink-dim);">${T('per direction · one source each','por sentido · una fuente cada una')}</span></div>
     <div class="frow" data-only="weave"><label>${T('Strip width','Ancho de tira')}</label><input type="range" id="cWBandW" min="5" max="100" value="100" style="flex:1;height:20px;"><span class="tnum" id="cWBandWV" style="width:52px;text-align:right;color:var(--ink-2);">100%</span></div>
     <div class="frow" data-only="weave"><label></label><span class="tnum" style="color:var(--ink-dim);font-size:10px;line-height:1.4;">${T('Share of the spacing each strip takes. 100% = they touch and fill the dome; lower leaves transparent gaps between them.','Parte del espacio que ocupa cada tira. 100% = se tocan y llenan el domo; por debajo dejan hueco transparente entre ellas.')}</span></div>
+    <!-- [R275] Separar las tiras SIN encoger el clip: el ancho adelgaza, esto aparta. Son mandos distintos. -->
+    <div class="frow" data-only="weave"><label>${T('Strip gap','Separación de tiras')}</label><input type="range" id="cWGap" min="0" max="150" value="0" style="flex:1;height:20px;"><span class="tnum" id="cWGapV" style="width:52px;text-align:right;color:var(--ink-2);">0%</span></div>
+    <div class="frow" data-only="weave"><label></label><span class="tnum" style="color:var(--ink-dim);font-size:10px;line-height:1.4;">${T('Pushes the strips apart keeping the clip size. Above 0 the outermost strips run past the edge — that is what separating without shrinking costs.','Aparta las tiras conservando el tamaño del clip. Por encima de 0 las tiras de los extremos se salen del borde: es lo que cuesta separar sin encoger.')}</span></div>
+    <div class="frow" data-only="weave"><label>${T('Rotation','Rotación')}</label><input type="range" id="cWRot" min="-180" max="180" value="0" style="flex:1;height:20px;"><span class="tnum" id="cWRotV" style="width:60px;text-align:right;color:var(--ink-2);">0°/s</span></div>
+    <div class="frow" data-only="weave"><label>${T('Turn','Sentido')}</label><div class="kindseg" id="cWRotDir" style="flex:1;"><button data-r="same" class="on">${T('All the same','Todos igual')}</button><button data-r="alt">${T('Alternate','Alterno')}</button><button data-r="rand">${T('Random','Aleatorio')}</button></div></div>
     <div class="frow" data-only="weave"><label>${T('Packing','Empaque')}</label><input type="range" id="cWDens" min="40" max="100" value="100" style="flex:1;height:20px;"><span class="tnum" id="cWDensV" style="width:52px;text-align:right;color:var(--ink-2);">100%</span></div>
     <div class="frow" data-only="weave"><label></label><span class="tnum" style="color:var(--ink-dim);font-size:10px;line-height:1.4;">${T('100% = each clip starts where the previous one ends. Below, they leave air between them. They never overlap.','100% = cada clip empieza donde acaba el anterior. Por debajo dejan aire entre ellos. Nunca se solapan.')}</span></div>
     <div class="frow" data-only="weave"><label>${T('Long side','Lado largo')}</label><div class="kindseg" id="cWFit" style="flex:1;"><button data-f="across" class="on">${T('Across the strip','Cruzando la tira')}</button><button data-f="along">${T('Along the strip','A lo largo')}</button></div></div>
@@ -12003,7 +12027,7 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
     pintarCesta(); preview();
     if(!n)flashStatus(T('Already in the composition','Ya estaba en la composición')); };
   let _jit=(pre&&pre.jitter)||0, _rand=(pre&&pre.rand)?pre.rand.slice():[]; // R88: element-position randomize (jitter% + persisted seeds)
-  let _wMode=(pre&&pre.weaveMode)||'weave', _wFit=(pre&&pre.fit)||'across', _wMov=(pre&&pre.motion)||'alternate'; // [R247d]
+  let _wMode=(pre&&pre.weaveMode)||'weave', _wFit=(pre&&pre.fit)||'across', _wMov=(pre&&pre.motion)||'alternate', _wRotD=(pre&&pre.rotDir)||'same'; // [R247d]
   /* [R265] La casilla «Invertir» desaparece: decir «a la vez» + «invertir» era usar dos mandos para una idea que
      ahora tiene su propio botón, «el otro sentido». Lo guardado en proyectos viejos se PLIEGA aquí, así que se ve
      el sentido real y volver a aplicar no cambia nada. En intercalado, invertir sólo espeja qué tira va a dónde. */
@@ -12014,7 +12038,7 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
     const _srcs=ids.map(mediaById).filter(Boolean);
     return { id:(pre&&pre.id)||0, kind, mediaIds:ids, mediaId:ids[0], count:kind==='domegrid'?Math.min(160,rings*segs):Math.max(2,Math.min(compCountMax(kind),+$('#cN').value||6)), // [R247] el tejido no usa `count`: lo calcula el encaje, tira por tira
       bands:wB, density:wD, weaveMode:_wMode, fit:_wFit, motion:_wMov, // [R247d]
-      bandW:(+($('#cWBandW')?$('#cWBandW').value:100)||100), flip:false, // [R265] el sentido lo lleva ahora "motion" (un sentido / el otro / intercalado); "flip" se sigue respetando al dibujar, por los proyectos viejos
+      bandW:(+($('#cWBandW')?$('#cWBandW').value:100)||100), gap:+($('#cWGap')?$('#cWGap').value:0)||0, rotSpeed:+($('#cWRot')?$('#cWRot').value:0)||0, rotDir:_wRotD, flip:false, // [R265] el sentido lo lleva ahora "motion" (un sentido / el otro / intercalado); "flip" se sigue respetando al dibujar, por los proyectos viejos
       speedV:((+($('#cWSpeedV2')?$('#cWSpeedV2').value:12)||0)/100),
       interlace:($('#cWInter')?$('#cWInter').checked:true),
       _aspect:compAspectOf(_srcs), _aspects:compAspectsOf(_srcs), cols:+$('#cCols').value||3, arc:+$('#cArc').value||140, el:+$('#cEl').value||30, elMin:+$('#cElMin').value||10, elMax:+$('#cElMax').value||60, size:+$('#cSize').value||40, turns:+($('#cTurns')?$('#cTurns').value:3)||3, lineRot:$('#cLineRot')?$('#cLineRot').checked:true, tile:$('#cTile')?$('#cTile').checked:false, band:+($('#cBand')?$('#cBand').value:30)||30, rings, segs, gapEl:+($('#cGapEl')?$('#cGapEl').value:0)||0, gapAz:+($('#cGapAz')?$('#cGapAz').value:0)||0, brick:$('#cBrick')?$('#cBrick').checked:false, shuffle:$('#cShuffle')?$('#cShuffle').checked:false, mask:$('#cMask').value, maskScale:+($('#cMaskSz')?$('#cMaskSz').value:100)||100, spin:(pre&&pre.spin)||0, rand:_rand, jitter:_jit, noWarp:$('#cNoWarp')?$('#cNoWarp').checked:false, infinite:($('#cInfinite')?$('#cInfinite').checked:_infinite),
@@ -12093,16 +12117,17 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
   { const pctSeg=(el,out)=>{ if(el)el.oninput=()=>{ if(out)out.textContent=((+el.value)/100).toFixed(2)+'/s'; preview(); }; };
     pctSeg($('#cWSpeed'),$('#cWSpeedV')); pctSeg($('#cWSpeedV2'),$('#cWSpeedV2V'));
     const pct=(el,out)=>{ if(el)el.oninput=()=>{ if(out)out.textContent=el.value+'%'; preview(); }; };
-    pct($('#cWDens'),$('#cWDensV')); pct($('#cWBandW'),$('#cWBandWV'));
+    pct($('#cWDens'),$('#cWDensV')); pct($('#cWBandW'),$('#cWBandWV')); pct($('#cWGap'),$('#cWGapV'));
+    { const rr=$('#cWRot'), rv=$('#cWRotV'); if(rr)rr.oninput=()=>{ if(rv)rv.textContent=rr.value+String.fromCharCode(176)+'/s'; preview(); }; }
     ['#cWBands'].forEach(id=>{ const el=ov.querySelector(id); if(el){ el.oninput=preview; el.onchange=preview; } });
     const seg=(host,attr,set)=>{ const h=$(host); if(!h)return; h.querySelectorAll('button').forEach(b=>b.onclick=()=>{
       set(b.dataset[attr]); h.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); sync(); }); };
-    seg('#cWMode','w',v=>_wMode=v); seg('#cWFit','f',v=>_wFit=v); seg('#cWMov','m',v=>_wMov=v);
+    seg('#cWMode','w',v=>_wMode=v); seg('#cWFit','f',v=>_wFit=v); seg('#cWMov','m',v=>_wMov=v); seg('#cWRotDir','r',v=>_wRotD=v);
     /* [R265] Los tres segmentados llevaban 'on' fijo en su primera opcion, asi que al reabrir un tejido siempre
        se veia «Tejido / Cruzando la tira / Intercalado» aunque estuviera guardado otra cosa: el mismo olvido que
        el fundido del tunel, en otro sitio. */
     { const marcar=(host,attr,val)=>{ const h=$(host); if(!h)return; h.querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset[attr]===val)); };
-      marcar('#cWMode','w',_wMode); marcar('#cWFit','f',_wFit); marcar('#cWMov','m',_wMov); }
+      marcar('#cWMode','w',_wMode); marcar('#cWFit','f',_wFit); marcar('#cWMov','m',_wMov); marcar('#cWRotDir','r',_wRotD); }
     const wi=$('#cWInter'); if(wi)wi.onchange=preview;
   }
   { const ci=$('#cInfinite'); if(ci){ ci.checked=_infinite; ci.onchange=()=>{ _infinite=ci.checked; preview(); }; } }
@@ -12122,7 +12147,7 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
     { const fi=tunnelFadeIn(pre), fo=tunnelFadeOut(pre);
       _chk('#cTFadeIn',fi>0); if(fi>0)_put('#cTFadeInA',Math.round(fi*100));
       _chk('#cTFadeOut',fo>0); if(fo>0)_put('#cTFadeOutA',Math.round(fo*100)); }
-    _put('#cWBands',pre.bands||5); _put('#cWBandW',pre.bandW!=null?pre.bandW:100);
+    _put('#cWBands',pre.bands||5); _put('#cWGap',pre.gap||0); _put('#cWRot',pre.rotSpeed||0); _put('#cWBandW',pre.bandW!=null?pre.bandW:100);
     _put('#cWDens',Math.round((pre.density!=null?pre.density:1)*100));
     if(kind==='weave')_put('#cWSpeed',Math.round((pre.speed!=null?pre.speed:0.12)*100));
     _put('#cWSpeedV2',Math.round((pre.speedV!=null?pre.speedV:0.12)*100));
@@ -12131,7 +12156,7 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
     { const par=[['#cTSpeed','#cTSpeedV',v=>(v/100).toFixed(2)+'/s'],['#cTCurve','#cTCurveV',v=>v+'%'],
         ['#cTTwist','#cTTwistV',v=>v+'°/ciclo'],['#cTHelix','#cTHelixV',v=>v+'%'],['#cMaskSz','#cMaskSzV',v=>v+'%'],['#cTFadeInA','#cTFadeInV',v=>v+'%'],['#cTFadeOutA','#cTFadeOutV',v=>v+'%'],
         ['#cWSpeed','#cWSpeedV',v=>(v/100).toFixed(2)+'/s'],['#cWSpeedV2','#cWSpeedV2V',v=>(v/100).toFixed(2)+'/s'],
-        ['#cWDens','#cWDensV',v=>v+'%'],['#cWBandW','#cWBandWV',v=>v+'%']];
+        ['#cWDens','#cWDensV',v=>v+'%'],['#cWBandW','#cWBandWV',v=>v+'%'],['#cWGap','#cWGapV',v=>v+'%'],['#cWRot','#cWRotV',v=>v+String.fromCharCode(176)+'/s']];
       for(const [inp,out,f] of par){ const a=$(inp), b=$(out); if(a&&b)b.textContent=f(+a.value); } }
     const tt=ov.querySelector('.t'); if(tt)tt.textContent=nestMedia?T('Recompose','Recomponer'):T('Edit composition','Editar composición'); $('#cGo').innerHTML=ICO('ring')+' '+T('Apply','Aplicar'); }
   else if(scopeClip){ _pick=[scopeClip.mediaId]; const tt=ov.querySelector(".t"); if(tt)tt.textContent=T("Compose from clip","Componer desde el clip"); } // scope: only this clip's media

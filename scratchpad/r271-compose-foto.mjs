@@ -16,6 +16,10 @@ await wait(400);
 await ev(`(function(){ const ids=state.media.filter(m=>m.kind==='video').map(m=>m.id);
   openCompose(${JSON.stringify(KIND)},null,null,null,ids); return 1; })()`);
 await wait(800);
+if(process.argv[4]==='abajo'){
+  await ev(`(function(){ const c=[...document.querySelectorAll('*')].filter(e=>e.scrollHeight>e.clientHeight+20&&e.clientHeight>200);
+    const q=c.sort((a,b)=>b.scrollHeight-a.scrollHeight)[0]; if(q)q.scrollTop=q.scrollHeight; return !!q; })()`);
+  await wait(400); }
 const rect=await ev(`(function(){ const ov=document.querySelector('#composeOv')||document.querySelector('.ovl')||document.querySelector('[id^=comp]');
   const caja=ov?(ov.querySelector('.card')||ov.querySelector('div')||ov):null;
   const el=caja||ov; if(!el)return null; const r=el.getBoundingClientRect();
