@@ -1,5 +1,39 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 268 — La máscara vuelve a todos los composes, y ahora con tamaño
+
+Petición de Beltrán: «en todos los compose, volvamos a traer la opción de agregar mask a los clips; que además
+tenga la opción de elegir el tamaño de ese mask».
+
+### Dónde estaba cada cosa
+
+La máscara **estaba en todos menos en el túnel**: R246 la fijó a `none` ahí, razonando que su fuente ocupa el disco
+entero. Es justo al revés — que ocupe el disco entero es lo que la hace útil: un círculo recorta el anillo en
+redondo, una viñeta le difumina el borde. Va por el camino fulldome, que tiene las mismas formas.
+
+El **tamaño** existía desde siempre a nivel de clip (`maskScale`, en los dos shaders: `u_maskScale` divide la
+coordenada del recorte) pero no había forma de pedirlo al componer: había que entrar clip a clip.
+
+### Lo que se hizo
+
+- La fila de máscara deja de esconderse para el túnel: se ofrece en los cuatro tipos.
+- Fila nueva de **tamaño de máscara**, 20-300 %, que sólo aparece cuando hay máscara puesta. 100 % = como estaba.
+- `compMaskScale(g)` en un solo sitio, para que las **cuatro** ramas de `compElProps` —plano, tejido, túnel y domo
+  general— no puedan discrepar. La cuarta se me había quedado fuera y la prueba la cazó: el anillo salía con
+  `maskScale` sin definir mientras los otros tres lo llevaban.
+
+Y una trampa de orden que también cazó la prueba: la fila de tamaño se enseñaba/escondía al cablear el mando, que
+ocurre **antes** del pre-rellenado del cuadro, así que leía la máscara por defecto («ninguna») y la fila salía
+escondida aunque la composición guardada llevara una. Se decide en `sync()`, que corre al final.
+
+### Verificado (`scratchpad/r268-mascara.mjs`)
+
+Las cuatro ramas llevan `mask` y `maskScale` a los clips (1,8 para un 180 %). En anillo, tejido, túnel y cuadrícula
+se ofrecen las dos filas y las dos restauran lo guardado (viñeta al 220 %). Poner la máscara en «ninguna» esconde
+la fila de tamaño. Aplicar guarda las dos. Y las pruebas de R262, R263, R264, R265 y R265b siguen pasando.
+
+---
+
 ## ROUND 267 — El divisor con TODAS las pistas plegadas, y el reparto pasa a ser igual para todas
 
 Dos peticiones de Beltrán sobre lo mismo, después de R266: «si achico todas las pistas con Alt+scroll y luego

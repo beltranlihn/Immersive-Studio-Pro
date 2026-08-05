@@ -11585,25 +11585,32 @@ function compWeaveAnim(g,p){ const v=Math.max(0,(p._spd!=null?p._spd:0.12))*100*
 function compAspectOf(srcs){ for(const s of (srcs||[])){ if(s&&s.w>0&&s.h>0)return s.w/s.h; } return 1; }
 function compAspectsOf(srcs){ const a=(srcs||[]).map(s=>(s&&s.w>0&&s.h>0)?(s.w/s.h):1); return a.length?a:[1]; } // [R247] una por fuente: cada TIRA se calibra con la suya
 /* props for one composed element. With g.tile, the element is an annular SECTOR (dome-tile) sized to seamlessly tile its ring/grid cell — perfect rings, no diagonal overlap. */
+/* [R268] Tamaño de la máscara de la composición. El mando va en % y el shader lo quiere como factor (`u_maskScale`
+   divide la coordenada del recorte: 1 = como siempre, 2 = el doble de grande). Un solo sitio para que las tres
+   ramas de `compElProps` no puedan discrepar. */
+function compMaskScale(g){ const v=(g&&g.maskScale!=null)?g.maskScale:100; return Math.max(0.2,Math.min(3,(+v||100)/100)); }
 function compElProps(g,p){ if(p.x!=null){
     /* [R247c] Tejido: NI x/y NI scale se redondean. El encaje borde con borde depende de que el paso y el tamaño
        salgan exactos — con 6 tiras el grosor es 33,33, y redondear a 33 abre una rendija en cada junta. */
-    if(p._weave!=null){ const pr={ x:p.x, y:p.y, scale:p.scale, rot:p.rot||0, mask:g.mask||'none' };
+    if(p._weave!=null){ const pr={ x:p.x, y:p.y, scale:p.scale, rot:p.rot||0, mask:g.mask||'none', maskScale:compMaskScale(g) };
       if(p._over){ pr.weaveCells=p._cells; pr.weavePar=0; } return pr; }
-    return { x:Math.round(p.x*10)/10, y:Math.round(p.y*10)/10, scale:Math.round(p.scale), rot:0, mask:g.mask||'none' }; } // flat/room element: x/y/scale
+    return { x:Math.round(p.x*10)/10, y:Math.round(p.y*10)/10, scale:Math.round(p.scale), rot:0, mask:g.mask||'none', maskScale:compMaskScale(g) }; } // flat/room element: x/y/scale
   /* [R246] El túnel marca la fuente como FULLDOME: la imagen 1:1 del anillo se dibuja en el disco entero (sin el
      parche gnomónico) y `Size` pasa a ser el zoom cenital que la hace crecer desde el centro. */
   /* [R262] La opacidad BASE es 0 cuando hay fundido, porque el modificador de envolvente suma de 0 a 100 (antes
      era base 50 con un seno de ±50: mismo resultado, pero con la envolvente nueva la cuenta es directa). Sin
      fundido, 100 y sin modificador. */
-  if(p._phase!=null) return { az:Math.round(p.az), el:90, size:Math.round(p.size), fulldome:true, mask:'none',
+  /* [R268] El túnel también lleva máscara. R246 la fijó en `none` porque la fuente ocupa el disco entero, pero eso
+     es justo lo que la hace útil: un círculo recorta el anillo en redondo, una viñeta le difumina el borde. Va por
+     el camino fulldome, que tiene las mismas formas y el mismo `u_maskScale` que el otro. */
+  if(p._phase!=null) return { az:Math.round(p.az), el:90, size:Math.round(p.size), fulldome:true, mask:g.mask||'none', maskScale:compMaskScale(g),
     opacity:(tunnelFadeIn(g)>0||tunnelFadeOut(g)>0)?0:100,
     /* [R264] hélice: cuánto se separa del eje, y hacia dónde arranca cada elemento (una vuelta repartida entre
        todos, para que el conjunto forme la espiral). El modificador de `helixAng` la hace avanzar. */
     helix:tunnelHelix(g), helixAng:Math.round((p._phase||0)*360) };
   const noWarp=!!g.noWarp; // [N5] Dome Fill "flat tiles": place undeformed patches at the ring/segment centres instead of warped annular sectors
   const dome=(!noWarp&&p._secAz!=null)||(!noWarp&&g.tile&&(g.kind==='ring'||g.kind==='grid'));
-  const pr={az:dome?p.az:Math.round(p.az), el:dome?p.el:Math.round(p.el), size:Math.round(p.size), mask:g.mask||'none'}; // keep centers EXACT in dome mode so adjacent sectors tile with no seam
+  const pr={az:dome?p.az:Math.round(p.az), el:dome?p.el:Math.round(p.el), size:Math.round(p.size), mask:g.mask||'none', maskScale:compMaskScale(g)}; // keep centers EXACT in dome mode so adjacent sectors tile with no seam · [R268] el tamaño de máscara, en las CUATRO ramas
   if(!noWarp&&p._secAz!=null){ pr.warp='dome'; pr.secAz=p._secAz; pr.secEl=p._secEl; } // per-element spans (domegrid)
   else if(!noWarp&&g.tile){ let secAz=360/Math.max(1,g.count||1), secEl=(g.band||30);
     if(g.kind==='grid'){ const cols=Math.max(1,g.cols||1), rows=Math.max(1,Math.ceil((g.count||1)/cols)); secAz=(cols>1?(g.arc||360)/(cols-1):(g.arc||60)); secEl=(rows>1?(g.elMax-g.elMin)/(rows-1):((g.elMax-g.elMin)||30)); }
@@ -11879,6 +11886,9 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
     <div class="frow"><label>${T('Size','Tamaño')}</label><input type="number" class="tnum" id="cSize" value="40" min="5" max="120"><span class="tnum" id="cSizeU" style="color:var(--ink-dim);">°</span></div>
     <div class="frow" data-only="flatinf" id="cInfRow" style="display:none;"><label>${T('Extend','Extender')}</label><label style="display:flex;align-items:center;gap:6px;flex:1;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="cInfinite"> ${T('Infinite (wrap around the room)','Infinito (envuelve la sala)')}</label></div>
     <div class="frow"><label>${T('Mask','Máscara')}</label><select id="cMask"><option value="none">${T('None','Ninguna')}</option><option value="circle">${T('Circle (alpha)','Círculo (alfa)')}</option><option value="rounded">${T('Rounded','Redondeada')}</option><option value="diamond">${T('Diamond','Rombo')}</option><option value="vignette">${T('Vignette','Viñeta')}</option></select></div>
+    <!-- [R268] Tamano de la mascara. Existia por clip desde siempre (maskScale, en los dos shaders) pero no habia
+         forma de pedirlo al componer: habia que entrar clip a clip. 100 % = como estaba. -->
+    <div class="frow" id="cMaskSzRow"><label>${T('Mask size','Tamaño de máscara')}</label><input type="range" id="cMaskSz" min="20" max="300" value="100" style="flex:1;height:20px;"><span class="tnum" id="cMaskSzV" style="width:52px;text-align:right;color:var(--ink-2);">100%</span></div>
     <div class="frow" data-only="tile"><label>${T('Tile','Mosaico')}</label><label style="display:flex;align-items:center;gap:6px;flex:1;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="cTile"> ${T('Seamless dome tiling (perfect ring)','Mosaico continuo del domo (anillo perfecto)')}</label></div>
     <div class="frow" data-only="tileband"><label>${T('Band','Banda')}</label><input type="number" class="tnum" id="cBand" value="30" min="4" max="90"><span class="tnum" style="color:var(--ink-dim);">°</span></div>
     <!-- [R246] TÚNEL: las fuentes son imágenes 1:1 (anillos con alfa) tratadas como máster de domo; crecen desde el
@@ -11970,7 +11980,7 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
       bandW:(+($('#cWBandW')?$('#cWBandW').value:100)||100), flip:false, // [R265] el sentido lo lleva ahora "motion" (un sentido / el otro / intercalado); "flip" se sigue respetando al dibujar, por los proyectos viejos
       speedV:((+($('#cWSpeedV2')?$('#cWSpeedV2').value:12)||0)/100),
       interlace:($('#cWInter')?$('#cWInter').checked:true),
-      _aspect:compAspectOf(_srcs), _aspects:compAspectsOf(_srcs), cols:+$('#cCols').value||3, arc:+$('#cArc').value||140, el:+$('#cEl').value||30, elMin:+$('#cElMin').value||10, elMax:+$('#cElMax').value||60, size:+$('#cSize').value||40, turns:+($('#cTurns')?$('#cTurns').value:3)||3, lineRot:$('#cLineRot')?$('#cLineRot').checked:true, tile:$('#cTile')?$('#cTile').checked:false, band:+($('#cBand')?$('#cBand').value:30)||30, rings, segs, gapEl:+($('#cGapEl')?$('#cGapEl').value:0)||0, gapAz:+($('#cGapAz')?$('#cGapAz').value:0)||0, brick:$('#cBrick')?$('#cBrick').checked:false, shuffle:$('#cShuffle')?$('#cShuffle').checked:false, mask:$('#cMask').value, spin:(pre&&pre.spin)||0, rand:_rand, jitter:_jit, noWarp:$('#cNoWarp')?$('#cNoWarp').checked:false, infinite:($('#cInfinite')?$('#cInfinite').checked:_infinite),
+      _aspect:compAspectOf(_srcs), _aspects:compAspectsOf(_srcs), cols:+$('#cCols').value||3, arc:+$('#cArc').value||140, el:+$('#cEl').value||30, elMin:+$('#cElMin').value||10, elMax:+$('#cElMax').value||60, size:+$('#cSize').value||40, turns:+($('#cTurns')?$('#cTurns').value:3)||3, lineRot:$('#cLineRot')?$('#cLineRot').checked:true, tile:$('#cTile')?$('#cTile').checked:false, band:+($('#cBand')?$('#cBand').value:30)||30, rings, segs, gapEl:+($('#cGapEl')?$('#cGapEl').value:0)||0, gapAz:+($('#cGapAz')?$('#cGapAz').value:0)||0, brick:$('#cBrick')?$('#cBrick').checked:false, shuffle:$('#cShuffle')?$('#cShuffle').checked:false, mask:$('#cMask').value, maskScale:+($('#cMaskSz')?$('#cMaskSz').value:100)||100, spin:(pre&&pre.spin)||0, rand:_rand, jitter:_jit, noWarp:$('#cNoWarp')?$('#cNoWarp').checked:false, infinite:($('#cInfinite')?$('#cInfinite').checked:_infinite),
       /* [R246] túnel */ sizeFrom:+($('#cTFrom')?$('#cTFrom').value:1)||1, sizeTo:+($('#cTTo')?$('#cTTo').value:200)||200,
       speed:(kind==='weave')?((+($('#cWSpeed')?$('#cWSpeed').value:12)||0)/100):((+($('#cTSpeed')?$('#cTSpeed').value:12)||12)/100), // [R247d] 0 es un valor válido: quieto
       curve:+($('#cTCurve')?$('#cTCurve').value:60), twist:+($('#cTTwist')?$('#cTTwist').value:0)||0, helix:+($('#cTHelix')?$('#cTHelix').value:0)||0,
@@ -11983,9 +11993,16 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
     jr.innerHTML=`<label>${T('Randomize','Aleatorizar')}</label><button class="mbtn" id="cRandomize" type="button" style="height:24px;padding:0 10px;font-size:11px;">${T('Shuffle positions','Mezclar posiciones')} ↻</button><input type="range" id="cJit" min="0" max="100" value="${_jit}" style="flex:1;height:20px;"><span class="tnum" id="cJitV" style="width:34px;text-align:right;color:var(--ink-2);">${_jit}%</span>`;
     const footer=$('#cGo').closest('div'); if(footer&&footer.parentNode)footer.parentNode.insertBefore(jr,footer);
     $('#cJit').oninput=()=>{ _jit=+$('#cJit').value; $('#cJitV').textContent=_jit+'%'; preview(); };
-    $('#cRandomize').onclick=()=>{ _rand=[]; if(_jit<10){ _jit=35; $('#cJit').value=35; $('#cJitV').textContent='35%'; } preview(); }; } // fresh seeds + a default amount if it was off
+    { const ms=$('#cMaskSz'), msv=$('#cMaskSzV'), mk=$('#cMask');
+    if(ms)ms.oninput=()=>{ if(msv)msv.textContent=ms.value+'%'; preview(); };
+    if(mk)mk.addEventListener('change',()=>sync()); } // [R268] sync ensena/esconde la fila y repinta
+  $('#cRandomize').onclick=()=>{ _rand=[]; if(_jit<10){ _jit=35; $('#cJit').value=35; $('#cJitV').textContent='35%'; } preview(); }; } // fresh seeds + a default amount if it was off
   const preview=()=>{ const g=readForm(); drawComposePreview(g,$('#cPrev')); const lbl=$('#cPrevLbl'); if(lbl)lbl.textContent=g.count+' '+T('elements','elementos')+' · '+kindES(kind)+(g.tile&&!g.noWarp?' · '+T('tiled','mosaico'):'')+(g.noWarp?' · '+T('flat tile','baldosa plana'):'')+(g.mediaIds.length>1?(' · '+g.mediaIds.length+' '+T('media','medios')):''); };
   const sync=()=>{ const lineRot=$('#cLineRot')&&$('#cLineRot').checked, tile=$('#cTile')&&$('#cTile').checked;
+    /* [R268] El tamaño de máscara sólo se ofrece si hay máscara. Va en `sync` y no junto a su control porque el
+       pre-rellenado del cuadro ocurre DESPUÉS de cablear los mandos: comprobándolo allí se leía la máscara por
+       defecto («ninguna») y la fila salía escondida aunque la composición guardada llevara una. */
+    { const r=$('#cMaskSzRow'), mk=$('#cMask'); if(r)r.style.display=(mk&&mk.value!=='none')?'flex':'none'; }
     if(_flatComp){ // flat/room: no dome params — only Count, Columns (grid), Scale, Infinite (room), Mask
       ov.querySelectorAll('[data-only]').forEach(el=>{ const mm=el.dataset.only; el.style.display=(mm==='count'||(mm==='flatinf'&&isRoom()))?'flex':'none'; });
       const colRow=$('#cCols')&&$('#cCols').closest('.frow'); if(colRow)colRow.style.display=(kind==='grid')?'flex':'none';
@@ -12009,7 +12026,9 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
        tira — dejar un campo Size sería invitar justo a lo que Beltrán pidió que no pasara, estirarlo. */
     { const t=(kind==='tunnel'), w=(kind==='weave');
       const sr=$('#cSize')&&$('#cSize').closest('.frow'); if(sr)sr.style.display=(t||w)?'none':'flex';
-      const mr=$('#cMask')&&$('#cMask').closest('.frow'); if(mr)mr.style.display=t?'none':'flex';
+      /* [R268] La máscara vuelve a estar en TODOS los composes, el túnel incluido: R246 se la quitó porque su
+         fuente ocupa el disco entero, que es justo lo que la hace útil ahí. */
+      const mr=$('#cMask')&&$('#cMask').closest('.frow'); if(mr)mr.style.display='flex';
       const jr=$('#cJit')&&$('#cJit').closest('.frow'); if(jr)jr.style.display=(t||w)?'none':'flex'; }
     preview(); };
   const domegridDefaults=()=>{ if(kind==='domegrid'&&!pre){ if($('#cElMin'))$('#cElMin').value=0; if($('#cElMax'))$('#cElMax').value=90; } }; // dome fill = whole dome (horizon→zenith) by default → no central black hole
@@ -12060,7 +12079,7 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
     const _put=(id,v)=>{ const el=$(id); if(el&&v!=null)el.value=v; };
     const _chk=(id,v)=>{ const el=$(id); if(el)el.checked=!!v; };
     _put('#cTFrom',pre.sizeFrom!=null?pre.sizeFrom:1); _put('#cTTo',pre.sizeTo!=null?pre.sizeTo:200);
-    _put('#cTCurve',pre.curve!=null?pre.curve:60); _put('#cTTwist',pre.twist||0); _put('#cTHelix',pre.helix||0);
+    _put('#cTCurve',pre.curve!=null?pre.curve:60); _put('#cTTwist',pre.twist||0); _put('#cTHelix',pre.helix||0); _put('#cMaskSz',pre.maskScale!=null?pre.maskScale:100);
     if(kind!=='weave')_put('#cTSpeed',Math.round((pre.speed!=null?pre.speed:0.12)*100));
     { const fi=tunnelFadeIn(pre), fo=tunnelFadeOut(pre);
       _chk('#cTFadeIn',fi>0); if(fi>0)_put('#cTFadeInA',Math.round(fi*100));
@@ -12072,7 +12091,7 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
     _chk('#cWInter',pre.interlace!==false); _chk('#cInfinite',pre.infinite);
     /* los rótulos de los deslizadores no se actualizan solos: se refrescan a mano para que no mientan */
     { const par=[['#cTSpeed','#cTSpeedV',v=>(v/100).toFixed(2)+'/s'],['#cTCurve','#cTCurveV',v=>v+'%'],
-        ['#cTTwist','#cTTwistV',v=>v+'°/ciclo'],['#cTHelix','#cTHelixV',v=>v+'%'],['#cTFadeInA','#cTFadeInV',v=>v+'%'],['#cTFadeOutA','#cTFadeOutV',v=>v+'%'],
+        ['#cTTwist','#cTTwistV',v=>v+'°/ciclo'],['#cTHelix','#cTHelixV',v=>v+'%'],['#cMaskSz','#cMaskSzV',v=>v+'%'],['#cTFadeInA','#cTFadeInV',v=>v+'%'],['#cTFadeOutA','#cTFadeOutV',v=>v+'%'],
         ['#cWSpeed','#cWSpeedV',v=>(v/100).toFixed(2)+'/s'],['#cWSpeedV2','#cWSpeedV2V',v=>(v/100).toFixed(2)+'/s'],
         ['#cWDens','#cWDensV',v=>v+'%'],['#cWBandW','#cWBandWV',v=>v+'%']];
       for(const [inp,out,f] of par){ const a=$(inp), b=$(out); if(a&&b)b.textContent=f(+a.value); } }
