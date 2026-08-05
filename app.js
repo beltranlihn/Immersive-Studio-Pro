@@ -5584,7 +5584,11 @@ function manualEdit(c,p,v){ if(!c)return; v=+v;
 function vzLbl(){ $('#vzReset').textContent=Math.round(vpFocusState().zoom/0.92*100)+'%'; }
 
 /* ===================== INSPECTOR ===================== */
-const TF=[['az','Azimuth','°',0,360],['el','Elevation','°',0,90],['size','Size','°',5,300],['rot','Rotation','°',-180,180]]; // R88: dome Size up to 300° (was 160)
+/* [R269] Elevación de −90 a 90. El motor ya sabía manejar la parte negativa desde antes —`drawClip` envuelve por
+   el diámetro (`el` fuera de 0..90 baja por el lado opuesto, sumando 180° al azimut) y el ajuste con teclado ya
+   aceptaba −90—, pero la fila del inspector topaba en 0, así que a mano no se podía llegar. Sin el negativo no hay
+   forma de mandar un elemento por debajo del horizonte del domo, que es justo lo que pidió Beltrán. */
+const TF=[['az','Azimuth','°',0,360],['el','Elevation','°',-90,90],['size','Size','°',5,300],['rot','Rotation','°',-180,180]]; // R88: dome Size up to 300° (was 160)
 const TF_FLAT=[['x','Pos X','%',-100,100],['y','Pos Y','%',-100,100],['scale','Scale','%',0,1000],['rot','Rotation','°',-180,180]]; // 2D (flat) transform rows — R88: Scale up to 1000% (was 300); drawClipFlat has no upper clamp so type past it too
 const FX=[['opacity','Opacity','%',0,100],['blur','Blur','px',0,20],['feather','Feather','%',0,100],['crop','Crop','%',0,90],['exposure','Exposure','',-100,100],['contrast','Contrast','',-100,100],['saturation','Saturation','',-100,100],['temperature','Temp','',-100,100],['tint','Tint','',-100,100],['glow','Glow','',0,100],['chroma','Chroma','',0,100]];
 const FX_COLOR_KEYS=new Set(['exposure','contrast','saturation','temperature','tint','glow','chroma']); // [I2] these FX rows go to the Color section; the rest (opacity/blur/feather/crop) stay in Clip
@@ -6884,7 +6888,16 @@ function bindAutoCurve(cv){
   function nearKf2(r){ const c=r&&r.c; const kp=RK(c); if(!kp||!(c.kf&&c.kf[kp]))return null; let best=null,bd=24; for(const k of c.kf[kp]){ const q=kxy(k,c); const d=Math.hypot(q.x-r.lpx,q.y-r.lpy); if(d<bd){bd=d;best=k;} } return best?{k:best,d:bd}:null; } // [L6] wide grab-zone (24px) — easy to catch points, even edge ones
   function nearKf(r){ const n=nearKf2(r); return n?n.k:null; }
   function nearHandle(e){ if(!cv._handles)return null; const r=cv.getBoundingClientRect(); const mx=e.clientX-r.left,my=e.clientY-r.top; let best=null,bd=10; for(const h of cv._handles){ const d=Math.hypot(h.x-mx,h.y-my); if(d<bd){bd=d;best=h;} } return best?{h:best,d:bd}:null; }
+  const TOL_LINEA=6; // [R269] una sola tolerancia: la que decide 'estoy sobre la linea' y la que decide con que valor nace el punto
   function lineDy(r){ const m=M(); const kp=RK(r.c); if(!kp)return 1e9; const lv=evalP(r.c,kp,r.c.start+r.t); const ly=m.padT+(1-(lv-m.mn)/((m.mx-m.mn)||1))*m.gh; return r.lpy-ly; }
+  /* [R269] Valor con el que nace un punto añadido a mano. Si el clic cae SOBRE la línea —y se acepta con 8 px de
+     tolerancia— el punto tiene que valer lo que vale la línea ahí, no lo que marque el ratón: si no, añadir un
+     punto a un parámetro sin automatizar lo movía hasta 8 px de golpe, que es el salto que reportó Beltrán.
+     Además la vista previa fantasma del hover ya dibujaba el valor de la LÍNEA, así que la interfaz prometía una
+     cosa y escribía otra. Fuera de la tolerancia manda el ratón, que ahí es lo que se está pidiendo. */
+  function vAlAnadir(r){ const m=M(); const kp=RK(r.c); if(!kp)return r.v;
+    if(Math.abs(lineDy(r))>TOL_LINEA)return r.v;
+    return Math.max(m.mn,Math.min(m.mx, evalP(r.c,kp,r.c.start+r.t))); }
   function selSetFor(c){ return (c&&state.autoSel&&state.autoSel.cid===c.id&&state.autoSel.p===RK(c))?state.autoSel.set:null; }
   function setTip(k,c){ const q=kxy(k,c); cv._tip={x:q.x,y:q.y,text:fmtTip(k.v)}; }
   function redraw(){ const m=M(); drawAutoCurve(cv,m.c,m.p); }
@@ -6944,7 +6957,7 @@ function bindAutoCurve(cv){
     { const downX=e.clientX; let moved=false; // lane-mode click on empty track space: plain click drops the insert marker
       const up=ev=>{ window.removeEventListener('pointerup',up); if(Math.abs(ev.clientX-downX)<3){ state.autoSel=null; const m2=M(); state.tl.selA=state.tl.selB=(ev.clientX-cv.getBoundingClientRect().left+(m2.ox||0))/m2.pps; state.tl.selLanes=[m2.li!=null?m2.li:0]; renderTimeSel(); redraw(); } };
       window.addEventListener('pointerup',up); return; }
-    const k=kk0?kk0.k:null; const onLine=Math.abs(lineDy(r))<=6;
+    const k=kk0?kk0.k:null; const onLine=Math.abs(lineDy(r))<=TOL_LINEA;
     // [R95·A2] ALT on a point: DRAG curves BOTH neighbouring segments symmetrically (Bitwig — one gesture for an ease in/out
     // around a key) · plain ALT+click (no drag) still deletes it, as before.
     if(e.altKey&&k){ const ks0=C.kf[P]; const i=ks0.indexOf(k); const A=ks0[i-1]||null, B=ks0[i+1]||null; const downY=e.clientY; let moved=false; ghostOn(C,P); // [R95·B3]
@@ -6979,7 +6992,7 @@ function bindAutoCurve(cv){
         if(s.kind==='flat'){ setParamBase(C,P,cl(baseA+dv)); } else if(s.kind==='mid'){ s.A.v=cl(baseA+dv); s.B.v=cl(baseB+dv); } else { s.A.v=cl(baseA+dv); }
         const vv=(s.kind==='flat')?paramBase(C,P):s.A.v; cv._tip={x:ev.clientX-cv.getBoundingClientRect().left, y:m.padT+(1-(vv-m.mn)/((m.mx-m.mn)||1))*m.gh, text:fmtTip(vv)}; commit(); };
       const up=()=>{ window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up); cv._tip=null; cv._ghostK=null; // [R95·B3]
-        if(!moved){ const ks2=(C.kf&&C.kf[P])?C.kf[P]:[]; const near=ks2.find(x=>Math.abs(x.t-r.t)<0.02); if(near){ state.autoSel={cid:C.id,p:P,set:new Set([near])}; } else { undo(); setKf(C,P,C.start+r.t,r.v,curEase()); } commit(); }
+        if(!moved){ const ks2=(C.kf&&C.kf[P])?C.kf[P]:[]; const near=ks2.find(x=>Math.abs(x.t-r.t)<0.02); if(near){ state.autoSel={cid:C.id,p:P,set:new Set([near])}; } else { undo(); setKf(C,P,C.start+r.t,vAlAnadir(r),curEase()); } commit(); }
         else { commit(); } };
       window.addEventListener('pointermove',move);window.addEventListener('pointerup',up); return; }
     // BACKGROUND: drag = marquee-select breakpoints (of the clip where the drag started); plain click = clear selection + drop the timeline insert marker (play starts here — same model as clicking a clip body)
@@ -6997,7 +7010,7 @@ function bindAutoCurve(cv){
     if(!r||!r.c){ if(cv._ghost||cv._hoverKf||cv._tip){cv._ghost=null;cv._hoverKf=null;cv._tip=null;redraw();} cv.style.cursor=(r&&state.tl.draw)?'crosshair':'default'; cv.title=''; if(state.hoverAuto&&state.hoverAuto.cv===cv&&!r)state.hoverAuto=null; return; }
     state.hoverAuto={cid:r.c.id,p:RK(r.c),cv,t:r.absT}; // Ctrl+A / Ctrl+V target the hovered lane (concrete per-clip key); [L5] t = the absolute time under the cursor so paste lands at the click/hover, not the playhead
     if(state.tl.draw){ cv.style.cursor='crosshair'; cv.title=''; if(cv._hoverKf||cv._ghost||cv._tip){cv._hoverKf=null;cv._ghost=null;cv._tip=null;redraw();} return; } // [R94-UT2·U-06]
-    const k=nearKf(r); const onLine=Math.abs(lineDy(r))<=6;
+    const k=nearKf(r); const onLine=Math.abs(lineDy(r))<=TOL_LINEA;
     if(!k&&!onLine&&!cv._ghost&&!cv._hoverKf&&!cv._tip&&!cv._hoverSeg){ cv.style.cursor='crosshair'; return; } // nothing hover-visual changed — skip the redraw
     if(k){ cv.style.cursor='move'; cv.title=T('Drag moves · click removes · Alt+drag curves both sides · right-click edits value','Arrastrar mueve · clic elimina · Alt+arrastrar curva ambos lados · clic derecho edita el valor'); cv._hoverKf=k; cv._ghost=null; cv._hoverSeg=null; setTip(k,r.c); } // move = drag is the primary gesture · [R94-UT2·U-06] title feeds the .dsp-tip hover tooltip
     else if(onLine){ cv.style.cursor='ns-resize'; cv.title=T('Drag moves the segment · click adds a point · Alt+drag curves it','Arrastrar mueve el segmento · clic añade un punto · Alt+arrastrar lo curva'); cv._hoverKf=null; cv._ghost={t:r.t,v:evalP(r.c,RK(r.c),r.c.start+r.t),c:r.c}; cv._tip=null;
@@ -7020,7 +7033,7 @@ function bindAutoCurve(cv){
     for(const i of [ti,vi]){ i.addEventListener('keydown',key); i.addEventListener('blur',blur); } }
   cv.addEventListener('dblclick',e=>{ if(state.tl.tool&&state.tl.tool!=='select')return; const r=inv(e); if(!r||!r.c)return; e.stopPropagation(); const C=r.c; const P=RK(C); if(!P)return;
     if(e.altKey){ const ks=C.kf&&C.kf[P]; if(!ks)return; const s=segAround(ks,r.t); pushUndo(); if(s.A){s.A.e='linear';delete s.A.hOut;delete s.A.hIn;} if(s.B){s.B.e='linear';delete s.B.hIn;delete s.B.hOut;} commit(); return; } // Alt-dbl-click = straighten
-    let k=nearKf(r); if(!k && Math.abs(lineDy(r))<=8){ pushUndo(); setKf(C,P,C.start+r.t,r.v,curEase()); if(C.kf[P])C.kf[P].sort((a,b)=>a.t-b.t); k=(C.kf[P]||[]).find(x=>Math.abs(x.t-r.t)<0.03); commit(); } // dbl-click empty line = add a point then edit it
+    let k=nearKf(r); if(!k && Math.abs(lineDy(r))<=TOL_LINEA){ pushUndo(); setKf(C,P,C.start+r.t,vAlAnadir(r),curEase()); if(C.kf[P])C.kf[P].sort((a,b)=>a.t-b.t); k=(C.kf[P]||[]).find(x=>Math.abs(x.t-r.t)<0.03); commit(); } // dbl-click empty line = add a point then edit it
     if(k)openKfEditor(k,C); }); // dbl-click a point = type exact time/value
   cv.addEventListener('contextmenu',e=>{ const r=inv(e); if(!r||!r.c)return; e.preventDefault(); e.stopPropagation(); const m=M(); const C=r.c; const P=RK(C); if(!P)return; const k=nearKf(r); const sel=selSetFor(C);
     if(k){ openKfEditor(k,C); return; } // [R93] right-click ON a point = type its exact time/value (click deletes, so the editor moved here)
@@ -7042,7 +7055,7 @@ function bindAutoCurve(cv){
     if(sel&&sel.size>1) items.push({label:T('Set value…','Fijar valor…'),fn:()=>autoSelApply('value')},{label:T('Offset…','Desplazar…'),fn:()=>autoSelApply('offset')},{label:T('Scale…','Escalar…'),fn:()=>autoSelApply('scale')},'sep'); // [R95·A3] Fusion's Value/Offset/Scale over a multi-selection
     if(sel&&sel.size>1) items.push({label:(state.shapeBox?'✓ ':'')+T('Shape Box','Caja de forma'),key:'⇧B',fn:()=>shapeBoxToggle()},
       {label:T('Taper: amplify ×1.25','Amplitud ×1,25'),fn:()=>taperSel(1.25)},{label:T('Taper: reduce ×0.8','Amplitud ×0,8'),fn:()=>taperSel(0.8)},'sep'); // [R95·B1/B2]
-    items.push({label:T('Add breakpoint here','Añadir punto aquí'),ico:'diamond',fn:()=>{pushUndo();setKf(C,P,C.start+r.t,r.v,curEase());commit();}});
+    items.push({label:T('Add breakpoint here','Añadir punto aquí'),ico:'diamond',fn:()=>{pushUndo();setKf(C,P,C.start+r.t,vAlAnadir(r),curEase());commit();}}); // [R269] sobre la línea, el valor de la línea
     if(sel&&sel.size) items.push({label:T('Delete selected','Eliminar selección')+' ('+sel.size+')',danger:true,fn:()=>{pushUndo();C.kf[P]=C.kf[P].filter(x=>!sel.has(x));if(!C.kf[P]||!C.kf[P].length)delete C.kf[P];state.autoSel=null;commit();}});
     items.push('sep',{label:T('Copy curve','Copiar curva')+((sel&&sel.size)?' ('+sel.size+')':''),key:'⌘C',fn:()=>copyAutoCurve(C,P,sel)});
     if(state.kfClipboard&&state.kfClipboard.ks&&state.kfClipboard.ks.length) items.push({label:T('Paste here','Pegar aquí'),key:'⌘V',fn:()=>pasteAutoAt({cid:C.id,p:P},C.start+r.t)});
@@ -12155,7 +12168,33 @@ function srcRange(m){ if(!m)return null; const d=Math.max(0,m.dur||0); if(!(d>0)
 function smCommitMarks(){ const mon=_srcMon; if(!mon)return; const m=mon.m, d=Math.max(0.04,m.dur||0);
   const a=Math.max(0,Math.min(d,mon.in)), b=Math.max(0,Math.min(d,mon.out));
   if(Math.abs((m.srcIn!=null?m.srcIn:0)-a)<1e-4 && Math.abs((m.srcOut!=null?m.srcOut:d)-b)<1e-4){ smPinta(); return; }
-  pushUndo(); bumpMeta(); m.srcIn=a; m.srcOut=b; markDirty(); renderMedia(); smPinta(); }
+  pushUndo(); bumpMeta(); m.srcIn=a; m.srcOut=b;
+  const n=aplicarTramoAClipsEnBucle(m,a,b);
+  markDirty(); renderMedia(); smPinta();
+  if(n)flashStatus(T('Loop range applied to ','Tramo de bucle aplicado a ')+n+' '+T('looped clips','clips en bucle')); }
+/* [R269] Marcar el In/Out en el monitor REAJUSTA los clips que ya estén en bucle con ese medio. Antes las marcas
+   sólo viajaban a los clips NUEVOS, así que decidir el tramo después de haber montado no servía de nada: había que
+   rehacer el clip.
+   La regla la fijó Beltrán y es la que conserva el montaje: **la duración en la línea de tiempo NO se toca**. Un
+   clip de 5 s loopeado y extendido a 30 s tenía seis vueltas; al pasar el tramo a 3 s sigue durando 30 s y pasa a
+   tener diez. Cambia dónde repite, no cuánto ocupa.
+   Alcanza a TODOS los clips de ese medio, en todas las secuencias — de ahí el recorrido por los nidos, excluyendo
+   el activo porque sus clips son literalmente `state.clips` (misma referencia, ver `loadSeqIntoState`). */
+function aplicarTramoAClipsEnBucle(m,a,b){
+  if(!m)return 0; const srcDur=isSeqMedia(m)?seqDur(m):(m.dur||0);
+  const largo=Math.max(0.05,(b-a)); let n=0;
+  const toca=(arr)=>{ if(!Array.isArray(arr))return;
+    for(const c of arr){ if(c.mediaId!==m.id||!c.loop)continue;
+      const nuevoIn=Math.max(0,Math.min(a,Math.max(0,srcDur-0.05)));
+      const nuevoLargo=Math.max(0.05,Math.min(largo,(srcDur||largo)-nuevoIn));
+      if(Math.abs((c.inP||0)-nuevoIn)<1e-4 && Math.abs((c.loopLen||0)-nuevoLargo)<1e-4)continue;
+      c.inP=nuevoIn; c.loopLen=nuevoLargo;                       // `c.dur` intacto: la extensión es del montaje
+      const par=linkPartner(c); if(par&&par.loop){ par.inP=nuevoIn; par.loopLen=nuevoLargo; } // [R223] la mitad de audio repite el mismo tramo
+      n++; } };
+  toca(state.clips);
+  for(const s of state.media){ if(!isSeqMedia(s)||s.id===state.activeSeqId)continue; toca(s.nestClips); }
+  if(n){ disposeAllVinst(); renderTimeline(); renderInspector(); render(); reschedAudio(); } // mismo cierre que setLoopRange: las instancias cachean el tramo
+  return n; }
 /* El rango que se llevará un arrastre DESDE la ventana: el que se está viendo, no el que tenga guardado el medio
    (pueden diferir mientras se mira la fuente de un clip sin haber tocado ninguna marca). */
 function smRangeVisible(){ const mon=_srcMon; if(!mon)return null; const d=Math.max(0,mon.m.dur||0); if(!(d>0))return null;
