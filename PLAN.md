@@ -1,5 +1,50 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 263 — Barrido de las demás composiciones tras R262: el cuadro está limpio, el inspector no lo estaba
+
+Beltrán, en cuanto se arregló el túnel: «revisa altiro los otros compose para evitar que tengan el mismo error».
+
+El fallo de R262 tenía tres capas, y cada una puede darse por separado: que el mando se **lea** para la vista previa
+pero no se **guarde** al aplicar, que no se **restaure** al reabrir, o que no esté **conectado** a la vista previa.
+Se auditaron las tres, sobre los 38 controles del cuadro, leyendo el código (`scratchpad/r263-auditoria-compose.mjs`).
+
+### El cuadro: limpio
+
+Los 38 controles se guardan, se restauran y reaccionan. El único que salía señalado, `cJit`, es un falso positivo
+de mi heurística: se guarda por la variable `_jit` y se restaura desde la plantilla (`value="${_jit}"`), no por su
+identificador. Comprobado a mano.
+
+La auditoría inversa —parámetros que el motor **lee** y que el cuadro no escribe nunca— deja sólo `g.fish`, y es
+deliberado: en R247d el fisheye del tejido salió del cuadro **a petición de Beltrán** («la deformación fisheye no
+se hace directo del compose, sino desde el inspector»), así que el cuadro pone el 50 inicial y el inspector manda.
+Sobrevive a recomponer, porque vive en el clip de fuera, no en los del nido. Y no hay una tercera lista: el único
+otro sitio que escribe una composición es el duplicado de nidos, que sólo le cambia el identificador.
+
+### El inspector: el mismo error, en otro sitio
+
+Los campos rápidos de composición del inspector tenían **su propia lista de tipos**, fija y de domo:
+`['ring','domegrid','grid','spiral','phyllo','wave','fib','line','random']`. Le faltaban **túnel** y **tejido**, y
+no cambiaba a los tipos planos en una secuencia de 2D o sala. Consecuencias, las tres reales:
+
+- Con un túnel o un tejido seleccionado **ningún botón quedaba marcado** — parece roto — y pulsar cualquiera
+  convertía la composición en otra cosa sin querer.
+- Los campos rápidos caían al caso genérico: Cantidad + Elevación + **Tamaño**. Los tres no significan nada ahí, y
+  `Tamaño` es justo el que el cuadro esconde a propósito para esos dos («invita a estirarlo», R246/R247).
+- En una secuencia plana se ofrecían tipos de domo, y Elevación, que allí no existe.
+
+Ahora la lista es la misma que la del cuadro, y **la decide la SECUENCIA** (`isFlat()`), no el modo interno del
+nido: un tejido se monta en un nido plano aunque la secuencia sea de domo (R247c), así que mirar `m.mode` lo habría
+dejado otra vez sin su propio botón. Fue el primer intento, y la prueba lo cazó.
+Campos rápidos propios: túnel → Cantidad + Hasta · tejido → Tiras + Ancho, y sin `Tamaño` en ninguno de los dos.
+
+### Verificado (`scratchpad/r263-inspector.mjs`)
+
+Túnel, tejido, anillo y cuadrícula en una secuencia de domo, más cuadrícula en una secuencia plana: en los cinco el
+tipo actual queda marcado, los campos son los suyos, y ni el túnel ni el tejido ofrecen `Tamaño`. La secuencia plana
+ofrece sólo tipos planos y sin Elevación.
+
+---
+
 ## ROUND 262 — El fundido del túnel no se podía apagar, y la causa se llevaba por delante el túnel entero (y el tejido)
 
 Beltrán: «no me deja desactivar el fade, no lo aplica». El fundido era la punta.

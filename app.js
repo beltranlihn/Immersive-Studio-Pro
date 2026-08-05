@@ -5663,14 +5663,30 @@ function _renderInspectorMain(){
     host.appendChild(row);
     row.querySelectorAll('.wmaskchip').forEach(b=>b.onclick=()=>{ const cc=selClip(); if(!cc)return; pushUndo(); const arr=(cc.props.maskWalls||[]).slice(); const r=b.dataset.role; const i=arr.indexOf(r); if(i>=0)arr.splice(i,1); else arr.push(r); if(arr.length)cc.props.maskWalls=arr; else delete cc.props.maskWalls; renderInspector(); render(); markDirty(); }); } }
   // Composition tools — when the selected clip is a nest created from a Compose, expose its layout controls + live dome schematic
-  if(m && m.comp){ const g=m.comp; const cap=s=>s.charAt(0).toUpperCase()+s.slice(1); const kinds=['ring','domegrid','grid','spiral','phyllo','wave','fib','line','random'];
-    const isDG=g.kind==='domegrid', isGrid=g.kind==='grid', isSpi=(g.kind==='spiral'||g.kind==='wave'); // [N2] the quick fields follow the compose type
+  if(m && m.comp){ const g=m.comp; const cap=s=>s.charAt(0).toUpperCase()+s.slice(1);
+    /* [R263] La lista de tipos del inspector era fija y de domo: le faltaban TÚNEL y TEJIDO, y no cambiaba a los
+       tipos planos cuando el nido es de 2D o sala. Con un túnel seleccionado no quedaba ningún botón marcado —parece
+       roto— y pulsar cualquiera lo convertía en otra cosa sin querer. Ahora sigue a la misma lista que el cuadro.
+       Qué lista toca la decide la SECUENCIA donde vive la composición (`isFlat()`, igual que el cuadro), no el modo
+       interno del nido: un TEJIDO se monta en un nido plano aunque la secuencia sea de domo (R247c), así que mirar
+       `m.mode` lo habría dejado otra vez sin su propio botón. */
+    const _plano=isFlat();
+    const kinds=_plano?FLAT_COMP_KINDS:['ring','domegrid','grid','spiral','phyllo','wave','fib','line','tunnel','weave','random'];
+    const isDG=g.kind==='domegrid', isGrid=g.kind==='grid', isSpi=(g.kind==='spiral'||g.kind==='wave'),
+          isTun=g.kind==='tunnel', isWea=g.kind==='weave'; // [N2] the quick fields follow the compose type
     let f1,f2; // [id, label, value, min, max, key]
     if(isDG){ f1=['icRings',T('Rings','Anillos'),g.rings||3,1,12,'rings']; f2=['icSegs',T('Segments','Segmentos'),g.segs||8,1,48,'segs']; }
-    else if(isGrid){ f1=['icCols',T('Columns','Columnas'),g.cols||3,1,12,'cols']; f2=['icArc',T('Arc','Arco'),g.arc||140,10,360,'arc']; }
+    /* [R263] Túnel y tejido tienen sus propios mandos: en el túnel el tamaño lo manda «De → a» y en el tejido sale
+       de la proporción del clip y del ancho de tira. Ofrecer aquí Elevación o Tamaño era ofrecer mandos muertos —y
+       en el tejido, invitar justo a estirar el clip, que es lo que Beltrán pidió que no pasara. */
+    else if(isTun){ f1=['icN',T('Count','Cantidad'),g.count,2,32,'count']; f2=['icTTo',T('To size','Hasta'),(g.sizeTo!=null?g.sizeTo:200),10,400,'sizeTo']; }
+    else if(isWea){ f1=['icWB',T('Strips','Tiras'),(g.bands||5),1,24,'bands']; f2=['icWW',T('Width','Ancho'),(g.bandW!=null?g.bandW:100),10,200,'bandW']; }
+    else if(isGrid){ f1=['icCols',T('Columns','Columnas'),g.cols||3,1,12,'cols']; f2=_plano?null:['icArc',T('Arc','Arco'),g.arc||140,10,360,'arc']; }
     else if(isSpi){ f1=['icN',T('Count','Cantidad'),g.count,2,32,'count']; f2=['icTurns',T('Turns','Vueltas'),g.turns||3,1,8,'turns']; }
-    else { f1=['icN',T('Count','Cantidad'),g.count,2,32,'count']; f2=['icEl',T('Elevation','Elevación'),g.el,0,85,'el']; }
-    const fld=f=>`<label class="cmini">${f[1]}<input type="number" id="${f[0]}" value="${f[2]}" min="${f[3]}" max="${f[4]}" data-key="${f[5]}"></label>`;
+    else { f1=['icN',T('Count','Cantidad'),g.count,2,32,'count']; f2=_plano?null:['icEl',T('Elevation','Elevación'),g.el,0,85,'el']; } // en plano no hay elevación
+    const fld=f=>f?`<label class="cmini">${f[1]}<input type="number" id="${f[0]}" value="${f[2]}" min="${f[3]}" max="${f[4]}" data-key="${f[5]}"></label>`:'';
+    /* [R263] el campo Tamaño no aplica al túnel ni al tejido — el cuadro de composición ya lo esconde para los dos */
+    const sizeFld=(isTun||isWea)?'':`<label class="cmini">${T('Size','Tamaño')}<input type="number" id="icSize" value="${g.size}" min="5" max="120" data-key="size"></label>`;
     const dgTog=isDG?`<div style="display:flex;flex-wrap:wrap;gap:10px;font-size:11px;color:var(--ink-2);">
         <label style="display:flex;align-items:center;gap:4px;cursor:pointer;" title="${T('Offset alternate rings','Desfasar anillos alternos')}"><input type="checkbox" id="icBrick" ${g.brick?'checked':''}> ${T('Brick','Ladrillo')}</label>
         <label style="display:flex;align-items:center;gap:4px;cursor:pointer;" title="${T('Undeformed tiles instead of warped sectors','Baldosas sin deformar en vez de sectores curvados')}"><input type="checkbox" id="icNoWarp" ${g.noWarp?'checked':''}> ${T('Flat tiles','Sin deformar')}</label>
@@ -5680,7 +5696,7 @@ function _renderInspectorMain(){
     crow.innerHTML=`<span class="lab" style="width:auto;color:var(--ink-2);display:flex;align-items:center;gap:6px;">${ICO('ring',12)} ${T('Composition','Composición')}</span>
       <canvas id="icPrev" width="150" height="150" style="align-self:center;border-radius:7px;"></canvas>
       <div class="kindseg" id="icKind">${kinds.map(k=>`<button data-k="${k}" class="${k===g.kind?'on':''}">${cap(kindES(k))}</button>`).join('')}</div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;">${fld(f1)}${fld(f2)}<label class="cmini">${T('Size','Tamaño')}<input type="number" id="icSize" value="${g.size}" min="5" max="120" data-key="size"></label></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">${fld(f1)}${fld(f2)}${sizeFld}</div>
       ${dgTog}
       <button class="mbtn" id="icMore" style="width:100%;">${T('More options…','Más opciones…')}</button>`;
     $('#tfRows').insertBefore(crow,$('#tfRows').firstChild);
