@@ -928,6 +928,25 @@
   .modal .mb{padding:14px 16px;}
   .frow{display:flex;align-items:center;gap:var(--sp-12);margin-bottom:6px;}
   .frow label{width:90px;flex-shrink:0;font-size:11px;color:var(--ink-2);}
+  /* [R276] La retícula del cuadro de Compose, igual que la del inspector: fila de 24 px y separación de 8. Va
+     ACOTADO a #compOv a propósito — `.frow` lo comparten la hoja de export, el proyecto nuevo y la sala, y ahí
+     nadie ha pedido moverlo. */
+  /* `flex:none` NO es decorativo: la columna es flex y sus filas se encogen cuando el contenido rebosa. El
+     `min-height:auto` implícito lo impedía; al fijar un min-height propio se pierde esa protección y las filas
+     altas (la cesta de medios, la rejilla de disposiciones) se aplastaban unas sobre otras. */
+  #compOv .frow{min-height:24px;margin-bottom:0;gap:var(--sp-8);flex:none;}
+  /* [R276] Los cuadros de Compose se rigen por las reglas del inspector. Traían los sliders NATIVOS —barra gruesa
+     con el puntito blanco— y el valor como texto suelto, cuando el resto del programa usa una pista fina de 3 px
+     con el valor en un recuadro. El `input[type=range]` sigue ahí (oculto) porque es quien guarda el valor: lo que
+     cambia es lo que se ve y lo que se arrastra, así que nada de lo que lee o restaura esos mandos se entera. */
+  .frow .cfield{flex:1;display:flex;align-items:center;height:20px;cursor:ew-resize;min-width:60px;}
+  .frow .cfield .ctrack{flex:1;height:3px;border-radius:2px;background:var(--s0);box-shadow:inset 0 1px 2px rgba(0,0,0,0.55);position:relative;overflow:hidden;}
+  .frow .cfield .ctrack>i{position:absolute;left:0;top:0;bottom:0;background:var(--pc,#9AA0A8);display:block;}
+  .frow .cfield:hover .ctrack{box-shadow:inset 0 1px 2px rgba(0,0,0,0.55),0 0 0 .5px rgba(255,255,255,0.10);}
+  /* el número que acompaña al fader pasa a ser un recuadro, como el `.box` del inspector */
+  .frow .cfield + .tnum{min-width:52px;display:inline-flex;align-items:baseline;justify-content:flex-end;gap:2px;
+    height:16px;padding:0 5px;border-radius:2px;background:var(--s0);color:var(--ink);font-size:11px;
+    font-variant-numeric:tabular-nums;flex-shrink:0;}
   .frow select,.frow input{flex:1;height:19px;padding:0 7px;border-radius:2px;border:.5px solid rgba(255,255,255,0.15);background:var(--surface-2);color:var(--ink);font-family:inherit;font-size:11px;}
   .frow .tnum{font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;}
   input[type=number]{cursor:ew-resize;} input[type=number]:focus{cursor:text;} /* [R72] drag horizontally to scrub the value; click to type */

@@ -11920,7 +11920,9 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
   const seg=()=>(_flatComp?FLAT_COMP_KINDS:['ring','domegrid','grid','spiral','phyllo','wave','fib','line','tunnel','weave','random']).map(k=>`<button data-k="${k}" class="${k===kind?'on':''}">${cap(kindES(k))}</button>`).join('');
   ov.innerHTML=`<div class="modal" style="width:648px;"><div class="mh"><span style="color:var(--ink-2);display:flex;">${ICO('ring',16)}</span><span class="t">${T('Create composition','Crear composición')}</span></div><div class="mb">
    <div style="display:flex;gap:16px;align-items:stretch;">
-    <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;height:420px;overflow-y:auto;">
+    <!-- [R276] Relleno a la DERECHA igual que el de la izquierda: la columna es la que hace el scroll, así que sin
+         relleno los mandos quedaban pegados a la barra. 12 px = el mismo aire que respeta el inspector. -->
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;height:420px;overflow-y:auto;padding-right:var(--sp-12);">
     <div class="frow" style="align-items:flex-start;"><label style="padding-top:3px;">${T('Media','Medios')}</label><div id="cMedia" class="cbasket"></div></div>
     <div class="frow"><label>${T('Layout','Disposición')}</label><div class="kindseg" id="cKind">${seg()}</div></div>
     <div class="frow" data-only="count"><label>${T('Count','Cantidad')}</label><input type="number" class="tnum" id="cN" value="6" min="2" max="32"></div>
@@ -12058,7 +12060,12 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
     if(ms)ms.oninput=()=>{ if(msv)msv.textContent=ms.value+'%'; preview(); };
     if(mk)mk.addEventListener('change',()=>sync()); } // [R268] sync ensena/esconde la fila y repinta
   $('#cRandomize').onclick=()=>{ _rand=[]; if(_jit<10){ _jit=35; $('#cJit').value=35; $('#cJitV').textContent='35%'; } preview(); }; } // fresh seeds + a default amount if it was off
-  const preview=()=>{ const g=readForm(); drawComposePreview(g,$('#cPrev')); const lbl=$('#cPrevLbl'); if(lbl)lbl.textContent=g.count+' '+T('elements','elementos')+' · '+kindES(kind)+(g.tile&&!g.noWarp?' · '+T('tiled','mosaico'):'')+(g.noWarp?' · '+T('flat tile','baldosa plana'):'')+(g.mediaIds.length>1?(' · '+g.mediaIds.length+' '+T('media','medios')):''); };
+  /* [R276] Repintar los faders aquí y no en cada sitio que mueve un valor: `preview` la llaman TODOS los caminos
+     que actualizan el cuadro —incluido el pre-rellenado, vía `sync`—, así que es el único punto donde hace falta.
+     Los que se rellenan por código mueven el `input` oculto sin pasar por el fader, y sin esto la barra se quedaba
+     en el valor anterior aunque el número de al lado ya dijera otra cosa. */
+  const preview=()=>{ try{ ov.querySelectorAll('.frow input[type="range"]').forEach(r=>{ if(r._pintaFader)r._pintaFader(); }); }catch(_){}
+    const g=readForm(); drawComposePreview(g,$('#cPrev')); const lbl=$('#cPrevLbl'); if(lbl)lbl.textContent=g.count+' '+T('elements','elementos')+' · '+kindES(kind)+(g.tile&&!g.noWarp?' · '+T('tiled','mosaico'):'')+(g.noWarp?' · '+T('flat tile','baldosa plana'):'')+(g.mediaIds.length>1?(' · '+g.mediaIds.length+' '+T('media','medios')):''); };
   const sync=()=>{ const lineRot=$('#cLineRot')&&$('#cLineRot').checked, tile=$('#cTile')&&$('#cTile').checked;
     /* [R268] El tamaño de máscara sólo se ofrece si hay máscara. Va en `sync` y no junto a su control porque el
        pre-rellenado del cuadro ocurre DESPUÉS de cablear los mandos: comprobándolo allí se leía la máscara por
@@ -12163,6 +12170,38 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
   else if(preselIds&&preselIds.length){ _pick=preselIds.slice(); if(preselIds.length>1&&$("#cShuffle"))$("#cShuffle").checked=true; } // R88: compose from a media multi-selection
   else { _pick=vids.length?[vids[0].id]:[]; } // default: el primer medio, igual que antes
   pintarCesta();
+  /* [R276] Los deslizadores nativos del cuadro pasan a ser los faders del inspector. Se hace AQUÍ, sobre el DOM ya
+     montado y ya cableado, en vez de reescribir cada fila: el `input[type=range]` se queda —oculto— porque es
+     quien guarda el valor, y todo lo que lo lee (`readForm`), lo restaura (el bloque de `pre`) o lo escucha
+     (`oninput`) sigue funcionando sin tocarse. El fader nuevo escribe en él y dispara su `input`, así que la vista
+     previa y los rótulos se actualizan igual que antes.
+     El color de cada fader sale del identificador del mando, con la misma función que tiñe los del inspector: así
+     dos mandos distintos no se confunden de un vistazo, que era la queja de fondo. */
+  ov.querySelectorAll('.frow input[type="range"]').forEach(rng=>{
+    if(rng._fader)return; rng._fader=1; rng.style.display='none';
+    const f=document.createElement('div'); f.className='cfield';
+    f.innerHTML='<div class="ctrack"><i style="width:0%"></i></div>';
+    f.style.setProperty('--pc', autoColor('fxt:'+(rng.id||'x')+':v'));
+    rng.parentNode.insertBefore(f, rng.nextSibling);
+    const barra=f.querySelector('i');
+    const pinta=()=>{ const mn=+rng.min||0, mx=(rng.max!==''&&rng.max!=null)?+rng.max:100;
+      barra.style.width=Math.max(0,Math.min(100,((+rng.value-mn)/((mx-mn)||1))*100))+'%'; };
+    const alPunto=(cx)=>{ const r=f.querySelector('.ctrack').getBoundingClientRect();
+      const mn=+rng.min||0, mx=(rng.max!==''&&rng.max!=null)?+rng.max:100;
+      const paso=+rng.step||1, k=Math.max(0,Math.min(1,(cx-r.left)/(r.width||1)));
+      const v=mn+(mx-mn)*k; rng.value=String(Math.round(v/paso)*paso);
+      pinta(); rng.dispatchEvent(new Event('input',{bubbles:true})); };
+    f.addEventListener('pointerdown',e=>{ if(e.button!==0)return; e.preventDefault();
+      try{ f.setPointerCapture(e.pointerId); }catch(_){}
+      alPunto(e.clientX);
+      const mv=ev=>alPunto(ev.clientX);
+      let cerrado=false;
+      const up=()=>{ if(cerrado)return; cerrado=true;
+        window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up); window.removeEventListener('pointercancel',up);
+        try{ f.releasePointerCapture(e.pointerId); }catch(_){}
+        rng.dispatchEvent(new Event('change',{bubbles:true})); };
+      window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); window.addEventListener('pointercancel',up); });
+    rng._pintaFader=pinta; pinta(); });
   domegridDefaults(); sync();
   $('#cGo').onclick=()=>{ const ids=checkedIds(); const first=mediaById(ids[0]);
     /* [R248] La cesta puede quedarse vacía (antes era imposible: la lista caía a la primera casilla). Aplicar con

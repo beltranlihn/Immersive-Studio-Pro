@@ -1,5 +1,36 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 276 — Los cuadros de Compose, bajo las reglas del inspector
+
+Punto 17 y último de la lista. Los diálogos de composición se habían quedado fuera del sistema de diseño: sliders
+NATIVOS (barra gruesa, puntito blanco) y el valor como texto suelto, cuando el resto del programa usa una pista de
+3 px teñida por parámetro y el valor dentro de un recuadro. Además todos los mandos eran del mismo gris, que es lo
+que Beltrán venía diciendo desde Effects/Motion: «como todos tienen el mismo color, no encuentro las cosas».
+
+**Cómo se hizo sin tocar la lógica.** El `input[type=range]` SIGUE AHÍ y sigue siendo quien guarda el valor; sólo
+se oculta y se le pone encima el fader del inspector. El arrastre escribe en el range y dispara `input`, así que
+`readForm`, el pre-rellenado al editar una composición existente y cada `oninput` funcionan sin enterarse. El
+repintado vive en `preview()`, que es la función por la que pasan todos los caminos de actualización.
+
+- **Color por parámetro**: el tono sale de `autoColor('fxt:'+id+':v')`, el mismo generador que ya distingue los
+  efectos, así que Velocidad y Profundidad dejan de ser dos barras idénticas.
+- **Margen a la derecha** (petición de Beltrán al ver la foto): la columna que hace el scroll no tenía
+  `padding-right`, así que los mandos morían pegados a la barra mientras a la izquierda había 26 px. Ahora lleva
+  los 12 px del inspector.
+- **Retícula**: filas de 24 px y separación de 8, acotado a `#compOv` — `.frow` lo comparten la hoja de export, el
+  proyecto nuevo y la sala, donde nadie ha pedido moverlo.
+
+**Gotcha caro (y de manual).** Fijar `min-height` en un ítem de columna flex ANULA su `min-height:auto` implícito,
+que es lo único que impedía que se encogiera por debajo de su contenido. Las filas altas —la cesta de medios y la
+rejilla de disposiciones— se aplastaron unas sobre otras. Se ve en `scratchpad/r276b-tejido.png`. Solución:
+`flex:none` junto al `min-height`.
+
+**Verificado por CDP**, no de vista (`scratchpad/r276-func.mjs`): los sliders nativos quedan todos ocultos, todos
+tienen fader, el pre-rellenado pinta la barra donde toca (curva 25 → barra al 25 %), arrastrar al 80 % pone el
+valor en 80, el rótulo lo sigue y **Crear** guarda ese 80. Fotos: `r276c-tejido.png`, `r276c-tunel.png`,
+`r276c-rejilla.png`.
+
+
 ## ROUND 268 — La máscara vuelve a todos los composes, y ahora con tamaño
 
 Petición de Beltrán: «en todos los compose, volvamos a traer la opción de agregar mask a los clips; que además
