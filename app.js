@@ -874,11 +874,23 @@ function evalWet(c,a,t){ const key=motKeyFor(a); const cl=v=>Math.max(0,Math.min
   const lt=t-c.start; if(lt<=ks[0].t)return ks[0].v; const last=ks[ks.length-1]; if(lt>=last.t)return last.v;
   for(let i=0;i<ks.length-1;i++) if(lt>=ks[i].t&&lt<=ks[i+1].t){ const f=easeF((lt-ks[i].t)/((ks[i+1].t-ks[i].t)||1),ks[i].e||'linear'); return ks[i].v+(ks[i+1].v-ks[i].v)*f; }
   return base; }
+/* [R262] ENVOLVENTE DE FUNDIDO — entrada y salida INDEPENDIENTES, cada una con su cantidad.
+   `fin` y `fout` son fracciones del ciclo (0,25 = un cuarto del ciclo entrando). Entre las dos rampas el valor se
+   queda arriba; con las dos a cero no hay fundido y la envolvente vale 1 siempre.
+   La rampa es un coseno alzado, y eso NO es un capricho: con `fin=fout=0,5` la envolvente resulta ser
+   `sin²(π·f)`, que es EXACTAMENTE lo que daba el fundido único de R246 (base 50 + seno de amplitud 50 desfasado
+   un cuarto = 50 − 50·cos(2πf) = 100·sin²(πf)). Así los túneles que ya existen se migran a entrada y salida de
+   medio ciclo y se ven idénticos, fotograma a fotograma.
+   Si las dos rampas se solapan (fin+fout>1) manda la más baja: la figura se cierra sola en vez de dispararse. */
+const _rampa=u=>0.5-0.5*Math.cos(Math.PI*Math.max(0,Math.min(1,u)));
+function fadeEnv(f,fin,fout){ const i=Math.max(0,Math.min(1,fin==null?0.5:fin)), o=Math.max(0,Math.min(1,fout==null?0.5:fout));
+  let v=1; if(i>0&&f<i)v=Math.min(v,_rampa(f/i)); if(o>0&&f>1-o)v=Math.min(v,_rampa((1-f)/o)); return v; }
 function animOffset(c,p,t){ if(!c||!c.anim||!c.anim.length)return 0; let o=0; const at=animTime(t);
   for(const a of c.anim){ if(!a.on||a.param!==p)continue;
     const w=Math.max(0,Math.min(1,evalWet(c,a,t))); if(w<=0)continue;
     const v=(a.mode==='wave') ? (a.amp||0)*Math.sin(6.283185307*((a.speed||0)*at+(a.phase||0)))
           : (a.mode==='saw')  ? (a.amp||0)*sawShape(_frac((a.speed||0)*at+(a.phase||0)),a.curve) // [R246] ciclo que se repite solo
+          : (a.mode==='fade') ? (a.amp||0)*fadeEnv(_frac((a.speed||0)*at+(a.phase||0)),a.fadeIn,a.fadeOut) // [R262] envolvente de entrada/salida
           : (a.speed||0)*at;
     o+=v*w; }
   return o; }
@@ -11438,8 +11450,17 @@ function compTunnelAnim(g,phase){
   const spd=Math.max(0.001,(g.speed!=null?g.speed:0.12));                    // ciclos por segundo
   const from=Math.max(1,g.sizeFrom||1), to=Math.max(from+1,(g.sizeTo!=null?g.sizeTo:200));
   const an=[{id:uid(),param:'size',mode:'saw',speed:spd,amp:(to-from),phase,curve:(g.curve!=null?g.curve:60),on:true}];
-  if(g.fade!==false) an.push({id:uid(),param:'opacity',mode:'wave',speed:spd,amp:50,phase:phase-0.25,on:true});
+  /* [R262] Entrada y salida por separado. Los túneles viejos no traen `fadeIn`/`fadeOut`: se les da medio ciclo a
+     cada una, que con la rampa de coseno alzado reproduce exactamente el fundido único de R246 (ver `fadeEnv`).
+     `fade:false` de un proyecto viejo sigue significando «sin fundido». Con las dos cantidades a cero no se añade
+     modificador ninguno: nada que evaluar en cada fotograma. */
+  const fi=tunnelFadeIn(g), fo=tunnelFadeOut(g);
+  if(fi>0||fo>0) an.push({id:uid(),param:'opacity',mode:'fade',speed:spd,amp:100,phase,fadeIn:fi,fadeOut:fo,on:true});
   return an; }
+/* Un único sitio donde se decide cuánto entra y cuánto sale, para que el reparto de opacidad base (`compElProps`)
+   y el modificador no puedan discrepar — que es justo como nacen los fundidos que no se apagan. */
+function tunnelFadeIn(g){ return Math.max(0,Math.min(1, g.fadeIn!=null?g.fadeIn:(g.fade===false?0:0.5))); }
+function tunnelFadeOut(g){ return Math.max(0,Math.min(1, g.fadeOut!=null?g.fadeOut:(g.fade===false?0:0.5))); }
 /* [R247c] El movimiento del TEJIDO, y de paso la razón de que sea INFINITO sin envoltura ninguna.
    Cada clip recorre en diente de sierra EXACTAMENTE un paso de su tira y vuelve a empezar. Como la tira está
    rellena con esa misma fuente cada `_step`, cuando uno salta hacia atrás ya hay otro ocupando su sitio: el salto
@@ -11466,7 +11487,10 @@ function compElProps(g,p){ if(p.x!=null){
     return { x:Math.round(p.x*10)/10, y:Math.round(p.y*10)/10, scale:Math.round(p.scale), rot:0, mask:g.mask||'none' }; } // flat/room element: x/y/scale
   /* [R246] El túnel marca la fuente como FULLDOME: la imagen 1:1 del anillo se dibuja en el disco entero (sin el
      parche gnomónico) y `Size` pasa a ser el zoom cenital que la hace crecer desde el centro. */
-  if(p._phase!=null) return { az:Math.round(p.az), el:90, size:Math.round(p.size), fulldome:true, mask:'none', opacity:(g.fade!==false)?50:100 }; // opacidad base 50 = centro del seno del fundido (ver compTunnelAnim)
+  /* [R262] La opacidad BASE es 0 cuando hay fundido, porque el modificador de envolvente suma de 0 a 100 (antes
+     era base 50 con un seno de ±50: mismo resultado, pero con la envolvente nueva la cuenta es directa). Sin
+     fundido, 100 y sin modificador. */
+  if(p._phase!=null) return { az:Math.round(p.az), el:90, size:Math.round(p.size), fulldome:true, mask:'none', opacity:(tunnelFadeIn(g)>0||tunnelFadeOut(g)>0)?0:100 };
   const noWarp=!!g.noWarp; // [N5] Dome Fill "flat tiles": place undeformed patches at the ring/segment centres instead of warped annular sectors
   const dome=(!noWarp&&p._secAz!=null)||(!noWarp&&g.tile&&(g.kind==='ring'||g.kind==='grid'));
   const pr={az:dome?p.az:Math.round(p.az), el:dome?p.el:Math.round(p.el), size:Math.round(p.size), mask:g.mask||'none'}; // keep centers EXACT in dome mode so adjacent sectors tile with no seam
@@ -11727,7 +11751,12 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
     <div class="frow" data-only="tunnel"><label>${T('Depth','Profundidad')}</label><input type="range" id="cTCurve" min="0" max="100" value="60" style="flex:1;height:20px;"><span class="tnum" id="cTCurveV" style="width:52px;text-align:right;color:var(--ink-2);">60%</span></div>
     <div class="frow" data-only="tunnel"><label></label><span class="tnum" style="color:var(--ink-dim);font-size:10px;line-height:1.4;">${T('0 = constant speed · 100 = strong perspective (elements bunch up in the distance)','0 = velocidad constante · 100 = perspectiva marcada (los elementos se agolpan al fondo)')}</span></div>
     <div class="frow" data-only="tunnel"><label>${T('Twist','Giro')}</label><input type="number" class="tnum" id="cTTwist" value="0" min="0" max="360"><span class="tnum" style="color:var(--ink-dim);">°</span></div>
-    <div class="frow" data-only="tunnel"><label>${T('Fade','Fundido')}</label><label style="display:flex;align-items:center;gap:6px;flex:1;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="cTFade" checked> ${T('Fade in as it appears, out as it passes','Entra fundiendo y sale fundiendo')}</label></div>
+    <!-- [R262] Entrada y salida INDEPENDIENTES, cada una con su cantidad. La cantidad es cuánto del ciclo dura la
+         rampa: 50% = medio ciclo entrando (lo que hacía el fundido único). Desmarcar apaga esa mitad, y desmarcar
+         las dos deja el elemento a opacidad plena de principio a fin. -->
+    <div class="frow" data-only="tunnel"><label>${T('Fade in','Fundido de entrada')}</label><label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="cTFadeIn" checked> ${T('on','activo')}</label><input type="range" id="cTFadeInA" min="1" max="100" value="50" style="flex:1;height:20px;"><span class="tnum" id="cTFadeInV" style="width:42px;text-align:right;color:var(--ink-2);">50%</span></div>
+    <div class="frow" data-only="tunnel"><label>${T('Fade out','Fundido de salida')}</label><label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="cTFadeOut" checked> ${T('on','activo')}</label><input type="range" id="cTFadeOutA" min="1" max="100" value="50" style="flex:1;height:20px;"><span class="tnum" id="cTFadeOutV" style="width:42px;text-align:right;color:var(--ink-2);">50%</span></div>
+    <div class="frow" data-only="tunnel"><label></label><span class="tnum" style="color:var(--ink-dim);font-size:10px;line-height:1.4;">${T('Amount = how much of each cycle the ramp lasts (50% + 50% = the old single fade)','La cantidad es cuánto del ciclo dura la rampa (50% + 50% = el fundido único de antes)')}</span></div>
     <!-- [R247] TEJIDO: tiras rectas que cruzan el disco. "Lado largo" es el mando que garantiza que NINGUN clip se
          estire: elige por que lado entra en la tira, y el tamano se calcula desde su propia proporcion.
          (Sin acentos graves en este comentario: vive dentro de una plantilla y la cerrarian.) -->
@@ -11800,7 +11829,9 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
       /* [R246] túnel */ sizeFrom:+($('#cTFrom')?$('#cTFrom').value:1)||1, sizeTo:+($('#cTTo')?$('#cTTo').value:200)||200,
       speed:(kind==='weave')?((+($('#cWSpeed')?$('#cWSpeed').value:12)||0)/100):((+($('#cTSpeed')?$('#cTSpeed').value:12)||12)/100), // [R247d] 0 es un valor válido: quieto
       curve:+($('#cTCurve')?$('#cTCurve').value:60), twist:+($('#cTTwist')?$('#cTTwist').value:0)||0,
-      fade:($('#cTFade')?$('#cTFade').checked:true) }; };
+      /* [R262] entrada y salida por separado; la casilla apagada es cantidad 0 */
+      fadeIn:(($('#cTFadeIn')&&$('#cTFadeIn').checked)?((+($('#cTFadeInA')?$('#cTFadeInA').value:50)||0)/100):0),
+      fadeOut:(($('#cTFadeOut')&&$('#cTFadeOut').checked)?((+($('#cTFadeOutA')?$('#cTFadeOutA').value:50)||0)/100):0) }; };
   let reshuf=false; // "reshuffle" clicked → force a fresh media order on Create/Apply
   { // R88: Randomize row (jitter positions in ANY mode) — injected above the footer
     const jr=document.createElement('div'); jr.className='frow'; jr.style.marginTop='2px';
@@ -11846,7 +11877,11 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
     if(sp)sp.oninput=()=>{ if(spv)spv.textContent=((+sp.value)/100).toFixed(2)+'/s'; preview(); };
     if(cv)cv.oninput=()=>{ if(cvv)cvv.textContent=cv.value+'%'; preview(); };
     ['#cTFrom','#cTTo','#cTTwist'].forEach(id=>{ const el=ov.querySelector(id); if(el){ el.oninput=preview; el.onchange=preview; } });
-    const fd=$('#cTFade'); if(fd)fd.onchange=preview; }
+    /* [R262] entrada y salida: la casilla enciende/apaga y el deslizador manda la cantidad */
+    { const par=[['#cTFadeIn','#cTFadeInA','#cTFadeInV'],['#cTFadeOut','#cTFadeOutA','#cTFadeOutV']];
+      for(const [ck,sl,out] of par){ const k=$(ck), s=$(sl), o=$(out);
+        if(k)k.onchange=preview;
+        if(s)s.oninput=()=>{ if(o)o.textContent=s.value+'%'; if(k&&!k.checked){ k.checked=true; } preview(); }; } } } // mover la cantidad enciende la rampa: mover un mando apagado y que no pase nada es lo que hace pensar que está roto
   /* [R247d] mandos del tejido. Los tres segmentados llaman a `sync()`, no a `preview()`: además de redibujar el
      esquema tienen que MOSTRAR U OCULTAR filas (cada velocidad con su familia, el entrelazado sólo si hay cruces),
      y de eso se encarga sync. */
@@ -11866,6 +11901,28 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
     const preIds=(pre.mediaIds&&pre.mediaIds.length)?pre.mediaIds:(pre.mediaId!=null?[pre.mediaId]:[]);
     _pick=preIds.slice(); // [R248] EN SU ORDEN GUARDADO: es literalmente g.mediaIds. Antes las casillas devolvian el orden del PANEL, asi que reaplicar una composicion vieja podia rebarajar que fuente iba a cada tira; la cesta la deja tal cual estaba.
     $('#cN').value=pre.count; $('#cCols').value=pre.cols; $('#cArc').value=pre.arc; $('#cEl').value=pre.el; $('#cElMin').value=pre.elMin; $('#cElMax').value=pre.elMax; $('#cSize').value=pre.size; if($('#cTurns'))$('#cTurns').value=pre.turns||3; if(lr)lr.checked=(pre.lineRot!==false); if($('#cTile'))$('#cTile').checked=!!pre.tile; if($('#cBand'))$('#cBand').value=pre.band||30; if($('#cRings'))$('#cRings').value=pre.rings||3; if($('#cSegs'))$('#cSegs').value=pre.segs||8; if($('#cGapEl'))$('#cGapEl').value=pre.gapEl||0; if($('#cGapAz'))$('#cGapAz').value=pre.gapAz||0; if($('#cBrick'))$('#cBrick').checked=!!pre.brick; if($('#cNoWarp'))$('#cNoWarp').checked=!!pre.noWarp; if($('#cShuffle'))$('#cShuffle').checked=!!pre.shuffle; if($('#cScroll'))$('#cScroll').checked=!!pre.scroll; if($('#cScrollSpd'))$('#cScrollSpd').value=(pre.scrollSpeed!=null?pre.scrollSpeed:20); $('#cMask').value=pre.mask;
+    /* [R262] TÚNEL y TEJIDO: sus mandos tampoco se rellenaban, así que al reabrir para editar volvían a los
+       valores por defecto y «Aplicar» los reimponía — el fundido, marcado. Los segmentados del tejido (modo,
+       encaje, movimiento) ya venían de `pre` por sus variables; faltaban todos los campos del formulario. */
+    const _put=(id,v)=>{ const el=$(id); if(el&&v!=null)el.value=v; };
+    const _chk=(id,v)=>{ const el=$(id); if(el)el.checked=!!v; };
+    _put('#cTFrom',pre.sizeFrom!=null?pre.sizeFrom:1); _put('#cTTo',pre.sizeTo!=null?pre.sizeTo:200);
+    _put('#cTCurve',pre.curve!=null?pre.curve:60); _put('#cTTwist',pre.twist||0);
+    if(kind!=='weave')_put('#cTSpeed',Math.round((pre.speed!=null?pre.speed:0.12)*100));
+    { const fi=tunnelFadeIn(pre), fo=tunnelFadeOut(pre);
+      _chk('#cTFadeIn',fi>0); if(fi>0)_put('#cTFadeInA',Math.round(fi*100));
+      _chk('#cTFadeOut',fo>0); if(fo>0)_put('#cTFadeOutA',Math.round(fo*100)); }
+    _put('#cWBands',pre.bands||5); _put('#cWBandW',pre.bandW!=null?pre.bandW:100);
+    _put('#cWDens',Math.round((pre.density!=null?pre.density:1)*100));
+    if(kind==='weave')_put('#cWSpeed',Math.round((pre.speed!=null?pre.speed:0.12)*100));
+    _put('#cWSpeedV2',Math.round((pre.speedV!=null?pre.speedV:0.12)*100));
+    _chk('#cWFlip',pre.flip); _chk('#cWInter',pre.interlace!==false); _chk('#cInfinite',pre.infinite);
+    /* los rótulos de los deslizadores no se actualizan solos: se refrescan a mano para que no mientan */
+    { const par=[['#cTSpeed','#cTSpeedV',v=>(v/100).toFixed(2)+'/s'],['#cTCurve','#cTCurveV',v=>v+'%'],
+        ['#cTFadeInA','#cTFadeInV',v=>v+'%'],['#cTFadeOutA','#cTFadeOutV',v=>v+'%'],
+        ['#cWSpeed','#cWSpeedV',v=>(v/100).toFixed(2)+'/s'],['#cWSpeedV2','#cWSpeedV2V',v=>(v/100).toFixed(2)+'/s'],
+        ['#cWDens','#cWDensV',v=>v+'%'],['#cWBandW','#cWBandWV',v=>v+'%']];
+      for(const [inp,out,f] of par){ const a=$(inp), b=$(out); if(a&&b)b.textContent=f(+a.value); } }
     const tt=ov.querySelector('.t'); if(tt)tt.textContent=nestMedia?T('Recompose','Recomponer'):T('Edit composition','Editar composición'); $('#cGo').innerHTML=ICO('ring')+' '+T('Apply','Aplicar'); }
   else if(scopeClip){ _pick=[scopeClip.mediaId]; const tt=ov.querySelector(".t"); if(tt)tt.textContent=T("Compose from clip","Componer desde el clip"); } // scope: only this clip's media
   else if(preselIds&&preselIds.length){ _pick=preselIds.slice(); if(preselIds.length>1&&$("#cShuffle"))$("#cShuffle").checked=true; } // R88: compose from a media multi-selection
@@ -11876,9 +11933,19 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
     /* [R248] La cesta puede quedarse vacía (antes era imposible: la lista caía a la primera casilla). Aplicar con
        ella vacía habría vaciado el `mediaIds` de una composición que ya existe, así que se para aquí. */
     if(!ids.length){ flashStatus(T('Drag at least one clip into the composition','Arrastra al menos un clip a la composición'),'err'); const c=$('#cMedia'); if(c){ c.classList.add('over'); setTimeout(()=>c.classList.remove('over'),700); } return; }
-    const opts={ kind, mediaIds:ids, mediaId:ids[0], count:Math.max(2,Math.min(32,+$('#cN').value)), cols:+$('#cCols').value, arc:+$('#cArc').value,
-      el:+$('#cEl').value, elMin:+$('#cElMin').value, elMax:+$('#cElMax').value, size:+$('#cSize').value, turns:+($('#cTurns')?$('#cTurns').value:3), lineRot:lr?lr.checked:true, tile:$('#cTile')?$('#cTile').checked:false, band:+($('#cBand')?$('#cBand').value:30)||30, rings:+($('#cRings')?$('#cRings').value:3)||3, segs:+($('#cSegs')?$('#cSegs').value:8)||8, gapEl:+($('#cGapEl')?$('#cGapEl').value:0)||0, gapAz:+($('#cGapAz')?$('#cGapAz').value:0)||0, brick:$('#cBrick')?$('#cBrick').checked:false, shuffle:$('#cShuffle')?$('#cShuffle').checked:false, scroll:$('#cScroll')?$('#cScroll').checked:false, scrollSpeed:+($('#cScrollSpd')?$('#cScrollSpd').value:20)||0, mask:$('#cMask').value, jitter:_jit, rand:_rand, noWarp:$('#cNoWarp')?$('#cNoWarp').checked:false, name:(pre&&pre.name)?pre.name:((first?first.name:'')+(ids.length>1?' +'+(ids.length-1):'')+' · '+kindES(kind)) };
-    if(kind==='domegrid')opts.count=Math.min(160,(opts.rings||3)*(opts.segs||8));
+    /* [R262] Lo que se guarda sale del MISMO lector que alimenta la vista previa. Antes había aquí una segunda
+       lista escrita a mano, y le faltaban campos enteros: TODO el túnel (`fade`, `De → a`, velocidad, profundidad,
+       giro), TODO el tejido (tiras, ancho, densidad, modo, encaje, movimiento, volteo, entrelazado, velocidades) y
+       el `Infinito` de la sala. Como al editar se hace `Object.assign(comp, opts)`, esos mandos no llegaban nunca:
+       la vista previa obedecía y el resultado no. De ahí «no me deja desactivar el fundido» — el que se guardaba
+       era el de la composición vieja, y al reabrir el cuadro la casilla volvía a salir marcada.
+       Dos campos se quitan a propósito: `id` (lo pone quien crea, o ya lo tiene el que se edita) y `spin` (no
+       está en este cuadro; que lo conserve el destino en vez de pisarlo con un cero). */
+    const opts=readForm(); delete opts.id; delete opts.spin;
+    opts.mediaIds=ids; opts.mediaId=ids[0];
+    opts.scroll=$('#cScroll')?$('#cScroll').checked:false;
+    opts.scrollSpeed=+($('#cScrollSpd')?$('#cScrollSpd').value:20)||0;
+    opts.name=(pre&&pre.name)?pre.name:((first?first.name:'')+(ids.length>1?' +'+(ids.length-1):'')+' · '+kindES(kind));
     if(nestMedia){ pushUndo(); nestMedia.comp=Object.assign(nestMedia.comp||{id:uid(),spin:0,shuffle:false,rand:[]},opts); if(reshuf)nestMedia.comp._orderR=true; regenComposeNest(nestMedia); renderMedia(); renderTimeline(); renderInspector(); scrubRender(); updStatus(); markDirty(); flashStatus(T('Composition updated','Composición actualizada')); }
     else if(editGroup){ pushUndo(); Object.assign(editGroup,opts,{mediaId:ids[0]}); regenComp(editGroup); state.selGroupId=editGroup.id; state.selId=null; renderTimeline(); renderInspector(); render(); updStatus(); flashStatus(T('Composition updated','Composición actualizada')); }
     else { if(scopeClip)opts._scope={inP:scopeClip.inP||0, dur:scopeClip.dur, start:scopeClip.start, speed:scopeClip.speed||1}; createComposition(opts); }

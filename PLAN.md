@@ -1,5 +1,52 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 262 — El fundido del túnel no se podía apagar, y la causa se llevaba por delante el túnel entero (y el tejido)
+
+Beltrán: «no me deja desactivar el fade, no lo aplica». El fundido era la punta.
+
+### La causa: «Aplicar» leía una lista distinta de la que lee la vista previa
+
+El cuadro de composición tenía **dos lectores del formulario**. `readForm()` —el que alimenta la vista previa—
+recoge todo. Pero el `opts` que se guarda al pulsar Aplicar era una segunda lista escrita a mano, y le faltaban
+campos enteros: **todo el túnel** (`fade`, `De → a`, velocidad, profundidad, giro), **todo el tejido** (tiras,
+ancho, densidad, modo, encaje, movimiento, volteo, entrelazado, las dos velocidades) y el **`Infinito`** de la
+sala. Como al editar se hace `Object.assign(comp, opts)`, lo que faltaba en `opts` **conservaba el valor viejo**.
+
+De ahí el síntoma exacto: la vista previa obedecía —por eso parecía que el mando funcionaba— y el resultado no.
+Y al reabrir el cuadro, esos campos tampoco se rellenaban desde lo guardado, así que volvían a su valor por
+defecto **con el fundido marcado**, y el siguiente Aplicar lo reimponía. Dos capas del mismo olvido.
+
+Ahora Aplicar sale del **mismo** `readForm()` que la vista previa, más `scroll`/`scrollSpeed`/`name`. Se quitan a
+propósito `id` (lo pone quien crea, o ya lo tiene el que se edita) y `spin` (no está en este cuadro: que lo
+conserve el destino en vez de pisarlo con un cero). Y el bloque de `if(pre)` rellena los mandos del túnel y del
+tejido, rótulos de deslizador incluidos.
+
+### Entrada y salida, por separado y con cantidad
+
+`Fade` era una casilla y un seno. Ahora son **dos filas independientes** —entrada y salida—, cada una con su
+interruptor y su cantidad en % del ciclo, más una envolvente nueva en el motor (`mode:'fade'`, `fadeEnv`).
+
+La rampa es un **coseno alzado**, y esa elección tiene una razón concreta: con entrada y salida al 50%, la
+envolvente resulta ser `sin²(π·f)`, que es **exactamente** lo que daba el fundido único de R246 (base 50 + seno
+de amplitud 50 desfasado un cuarto = `50 − 50·cos(2πf)`). Medido en 20 puntos del ciclo contra la fórmula vieja:
+**diferencia máxima 0,0000**. Los túneles que ya existen en el proyecto se migran solos a 50% + 50% y se ven
+idénticos, fotograma a fotograma. `fade:false` de un proyecto viejo sigue significando «sin fundido».
+
+Mover la cantidad de una rampa apagada la enciende: un mando que no hace nada al moverlo es justo lo que hace
+pensar que está roto — que es como empezó esta ronda.
+
+### Verificado (`scratchpad/r262-tunel.mjs`, cinco comprobaciones)
+
+1. Túnel viejo contra la fórmula de R246: **0,0000** de diferencia.
+2. Fundido apagado: opacidad **100 plana**, y queda un solo modificador (el del tamaño), no dos.
+3. Entrada 20% / salida 10%: sube en el primer quinto, se mantiene, y baja en el último décimo.
+4. Reabrir una composición guardada: muestra `De → a` 12→180, velocidad 0,35, profundidad 25, giro 40, entrada
+   20% y **salida apagada** — lo que antes volvía a salir por defecto.
+5. Aplicar con la salida apagada: se guarda `fadeOut:0`, entrada 0,3, giro 77, hasta 150, y el identificador
+   de la composición sobrevive.
+
+---
+
 ## ROUND 261 — El hallazgo del code review: un vaciado caducado marcaba como vaciado al decodificador nuevo
 
 `resetTo()` cierra el decodificador, y `close()` **rechaza el `flush()` que estuviera en vuelo**. Ese rechazo
