@@ -7255,9 +7255,19 @@ function makeClipDecoder(d,ex){
     else atascoFirma='';
     /* Alimentadas TODAS las muestras, se pide el vaciado: hasta que resuelva, la cola de reordenación puede
        seguir guardando fotogramas y `passed()` no puede dar por cerrado el archivo. */
-    if(feed>=N && dec && !vaciando && !vaciado){ vaciando=true;
-      try{ dec.flush().then(()=>{ vaciado=true; vaciando=false; },()=>{ vaciado=true; vaciando=false; }); }
-      catch(e){ vaciado=true; vaciando=false; } }
+    /* [R261] El vaciado se anota con la GENERACIÓN del decodificador que lo pidió. `resetTo` cierra el
+       decodificador, y `close()` RECHAZA el `flush()` que estuviera en vuelo: ese rechazo llegaba después del
+       reinicio y ponía `vaciado=true` sobre el decodificador NUEVO, que acababa de nacer con la cola por vaciar.
+       A partir de ahí el nuevo ya no pedía su propio vaciado (la guarda `!vaciado` lo impedía) y `passed()` daba
+       por cerrado el archivo para CUALQUIER instante — o sea, aceptaba el fotograma que hubiera cerca en vez del
+       exacto: justo el fallo silencioso que `vaciado` se añadió a impedir en R194. Se alcanzaba cuando el tramo
+       del bucle cae cerca del final del archivo, que ahora reinicia una vez por vuelta.
+       `resets` ya era un contador monótono, así que sirve de generación: si cambió, este vaciado es de un
+       decodificador que ya no existe y no debe tocar nada — `resetTo` dejó las dos banderas como toca. */
+    if(feed>=N && dec && !vaciando && !vaciado){ vaciando=true; const gen=resets;
+      const fin=()=>{ if(gen!==resets)return; vaciado=true; vaciando=false; };
+      try{ dec.flush().then(fin,fin); }
+      catch(e){ fin(); } }
     evict(); };
   (async function keeper(){ while(!closed){ try{
     if(!dead && dec && feed<N && !inBuf(d.samples[feed]) && (lastFedPts<0||lastFedPts<targetUs+AHEAD||cache.size<MINC)){ await ensureBuf(feed); if(closed)break; } // misma cláusula MINC que el feed: si no, el relleno del búfer se bloquea por el mismo motivo

@@ -1,5 +1,41 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 261 — El hallazgo del code review: un vaciado caducado marcaba como vaciado al decodificador nuevo
+
+`resetTo()` cierra el decodificador, y `close()` **rechaza el `flush()` que estuviera en vuelo**. Ese rechazo
+llegaba *después* del reinicio y ponía `vaciado=true` sobre el decodificador **nuevo**, que acababa de nacer con
+su cola de reordenación por vaciar. A partir de ahí pasaban dos cosas a la vez: el nuevo ya no pedía su propio
+vaciado (lo impedía la guarda `!vaciado`), y `passed()` daba por cerrado el archivo para **cualquier** instante —
+o sea, aceptaba el fotograma que hubiera cerca en vez del exacto. Es justo el fallo silencioso que `vaciado` se
+añadió a impedir en R194.
+
+El peligro es viejo —lo comparten los otros reinicios—, pero R256 lo volvió mucho más alcanzable: ahora se
+reinicia **una vez por vuelta de bucle**. `resets` ya era un contador monótono, así que sirve de generación: el
+vaciado se anota con la suya y, si cambió, no toca nada (el reinicio ya dejó las banderas como toca).
+
+### Lo que la prueba SÍ y NO demostró
+
+Monté el caso que el review señala —un bucle cuyo tramo son los últimos 0,4 s del archivo— y lo corrí igual
+contra el `.exe` sin el arreglo y contra el código con él. **Los dos dan lo mismo**, y por una razón que hay que
+decir en vez de esconder: en ese caso **el decodificador se rinde** (84 fotogramas en 100-138 s, contra ~35 ms por
+fotograma del camino rápido) y el repliegue, avanzando, entrega los fotogramas correctos — 0 equivocados de 72
+parejas, el peor a 102 dB, que es un píxel de redondeo.
+
+O sea: **la sonda no discrimina**, porque la avería tapa el síntoma. El arreglo se sostiene por construcción —no
+dejar que un vaciado caducado toque banderas de otro decodificador es correcto y no puede empeorar nada—, no
+porque una medida lo haya confirmado. Queda dicho.
+
+### Y de paso, dos cosas nuevas en `NEXT`
+
+- Un **bucle pegado al final del archivo** se sale del camino rápido: 1,2-1,6 s por fotograma. Hoy es tiempo, no
+  imagen.
+- Ahí mismo hay un **peligro latente**: con `feed>=N` y el vaciado hecho, `passed()` acepta cualquier instante
+  (rama deliberada de R194), así que si el bucle diera la vuelta en ese estado con el fotograma ya desalojado,
+  `frameNear()` devolvería el vecino en silencio. Hoy no se llega porque el decodificador se rinde antes — lo que
+  nos protege es una avería, y eso no es una garantía.
+
+---
+
 ## ROUND 259 — La salida del atasco de R256 rompía las exportaciones de varias capas. Corregida sobre el proyecto real
 
 Al probar R256 sobre el **proyecto real de Beltrán** (44 clips, 32 en bucle, nidos anidados a 60 fps) apareció que
@@ -27,7 +63,8 @@ El bloqueo tiene una firma que no comparte con la lentitud: **el fotograma pedid
 en la caché**. Es decir, ya se decodificó, ya se desalojó, y nada de lo que venga por delante va a traerlo de
 vuelta — sin reiniciar, no puede llegar. Un decodificador simplemente lento está en la situación contraria: espera
 fotogramas que aún no han salido, así que lo que tiene en caché es *anterior* al destino. **Por mucho que tarde,
-nunca cumple la condición.** Encima se pide que nada se mueva durante 400 ms y se topa el número de reinicios.
+nunca cumple la condición.** Encima se pide que nada se mueva durante 400 ms. (El tope de reinicios que puse
+además duró poco: lo quita R260, aquí abajo, por la razón que explica esa sección.)
 
 Contar vueltas medía la impaciencia del observador; esto mide el estado del decodificador.
 

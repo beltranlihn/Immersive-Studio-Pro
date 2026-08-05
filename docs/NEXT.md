@@ -4,6 +4,19 @@
 > en `COMPONENTS.md` + una entrada en `PLAN.md` en el mismo commit, como manda el ritual de `/commit`).
 > Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: 2026-08-04.
 
+## 🔭 Abierto — un bucle PEGADO AL FINAL del archivo se sale del camino rápido (visto en R261)
+- [ ] Medido con un bucle de 0,4 s cuyo tramo son los últimos 0,4 s de la fuente: el decodificador **se rinde**
+      y la exportación entera de ese medio cae al repliegue — **84 fotogramas en 100-138 s** (1,2-1,6 s cada uno)
+      frente a los ~35 ms del camino rápido. Los fotogramas salieron **correctos** (0 equivocados de 72 parejas
+      *k*/*k+12*, el peor a 102 dB = un píxel), así que hoy es un problema de tiempo, no de imagen.
+- [ ] **Pero hay un peligro latente ahí mismo, y conviene mirarlo antes de que alguien confíe en ese caso.** Con
+      `feed>=N` y el vaciado hecho, `passed()` da por cerrado el archivo para **cualquier** instante (rama de
+      R194, deliberada: es como terminan los últimos fotogramas de un clip). Si en ese estado el bucle da la
+      vuelta y el fotograma pedido ya fue desalojado, `frameNear()` devolvería **el vecino**, en silencio. Hoy no
+      se llega porque el decodificador se rinde antes — o sea que lo que nos protege es una avería.
+      Reproducción: `scratchpad/r261-finarchivo.mjs`. Ojo: **esa sonda no discrimina el arreglo de R261**,
+      precisamente porque la rendición tapa el síntoma; hace falta un caso que llegue a `feed>=N` **sin** rendirse.
+
 ## 🔭 Abierto — el repliegue `<video>` del export no es fiable al fotograma (visto en R256)
 - [ ] Al medir R256 se comparó la salida del camino `<video>` **contra sí misma** y falla: de 48 parejas que deben
       repetirse, **8 no lo hacen**, a 34-51 dB (un fotograma vecino, no redondeo), y cambian de pasada en pasada.
