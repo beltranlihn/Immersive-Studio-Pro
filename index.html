@@ -672,7 +672,10 @@
      pestana y empujaba a las demas. El rotulo se recorta dentro con puntos suspensivos y el nombre completo
      queda en el `title`. El ancho vive en una variable porque el del contenedor SALE de el: si se tocan por
      separado dejan de caber tres exactas. */
-  .transport .seqtabs{--seqtab-w:118px;}
+  /* [R277b] 118 px por pestana dejaban la tira en 392 y casi tocando el transporte. La referencia que dio
+     Beltran es el panel lateral -medido: 292 px-, y la tira debe "apenas pasarlo": 3x90 + huecos + relleno +
+     el «+» = 310. El rotulo se recorta antes, pero el nombre entero sigue en el tooltip. */
+  .transport .seqtabs{--seqtab-w:90px;}
   .transport .seqtab{width:var(--seqtab-w);flex:0 0 var(--seqtab-w);}
   .transport .seqtab .seqlab{flex:1;min-width:0;max-width:none;}
   .transport .seqtab.seqadd{width:auto;flex:0 0 auto;}   /* el «+» no es una secuencia: se queda a su tamano */
@@ -686,7 +689,7 @@
      que el `height:0` de abajo no servía de nada mientras `.seqtabs` heredase `scrollbar-width:thin`: medido, la
      barra se comía 12 de los 22 px de alto del well. La vista se corta donde manda `max-width` y el desplazamiento
      va con la rueda (ver el listener de #seqTabs). */
-  .transport .seqtabs{padding:2px;height:22px;box-sizing:border-box;gap:2px;background:var(--surface-2);border:.5px solid rgba(255,255,255,0.1);border-radius:3px;border-bottom:.5px solid rgba(255,255,255,0.1);max-width:calc(var(--seqtab-w)*3 + 4px + 4px + 30px);flex-shrink:1;   /* [R277] 3 pestanas + 2 huecos + relleno + el «+» */overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-ms-overflow-style:none;}
+  .transport .seqtabs{padding:2px;height:22px;box-sizing:border-box;gap:2px;background:var(--surface-2);border:.5px solid rgba(255,255,255,0.1);border-radius:3px;border-bottom:.5px solid rgba(255,255,255,0.1);max-width:calc(var(--seqtab-w)*3 + 6px + 4px + 30px);flex-shrink:1;   /* [R277] 3 pestanas + 3 huecos + relleno + el «+» */overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-ms-overflow-style:none;}
   .transport .seqtabs::-webkit-scrollbar{height:0;width:0;display:none;}
   /* [R239] Aviso de que hay más pestañas por ese lado: sin barra no queda ninguna otra pista. Las clases las pone
      `seqTabsOvf()` según el desplazamiento real, así que el desvanecido sólo aparece donde queda algo por ver. */
