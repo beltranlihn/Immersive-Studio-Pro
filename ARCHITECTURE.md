@@ -93,11 +93,15 @@ Dónde se va el tiempo, medido en R188 sobre el proyecto de Beltrán (anillo de 
 era el 80 %** (498 ms de 625 por fotograma) con la GPU a 0 ms. Por eso se reposiciona UN decodificador por grupo de
 clips que piden el mismo medio en el mismo instante, y su fotograma se sube a la textura de los demás.
 
-> **Palanca dormida:** existe un decodificador SECUENCIAL por clip (`_useCD`/`makeClipDecoder`, R108) que lee cada
-> muestra una vez en vez de reposicionarse, pensado justamente para esto — pero `_exCD` **nunca se pone a true**,
-> así que hoy no se usa en el export. Se desactivó porque el bucle de reproducción mataba de hambre a la bomba de
-> decodificación; en un export determinista ese motivo no aplica. Candidato a una ronda CON MEDICIÓN, no a
-> encenderlo a ciegas.
+**El export decodifica por WebCodecs SECUENCIAL, y eso ya está encendido** (`runExport`:
+`_exCD=(IS_ELEC && HAS_WEBCODECS && opt.wcDecode!==false)`). Es el motor de R108, apagado en previsualización
+porque el bucle de 60 fps hambrea sus bombas, pero encendido **siempre** en export desde R189: ahí no hay plazo,
+se avanza un fotograma y se espera. Cada muestra del archivo se lee UNA vez, en vez de que `<video>.currentTime`
+redecodifique desde el fotograma clave anterior en cada llamada — un coste O(n²) por GOP que R189 midió en
+24 clips a 4096²@60: **de 895 ms a 207 ms por fotograma** (1,12 → 4,83 fps).
+
+> **Ojo al buscarlo:** la asignación es `_exCD=(…)`, no `_exCD=true`. Un `grep "_exCD=true"` no la encuentra y
+> lleva a concluir —mal— que la palanca está dormida. Pasó en R253e.
 
 ## 7 · Conceptos transversales (arc42 §8)
 

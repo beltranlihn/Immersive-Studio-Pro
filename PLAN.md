@@ -1,5 +1,57 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 254 — Perfilar la exportación: una afirmación falsa retirada, un coste medido y una hipótesis refutada
+
+Beltrán preguntó por qué una exportación iría más rápida con proxys si lo que quiere es máxima calidad. La pregunta
+destapó tres cosas, dos de ellas errores míos.
+
+### 1 · «Genera proxys antes de exportar» era FALSO
+
+`runExport` pone `_exportQuality=true`, y con esa bandera `_vinstUrl` devuelve `m.srcUrl` —**el original**— y
+`ncUsable()` pasa a ser false. Es deliberado: se exporta a la calidad del máster. **Los proxys no aceleran una
+exportación**; aceleran la previsualización y el scrub. Su instinto era correcto y mi consejo, no.
+
+### 2 · «El decodificador secuencial está dormido» TAMBIÉN era falso
+
+Escribí en `ARCHITECTURE.md` que `_exCD` no se activaba nunca. Lo deduje de un `grep "_exCD=true"` que no encuentra
+la línea real, que es `_exCD=(IS_ELEC && HAS_WEBCODECS && opt.wcDecode!==false)`. **Se activa en cada exportación**
+desde R189. Meter una falsedad en el mapa del repo es peor que decirla en el chat, porque el mapa es lo que la
+siguiente sesión da por bueno: corregido, con una nota de por qué el grep engaña.
+
+### 3 · Lo que sí se midió
+
+**Un clip en BUCLE cuesta ×1,7 por fotograma.** Es el único resultado que sobrevivió a un método honesto: A y B
+**alternados** cuatro veces, con mediana y descarte de calentamiento. Sin bucle 590 ms/fotograma (rango 131-621),
+con un bucle de 0,4 s 1017 ms (rango 739-1050) — **separación limpia**: la peor pasada sin bucle sigue por debajo
+de la mejor con bucle. El mecanismo se entiende: al envolver, el tiempo de fuente salta hacia atrás y el
+decodificador secuencial tiene que reposicionarse una vez por ciclo.
+
+**No hay degradación entre exportaciones.** La misma exportación repetida seis veces da 144, 135, 11, 11, 12, 11
+ms/fotograma: se *acelera* (caché de disco del sistema), no se degrada. Instancias 0 antes / 1 después, heap plano
+en 10 MB, y `exporting`/`_exportQuality`/`_exCD` en false al terminar. La hipótesis de la fuga queda **refutada**.
+
+### El método, que es la mitad del hallazgo
+
+El primer perfil —una lista de variantes corrida en orden— **no valía para atribuir costes**, y su propio control lo
+demostró: repetir una variante temprana al final daba 28 ms la primera vez y 65 la última. Peor aún, los absolutos
+variaban **5-10× entre pasadas** según el estado de la caché de disco. Con esos números llegué a «afirmar» que un
+bucle que ni siquiera envuelve costaba 5× — y era ruido de orden: en la segunda pasada dio lo mismo que el control.
+
+Lo que hace utilizable la medida: **alternar** en vez de listar, **repetir** y tomar mediana, **descartar** la
+primera pasada, y **declarar la diferencia sólo si los rangos no se solapan**. Los absolutos de este equipo no son
+portables; el que vale es el cociente dentro de una misma tanda alternada.
+
+### Lo que NO se hizo, y por qué
+
+Cachear los fotogramas del tramo del bucle haría ese ×1,7 casi gratis: un bucle de 0,4 s a 30 fps son doce
+fotogramas que se repiten. Es una optimización real y bien delimitada — y **no se ha tocado**. Ese código tiene
+una historia documentada de fallos sutiles de alineación (R189 midió que aceptar un fotograma «suficientemente
+cercano» producía **másters distintos entre pasadas**), y un fotograma equivocado dentro del máster de su película
+es el peor fallo posible. Queda propuesta en `docs/NEXT.md` **con su condición de aceptación**: salida idéntica
+bit a bit contra la actual, y sólo entonces medir si compensa.
+
+---
+
 ## ROUND 253d — El pisotón: hacer algo restaurable lo hace revertible
 
 La revisión del diff de R253c dio en el clavo de una forma que no había visto:

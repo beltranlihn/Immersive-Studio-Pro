@@ -4,12 +4,21 @@
 > en `COMPONENTS.md` + una entrada en `PLAN.md` en el mismo commit, como manda el ritual de `/commit`).
 > Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: 2026-08-04.
 
-## 🔭 Abierto — el decodificador secuencial del export, dormido
-- [ ] `_exCD` **nunca se pone a true**, así que `_useCD`/`makeClipDecoder` (R108: lee cada muestra UNA vez en vez
-      de reposicionarse) no se usa en el export. Se desactivó porque el bucle de reproducción mataba de hambre a la
-      bomba de decodificación — motivo que en un export determinista no aplica. R188 midió que `seekExport` era el
-      **80 %** del tiempo de export. Encenderlo es candidato a una ronda **con medición**, con línea base antes y
-      después sobre el mismo proyecto; no a encenderlo a ciegas.
+## 🔭 Abierto — caché del tramo del bucle en el export (medido en R254)
+- [ ] **Un clip en bucle cuesta ×1,7 por fotograma al exportar** (medido alternando A/B: 590 vs 1017 ms/fotograma,
+      rangos sin solapar). Al envolver, el tiempo de fuente salta hacia atrás y el decodificador secuencial se
+      reposiciona una vez por ciclo. **Los fotogramas del tramo se repiten**, así que cachearlos lo haría casi
+      gratis: un bucle de 0,4 s a 30 fps son doce fotogramas. Acotar la caché por número de fotogramas (no por
+      segundos) para no reventar la memoria con un bucle largo a 4096².
+      **Condición de aceptación, innegociable:** salida **idéntica bit a bit** contra la actual antes de mirar
+      siquiera el tiempo. R189 midió que aceptar un fotograma «suficientemente cercano» daba **másters distintos
+      entre pasadas** (PSNR 36-40 dB); un fotograma equivocado en el máster de la película es el peor fallo posible.
+      Sondas de partida: `scratchpad/r254b-bucle-ab.mjs` (A/B alternado) y `scratchpad/r254c-degradacion.mjs`.
+
+> **Cómo medir aquí, que la mitad del trabajo es esto.** Los absolutos varían **5-10× entre pasadas** según la
+> caché de disco, y correr una lista de variantes en orden sesga **2×** a las últimas. Sirve sólo: alternar A/B,
+> repetir y tomar mediana, descartar la primera pasada, y afirmar la diferencia únicamente si los rangos no se
+> solapan. Un perfil por lista dio en R254 un «5× más lento» que era ruido de orden.
 
 ## ✅ Deshacer para medios y carpetas · CERRADO [R253c·d]
 - [x] **[R253d] Guardado contra el pisotón**: hacer restaurable el estado global lo hacía revertible por fotos que
