@@ -4,6 +4,15 @@
 > en `COMPONENTS.md` + una entrada en `PLAN.md` en el mismo commit, como manda el ritual de `/commit`).
 > Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: 2026-08-04.
 
+## 🔭 Abierto — el repliegue `<video>` del export no es fiable al fotograma (visto en R256)
+- [ ] Al medir R256 se comparó la salida del camino `<video>` **contra sí misma** y falla: de 48 parejas que deben
+      repetirse, **8 no lo hacen**, a 34-51 dB (un fotograma vecino, no redondeo), y cambian de pasada en pasada.
+      Es el fallo que R189 documentó y dio por cerrado en el camino WebCodecs, vivo en el de repliegue
+      (`vinstSeekVideo`: fija `currentTime`, espera `seeked` y sube lo que haya — carrera con la presentación).
+      **Ya no toca la película** (desde R256 un bucle no cae ahí, y era la única vía que lo forzaba), pero mientras
+      exista el repliegue existe la posibilidad. Repro: `scratchpad/r256-periodo2.mjs` sobre una salida del
+      camino `<video>`; el gate correcto está en `scratchpad/r256-aceptacion.mjs`.
+
 ## ✅ Exportar con bucles · CERRADO [R256] — no era una optimización, eran dos fallos
 - [x] **El «×1,7 del bucle» de R254 era en realidad ×25, y por una avería.** Al envolver, el decodificador entraba
       en **bloqueo mutuo** (los fotogramas retenidos por delante del destino agotan su fondo de salida y `evict` no
