@@ -123,8 +123,13 @@
       Chromium → los instantes clave salen del demuxador propio (tabla `stss`). Guardas verificadas: con proxy no
       actúa · en export manda `exporting` · <2 Mpx ni lee el moov · intra-only exento · red de seguridad que apaga
       la bandera ante `pointerup`/`pointercancel`/`blur`.
-- [ ] **Sigue abierto (opcional):** encender el caché de scrub-ahead (`_raOn`) por defecto con medios pesados.
-      Mitigaría el RE-scrub sobre la misma zona, que es lo único que R243 no toca (el primer toque ya va a 128 ms).
+- [x] **Descartado con medida [R258]:** encender el caché de render-ahead (`_raOn`) por defecto con medios pesados
+      **no aporta nada**. Medido sobre el `.exe` con las 4 capas reales de 7196×912 sin proxy, alternando A/B
+      cuatro veces: apagado 1422 ms de mediana, encendido 1425 — rangos completamente superpuestos, y eso *con el
+      caché acertando 9 de 9*. La razón, aislada aparte: el composite cuesta **menos de 1 ms** de los 1432; el
+      100 % del re-scrub es el `seek` de vídeo, y ése el caché no lo evita —los `vinstSeek` se lanzan igual—.
+      **Con material pesado el único punto donde se gana es el decodificador** (proxys, o el salto al fotograma
+      clave de R243); el composite ya no es el problema. Sondas: `scratchpad/r258-rescrub.mjs` y `r258-techo.mjs`.
 
 ## 🗄️ El planteamiento original (para contexto) — el scrub sin proxy
 > Sale de `AUDITORIA-2026-08.md` §3.3, y es **lo de más valor práctico que queda**. R241 midió 1148 ms de mediana
@@ -137,8 +142,8 @@
       `vinstSeek` y el camino de scrub en caliente → **ronda propia con verificación aparte**, no se coló en R242
       junto a los arreglos de integridad a propósito. Medir con `scratchpad/r241-medir.mjs`; objetivo: mediana
       <50 ms sin proxy.
-- [ ] Opcional, complementaria: encender el caché de scrub-ahead (`_raOn`) por defecto cuando hay medios pesados
-      (mitiga el re-scrub sobre la misma zona, no el primer toque).
+- [x] ~~Opcional, complementaria: encender el caché de scrub-ahead (`_raOn`) por defecto con medios pesados~~ —
+      **descartado con medida en [R258]**: no ahorra nada porque el composite es <1 ms de 1432. Detalle arriba.
 > **[R242] Ya hecho de esta zona:** el aviso al importar material pesado («clic derecho → Generar proxy»), que era
 > la mitad barata. ADR-0003 intacto: informa, no genera.
 

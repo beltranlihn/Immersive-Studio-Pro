@@ -1,5 +1,36 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 258 — El caché de render-ahead con material pesado: medido y descartado
+
+Quedaba en `NEXT` como «opcional»: encender el caché de render-ahead (`_raOn`) por defecto con medios pesados, para
+mitigar el RE-scrub sobre la misma zona —lo único que R243 no toca, porque el primer toque ya baja a 128 ms.
+
+**No aporta nada, y la medida es concluyente.** Sobre el `.exe`, con las cuatro capas reales de 7196×912 sin proxy
+(comprobado que ninguna instancia sirve un proxy), alternando A/B cuatro veces y descartando la primera vuelta:
+
+| | mediana | rango |
+|---|---|---|
+| caché apagado | 1422 ms | 297-2256 |
+| caché encendido | 1425 ms | 292-2274 |
+
+Los rangos se superponen por completo, y eso **con el caché acertando 9 de 9 fotogramas**. Así que no es que el
+caché no se llene: es que llenarlo no sirve.
+
+El porqué, aislado en una segunda medida: se separó el coste del composite del coste del `seek`.
+
+- composite solo: **menos de 1 ms** (por debajo de la resolución del cronómetro)
+- scrub completo: **1432 ms**
+
+El caché guarda el composite máster ya aplanado, o sea que **lo único que puede ahorrar es ese <1 ms**. Los
+`vinstSeek` de las cuatro capas se lanzan igual, y ahí está el 100 % del coste. Encenderlo por defecto habría
+costado memoria de vídeo y resolución de previsualización a cambio de nada.
+
+**La conclusión que sí vale para el futuro:** con material de masterización el único punto donde se gana es el
+**decodificador** —proxys, o el salto al fotograma clave de R243—. El composite hace rato que dejó de ser el
+problema, y cualquier idea que empiece por «cachear el render» está atacando el 0,07 %.
+
+---
+
 ## ROUND 256 — Exportar con clips en bucle: un bloqueo mutuo, un ciclo que no cerraba, y un criterio de medida que no valía
 
 Beltrán pidió seguir con `NEXT` y un export corto para revisar fotogramas. Lo que apareció por el camino es más
