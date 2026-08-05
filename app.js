@@ -857,7 +857,14 @@ function animGroups(c){ const out=[]; const vis=new Set();
     out.push({gid:a.gid, grp:a.grp, int:(a.gint!=null?a.gint:1), n:c.anim.filter(x=>x.gid===a.gid).length}); }
   return out; }
 let _previewClock=0,_prevRaf=0,_prevLast=0;
-function animTime(t){ return (state.playing||exporting)?t:(t+_previewClock); } // paused editor advances a preview clock; export/playback use the real frame time (deterministic)
+/* [R273] `_animNido` corrige el reloj de los modificadores DENTRO de un nido loopeado. El interior de un nido se
+   compone con el tiempo LOCAL del clip que lo contiene, y ese tiempo lo da `srcT`, que ENVUELVE cuando el clip
+   está en bucle: por eso un túnel o un tejido volvían a empezar en cada vuelta en vez de seguir corriendo. El
+   vídeo sí debe envolver —para eso se loopea—, pero el movimiento no: extender un compose es pedir MÁS del mismo
+   efecto, no verlo reiniciarse. `prepNests` mete aquí la diferencia entre el tiempo sin envolver y el envuelto,
+   así que fuera de un nido en bucle vale 0 y nada cambia. */
+let _animNido=0;
+function animTime(t){ return ((state.playing||exporting)?t:(t+_previewClock))+_animNido; } // paused editor advances a preview clock; export/playback use the real frame time (deterministic)
 /* per-modifier dry/wet (0..1) — keyframeable so the user can decide WHEN a motion ramps in on the timeline.
    Uses the real render time t (not the preview clock) so the ramp is anchored to the playhead; multiplies the offset. */
 /* [R224] El Mix de un Motion pasa a ser un PARÁMETRO como cualquier otro: su curva vive en `c.kf['mot:<param>:mix']`
@@ -1346,7 +1353,9 @@ function prepNests(clips,t,depth){ if(!depth)_nestN=0; if((depth||0)>5||!clips)r
         (vi.loadP||Promise.resolve()).then(()=>vinstSeek(c,m,lt)).then(()=>{ if(!state.playing&&!exporting)render(); },()=>{}); }
       continue; }
     prepNests(m.nestClips,lt,(depth||0)+1);
-    const e=nestSlot(); const oc=state.clips,ol=state.lanes,odf=_drawFlat,oca=_compAspect,orw=_roomWrap,ozs=_zsortSize; state.clips=m.nestClips||[]; state.lanes=(m.nestLanes&&m.nestLanes.length?m.nestLanes:ol); _drawFlat=flatLikeMode(m.mode); _roomWrap=false; _compAspect=(m.w||1)/(m.h||1); _zsortSize=!!(m.comp&&m.comp.kind==='tunnel'); /* [R246] el túnel se dibuja de lejos a cerca (ver composite) */ gl.bindFramebuffer(gl.FRAMEBUFFER,e.fbo); composite(lt,nestSize,false); gl.bindFramebuffer(gl.FRAMEBUFFER,null); state.clips=oc; state.lanes=ol; _drawFlat=odf; _roomWrap=orw; _compAspect=oca; _zsortSize=ozs; c._ntex=e.tex; } }
+    const e=nestSlot(); const oc=state.clips,ol=state.lanes,odf=_drawFlat,oca=_compAspect,orw=_roomWrap,ozs=_zsortSize,oan=_animNido;
+    /* [R273] el reloj de los modificadores del interior no envuelve: se le suma lo que el bucle le quita */
+    _animNido += (((c.inP||0)+(t-c.start)*(c.speed||1)) - lt); state.clips=m.nestClips||[]; state.lanes=(m.nestLanes&&m.nestLanes.length?m.nestLanes:ol); _drawFlat=flatLikeMode(m.mode); _roomWrap=false; _compAspect=(m.w||1)/(m.h||1); _zsortSize=!!(m.comp&&m.comp.kind==='tunnel'); /* [R246] el túnel se dibuja de lejos a cerca (ver composite) */ gl.bindFramebuffer(gl.FRAMEBUFFER,e.fbo); composite(lt,nestSize,false); gl.bindFramebuffer(gl.FRAMEBUFFER,null); state.clips=oc; state.lanes=ol; _drawFlat=odf; _roomWrap=orw; _compAspect=oca; _zsortSize=ozs; _animNido=oan; c._ntex=e.tex; } }
 /* active video media at time t, descending into active nests (local-time-adjusted), deduped by media — so playback/scrub drive videos INSIDE nests, not just top-level clips. */
 function collectActiveVideos(clips,lanes,t,depth,out,seen){ out=out||[]; seen=seen||new Set(); if((depth||0)>5||!clips||!lanes)return out;
   for(let li=0;li<lanes.length;li++){ let best=null; for(const c of clips){ if(c.lane===li && t>=c.start && t<c.start+c.dur && !isNestAudioClip(c)) best=c; } if(!best)continue; // [R225·9] el derivado no aporta imagen: no hace falta pilotar los vídeos de dentro por él (su mitad de vídeo ya lo hace)
