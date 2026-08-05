@@ -10082,13 +10082,23 @@ function clearAllUndo(){ for(const k in _undoBySeq)delete _undoBySeq[k]; }
    otra acción el campo no existe y el snapshot es byte por byte el de siempre. Sin esto, deshacer un reorden de
    muros devolvía los clips a su sitio VIEJO dejando los muros en el NUEVO — justo el descuadre que R232c vino a
    arreglar, pero provocado por el propio Ctrl+Z. */
-/* [R253b] `mcut` = las marcas de origen de CADA medio (null cuando no tiene). Se apunta la lista entera, no solo
+/* [R253c] `mmeta` = los datos del medio que el USUARIO puede cambiar y que ya empujaban deshacer: nombre, carpeta
+   y marcas de origen. Mas el arbol de carpetas y sus colores. NO entra nada de runtime (texturas, decodificadores,
+   estado del proxy, miniatura): es pesado, es derivado, y restaurarlo seria peor que no hacerlo.
+   El criterio no es una opinion: es deshacible EXACTAMENTE lo que hoy llama a pushUndo tocando medios o carpetas
+   -renombrar, mover, crear y borrar carpeta, y marcar entrada/salida-. El color del medio no entra porque no es
+   editable; el borrado de un medio ya viajaba aparte, por `mediaTrash`+`trashIds`.
+   Se apunta la lista ENTERA de medios, no solo los marcados, porque deshacer tambien tiene que poder QUITAR una
+   marca o un nombre recien puestos.
+   Antes de R253b nada de esto viajaba: el pushUndo de esas acciones empujaba una foto identica a la actual, asi que
+   el Ctrl+Z parecia no hacer nada y el siguiente se comia una edicion anterior del usuario, sin relacion.
+   (texto original de R253b: `mcut` = las marcas de origen de CADA medio. Se apunta la lista entera, no solo
    los marcados, porque deshacer tambien tiene que poder QUITAR una marca recien puesta. Sin esto, el pushUndo de
    smCommitMarks empujaba una foto identica a la actual: Ctrl+Z parecia no hacer nada y el siguiente deshacia la
    edicion anterior del usuario, sin relacion. Lo cazo la revision del diff de R253.
    Ojo: state.media SIGUE sin viajar entero en el snapshot, asi que renombrar un medio o moverlo de carpeta -que
    tambien llaman a pushUndo, desde antes de esta ronda- siguen sin ser deshacibles. Anotado en NEXT.md. */
-function snapshot(trashIds,room){ return JSON.stringify({room:room||undefined,clips:state.clips.map(serClip),lanes:state.lanes,mcut:state.media.map(m=>[m.id,(m.srcIn!=null?m.srcIn:null),(m.srcOut!=null?m.srcOut:null)]),selId:state.selId,selIds:state.selIds,selLane:state.selLane,markers:state.markers,selMarkerId:state.selMarkerId,groups:state.groups,selGroupId:state.selGroupId,reactive:state.reactive||null,autoItems:state.autoItems||{},trashIds:trashIds||undefined}); } // [R95·D2] items are undoable state too: editing a pooled curve rewrites the item · [R212] trashIds: media ids this action just sent to state.mediaTrash — restore() must revive them even if no clip references them (unused media deleted from the panel)
+function snapshot(trashIds,room){ return JSON.stringify({room:room||undefined,clips:state.clips.map(serClip),lanes:state.lanes,mmeta:state.media.map(m=>[m.id,m.name,(m.folder||null),(m.srcIn!=null?m.srcIn:null),(m.srcOut!=null?m.srcOut:null)]),folders:(state.folders||[]).slice(),folderColors:Object.assign({},state.folderColors||{}),selId:state.selId,selIds:state.selIds,selLane:state.selLane,markers:state.markers,selMarkerId:state.selMarkerId,groups:state.groups,selGroupId:state.selGroupId,reactive:state.reactive||null,autoItems:state.autoItems||{},trashIds:trashIds||undefined}); } // [R95·D2] items are undoable state too: editing a pooled curve rewrites the item · [R212] trashIds: media ids this action just sent to state.mediaTrash — restore() must revive them even if no clip references them (unused media deleted from the panel)
 function pushUndo(trashIds,roomSnap){ if(_demoBatch)return; // [R228] construyendo un proyecto demo: no hay nada que deshacer (`_demoFinish` limpia el historial de todos modos) y cada snapshot de un lote de 8 clips es caro
   const st=_ustk(); const s=snapshot(trashIds,roomSnap); st.u.push(s); st.bytes+=s.length; st.r.length=0;
   let total=0,count=0; for(const k in _undoBySeq){ total+=_undoBySeq[k].bytes; count+=_undoBySeq[k].u.length; }
@@ -10103,9 +10113,19 @@ function restore(s){ const o=JSON.parse(s);
       _roomGeo=null; _roomGeoSeq=null; _arCache=null; try{raInvalidate();}catch(e){} try{resize();}catch(e){} } }
   state.clips=o.clips.map(c=>({...c,maskTex:null})); state.lanes=o.lanes; state.autoSel=null; state.hoverAuto=null; state.shapeBox=null; /* [R95·B1] the box holds live keyframe refs — undo/sequence switch replaces those objects, so it must go with them */ state.selId=o.selId; state.selIds=Array.isArray(o.selIds)?o.selIds:(o.selId!=null?[o.selId]:[]); state.selLane=o.selLane??null; if(o.markers)state.markers=o.markers; state.selMarkerId=o.selMarkerId??null; state.groups=o.groups||[]; state.selGroupId=o.selGroupId??null; if(o.reactive!==undefined){state.reactive=o.reactive;} if(o.autoItems!==undefined)state.autoItems=o.autoItems; /* [R95·D2] */ _arCache=null; _fxEnvCache.clear(); for(const c of state.clips)if(c.maskData||(c.penMasks&&c.penMasks.length))rebuildMaskTex(c);
   if(state.mediaTrash){ const need=new Set(); for(const s of state.media)if(isSeqMedia(s)){ const arr=(s.id===state.activeSeqId?state.clips:s.nestClips)||[]; for(const c of arr)need.add(c.mediaId); } for(const c of state.clips)need.add(c.mediaId); if(Array.isArray(o.trashIds))for(const id of o.trashIds)need.add(id); /* [R212] media deleted from the panel with no clip using it — revive it anyway, undo means undo */ for(const id in state.mediaTrash){ if(need.has(+id)){ if(!mediaById(+id)){ const tm=state.mediaTrash[id]; state.media.push(tm); if(tm._trashed){ delete tm._trashed; tm.missing=false; tm._loading=true; try{ reloadMedia(tm); }catch(e){} } } delete state.mediaTrash[id]; } } renderMedia(); }
-  if(Array.isArray(o.mcut)){ for(const e of o.mcut){ const mm=mediaById(e[0]); if(!mm)continue; // [R253b] las marcas de origen vuelven con el deshacer; los snapshots viejos no traen la clave y se saltan solos
-      if(e[1]==null)delete mm.srcIn; else mm.srcIn=e[1];
-      if(e[2]==null)delete mm.srcOut; else mm.srcOut=e[2]; } renderMedia(); }
+  /* [R253c] Devuelve nombre, carpeta y marcas de cada medio, y el arbol de carpetas. Los snapshots que no traen
+     la clave (los de antes de esta ronda, dentro de la misma sesion) se saltan solos. */
+  if(Array.isArray(o.mmeta)){ for(const e of o.mmeta){ const mm=mediaById(e[0]); if(!mm)continue;
+      if(e[1]!=null)mm.name=e[1];
+      mm.folder=(e[2]==null)?null:e[2];
+      if(e[3]==null)delete mm.srcIn; else mm.srcIn=e[3];
+      if(e[4]==null)delete mm.srcOut; else mm.srcOut=e[4]; } }
+  if(Array.isArray(o.folders))state.folders=o.folders.slice();
+  if(o.folderColors)state.folderColors=Object.assign({},o.folderColors);
+  /* la carpeta que se estaba mirando puede haber dejado de existir al deshacer su creacion */
+  if(state.mediaFolder&&!folderExists(state.mediaFolder))state.mediaFolder=null;
+  if(state.selFolder&&!folderExists(state.selFolder))state.selFolder=null;
+  if(Array.isArray(o.mmeta)||Array.isArray(o.folders)){ renderMedia(); try{ if(typeof renderSeqBar==='function')renderSeqBar(); }catch(e){} } // el nombre de un nido titula tambien su pestana de secuencia
   saveActiveSeq(); markDirty(); // re-heal the state.clips ⇄ activeSeq().nestClips alias (stale nestClips broke seqDur/seqReaches after undo) + an undone edit IS an unsaved change
   renderTimeline();renderInspector();render();updStatus(); reschedAudio(); }
 function undo(){ const st=_ustk(); if(!st.u.length)return; st.r.push(snapshot()); const s=st.u.pop(); st.bytes-=s.length; restore(s); }

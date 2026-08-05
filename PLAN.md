@@ -1,5 +1,53 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 253c — Deshacer de verdad para los medios y las carpetas
+
+Lo que quedaba abierto en `docs/NEXT.md`, y que R253b había dejado a medias: `snapshot()` nunca ha serializado
+`state.media`, así que **renombrar un medio, moverlo de carpeta, o crear, renombrar y borrar carpetas no eran
+deshacibles** — pese a que todas esas acciones llaman a `pushUndo` desde mucho antes de esta tanda. La foto salía
+idéntica a la actual: el Ctrl+Z parecía no hacer nada y **el siguiente se comía una edición anterior del usuario**.
+
+### La decisión, que resultó no ser una opinión
+
+Dejé anotado que elegir qué campos del medio son deshacibles era «decisión de diseño». Al hacer el censo de qué
+llama hoy a `pushUndo` tocando medios o carpetas, la decisión se contestó sola: **es deshacible exactamente eso**.
+
+| Entra en el snapshot | Por qué |
+|---|---|
+| `name` de cada medio | `renameMediaInline` |
+| `folder` de cada medio | `moveMediaTo`, y el rearrastre de `_reprefixFolders` |
+| `srcIn`/`srcOut` | `smCommitMarks` (ya iba desde R253b) |
+| `state.folders` | crear, renombrar y borrar carpeta |
+| `state.folderColors` | los mueve `_reprefixFolders` con la carpeta |
+
+Y lo que **no** entra: nada de runtime —texturas, decodificadores, estado del proxy, miniatura, `missing`—. Es
+pesado, es derivado, y restaurarlo sería peor que no hacerlo. El color del medio tampoco, porque no es editable.
+El borrado de un medio ya viajaba aparte desde R212, por `mediaTrash` + `trashIds`.
+
+Se apunta la lista **entera** de medios, no sólo los que tienen algo puesto: deshacer también tiene que poder
+QUITAR un nombre o una marca recién puestos.
+
+### Un detalle que sólo aparece al probarlo
+
+Deshacer la creación de una carpeta puede dejar la vista del panel **mirando a una carpeta que ya no existe**. El
+`restore` lo comprueba y sale de ella. Es el tipo de cosa que no se ve leyendo el diff.
+
+### Verificado sobre el `.exe` (RTX 4060)
+
+`scratchpad/r253c-undo-medios.mjs`, con el mismo patrón en los seis casos: una edición real previa → la acción →
+Ctrl+Z (debe revertir **sólo** la acción) → Ctrl+Z (ahora sí deshace la edición previa). Ese cuarto paso es el que
+cazaba el fallo. **Los siete casos OK**, incluido el de la carpeta que desaparece bajo la vista.
+
+**Y una lección de método, otra vez sobre la medida y no sobre el programa:** dos casos daban falso fallo porque la
+sonda tomaba la referencia *antes* de montar el escenario, que ocurría dentro de la propia acción. El deshacer
+devolvía correctamente el estado previo al `pushUndo`; lo que estaba mal era desde dónde miraba yo. La sonda
+separa ahora preparación y acción.
+
+Sin regresión: `r253b-review.mjs` (los cuatro de la revisión), `aud8b-gestos.mjs` y `aud8b-compara.mjs`
+—**TODO IDÉNTICO viejo→nuevo**— siguen en verde.
+
+---
+
 ## ROUND 253b — Los cuatro hallazgos de la revisión del diff de R253
 
 La revisión del propio diff de anoche encontró cuatro cosas, y las cuatro eran reales. Dos son de la clase que más
