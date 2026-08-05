@@ -4,7 +4,11 @@
 > en `COMPONENTS.md` + una entrada en `PLAN.md` en el mismo commit, como manda el ritual de `/commit`).
 > Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: 2026-08-04.
 
-## ✅ Deshacer para medios y carpetas · CERRADO [R253c]
+## ✅ Deshacer para medios y carpetas · CERRADO [R253c·d]
+- [x] **[R253d] Guardado contra el pisotón**: hacer restaurable el estado global lo hacía revertible por fotos que
+      nunca lo capturaron (pilas por secuencia + medios globales, y cuatro mutadores sin `pushUndo`). Contador de
+      versión + dueño + marca de agua; si no cuadra, los clips se restauran y el estado global se deja en paz.
+      Sonda: `scratchpad/r253d-pisoton.mjs`, con comprobación estática de que los 9 mutadores emparejan las dos llamadas.
 - [x] **`snapshot()` ya lleva lo que el usuario puede cambiar de un medio** (nombre, carpeta, marcas) **y el árbol
       de carpetas con sus colores.** Antes ninguna de esas acciones era deshacible pese a llamar a `pushUndo`, y el
       Ctrl+Z se comía la edición ANTERIOR. El criterio no fue una opinión: es deshacible exactamente lo que hoy

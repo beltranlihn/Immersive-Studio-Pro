@@ -2,7 +2,7 @@
    1) una edicion REAL previa (mover un clip), 2) la accion sobre el medio/carpeta, 3) Ctrl+Z -> debe revertir SOLO
    la accion, 4) Ctrl+Z -> ahora si deshace la edicion previa. Ese cuarto paso es el que cazaba el fallo: antes, el
    primer Ctrl+Z se comia la edicion anterior porque el snapshot salia identico. */
-import http from 'http';
+import http from 'http'; import fs from 'fs';
 const t=await new Promise((res,rej)=>{http.get({host:'127.0.0.1',port:9222,path:'/json/list'},r=>{let b='';r.on('data',c=>b+=c);r.on('end',()=>res(JSON.parse(b)));}).on('error',rej);});
 const page=t.find(x=>x.type==='page'&&x.webSocketDebuggerUrl&&/index\.html/.test(x.url));
 const ws=new WebSocket(page.webSocketDebuggerUrl); await new Promise(r=>ws.onopen=r);
@@ -50,7 +50,7 @@ async function caso(nombre, prepararJS, accionJS, comprobarJS){
 }
 
 await caso('1 - renombrar un medio', `pre=>{}`,
-  `pre=>{ const m=mediaById(pre.ids[0]); pushUndo(); m.name='RENOMBRADO'; renderMedia(); }`,
+  `pre=>{ const m=mediaById(pre.ids[0]); pushUndo(); bumpMeta(); m.name='RENOMBRADO'; renderMedia(); }`,
   `pre=>mediaById(pre.ids[0]).name`);
 
 await caso('2 - mover un medio a una carpeta', `pre=>{ state.folders=['Tomas']; renderMedia(); }`,
@@ -58,17 +58,17 @@ await caso('2 - mover un medio a una carpeta', `pre=>{ state.folders=['Tomas']; 
   `pre=>mediaById(pre.ids[0]).folder`);
 
 await caso('3 - crear una carpeta', `pre=>{}`,
-  `pre=>{ pushUndo(); state.folders.push('Nueva'); renderMedia(); }`,
+  `pre=>{ pushUndo(); bumpMeta(); state.folders.push('Nueva'); renderMedia(); }`,
   `pre=>state.folders.slice()`);
 
 await caso('4 - renombrar una carpeta (arrastra la carpeta de sus medios)',
   `pre=>{ state.folders=['Vieja']; mediaById(pre.ids[1]).folder='Vieja'; renderMedia(); }`,
-  `pre=>{ pushUndo(); _reprefixFolders('Vieja','NuevaCarpeta'); renderMedia(); }`,
+  `pre=>{ pushUndo(); bumpMeta(); _reprefixFolders('Vieja','NuevaCarpeta'); renderMedia(); }`,
   `pre=>[state.folders.slice(), mediaById(pre.ids[1]).folder]`);
 
 await caso('5 - borrar una carpeta',
   `pre=>{ state.folders=['Borrame']; mediaById(pre.ids[2]).folder='Borrame'; renderMedia(); }`,
-  `pre=>{ pushUndo(); state.folders=state.folders.filter(x=>x!=='Borrame');
+  `pre=>{ pushUndo(); bumpMeta(); state.folders=state.folders.filter(x=>x!=='Borrame');
           for(const m2 of state.media) if(m2.folder==='Borrame') m2.folder=null; renderMedia(); }`,
   `pre=>[state.folders.slice(), mediaById(pre.ids[2]).folder]`);
 
@@ -77,10 +77,29 @@ await caso('6 - marcar entrada/salida (lo de R253b, sigue OK)', `pre=>{}`,
   `pre=>{ const m=mediaById(pre.ids[0]); return [m.srcIn==null?null:m.srcIn, m.srcOut==null?null:m.srcOut]; }`);
 
 /* la vista no puede quedar apuntando a una carpeta que el deshacer acaba de borrar */
+/* Que el codigo real empareje pushUndo con bumpMeta en cada mutador: si alguien anade uno nuevo y se olvida de la
+   marca, su cambio dejara de ser deshacible en silencio y esta linea lo canta. */
+{
+  const src=fs.readFileSync('app.js','utf8');
+  const sitios=[
+    ['renombrar medio (inline)', /pushUndo\(\); bumpMeta\(\); m\.name=v;/],
+    ['renombrar medio (prompt)', /pushUndo\(\); bumpMeta\(\); m\.name=n;/],
+    ['mover a carpeta',          /function moveMediaTo\([^)]*\)\{[^}]*pushUndo\(\); bumpMeta\(\);/],
+    ['crear carpeta',            /pushUndo\(\); bumpMeta\(\); state\.folders\.push\(path\);/],
+    ['mover carpeta',            /pushUndo\(\); bumpMeta\(\); _reprefixFolders\(src,np\);/],
+    ['borrar carpeta',           /pushUndo\(\); bumpMeta\(\); state\.folders=state\.folders\.filter/],
+    ['marcar entrada/salida',    /pushUndo\(\); bumpMeta\(\); m\.srcIn=a;/],
+    ['color de carpeta',         /pushUndo\(\); bumpMeta\(\); state\.folderColors=state\.folderColors/],
+    ['renombrar secuencia',      /pushUndo\(\); bumpMeta\(\); m\.name=nv;/],
+  ];
+  const faltan=sitios.filter(x=>!x[1].test(src)).map(x=>x[0]);
+  ok('los 9 mutadores reales emparejan pushUndo con bumpMeta', faltan.length===0, faltan.length? ('faltan: '+faltan.join(', ')) : '');
+}
+
 console.log('\n7 - la carpeta que se estaba mirando deja de existir');
 {
   const r=await ev(`(function(){ const pre=__preparar();
-    pushUndo(); state.folders.push('Mirando'); state.mediaFolder='Mirando'; renderMedia();
+    pushUndo(); bumpMeta(); state.folders.push('Mirando'); state.mediaFolder='Mirando'; renderMedia();
     const antes=state.mediaFolder;
     undo();
     return { antes, despues:state.mediaFolder, carpetas:state.folders.slice(), errs:window.__errs.length }; })()`);

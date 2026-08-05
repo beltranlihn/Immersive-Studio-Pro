@@ -1,5 +1,59 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 253d — El pisotón: hacer algo restaurable lo hace revertible
+
+La revisión del diff de R253c dio en el clavo de una forma que no había visto:
+
+> **Hacer restaurable el estado global también lo hace revertible por deshaceres que nunca lo capturaron.**
+
+Al meter medios y carpetas en el snapshot, cualquier foto vieja pasó a poder revertirlos — aunque su acción no
+los hubiera tocado. Cinco caminos concretos, los cinco reales:
+
+1. **Colores de carpeta y carpetas nacidas al arrastrar del explorador** cambian el estado global **sin empujar
+   deshacer**. Un Ctrl+Z sobre una edición anterior se los llevaba, y los medios recién importados quedaban
+   apuntando a carpetas inexistentes.
+2. **Lo mismo con nombres**: `renameSequence` y el reenlace de un medio ausente escriben `m.name` sin `pushUndo`.
+   Y como `restore` repinta la barra de secuencias, el nombre viejo volvía **delante del usuario**.
+3. **Las pilas de deshacer son POR SECUENCIA** (`_undoBySeq`) pero los medios son **globales**: editar en A, pasar
+   a B, renombrar allí, volver a A y Ctrl+Z revertía el trabajo de B, sin vuelta atrás.
+4. Deshacer el borrado de una carpeta la devolvía **desplegada**, porque `collapsedGroups` no viajaba.
+5. Crear una carpeta costaba **dos Ctrl+Z** (la creación y el renombre en línea), enseñando «Carpeta 1» por medio.
+
+### La cura
+
+Un **contador de versión** de esos metadatos y **quién lo tocó por última vez**. La parte global de una foto sólo
+se aplica si se cumplen tres cosas:
+
+- el último cambio global lo hizo **esta** secuencia (cierra el caso cruzado);
+- entre la foto y el ahora hay **como mucho un** cambio global — el que se está deshaciendo;
+- la foto es **posterior a la última marca de agua**, que dejan los cambios que no empujan deshacer.
+
+Si algo no cuadra, se restauran los clips y **el estado global se deja en paz**. Conservador en la dirección
+correcta: puede dejar sin deshacer un renombre, pero **nunca borra trabajo que la foto no conocía**.
+
+Además, los cuatro mutadores desprotegidos dejan de estarlo del todo: el color de carpeta y el renombre de
+secuencia **ahora sí empujan deshacer** (son ediciones del usuario y era gratis hacerlas deshacibles); las
+carpetas del arrastre y el reenlace sólo dejan marca de agua, porque no son ediciones. `collapsedGroups` entra en
+la foto, y crear+nombrar una carpeta cuenta como **una sola acción**.
+
+### Verificado sobre el `.exe` (RTX 4060)
+
+`scratchpad/r253d-pisoton.mjs` monta los cinco escenarios exactos de la revisión: **los cinco arreglados, y el
+caso normal intacto** (deshacer un renombre sigue revirtiéndolo sin comerse la edición anterior).
+
+**Dos lecciones de método, las dos sobre la medida:**
+
+- Dos sondas empezaron a dar **falso fallo** porque *simulaban* la mutación (`pushUndo(); m.name=…`) mientras el
+  código real ahora hace `pushUndo(); bumpMeta(); m.name=…`. La simulación se había despegado del código.
+- Por eso las sondas llevan ahora **comprobaciones estáticas**: que los nueve mutadores reales emparejen
+  `pushUndo` con `bumpMeta`, y que los dos que no empujan deshacer usen la marca de agua. Si alguien añade un
+  mutador y olvida la marca, su cambio dejaría de ser deshacible en silencio — y esa línea lo canta.
+
+Y un apunte de documentación que también salió en la revisión: el comentario conservado de R253b seguía afirmando
+que renombrar o mover un medio «siguen sin ser deshacibles», que es justo lo que R253c cerró. Corregido.
+
+---
+
 ## ROUND 253c — Deshacer de verdad para los medios y las carpetas
 
 Lo que quedaba abierto en `docs/NEXT.md`, y que R253b había dejado a medias: `snapshot()` nunca ha serializado

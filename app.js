@@ -2438,7 +2438,7 @@ function importDropped(dt, baseFolder){ const items=(dt&&dt.items)?[...dt.items]
   const collected=[]; // {file, folder}
   const readAll=dirEntry=>new Promise(res=>{ const rd=dirEntry.createReader(); const all=[]; const batch=()=>rd.readEntries(es=>{ if(!es.length){res(all);return;} all.push(...es); batch(); }, ()=>res(all)); batch(); });
   const walk=async(entry,folderPath)=>{ if(entry.isFile){ await new Promise(r=>entry.file(f=>{ collected.push({file:f,folder:folderPath}); r(); }, r)); }
-    else if(entry.isDirectory){ const sub=joinFolder(folderPath, sanitizeFolderName(entry.name)); if(!folderExists(sub)){ state.folders.push(sub); } const es=await readAll(entry); for(const e of es)await walk(e,sub); } };
+    else if(entry.isDirectory){ const sub=joinFolder(folderPath, sanitizeFolderName(entry.name)); if(!folderExists(sub)){ bumpMeta(true); state.folders.push(sub); } /* [R253d] las carpetas que nacen al arrastrar del explorador no empujan deshacer (el import no lo es), pero SI marcan version, para que ninguna foto anterior las borre*/ const es=await readAll(entry); for(const e of es)await walk(e,sub); } };
   (async()=>{ for(const en of entries)await walk(en, baseFolder||null);
     if(!collected.length){ renderMedia(); return; }
     const byFolder={}; for(const c of collected){ const k=c.folder||''; (byFolder[k]=byFolder[k]||[]).push(c.file); }
@@ -2840,22 +2840,27 @@ function _reprefixFolders(oldP,newP){ if(oldP===newP)return;
   const sf=state.selFolder; if(sf===oldP)state.selFolder=newP; else if(sf&&sf.indexOf(oldP+FSEP)===0)state.selFolder=newP+sf.slice(oldP.length); }
 /* R90: rename a folder IN PLACE over its own label (tree .fnm / grid tile .tlbl); falls back to the prompt if the element is missing */
 function renameFolderInline(f,el){ if(!el)el=document.querySelector('#mediaList .folderhdr[data-fname="'+f+'"] .fnm')||document.querySelector('#mediaList .foldertile[data-fname="'+f+'"] .tlbl');
-  const commit=v=>{ v=sanitizeFolderName(v); if(!v||v===folderName(f)){ renderMedia(); return; } const np=joinFolder(folderParent(f),v); if(folderExists(np)){ flashStatus(T('A folder with that name already exists','Ya existe una carpeta con ese nombre')); renderMedia(); return; } pushUndo(); _reprefixFolders(f,np); renderMedia(); markDirty(); };
+  const commit=v=>{ v=sanitizeFolderName(v); if(!v||v===folderName(f)){ renderMedia(); return; } const np=joinFolder(folderParent(f),v); if(folderExists(np)){ flashStatus(T('A folder with that name already exists','Ya existe una carpeta con ese nombre')); renderMedia(); return; } const _fresca=(_folderFresh===f); _folderFresh=null;
+    /* [R253d] crear una carpeta y ponerle nombre es UNA sola accion. El renombre inmediato de una recien creada ni
+       empuja un segundo deshacer -crearla costaba dos Ctrl+Z, ensenando el nombre automatico por el medio- ni cuenta
+       como cambio global aparte, porque entonces la foto de antes de crearla quedaria a DOS de distancia y el guardado
+       de seguridad la descartaria por insegura, dejando la carpeta ahi. */
+    if(!_fresca){ pushUndo(); bumpMeta(); } _reprefixFolders(f,np); renderMedia(); markDirty(); };
   if(!inlineEdit(el,folderName(f),commit)){ renameFolder(f); return; }
   el.addEventListener('blur',()=>setTimeout(()=>renderMedia(),0),{once:true}); } // re-render after the edit ends (restores the count badge the contenteditable wiped)
 function folderColor(f){ return (state.folderColors||{})[f]||null; }
 function moveFolder(src,destParent){ if(src==null||src===destParent)return false; if(destParent&&(destParent===src||destParent.indexOf(src+FSEP)===0)){ flashStatus(T("Can't move a folder into itself",'No se puede mover una carpeta dentro de sí misma'),'err'); return false; } // [R94-UT3·U-21]
   if(folderParent(src)===(destParent||null))return false; // already there
   const np=joinFolder(destParent||null,folderName(src)); if(folderExists(np)){ flashStatus(T('A folder with that name already exists there','Ya existe una carpeta con ese nombre ahí')); return false; }
-  pushUndo(); _reprefixFolders(src,np); renderMedia(); markDirty(); flashStatus(T('Folder moved','Carpeta movida')); return true; }
-function moveMediaTo(ids,folderPath){ if(!ids||!ids.length)return; pushUndo(); const set=new Set(ids); for(const m of state.media)if(set.has(m.id))m.folder=folderPath||null; renderMedia(); markDirty(); flashStatus(folderPath?T('Moved to ','Movido a ')+folderName(folderPath):T('Moved out of folder','Sacado de la carpeta')); }
+  pushUndo(); bumpMeta(); _reprefixFolders(src,np); renderMedia(); markDirty(); flashStatus(T('Folder moved','Carpeta movida')); return true; }
+function moveMediaTo(ids,folderPath){ if(!ids||!ids.length)return; pushUndo(); bumpMeta(); const set=new Set(ids); for(const m of state.media)if(set.has(m.id))m.folder=folderPath||null; renderMedia(); markDirty(); flashStatus(folderPath?T('Moved to ','Movido a ')+folderName(folderPath):T('Moved out of folder','Sacado de la carpeta')); }
 function newFolderIn(parent){ let base=T('Folder ','Carpeta ')+(folderChildren(parent).length+1),nm=base,i=2; while(folderExists(joinFolder(parent,nm)))nm=base+' '+(i++);
   // [M1] create the folder instantly and rename it inline over its own label (no pop-up)
-  const path=joinFolder(parent,nm); pushUndo(); state.folders.push(path);
+  const path=joinFolder(parent,nm); pushUndo(); bumpMeta(); state.folders.push(path);
   let p=parent; while(p!=null){ delete state.collapsedGroups['f_'+p]; p=folderParent(p); } // expand the chain so the new folder is visible
   state.selFolder=path; // Adobe-like: the new folder becomes the selection (next "New folder" nests inside it)
   if(state.mediaView!=='grid')showFolders(); renderMedia(); markDirty();
-  setTimeout(()=>{ renameFolderInline(path); },0); } // inline-edit the fresh label once it's in the DOM
+  _folderFresh=path; setTimeout(()=>{ renameFolderInline(path); },0); } // inline-edit the fresh label once it's in the DOM
 /* drag a folder TILE onto another folder / the back tile / the grid background → re-parent it (R88) */
 const _clearDropFX=()=>{ $$('#mediaList .folderhdr.dragover,#mediaList .folderdrop.dragover,#mediaList .mediagrid.dragover,#mediaList .mitem.dragover').forEach(x=>x.classList.remove('dragover')); }; // [R239] `.mitem` entra en la lista: `_dropTargetAt` puede resaltar la propia fila cuando su carpeta no tiene cabecera a la vista
 /* [R239] Soltar sobre un MEDIO que vive en una carpeta cuenta como soltar en esa carpeta. Con el árbol desplegado,
@@ -2908,7 +2913,7 @@ function renderMedia(){
       t.innerHTML=`<div class="tthumb" style="display:flex;align-items:center;justify-content:center;color:${fcol||'#8A9199'};">${ICO('folder',26)}</div><div class="tlbl" style="border-top:2px solid ${fcol||'#454C55'};">${folderName(f)} <span style="color:var(--ink-dim);">${cnt}</span></div>`;
       t.ondblclick=e=>{ if(e.target.isContentEditable)return; state.mediaFolder=f; renderMedia(); };
       t.addEventListener('pointerdown',e=>{ if(e.button===0&&!e.target.isContentEditable)startFolderDrag(e,f); }); // drag a folder into another folder
-      t.oncontextmenu=e=>{ e.preventDefault(); openMenu(e.clientX,e.clientY,[{label:T('Open folder','Abrir carpeta'),fn:()=>{state.mediaFolder=f;renderMedia();}},{label:T('New subfolder…','Nueva subcarpeta…'),ico:'folder',fn:()=>newFolderIn(f)},{label:T('Rename','Cambiar nombre'),fn:()=>renameFolderInline(f,t.querySelector('.tlbl'))},...(folderParent(f)!=null?[{label:T('Move to top level','Mover al nivel superior'),fn:()=>moveFolder(f,null)}]:[]),'sep',{swatches:{cur:folderColor(f),onPick:col=>{ state.folderColors=state.folderColors||{}; state.folderColors[f]=col; renderMedia(); markDirty(); },onClear:()=>{ if(state.folderColors)delete state.folderColors[f]; renderMedia(); markDirty(); }}},'sep',{label:T('Delete folder','Eliminar carpeta'),danger:true,fn:()=>deleteFolder(f)}]); };
+      t.oncontextmenu=e=>{ e.preventDefault(); openMenu(e.clientX,e.clientY,[{label:T('Open folder','Abrir carpeta'),fn:()=>{state.mediaFolder=f;renderMedia();}},{label:T('New subfolder…','Nueva subcarpeta…'),ico:'folder',fn:()=>newFolderIn(f)},{label:T('Rename','Cambiar nombre'),fn:()=>renameFolderInline(f,t.querySelector('.tlbl'))},...(folderParent(f)!=null?[{label:T('Move to top level','Mover al nivel superior'),fn:()=>moveFolder(f,null)}]:[]),'sep',{swatches:{cur:folderColor(f),onPick:col=>{ pushUndo(); bumpMeta(); state.folderColors=state.folderColors||{}; state.folderColors[f]=col; renderMedia(); markDirty(); } /* [R253d] antes ni empujaba deshacer ni marcaba version: un Ctrl+Z ajeno se llevaba el color por delante */,onClear:()=>{ if(state.folderColors)delete state.folderColors[f]; renderMedia(); markDirty(); }}},'sep',{label:T('Delete folder','Eliminar carpeta'),danger:true,fn:()=>deleteFolder(f)}]); };
       grid.appendChild(t); }
     for(const m of items.filter(x=> cur? x.folder===cur : (!x.folder||!folderExists(x.folder)) )) grid.appendChild(makeMediaTile(m));
     return;
@@ -2929,7 +2934,7 @@ function renderMedia(){
       h.querySelector('.fchev').onclick=e=>{ e.stopPropagation(); state.collapsedGroups[key]=!collapsed; renderMedia(); };
       h.onclick=e=>{ if(_folderJustDragged||e.target.closest('.fchev')||e.target.isContentEditable)return; selectHdr(h,f); }; // select (Adobe: "New folder" then creates inside it)
       h.ondblclick=e=>{ if(e.target.closest('.fchev')||e.target.isContentEditable)return; state.mediaFolder=f; state.selFolder=null; renderMedia(); }; // R89c: double-click ENTERS the folder
-      h.oncontextmenu=e=>{ e.preventDefault(); openMenu(e.clientX,e.clientY,[{label:T('Open folder','Abrir carpeta'),fn:()=>{state.mediaFolder=f;state.selFolder=null;renderMedia();}},{label:T('New subfolder…','Nueva subcarpeta…'),ico:'folder',fn:()=>newFolderIn(f)},{label:T('Rename','Cambiar nombre'),fn:()=>renameFolderInline(f,h.querySelector('.fnm'))},...(folderParent(f)!=null?[{label:T('Move to top level','Mover al nivel superior'),fn:()=>moveFolder(f,null)}]:[]),'sep',{swatches:{cur:folderColor(f),onPick:col=>{ state.folderColors=state.folderColors||{}; state.folderColors[f]=col; renderMedia(); markDirty(); },onClear:()=>{ if(state.folderColors)delete state.folderColors[f]; renderMedia(); markDirty(); }}},'sep',{label:T('Delete folder','Eliminar carpeta'),danger:true,fn:()=>deleteFolder(f)}]); }; // R90b: colours INLINE in the menu; rename IN PLACE; delete only here or via the Delete key
+      h.oncontextmenu=e=>{ e.preventDefault(); openMenu(e.clientX,e.clientY,[{label:T('Open folder','Abrir carpeta'),fn:()=>{state.mediaFolder=f;state.selFolder=null;renderMedia();}},{label:T('New subfolder…','Nueva subcarpeta…'),ico:'folder',fn:()=>newFolderIn(f)},{label:T('Rename','Cambiar nombre'),fn:()=>renameFolderInline(f,h.querySelector('.fnm'))},...(folderParent(f)!=null?[{label:T('Move to top level','Mover al nivel superior'),fn:()=>moveFolder(f,null)}]:[]),'sep',{swatches:{cur:folderColor(f),onPick:col=>{ pushUndo(); bumpMeta(); state.folderColors=state.folderColors||{}; state.folderColors[f]=col; renderMedia(); markDirty(); } /* [R253d] antes ni empujaba deshacer ni marcaba version: un Ctrl+Z ajeno se llevaba el color por delante */,onClear:()=>{ if(state.folderColors)delete state.folderColors[f]; renderMedia(); markDirty(); }}},'sep',{label:T('Delete folder','Eliminar carpeta'),danger:true,fn:()=>deleteFolder(f)}]); }; // R90b: colours INLINE in the menu; rename IN PLACE; delete only here or via the Delete key
       h.addEventListener('pointerdown',ev=>{ if(ev.button!==0)return; if(ev.target.closest('.fchev')||ev.target.isContentEditable)return; startFolderDrag(ev,f); }); // drag the folder into another folder
       list.appendChild(h);
       if(collapsed)return;
@@ -3071,7 +3076,7 @@ function clearMediaSel(){ if(state.selFolder){ state.selFolder=null; $$('#mediaL
   state.selMediaAnchor=null; if(state.selMediaId==null&&!(state.selMediaIds&&state.selMediaIds.length))return; state.selMediaId=null; state.selMediaIds=[]; $$('#mediaList .mitem.sel,#mediaList .mtile.sel').forEach(x=>x.classList.remove('sel')); }
 function mediaNameEl(id){ return document.querySelector('#mediaList .mitem[data-id="'+id+'"] .mname')||document.querySelector('#mediaList .mtile[data-id="'+id+'"] .tlbl'); }
 /* rename a media item IN PLACE (over its own label), not a floating dialog (R86) */
-function renameMediaInline(m,el){ if(!m)return; el=el||mediaNameEl(m.id); if(!inlineEdit(el,m.name,v=>{ pushUndo(); m.name=v; renderMedia(); projTitle&&projTitle(); markDirty(); })) appPrompt(T('Media name:','Nombre del medio:'),m.name,n=>{ if(n!=null){ pushUndo(); m.name=n; renderMedia(); markDirty(); } }); }
+function renameMediaInline(m,el){ if(!m)return; el=el||mediaNameEl(m.id); if(!inlineEdit(el,m.name,v=>{ pushUndo(); bumpMeta(); m.name=v; renderMedia(); projTitle&&projTitle(); markDirty(); })) appPrompt(T('Media name:','Nombre del medio:'),m.name,n=>{ if(n!=null){ pushUndo(); bumpMeta(); m.name=n; renderMedia(); markDirty(); } }); }
 /* delete a media item + its clips (shared by the context menu and the Delete key) */
 function deleteMedia(m){ if(!m)return; if(isSeqMedia(m)){ deleteSequenceMedia(m.id); return; }
   const doIt=()=>{
@@ -8973,7 +8978,11 @@ function closeSeqTab(id){ if(!state.openSeqs)return; const wasActive=(id===state
   if(wasActive){ state.activeSeqId=state.openSeqs[state.openSeqs.length-1]; loadSeqIntoState(activeSeq()); syncNestAudioClips(); renderMedia(); renderTimeline(); renderInspector(); renderWork(); render(); updStatus(); updFmtChip(); setTlScrollT((activeSeq()||{}).nestScrollT||0); } // [R225·9] · [R239] cerrar la pestaña activa también aterriza en otra secuencia: mismo encuadre propio
   renderSeqBar(); }
 function renameSequence(id){ const m=mediaById(id); if(!isSeqMedia(m))return; const el=document.querySelector('#seqTabs .seqtab[data-seq="'+id+'"] .seqlab');
-  if(!inlineEdit(el,m.name,v=>{ m.name=v; renderSeqBar(); renderMedia(); projTitle(); markDirty(); })) appPrompt(T('Sequence name:','Nombre de la secuencia:'),m.name,n=>{ if(n!=null){ m.name=n; renderSeqBar(); renderMedia(); projTitle(); markDirty(); } }); }
+  /* [R253d] renombrar una secuencia cambia `m.name` de un medio: sin empujar deshacer ni marcar version, un
+     Ctrl+Z ajeno le devolvia el nombre viejo -y encima renderSeqBar lo repintaba en la pestana, delante del
+     usuario-. Ahora es una edicion como cualquier otra. */
+  const _ren=nv=>{ pushUndo(); bumpMeta(); m.name=nv; renderSeqBar(); renderMedia(); projTitle(); markDirty(); };
+  if(!inlineEdit(el,m.name,_ren)) appPrompt(T('Sequence name:','Nombre de la secuencia:'),m.name,n=>{ if(n!=null)_ren(n); }); }
 function deleteSequenceMedia(id){ const m=mediaById(id); if(!isSeqMedia(m))return; if(state.media.filter(isSeqMedia).length<=1){ flashStatus(T('Keep at least one sequence','Mantén al menos una secuencia')); return; }
   const usedElsewhere=state.media.some(s=>isSeqMedia(s)&&s.id!==id&&(s.nestClips||[]).some(c=>c.mediaId===id));
   appConfirm(T('Delete this sequence?','¿Eliminar esta secuencia?')+(usedElsewhere?T(' It is nested inside another sequence.',' Está anidada dentro de otra secuencia.'):''), ok=>{ if(!ok)return;
@@ -9970,6 +9979,7 @@ async function replaceMedia(m,ruta){ if(!IS_ELEC)return;
     if(!ok)return; }
   const antes={path:m.path,name:m.name,fsize:m.fsize,dur:m.dur}; const oldDur=m.dur;
   let sz=0; try{ const st=await DSP.stat(p); sz=(st&&st.size)||0; }catch(e){}
+  bumpMeta(true); /* [R253d] reparar un medio ausente no es una edicion deshacible, pero si marca version: una foto anterior no puede devolverle el nombre del archivo perdido */
   m.path=p; m.fsize=sz; m.name=DSP.basename(p); m.missing=false; delete m._plazo;
   m.proxyReady=false; m.proxyPct=0; m.proxyUrl=null; m.proxyEl=null; m._proxyForce=false; m.bands=null; m._bandsBusy=false; m.thumb=null; m._texW=null; m._texH=null; m.peaks=null; m.rms=null; m.buffer=null;
   try{ disposeAllVinst(); }catch(e){} try{ if(_arCache)arRecompute(); }catch(e){}
@@ -10075,6 +10085,22 @@ function updRelink(){ const miss=state.media.filter(m=>m.missing&&!m._loading); 
 /* ===================== UNDO / AUTOSAVE / STATUS ===================== */
 /* [R92-T1] undo/redo PER SEQUENCE — switching tabs (or exporting another sequence, which switches internally)
    no longer destroys the history. Snapshots only capture the active sequence, so each sequence keeps its own stacks. */
+/* [R253d] Las pilas de deshacer son POR SECUENCIA (`_undoBySeq`) pero los medios y las carpetas son GLOBALES.
+   Al empezar a restaurarlos (R253b/c) aparecio un pisoton: una foto vieja de la pila de la secuencia A puede
+   revertir cambios de medios hechos mientras se editaba B, o cambios hechos por codigo que NO empuja deshacer
+   (colores de carpeta, carpetas creadas al arrastrar del explorador, renombrar una secuencia, el reenlace de un
+   medio ausente). Hacer algo restaurable lo hace tambien REVERTIBLE por deshaceres que nunca lo capturaron.
+   La cura es un contador de version de esos metadatos y quien lo toco por ultima vez. La parte global de una
+   foto solo se aplica si (a) el ultimo cambio global lo hizo ESTA secuencia y (b) entre la foto y el ahora hay
+   como mucho UN cambio global -el que se esta deshaciendo-. Si hubo mas, se restauran los clips y se deja el
+   estado global en paz: conservador en la direccion correcta, nunca borra trabajo que la foto no conocia.
+   Todo mutador de nombre/carpeta de un medio o del arbol de carpetas llama a `bumpMeta()`. */
+let _metaVer=0, _metaOwner=null, _metaFree=0, _folderFresh=null; // [R253d] _folderFresh: carpeta recien creada cuyo primer renombre se funde con su creacion
+/* `sinUndo` = el cambio NO empuja deshacer (carpetas nacidas al arrastrar del explorador, reenlace de un medio
+   ausente). Esos dejan una MARCA DE AGUA: ninguna foto anterior a ellos puede volver a hablar del estado global,
+   porque cambio algo que esa foto no conocia. Sin la marca, contar un solo cambio no distingue el que se esta
+   deshaciendo de uno que ocurrio por su cuenta, y el deshacer se llevaba por delante la carpeta recien importada. */
+function bumpMeta(sinUndo){ _metaVer++; _metaOwner=(state.activeSeqId!=null?state.activeSeqId:"_"); if(sinUndo)_metaFree=_metaVer; }
 const _undoBySeq={}; const UNDO_BYTE_CAP=250e6; // large-project guard: 80 snapshots of a feature-film timeline could be hundreds of MB
 function _ustk(){ const id=state.activeSeqId!=null?state.activeSeqId:'_'; return _undoBySeq[id]||(_undoBySeq[id]={u:[],r:[],bytes:0}); }
 function clearAllUndo(){ for(const k in _undoBySeq)delete _undoBySeq[k]; }
@@ -10096,9 +10122,9 @@ function clearAllUndo(){ for(const k in _undoBySeq)delete _undoBySeq[k]; }
    los marcados, porque deshacer tambien tiene que poder QUITAR una marca recien puesta. Sin esto, el pushUndo de
    smCommitMarks empujaba una foto identica a la actual: Ctrl+Z parecia no hacer nada y el siguiente deshacia la
    edicion anterior del usuario, sin relacion. Lo cazo la revision del diff de R253.
-   Ojo: state.media SIGUE sin viajar entero en el snapshot, asi que renombrar un medio o moverlo de carpeta -que
-   tambien llaman a pushUndo, desde antes de esta ronda- siguen sin ser deshacibles. Anotado en NEXT.md. */
-function snapshot(trashIds,room){ return JSON.stringify({room:room||undefined,clips:state.clips.map(serClip),lanes:state.lanes,mmeta:state.media.map(m=>[m.id,m.name,(m.folder||null),(m.srcIn!=null?m.srcIn:null),(m.srcOut!=null?m.srcOut:null)]),folders:(state.folders||[]).slice(),folderColors:Object.assign({},state.folderColors||{}),selId:state.selId,selIds:state.selIds,selLane:state.selLane,markers:state.markers,selMarkerId:state.selMarkerId,groups:state.groups,selGroupId:state.selGroupId,reactive:state.reactive||null,autoItems:state.autoItems||{},trashIds:trashIds||undefined}); } // [R95·D2] items are undoable state too: editing a pooled curve rewrites the item · [R212] trashIds: media ids this action just sent to state.mediaTrash — restore() must revive them even if no clip references them (unused media deleted from the panel)
+   (R253c cerro lo que ese texto dejaba pendiente: nombre y carpeta ya viajan. R253d anadio el guardado de
+   seguridad -metaVer/metaOwner- para que una foto no revierta cambios globales que nunca conocio.) */
+function snapshot(trashIds,room){ return JSON.stringify({room:room||undefined,clips:state.clips.map(serClip),lanes:state.lanes,mmeta:state.media.map(m=>[m.id,m.name,(m.folder||null),(m.srcIn!=null?m.srcIn:null),(m.srcOut!=null?m.srcOut:null)]),folders:(state.folders||[]).slice(),folderColors:Object.assign({},state.folderColors||{}),metaVer:_metaVer,collapsedGroups:Object.assign({},state.collapsedGroups||{}),selId:state.selId,selIds:state.selIds,selLane:state.selLane,markers:state.markers,selMarkerId:state.selMarkerId,groups:state.groups,selGroupId:state.selGroupId,reactive:state.reactive||null,autoItems:state.autoItems||{},trashIds:trashIds||undefined}); } // [R95·D2] items are undoable state too: editing a pooled curve rewrites the item · [R212] trashIds: media ids this action just sent to state.mediaTrash — restore() must revive them even if no clip references them (unused media deleted from the panel)
 function pushUndo(trashIds,roomSnap){ if(_demoBatch)return; // [R228] construyendo un proyecto demo: no hay nada que deshacer (`_demoFinish` limpia el historial de todos modos) y cada snapshot de un lote de 8 clips es caro
   const st=_ustk(); const s=snapshot(trashIds,roomSnap); st.u.push(s); st.bytes+=s.length; st.r.length=0;
   let total=0,count=0; for(const k in _undoBySeq){ total+=_undoBySeq[k].bytes; count+=_undoBySeq[k].u.length; }
@@ -10115,17 +10141,22 @@ function restore(s){ const o=JSON.parse(s);
   if(state.mediaTrash){ const need=new Set(); for(const s of state.media)if(isSeqMedia(s)){ const arr=(s.id===state.activeSeqId?state.clips:s.nestClips)||[]; for(const c of arr)need.add(c.mediaId); } for(const c of state.clips)need.add(c.mediaId); if(Array.isArray(o.trashIds))for(const id of o.trashIds)need.add(id); /* [R212] media deleted from the panel with no clip using it — revive it anyway, undo means undo */ for(const id in state.mediaTrash){ if(need.has(+id)){ if(!mediaById(+id)){ const tm=state.mediaTrash[id]; state.media.push(tm); if(tm._trashed){ delete tm._trashed; tm.missing=false; tm._loading=true; try{ reloadMedia(tm); }catch(e){} } } delete state.mediaTrash[id]; } } renderMedia(); }
   /* [R253c] Devuelve nombre, carpeta y marcas de cada medio, y el arbol de carpetas. Los snapshots que no traen
      la clave (los de antes de esta ronda, dentro de la misma sesion) se saltan solos. */
-  if(Array.isArray(o.mmeta)){ for(const e of o.mmeta){ const mm=mediaById(e[0]); if(!mm)continue;
+  /* [R253d] ¿es segura la parte global de esta foto? Ver el comentario de `bumpMeta`. */
+  const _segura=(o.metaVer!=null) && (_metaOwner===(state.activeSeqId!=null?state.activeSeqId:"_"))
+                && (o.metaVer>=_metaFree) && Math.abs(_metaVer-o.metaVer)<=1;
+  if(_segura&&Array.isArray(o.mmeta)){ for(const e of o.mmeta){ const mm=mediaById(e[0]); if(!mm)continue;
       if(e[1]!=null)mm.name=e[1];
       mm.folder=(e[2]==null)?null:e[2];
       if(e[3]==null)delete mm.srcIn; else mm.srcIn=e[3];
       if(e[4]==null)delete mm.srcOut; else mm.srcOut=e[4]; } }
-  if(Array.isArray(o.folders))state.folders=o.folders.slice();
-  if(o.folderColors)state.folderColors=Object.assign({},o.folderColors);
+  if(_segura&&Array.isArray(o.folders))state.folders=o.folders.slice();
+  if(_segura&&o.folderColors)state.folderColors=Object.assign({},o.folderColors);
+  if(_segura&&o.collapsedGroups)state.collapsedGroups=Object.assign({},o.collapsedGroups); // una carpeta que vuelve tiene que volver como estaba, plegada o no
+  if(_segura)_metaVer=o.metaVer; // el contador acompana a la foto, o el siguiente paso de deshacer se creeria inseguro
   /* la carpeta que se estaba mirando puede haber dejado de existir al deshacer su creacion */
   if(state.mediaFolder&&!folderExists(state.mediaFolder))state.mediaFolder=null;
   if(state.selFolder&&!folderExists(state.selFolder))state.selFolder=null;
-  if(Array.isArray(o.mmeta)||Array.isArray(o.folders)){ renderMedia(); try{ if(typeof renderSeqBar==='function')renderSeqBar(); }catch(e){} } // el nombre de un nido titula tambien su pestana de secuencia
+  if(_segura&&(Array.isArray(o.mmeta)||Array.isArray(o.folders))){ renderMedia(); try{ if(typeof renderSeqBar==='function')renderSeqBar(); }catch(e){} } // el nombre de un nido titula tambien su pestana de secuencia
   saveActiveSeq(); markDirty(); // re-heal the state.clips ⇄ activeSeq().nestClips alias (stale nestClips broke seqDur/seqReaches after undo) + an undone edit IS an unsaved change
   renderTimeline();renderInspector();render();updStatus(); reschedAudio(); }
 function undo(){ const st=_ustk(); if(!st.u.length)return; st.r.push(snapshot()); const s=st.u.pop(); st.bytes-=s.length; restore(s); }
@@ -10306,7 +10337,7 @@ function showFolders(){ state.mediaGroupBy='folder'; const gseg=$('#groupSeg'); 
 $('#newFolderBtn').onclick=()=>newFolderIn(state.mediaView==='grid'?state.mediaFolder:(state.selFolder||state.mediaFolder||null)); // R89c: create INSIDE where you are — browsed folder (grid/list navigation) or selected folder (tree), like Adobe
 { const ml=$('#mediaList'); if(ml)ml.addEventListener('pointerdown',e=>{ if(e.button!==0)return; if(e.target.closest('.mitem,.mtile,.folderhdr,.foldertile,.backtile,.grphead2,.drop,input,[contenteditable="true"]'))return; if(selectedMediaIds().length||state.selFolder)clearMediaSel(); }); } // [M2] click empty Media space → deselect
 function renameFolder(f){ appPrompt(T('Folder name:','Nombre de la carpeta:'),folderName(f),n=>{ n=sanitizeFolderName(n); if(!n||n===folderName(f))return; const np=joinFolder(folderParent(f),n); if(folderExists(np)){ flashStatus(T('A folder with that name already exists','Ya existe una carpeta con ese nombre')); return; } pushUndo(); _reprefixFolders(f,np); renderMedia(); markDirty(); }); }
-function deleteFolder(f){ const desc=folderDescendants(f); const n=state.media.filter(m=>desc.includes(m.folder)).length; const go=()=>{ pushUndo(); state.folders=state.folders.filter(x=>!desc.includes(x)); for(const m of state.media)if(desc.includes(m.folder))m.folder=null; if(desc.includes(state.mediaFolder))state.mediaFolder=folderParent(f); if(desc.includes(state.selFolder))state.selFolder=folderParent(f); if(state.folderColors)for(const d of desc)delete state.folderColors[d]; for(const k of Object.keys(state.collapsedGroups))if(k==='f_'+f||k.indexOf('f_'+f+FSEP)===0)delete state.collapsedGroups[k]; renderMedia(); markDirty(); flashStatus(T('Folder deleted (media kept)','Carpeta eliminada (medios conservados)')); }; if(n>0)appConfirm(T('Delete this folder (and its subfolders)? Its '+n+' media stay in the panel.','¿Eliminar esta carpeta (y sus subcarpetas)? Sus '+n+' medios permanecen en el panel.'),go); else go(); }
+function deleteFolder(f){ const desc=folderDescendants(f); const n=state.media.filter(m=>desc.includes(m.folder)).length; const go=()=>{ pushUndo(); bumpMeta(); state.folders=state.folders.filter(x=>!desc.includes(x)); for(const m of state.media)if(desc.includes(m.folder))m.folder=null; if(desc.includes(state.mediaFolder))state.mediaFolder=folderParent(f); if(desc.includes(state.selFolder))state.selFolder=folderParent(f); if(state.folderColors)for(const d of desc)delete state.folderColors[d]; for(const k of Object.keys(state.collapsedGroups))if(k==='f_'+f||k.indexOf('f_'+f+FSEP)===0)delete state.collapsedGroups[k]; renderMedia(); markDirty(); flashStatus(T('Folder deleted (media kept)','Carpeta eliminada (medios conservados)')); }; if(n>0)appConfirm(T('Delete this folder (and its subfolders)? Its '+n+' media stay in the panel.','¿Eliminar esta carpeta (y sus subcarpetas)? Sus '+n+' medios permanecen en el panel.'),go); else go(); }
 $('#newFolderBtn').oncontextmenu=e=>{ e.preventDefault(); if(!state.folders.length){ flashStatus(T('No folders yet','Aún no hay carpetas')); return; } openMenu(e.clientX,e.clientY,state.folders.map(f=>({label:f,ico:'folder',fn:()=>{ if(state.mediaView==='grid')state.mediaFolder=f; else showFolders(); renderMedia(); }}))); };
 function setPaneCollapsed(pane,on){ $(pane).classList.toggle('pane-collapsed',on); resize(); saveWorkspace(); }
 $('#hideMedia').onclick=()=>{ state.prefs.mediaCollapsed=true; setPaneCollapsed('#mediaPane',true); };
@@ -11825,7 +11856,7 @@ function srcRange(m){ if(!m)return null; const d=Math.max(0,m.dur||0); if(!(d>0)
 function smCommitMarks(){ const mon=_srcMon; if(!mon)return; const m=mon.m, d=Math.max(0.04,m.dur||0);
   const a=Math.max(0,Math.min(d,mon.in)), b=Math.max(0,Math.min(d,mon.out));
   if(Math.abs((m.srcIn!=null?m.srcIn:0)-a)<1e-4 && Math.abs((m.srcOut!=null?m.srcOut:d)-b)<1e-4){ smPinta(); return; }
-  pushUndo(); m.srcIn=a; m.srcOut=b; markDirty(); renderMedia(); smPinta(); }
+  pushUndo(); bumpMeta(); m.srcIn=a; m.srcOut=b; markDirty(); renderMedia(); smPinta(); }
 /* El rango que se llevará un arrastre DESDE la ventana: el que se está viendo, no el que tenga guardado el medio
    (pueden diferir mientras se mira la fuente de un clip sin haber tocado ninguna marca). */
 function smRangeVisible(){ const mon=_srcMon; if(!mon)return null; const d=Math.max(0,mon.m.dur||0); if(!(d>0))return null;
