@@ -13,12 +13,15 @@ const r=await ev(`(async function(){
   const out={};
   state.slate.obra='Obra vieja'; state.slate.autor='Yo'; state.slate.viewer=true; state.slate.logo='data:image/png;base64,iVBORw0KGgo=';
   /* la resolucion que anuncia la chapa tiene que ser la del MASTER (4096), no la del lienzo del visor (512) */
-  out.res=chapaDatos({}).resW+'x'+chapaDatos({}).resH;
+  /* [R285] chapaDatos ya NO fija la resolucion: alimenta tambien al export, donde la buena es la del fotograma
+     que se escribe. Quien la pasa es el VISOR, con el tamano del master. Se comprueba ahi. */
+  out.res=(function(){ const d=chapaDatos({resW:state.seqW,resH:state.seqH}); return d.resW+'x'+d.resH; })();
   out.seq=state.seqW+'x'+state.seqH;
   await newProject('dome',2048,2048,30,180,true);
   await new Promise(s=>setTimeout(s,900));
   out.trasNuevo={obra:state.slate.obra,autor:state.slate.autor,viewer:state.slate.viewer,logo:!!state.slate.logo};
-  out.resNueva=chapaDatos({}).resW+'x'+chapaDatos({}).resH;
+  out.resNueva=(function(){ const d=chapaDatos({resW:state.seqW,resH:state.seqH}); return d.resW+'x'+d.resH; })();
+  out.exportSinRes=(chapaDatos({}).resW==null);
   out.modo3D=(function(){ const v=state.view.mode; state.view.mode='3d'; const a=chapaVisorVisible(); state.view.mode=v; return a; })();
   return out; })()`);
 console.log('proyecto de 4096 -> la chapa anuncia '+r.res+'   (secuencia: '+r.seq+')');
@@ -28,5 +31,6 @@ if(r.res!=='4096x4096') mal('la chapa no anuncia la resolucion del master: '+r.r
 if(r.trasNuevo.obra||r.trasNuevo.autor||r.trasNuevo.logo||r.trasNuevo.viewer) mal('el proyecto nuevo ha heredado la chapa del anterior');
 if(r.resNueva!=='2048x2048') mal('la resolucion no sigue al proyecto nuevo: '+r.resNueva);
 if(r.modo3D) mal('la chapa se estampa tambien sobre el visor 3D');
+if(!r.exportSinRes) mal('chapaDatos vuelve a fijar la resolucion y hara mentir al export');
 console.log('\n'+(fallos?'*** '+fallos+' FALLOS':'sin herencia entre proyectos, resolucion del master, y nada en el visor 3D'));
 ws.close();

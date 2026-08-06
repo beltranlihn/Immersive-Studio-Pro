@@ -7957,7 +7957,9 @@ function chapaLienzo(glc,opt,t,i,total,fps){
     cx2.globalCompositeOperation='destination-over'; }   /* lo que venga ahora va DEBAJO: el negro, si se pidió */
   /* [R284] El modo se fija AQUI en vez de heredarlo de la rama del recorte: si `slate.on` llegara sin domo,
      el negro se pintaba ENCIMA y el fotograma salia en negro solido. */
-  if(d&&d.bgBlack){ cx2.globalCompositeOperation=recortar?'destination-over':'source-over';
+  /* [R285] SIEMPRE 'destination-over': el negro va debajo, se haya recortado o no. Mi condicion anterior
+     devolvia en las dos ramas el modo que ya estaba puesto, o sea que no arreglaba nada. */
+  if(d&&d.bgBlack){ cx2.globalCompositeOperation='destination-over';
     cx2.fillStyle='#000'; cx2.fillRect(0,0,W,H); }
   cx2.globalCompositeOperation='source-over';
   if(!d||!d.on)return _chapaCv;                          /* recorte sí, rótulos no */
@@ -8005,12 +8007,15 @@ let _chapaOv=null, _chapaOvCv=null;
 function chapaVisorVisible(){ return !!(state.slate&&state.slate.viewer&&state.seqMode==='dome'
   && state.view && state.view.mode!=='3d'); }   /* [R284] en el visor 3D no hay master que rotular: se estampaba sobre la orbita */
 function chapaDatos(extra){ const s=state.slate||{};
-  /* [R284] Mismo criterio que el export: si hay tramo de trabajo, la duracion es la del TRAMO. Antes el visor
-     decia la del proyecto entero y el archivo otra cosa, que es justo lo que esta funcion viene a evitar. */
-  const hayTramo=(state.workIn!=null&&state.workOut!=null&&state.workOut>state.workIn);
-  const dur=hayTramo?(state.workOut-state.workIn):duration();
-  return Object.assign({on:true,obra:s.obra||'',autor:s.autor||'',logo:s.logo||null,durTxt:TC(dur),
-    resW:state.seqW||null,resH:state.seqH||null},extra||{}); }
+  /* [R285] La duracion del visor sigue el criterio POR DEFECTO del export (rango 'clips'). Intente hacerla
+     seguir al tramo de trabajo y era peor: el export solo usa el tramo si se elige 'in/out' en la hoja, asi que
+     unas marcas puestas para repasar un bucle hacian que el visor dijera 00:05 y el archivo 01:00. El visor no
+     puede saber que rango se elegira; lo que si puede es no inventarse otro. */
+  const dur=duration();
+  /* [R285] `resW/resH` NO se ponen aqui. Esta funcion alimenta tambien al export, y ahi la resolucion buena
+     es la del fotograma que se esta escribiendo: un domo de 4096 exportado a 2048 escribia un archivo de 2048
+     rotulado «4096x4096». Solo el VISOR los pasa, porque su lienzo mide 512 y no dice nada del master. */
+  return Object.assign({on:true,obra:s.obra||'',autor:s.autor||'',logo:s.logo||null,durTxt:TC(dur)},extra||{}); }
 /* Se dibuja al final de `render()`. El lienzo interno va al tamaño del MÁSTER (COMP), no al del visor: así el
    resultado es idéntico al del export y sólo cambia la escala a la que se mira. */
 function chapaPintaVisor(){
@@ -8024,9 +8029,11 @@ function chapaPintaVisor(){
      (a_p - u_pan) * u_zoom. [R284] La capa tiene que hacer EXACTAMENTE lo mismo, o los rotulos no caen sobre
      el disco que se esta viendo: con el zoom de fabrica (0,92) ya salen desplazados, y basta con arrastrar
      el visor para que se despeguen del todo. */
-  const V=state.view||{}, z=(V.zoom||1), pan=V.pan||{x:0,y:0};
+  /* [R285] `pan` es un ARRAY [x,y] en todo el programa. Lo lei como objeto y las dos componentes salian
+     undefined: la compensacion no hacia NADA y arrastrar el visor seguia despegando los rotulos. */
+  const V=state.view||{}, z=(V.zoom||1), pan=Array.isArray(V.pan)?V.pan:[0,0];
   const base=Math.min(r.width,r.height), lado=base*z;
-  const dx=-(pan.x||0)*z*base/2, dy=(pan.y||0)*z*base/2;   /* u_pan va en unidades de clip: medio lado por unidad */
+  const dx=-(pan[0]||0)*z*base/2, dy=(pan[1]||0)*z*base/2;   /* u_pan va en unidades de clip: medio lado por unidad */
   _chapaOv.style.display='block';
   _chapaOv.style.left=Math.round(r.left-pr.left+(r.width-lado)/2+dx)+'px';
   _chapaOv.style.top =Math.round(r.top -pr.top +(r.height-lado)/2+dy)+'px';
@@ -8038,8 +8045,13 @@ function chapaPintaVisor(){
   /* Un lienzo transparente del tamaño del máster hace de «fotograma»: `chapaLienzo` compone encima y devuelve
      su copia, de la que sólo nos quedamos con los rótulos (el fondo va transparente porque el fotograma lo es). */
   const vacio=_chapaOvCv.getContext('2d'); vacio.clearRect(0,0,N,N);
-  const fps=Math.round(state.fps||30), i=Math.max(0,Math.round(state.playhead*fps));
-  const salida=chapaLienzo(_chapaOvCv, {slate:chapaDatos({bgBlack:false})}, state.playhead, i, 0, fps);
+  /* [R285] El contador cuenta desde donde CONTARA el export, no desde el cero de la linea de tiempo. Con el
+     rango por defecto ('clips') el export arranca en el primer clip, asi que un montaje que empieza en el
+     segundo 10 daba «Frames: 301F» en el visor y «1F» en el archivo. */
+  const fps=Math.round(state.fps||30);
+  let t0=0; try{ if(state.clips&&state.clips.length)t0=Math.min.apply(null,state.clips.map(c=>c.start||0)); }catch(e){}
+  const i=Math.max(0,Math.round((state.playhead-t0)*fps));
+  const salida=chapaLienzo(_chapaOvCv, {slate:chapaDatos({bgBlack:false,resW:state.seqW||null,resH:state.seqH||null})}, state.playhead, i, 0, fps);
   try{ cx.drawImage(salida,0,0,N,N); }catch(e){}
 }
 /* El cuadro para rellenar los datos, desde el menú Window. Mismos topes que al hornear. */
@@ -11714,7 +11726,7 @@ function openAppMenu(which,btn){ const r=btn.getBoundingClientRect(); const x=r.
        en la hoja de export: mirar no puede implicar entregar. */
     /* [R284] El tick va en el propio rotulo: 'check' no esta en el registro de iconos y salia un <svg> vacio
        que solo corria la etiqueta 22 px. */
-    {label:((state.slate&&state.slate.viewer)?'✓ ':'  ')+T('Corner data','Datos de esquina'),
+{label:((state.slate&&state.slate.viewer)?'✓ ':'')+T('Corner data','Datos de esquina'),   /* [R285] como los otros tres sitios: el relleno con espacio fino se colapsa al pasar por innerHTML */
      fn:()=>{ state.slate=state.slate||{}; state.slate.viewer=!state.slate.viewer; markDirty(); render();
               flashStatus(state.slate.viewer?T('Corner data on','Datos de esquina activados'):T('Corner data off','Datos de esquina desactivados')); }},
     {label:T('Corner data…','Datos de esquina…'),fn:()=>openSlateDialog()},
