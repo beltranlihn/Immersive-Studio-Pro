@@ -11726,10 +11726,10 @@ function openAppMenu(which,btn){ const r=btn.getBoundingClientRect(); const x=r.
        en la hoja de export: mirar no puede implicar entregar. */
     /* [R284] El tick va en el propio rotulo: 'check' no esta en el registro de iconos y salia un <svg> vacio
        que solo corria la etiqueta 22 px. */
-{label:((state.slate&&state.slate.viewer)?'✓ ':'')+T('Corner data','Datos de esquina'),   /* [R285] como los otros tres sitios: el relleno con espacio fino se colapsa al pasar por innerHTML */
+{label:((state.slate&&state.slate.viewer)?'✓ ':'')+T('Show corner data','Mostrar datos de esquina'),   /* [R286] las dos entradas se llamaban igual y parecian repetidas: esta ENCIENDE la vista, la de abajo abre el cuadro. [R285] el tick como en los otros tres sitios: el relleno con espacio fino se colapsa al pasar por innerHTML */
      fn:()=>{ state.slate=state.slate||{}; state.slate.viewer=!state.slate.viewer; markDirty(); render();
               flashStatus(state.slate.viewer?T('Corner data on','Datos de esquina activados'):T('Corner data off','Datos de esquina desactivados')); }},
-    {label:T('Corner data…','Datos de esquina…'),fn:()=>openSlateDialog()},
+    {label:T('Corner data settings…','Ajustes de datos de esquina…'),fn:()=>openSlateDialog()},
     'sep',
     {label:T('Full performance','Rendimiento total'),fn:()=>setPerfMode(true)},
     'sep',
