@@ -10255,17 +10255,22 @@ function clipsDelProyecto(){ const out=[], vistos=new Set();
 function reconciliarDuracion(m,oldDur){
   const nueva=m.dur;
   if(!isFinite(nueva)||nueva<=0||!isFinite(oldDur)||oldDur<=0||Math.abs(nueva-oldDur)<1e-3)return '';
-  const TOL=0.02; // el ciclo "entero" se reconoce con medio fotograma de margen; un trozo elegido a mano nunca cae tan cerca
   let bucles=0, desbordan=0;
   for(const c of clipsDelProyecto()){
     if(c.mediaId!==m.id)continue;
     if((c.inP||0)>nueva)c.inP=Math.max(0,nueva-0.05); // el punto de entrada tiene que caber en el material nuevo
     const inP=c.inP||0, resto=Math.max(0.05,nueva-inP);
     if(c.loop&&c.loopLen>0){
-      const eraEntero=Math.abs(c.loopLen-(oldDur-inP))<=TOL;
-      const antes=c.loopLen;
-      c.loopLen=eraEntero?resto:Math.max(0.05,Math.min(c.loopLen,resto));
-      if(Math.abs(c.loopLen-antes)>1e-6)bucles++;
+      /* [R280] Un clip loopeado pasa a loopear el medio nuevo ENTERO. Antes sólo se reajustaba si el bucle
+         viejo era un ciclo completo; si no, se recortaba al material disponible y el clip seguía repitiendo un
+         trozo del archivo ANTERIOR, que en el nuevo no significa nada. Petición de Beltrán: «el clip
+         automáticamente loopea en la duración completa del new media».
+         Su duración en la línea de tiempo NO se toca — es la regla de siempre: lo que cambia son las divisiones,
+         no el hueco que el clip ocupa en el montaje. Y la mitad de audio enlazada repite el mismo tramo. */
+      const antes=c.loopLen, antesIn=c.inP||0;
+      c.inP=0; c.loopLen=nueva;
+      { const par=linkPartner(c); if(par&&par.loop){ par.inP=0; par.loopLen=nueva; } }
+      if(Math.abs(c.loopLen-antes)>1e-6||Math.abs(antesIn)>1e-6)bucles++;
     } else if(inP+(c.dur||0)*(c.speed||1)>nueva+1e-3) desbordan++;
   }
   const d=(nueva-oldDur), sig=(d>0?'+':'');
