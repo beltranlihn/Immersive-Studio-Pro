@@ -1592,7 +1592,11 @@ function renderRoom3D(wallsTex){ const seq=activeSeq(); const room=seq&&seq.room
 /* [R282] La chapa del visor se repinta DESPUES de cada render, envolviendo la funcion en vez de tocar sus
    veinte puntos de salida -tiene varios `return` por el camino, y colgarlo de cada uno era garantizar olvidarse
    de alguno-. */
-function render(){ const _r=_renderNucleo.apply(this,arguments); try{ chapaPintaVisor(); }catch(e){} return _r; }
+function render(){ const _r=_renderNucleo.apply(this,arguments);
+  /* [R284] Durante un export el nucleo ni dibuja, y la capa costaba dos reflujos y una maquetacion de
+     texto por fotograma, ademas de zarandear el lienzo compartido entre 4096 y 512. */
+  if(!exporting){ try{ chapaPintaVisor(); }catch(e){} }
+  return _r; }
 function _renderNucleo(){ if(glLost)return;
   if(exporting)return;
   try{ syncCompSize(); }catch(_){} // [R237] el máster lleva la FORMA de lo que se va a dibujar (ver syncCompSize)
@@ -7951,7 +7955,10 @@ function chapaLienzo(glc,opt,t,i,total,fps){
     cx2.globalCompositeOperation='destination-in';
     cx2.beginPath(); cx2.arc(W/2,H/2,Math.min(W,H)/2,0,Math.PI*2); cx2.fill();
     cx2.globalCompositeOperation='destination-over'; }   /* lo que venga ahora va DEBAJO: el negro, si se pidió */
-  if(d&&d.bgBlack){ cx2.fillStyle='#000'; cx2.fillRect(0,0,W,H); }
+  /* [R284] El modo se fija AQUI en vez de heredarlo de la rama del recorte: si `slate.on` llegara sin domo,
+     el negro se pintaba ENCIMA y el fotograma salia en negro solido. */
+  if(d&&d.bgBlack){ cx2.globalCompositeOperation=recortar?'destination-over':'source-over';
+    cx2.fillStyle='#000'; cx2.fillRect(0,0,W,H); }
   cx2.globalCompositeOperation='source-over';
   if(!d||!d.on)return _chapaCv;                          /* recorte sí, rótulos no */
   cx2.fillStyle='#FFFFFF';
@@ -7961,7 +7968,9 @@ function chapaLienzo(glc,opt,t,i,total,fps){
   chapaLogo(cx2,W,H,margen,Math.round(W*0.055));
   if(d.obra)   chapaBloque(cx2,[String(d.obra).slice(0,CHAPA_MAX.obra)],pxGrande,-1,1,W,H,margen);
   { const L=[]; if(d.autor)L.push(T('Created by ','Creado por ')+String(d.autor).slice(0,CHAPA_MAX.autor));
-    L.push(T('Resolution: ','Resolución: ')+W+'x'+H+'px');
+    /* [R284] La resolucion es la del MASTER, no la del lienzo en el que se dibuja: el visor pinta la chapa
+       en 512 px para mirarla, y sin este dato anunciaba «512x512» mientras el archivo salia a 4096. */
+    L.push(T('Resolution: ','Resolución: ')+(d.resW||W)+'x'+(d.resH||H)+'px');
     if(d.durTxt)L.push(T('Duration: ','Duración: ')+d.durTxt);
     L.push(T('Format: ','Formato: ')+Math.round(fps||0)+'fps');
     chapaBloque(cx2,L,pxChico,1,-1,W,H,margen); }
@@ -7993,24 +8002,34 @@ async function chapaCargarLogo(src){ _chapaLogo=null; _chapaLogoSrc=src||'';
    escala al hueco del visor. Por eso lo que ves es lo que sale: misma regla de «fuera del círculo», mismos
    tamaños relativos, mismo recorte de caracteres. */
 let _chapaOv=null, _chapaOvCv=null;
-function chapaVisorVisible(){ return !!(state.slate&&state.slate.viewer&&state.seqMode==='dome'); }
+function chapaVisorVisible(){ return !!(state.slate&&state.slate.viewer&&state.seqMode==='dome'
+  && state.view && state.view.mode!=='3d'); }   /* [R284] en el visor 3D no hay master que rotular: se estampaba sobre la orbita */
 function chapaDatos(extra){ const s=state.slate||{};
-  return Object.assign({on:true,obra:s.obra||'',autor:s.autor||'',logo:s.logo||null,durTxt:TC(duration())},extra||{}); }
+  /* [R284] Mismo criterio que el export: si hay tramo de trabajo, la duracion es la del TRAMO. Antes el visor
+     decia la del proyecto entero y el archivo otra cosa, que es justo lo que esta funcion viene a evitar. */
+  const hayTramo=(state.workIn!=null&&state.workOut!=null&&state.workOut>state.workIn);
+  const dur=hayTramo?(state.workOut-state.workIn):duration();
+  return Object.assign({on:true,obra:s.obra||'',autor:s.autor||'',logo:s.logo||null,durTxt:TC(dur),
+    resW:state.seqW||null,resH:state.seqH||null},extra||{}); }
 /* Se dibuja al final de `render()`. El lienzo interno va al tamaño del MÁSTER (COMP), no al del visor: así el
    resultado es idéntico al del export y sólo cambia la escala a la que se mira. */
 function chapaPintaVisor(){
   const gl0=$('#gl'); if(!gl0)return;
   if(!_chapaOv){ _chapaOv=document.createElement('canvas'); _chapaOv.id='slateOv';
-    _chapaOv.style.cssText='position:absolute;pointer-events:none;z-index:6;';
+    _chapaOv.style.cssText='position:absolute;pointer-events:none;z-index:4;';   /* [R284] por DEBAJO de .rendermask (6): compartian capa y los rotulos flotaban sobre el aviso de Renderizando */
     if(gl0.parentElement)gl0.parentElement.appendChild(_chapaOv); }
   if(!chapaVisorVisible()){ _chapaOv.style.display='none'; return; }
   const r=gl0.getBoundingClientRect(), pr=gl0.parentElement.getBoundingClientRect();
-  /* El visor dibuja el domo en un CUADRADO centrado; la chapa tiene que ir sobre ese cuadrado, no sobre todo
-     el hueco, o los rótulos se irían a las esquinas de la ventana y dejarían de corresponderse con el máster. */
-  const lado=Math.min(r.width,r.height);
+  /* El visor dibuja el master en un CUADRADO centrado, y encima lo escala y lo desplaza: el shader compone
+     (a_p - u_pan) * u_zoom. [R284] La capa tiene que hacer EXACTAMENTE lo mismo, o los rotulos no caen sobre
+     el disco que se esta viendo: con el zoom de fabrica (0,92) ya salen desplazados, y basta con arrastrar
+     el visor para que se despeguen del todo. */
+  const V=state.view||{}, z=(V.zoom||1), pan=V.pan||{x:0,y:0};
+  const base=Math.min(r.width,r.height), lado=base*z;
+  const dx=-(pan.x||0)*z*base/2, dy=(pan.y||0)*z*base/2;   /* u_pan va en unidades de clip: medio lado por unidad */
   _chapaOv.style.display='block';
-  _chapaOv.style.left=Math.round(r.left-pr.left+(r.width-lado)/2)+'px';
-  _chapaOv.style.top =Math.round(r.top -pr.top +(r.height-lado)/2)+'px';
+  _chapaOv.style.left=Math.round(r.left-pr.left+(r.width-lado)/2+dx)+'px';
+  _chapaOv.style.top =Math.round(r.top -pr.top +(r.height-lado)/2+dy)+'px';
   _chapaOv.style.width=Math.round(lado)+'px'; _chapaOv.style.height=Math.round(lado)+'px';
   const N=512;                                  // resolución del lienzo de la chapa: de sobra para mirarla
   if(!_chapaOvCv||_chapaOvCv.width!==N){ _chapaOvCv=document.createElement('canvas'); _chapaOvCv.width=_chapaOvCv.height=N; }
@@ -8058,7 +8077,10 @@ function openSlateDialog(){
   chapaCargarLogo(s.logo).then(sync);
 }
 async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
-  try{ if(opt&&opt.slate&&opt.slate.on)await chapaCargarLogo(opt.slate.logo); else await chapaCargarLogo(null); }catch(_){}
+  /* [R284] El logo lo comparten visor y export. Antes, un export SIN chapa llamaba a cargarlo con null y
+     borraba el que el visor estaba usando: desaparecia de la pantalla hasta reabrir el cuadro. Ahora
+     solo se carga cuando hace falta, y nunca se borra desde aqui. */
+  try{ if(opt&&opt.slate&&opt.slate.on&&opt.slate.logo)await chapaCargarLogo(opt.slate.logo); }catch(_){}
   let _rsSeq=null; if(opt.seqId && isSeqMedia(mediaById(opt.seqId)) && opt.seqId!==state.activeSeqId){ _rsSeq=state.activeSeqId; switchSeq(opt.seqId); } // F5: export another sequence (e.g. the room floor) in its own job, then restore
   const res=opt.res, fps=opt.fps; diag('info','export','start',{codec:opt.codec,res,fps,bitrate:opt.bitrate, seq:activeSeq()&&activeSeq().name});
   // [R94d] range chosen in the export dialog: 'inout' = the I/O marks · 'clips' = the clip extent (default). Legacy jobs with no range keep the old behaviour (I/O if set).
@@ -8198,6 +8220,12 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
       } else { const zip=new Zip();
         for(let i=0;i<total;i++){ if(cancelExport)break; const blob=await renderFrame(i); zip.add(filePre+'_'+fnum(i)+'.png',new Uint8Array(await blob.arrayBuffer())); job.prog(i+1,total); await new Promise(r=>setTimeout(r,0)); }
         if(!cancelExport){ if(audioBuf)zip.add('audio.wav',audioBufferToWav(audioBuf)); job.label&&job.label(T('Packaging…','Empaquetando…'));await new Promise(r=>setTimeout(r,30));dlBlob(zip.finish(),`${filePre}_${dimStr}_${fps}fps.zip`); } }
+    /* [R284·PENDIENTE] HAP no pasa por `chapaLienzo` y por tanto NO recibe ni el recorte al circulo ni los
+       datos de esquina. No es un olvido: `dxtEncodeCanvas` lee el framebuffer de GL con `copyTexImage2D`, no un
+       lienzo 2D, asi que el mismo arreglo no sirve aqui — hace falta enmascarar en GL antes de la copia. Se deja
+       ANOTADO en vez de improvisado: un master HAP con las esquinas sucias es un fallo, pero meterle un cambio
+       de GL sin poder probarlo a fondo es peor. El comentario de R283 decia que PNG y MP4 eran las dos unicas
+       rutas de salida, y era falso. */
     } else if(opt.codec==='hap'||opt.codec==='hapq'){ // R100: Hap1 / HapY .mov — GPU DXT + Snappy + our own QuickTime muxer, no FFmpeg
       const F=HAP_FMT[opt.codec];
       if(!(IS_ELEC && DSP.fileOpen && DSP.saveFile)) throw new Error(T('HAP export needs the desktop app.','El export HAP necesita la app de escritorio.'));
@@ -10240,6 +10268,9 @@ function migrateNestFulldome(){ let n=0;
 function resetProjView(){ state.view.zoom=0.92; state.view.pan=[0,0]; state.view.vp=null; state.view.vpFocus=null;
   state.view.cam={yaw:0, pitch:0.5, dist:3.0, fov:60, back:0.8}; } // el encuadre del visor (global + por panel + cámara 3D) es del proyecto que se cierra, no del que se abre — newRoomProject ya lo hacía; ahora lo hacen los tres caminos
 function resetProjDefaults(){ state.seqMode='dome'; state.seqCov=180;
+  /* [R284] La chapa TAMBIEN se resetea: sin esto, el titulo, el autor y el logo del proyecto anterior se
+     colaban en uno nuevo, en su .isp y en su master horneado. Misma familia de fugas que cerro R242. */
+  state.slate={ viewer:false, obra:'', autor:'', logo:null, logoNom:'' }; try{ chapaCargarLogo(null); }catch(e){}
   state.tl.bpm=120; state.tl.sig=4; state.tl.tcMode='timecode';
   /* [R242b] `inlineCurves` vive en el MISMO bloque `tl` serializado y sólo se restauraba dentro del `if(obj.tl)`:
      abrir un legacy sin ese bloque conservaba el modo automatización del proyecto anterior (con `#curvesBtn`
@@ -11681,7 +11712,9 @@ function openAppMenu(which,btn){ const r=btn.getBoundingClientRect(); const x=r.
     {label:T('Viewer-only window','Ventana solo-visor'),ico:'popout',fn:openViewerWindow},
     /* [R282] La chapa: verla mientras montas y rellenar sus datos. Grabarla en el archivo es OTRO interruptor,
        en la hoja de export: mirar no puede implicar entregar. */
-    {label:T('Corner data','Datos de esquina'),ico:(state.slate&&state.slate.viewer)?'check':undefined,
+    /* [R284] El tick va en el propio rotulo: 'check' no esta en el registro de iconos y salia un <svg> vacio
+       que solo corria la etiqueta 22 px. */
+    {label:((state.slate&&state.slate.viewer)?'✓ ':'  ')+T('Corner data','Datos de esquina'),
      fn:()=>{ state.slate=state.slate||{}; state.slate.viewer=!state.slate.viewer; markDirty(); render();
               flashStatus(state.slate.viewer?T('Corner data on','Datos de esquina activados'):T('Corner data off','Datos de esquina desactivados')); }},
     {label:T('Corner data…','Datos de esquina…'),fn:()=>openSlateDialog()},
