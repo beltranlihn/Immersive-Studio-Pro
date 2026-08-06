@@ -1,0 +1,25 @@
+# Finales de línea del repositorio.
+#
+# `text=auto eol=lf` guarda TODO el texto con LF en el repositorio y también lo saca así
+# a la carpeta de trabajo. Sin esto, un commit desde Windows convertía `app.js` e
+# `index.html` enteros a CRLF: git enseñaba 27 000 líneas cambiadas donde el cambio real
+# eran 1 030, y con eso se va al traste cualquier diff entre máquinas y `git blame`.
+* text=auto eol=lf
+
+# Y los binarios, DECLARADOS. `text=auto` los detecta solo (busca bytes nulos al principio
+# del archivo) y con estos acertaría, pero aquí hay 270 PNG y 14 fuentes .woff2: si alguno
+# se colara como texto, la normalización le cambiaría bytes y quedaría corrupto sin que
+# nada avise. Declararlos cuesta seis líneas y quita el riesgo entero.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.woff2 binary
+*.woff binary
+*.node binary
+*.asar binary
+*.exe  binary
+*.mp4  binary
+*.mov  binary
+*.wav  binary
