@@ -7609,9 +7609,12 @@ function collectDrawnVideoClips(clips,lanes,t,depth,out,pGain,pRate){ out=out||[
     else if(m.kind==='nest'&&m.nestClips) collectDrawnVideoClips(m.nestClips,(m.nestLanes&&m.nestLanes.length?m.nestLanes:lanes),lt,(depth||0)+1,out,g,rr); }
   return out; }
 let playRaf=0,lastT=0,_phLast=null,_audioBase=0,_audioHead=0;
-function play(){ if(state.playing)return; if(state.tl.selA!=null){ let _p=Math.min(state.tl.selA, state.tl.selB==null?state.tl.selA:state.tl.selB); if(state.loop&&state.workIn!=null&&state.workOut!=null)_p=Math.max(state.workIn,Math.min(state.workOut,_p)); state.playhead=_p; positionPlayhead(); } /* start from the timeline insert/selection (clamped into an active loop region); else resume where the playhead is */ diag('info','transport','play',{at:+state.playhead.toFixed(2)}); state.playing=true; stopMotionPreview(); _previewClock=0; $('#playBtn').innerHTML=ICO('pause'); lastT=performance.now();
+let _enBucle=false;   /* [R279] esta reproduccion envuelve? Se decide al arrancar, mirando si el cabezal cae DENTRO del tramo */
+function play(){ if(state.playing)return; if(state.tl.selA!=null){ let _p=Math.min(state.tl.selA, state.tl.selB==null?state.tl.selA:state.tl.selB); state.playhead=_p; positionPlayhead(); }   /* [R279] sin encajar a la fuerza dentro del bucle: si el punto de inicio esta fuera, se reproduce desde ahi */ /* start from the timeline insert/selection (clamped into an active loop region); else resume where the playhead is */ diag('info','transport','play',{at:+state.playhead.toFixed(2)}); state.playing=true; stopMotionPreview(); _previewClock=0; $('#playBtn').innerHTML=ICO('pause'); lastT=performance.now();
   for(const {c,m,local,gain,rate} of collectDrawnVideoClips(state.clips,state.lanes,state.playhead,0,[])){ const vi=vinstEnsure(c,m); if(vi&&vi.vel){ const eff=Math.max(0.0625,Math.min(16,rate||c.speed||1)); (vi.loadP||Promise.resolve()).then(()=>{ try{vi.vel.currentTime=local;}catch(e){} }); vi.vel.muted=true; try{vi.vel.loop=false;}catch(e){} try{vi.vel.playbackRate=eff;}catch(e){} vi.vel.play().catch(()=>{});
-    const a=vinstAudio(vi,m); if(a){ try{a.currentTime=local;}catch(e){} try{a.playbackRate=eff;}catch(e){} a.volume=Math.max(0,Math.min(1,gain==null?1:gain)); a.muted=(gain!=null&&gain<=0.001); a.play().catch(()=>{}); } } } startAudio(); ploop(); } // loop=false: the timeline (ploop) governs clip-bounded looping, not the element. [R92-T2 C1] the paired <audio> (original file) carries the video's sound. [R92-T6] eff = rate composed through the nest chain
+    const a=vinstAudio(vi,m); if(a){ try{a.currentTime=local;}catch(e){} try{a.playbackRate=eff;}catch(e){} a.volume=Math.max(0,Math.min(1,gain==null?1:gain)); a.muted=(gain!=null&&gain<=0.001); a.play().catch(()=>{}); } } } _enBucle=(state.workIn!=null&&state.workOut!=null&&state.workOut>state.workIn
+    && state.playhead>=state.workIn-1e-6 && state.playhead<state.workOut-1e-6);   /* [R279] arrancar FUERA del bucle = reproducir recto */
+  startAudio(); ploop(); } // loop=false: the timeline (ploop) governs clip-bounded looping, not the element. [R92-T2 C1] the paired <audio> (original file) carries the video's sound. [R92-T6] eff = rate composed through the nest chain
 /* ===================== [R97] J / K / L — the universal shuttle =====================
    The one standard every NLE shares (Premiere, Avid, Resolve, FCP) and the clearest "this is a real NLE" signal:
    J = back · K = stop · L = forward, and pressing again doubles the speed (1×→2×→4×→8×). Holding K with J/L = slow (¼×).
@@ -7648,9 +7651,18 @@ function pause(){ state.playing=false; stopShuttle(); $('#playBtn').innerHTML=IC
 function ploop(){ if(!state.playing)return; const now=performance.now(),dt=(now-lastT)/1000;lastT=now;
   if(_phLast!=null && Math.abs(state.playhead-_phLast)>0.06) startAudio(); // playhead was seeked externally while playing → reschedule audio to the new position
   if(audioSources.length&&actx){ state.playhead=_audioHead+(actx.currentTime-_audioBase); } else { state.playhead+=dt; } // slave visuals to the audio clock when audio is playing (no drift); else free-run on rAF
+  /* [R279] Dos ataduras que Beltran queria sueltas.
+     1) El bucle YA NO CONFINA la reproduccion: ahora envuelve solo si se ARRANCO dentro de su tramo (`_enBucle`,
+        que decide `play()`). Antes, con un bucle puesto, pulsar play en cualquier otro punto del montaje te
+        teletransportaba dentro del bucle: no habia forma de repasar el resto sin quitarlo y volverlo a poner.
+     2) Se puede reproducir MAS ALLA del ultimo clip. `duration()` mide donde acaban los clips, y el transporte
+        se paraba justo ahi -«solo pone play hasta donde llegan clips»-; para trabajar en un hueco vacio, o
+        antes de tener nada montado, hay que poder correr por encima de la nada. Sigue parandose SOLO al final
+        del tramo de trabajo, que es un limite que el usuario ha puesto a proposito. */
   const hasWork=state.workIn!=null&&state.workOut!=null&&state.workOut>state.workIn;
-  const endT=hasWork?state.workOut:duration(), startT=hasWork?state.workIn:0;
-  if(state.playhead>=endT){ if(state.loop||hasWork){state.playhead=startT;for(const m of state.media)if(m.kind==='video'&&m.el){try{m.el.currentTime=0;}catch(e){}} startAudio();} else {state.playhead=endT;pause();} }
+  const enBucle=hasWork&&_enBucle;
+  if(enBucle){ if(state.playhead>=state.workOut){ state.playhead=state.workIn;
+      for(const m of state.media)if(m.kind==='video'&&m.el){try{m.el.currentTime=0;}catch(e){}} startAudio(); } }
   { const ra=raHas(state.playhead); const drawn=collectDrawnVideoClips(state.clips,state.lanes,state.playhead,0,[]); const act=new Set(); // [R92-T6] the drawn pass runs EVERY frame now: with render-ahead serving cached frames, the per-clip <audio> used to go orphan (kept playing stale volume/position)
     for(const {c,m,local,gain,rate} of drawn){ act.add(c.id); const vi=vinstEnsure(c,m); if(!vi||!vi.vel)continue; const v=vi.vel; const eff=Math.max(0.0625,Math.min(16,rate||c.speed||1)); const cdOn=driveCD(vi,c,m,local); // [R108·E4] ClipDecoder owns VIDEO when active; <video> below is skipped, audio still runs
       /* [R104] TORMENTA DE SEEKS. R92 metió el servo de velocidad pero dejó el seek duro a 0.2s de deriva.
@@ -7973,7 +7985,17 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
         const dir=opt.outDir||await DSP.chooseExportDir();   // [R188] `outDir` salta el diálogo nativo: simetría con el `outPath` que ya usa el MP4, y sin él la secuencia PNG no se puede probar de punta a punta
         if(!dir){ cancelExport=true; }
         else { const sub=dir+'/'+filePre+'_'+dimStr+'_'+fps+'fps'; if(!(await DSP.ensureDir(sub)))throw new Error(T('Cannot create export folder (not writable).','No se pudo crear la carpeta de exportación (sin permiso).'));
-          const comprimirYEscribir=i=>new Promise((res,rej)=>{ glc.toBlob(async b=>{ try{
+          /* [R279] Fondo NEGRO opcional. El PNG sale con alfa porque el domo tiene zonas vacias; para
+             entregarlo a quien no sabe que hacer con la transparencia hace falta plancharlo sobre negro. Se hace
+             componiendo el lienzo sobre un 2D relleno de negro OPACO: PNG sigue siendo sin perdida, lo unico que
+             cambia es que el canal alfa va a 255. El canvas se crea UNA vez, no uno por fotograma. */
+          const planchar=opt.pngBg==='black';
+          let cvBg=null, ctxBg=null;
+          if(planchar){ cvBg=document.createElement('canvas'); cvBg.width=glc.width; cvBg.height=glc.height; ctxBg=cvBg.getContext('2d'); }
+          const lienzoPng=()=>{ if(!planchar)return glc;
+            ctxBg.globalCompositeOperation='source-over'; ctxBg.fillStyle='#000'; ctxBg.fillRect(0,0,cvBg.width,cvBg.height);
+            ctxBg.drawImage(glc,0,0); return cvBg; };
+          const comprimirYEscribir=i=>new Promise((res,rej)=>{ lienzoPng().toBlob(async b=>{ try{
               if(!b)throw new Error(T('PNG encoding failed.','Falló la codificación PNG.'));
               if(job.wrote)job.wrote(b.size);
               if(await DSP.writeBinary(sub+'/'+filePre+'_'+fnum(i)+'.png', new Uint8Array(await b.arrayBuffer()))===false)
@@ -8042,7 +8064,11 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
       _exStage='save-dialog';
       const canStream=IS_ELEC && !!DSP.fileOpen && !!DSP.saveFile;
       let streamPath=null,fileId=null,wq=Promise.resolve(),wErr=null,pending=0;
-      if(canStream){ streamPath=opt.outPath||await DSP.saveFile(fn,'mp4','MP4 video'); if(!streamPath){ _exportCleanup(true); return; } fileId=await DSP.fileOpen(streamPath); } // [R214] full cleanup on this early return via _exportCleanup — see its definition above for why that matters
+      /* [R279] Si ya hay carpeta elegida en la hoja, se compone la ruta y NO se abre el dialogo nativo: era
+         lo que obligaba a decidir el destino con el export ya lanzado. El separador se toma de la propia ruta
+         para no suponer el sistema. */
+      const _uneRuta=(d,n)=>{ const sep=(d.indexOf(String.fromCharCode(92))>=0)?String.fromCharCode(92):'/'; return d+sep+n; };
+      if(canStream){ streamPath=opt.outPath||(opt.outDir?_uneRuta(opt.outDir,fn):await DSP.saveFile(fn,'mp4','MP4 video')); if(!streamPath){ _exportCleanup(true); return; } fileId=await DSP.fileOpen(streamPath); } // [R214] full cleanup on this early return via _exportCleanup — see its definition above for why that matters
       const streaming=canStream && fileId!=null;
       const muxCfg={video:{codec:muxCodec,width:eW,height:eH}};
       if(streaming){ muxCfg.fastStart=false; muxCfg.target=new Mp4Muxer.StreamTarget({chunked:true,onData:(data,position)=>{ const buf=data.slice(); if(job.wrote)job.wrote(buf.byteLength); pending++; wq=wq.then(()=>DSP.fileWriteAt(fileId,position,buf)).then(ok=>{pending--; if(ok===false)wErr=wErr||new Error('disk write failed');},e=>{pending--;wErr=wErr||e;}); }}); }
@@ -8662,10 +8688,12 @@ function exFmtDur(s){ s=Math.max(0,Math.round(s)); const m=Math.floor(s/60); ret
 function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the timeline first.','Primero añade clips a la línea de tiempo.'));return;}
   if(document.getElementById('exOv'))return; // [R102·rev] nunca dos hojas: `$()` es querySelector y el cableado se enganchaba a la vieja y oculta
   const as=activeSeq()||{}, dome=!isFlat(), room=isRoom();
-  const S={ szMode:'match', szPreset:(as.w||4096), szW:(as.w||1920), szH:(dome?(as.w||4096):(as.h||1080)),
+  const S={ outDir:null, pngBg:'alpha',   /* [R279] la carpeta se recuerda entre sesiones; el fondo no, es una decision de cada entrega */
+            szMode:'match', szPreset:(as.w||4096), szW:(as.w||1920), szH:(dome?(as.w||4096):(as.h||1080)),
             codec:'png', fps:(as.fps||state.fps||60), br:120, brTouched:false, chunks:'auto',
             roomMode:'strip', phase:'idle', pct:0, frame:0, frames:0, t0:0, tPause:0, bytes:0, warns:[], batch:[], batchDone:0 };
-  { const L=lastExportGet(); if(L){ if(L.codec)S.codec=L.codec; if(L.fps)S.fps=+L.fps; if(L.br)S.br=+L.br; // [R191] H.265 vuelve a la lista, así que una memoria vieja con 'hevc' ya es válida
+  { const L=lastExportGet(); if(L){ if(L.dir)S.outDir=L.dir;   /* [R279] la carpeta elegida sobrevive a cerrar la app */
+    if(L.codec)S.codec=L.codec; if(L.fps)S.fps=+L.fps; if(L.br)S.br=+L.br; // [R191] H.265 vuelve a la lista, así que una memoria vieja con 'hevc' ya es válida
       if(L.res){ S.szMode='preset'; S.szPreset=+L.res; } } } // [R102·D-T4] abre con lo último que usaste, no con valores de fábrica
 
   const ov=document.createElement('div'); ov.className='exs-scrim'; ov.id='exOv';
@@ -8708,6 +8736,18 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
       <div class="exs-row"><label>${T('Range','Rango')}</label><div class="exs-seg" id="exRange"><button data-rg="clips">${T('Clip extent','Extensión')}</button><button data-rg="inout">${T('In / Out','Entrada / Salida')}</button></div><span class="exs-hint" id="exRangeTc"></span></div>
       <div class="exs-row"><label>${T('Codec','Códec')}</label><select id="exCodec" style="flex:1;"></select></div>
       <div class="exs-row span hintwrap" id="exCodecHintRow" style="display:none;"><label></label><span class="exs-hint wrap" id="exCodecHint"></span></div><!-- [R214→R215] was single-line ellipsis (.exs-hint default) — this message runs long ("H.265/HEVC does not reach…"). R214 wrapped it with inline styles (untamed, could grow the dialog past the footer in a short window); R215 moves layout to CSS (.span for full-width row + .hintwrap/.exs-hint.wrap in index.html) with a 3-line clamp so the dialog has a hard height ceiling. title mirrors the text below for the untruncated case. -->
+      <!-- [R279] Destino ANTES de exportar. Hasta ahora la carpeta se pedia con un dialogo nativo que salta
+           DESPUES de pulsar Exportar, cuando ya no se puede echar atras sin cancelar el trabajo. -->
+      <div class="exs-row span"><label>${T('Destination','Destino')}</label>
+        <div style="display:flex;align-items:center;gap:8px;width:100%;min-width:0;">
+          <span class="exs-hint" id="exDirTxt" style="flex:1;min-width:0;direction:rtl;text-align:left;">${T('Ask when exporting','Preguntar al exportar')}</span>
+          <button class="mbtn" id="exDirPick" style="height:20px;padding:0 9px;flex:0 0 auto;">${T('Choose…','Elegir…')}</button>
+          <button class="mbtn" id="exDirClear" style="height:20px;padding:0 8px;flex:0 0 auto;display:none;" title="${T('Ask each time','Preguntar cada vez')}">✕</button>
+        </div></div>
+      <!-- [R279] Fondo del PNG. La secuencia sale con alfa porque el domo tiene zonas vacias; sobre negro
+           se entrega a quien no sabe que hacer con la transparencia, y sigue siendo sin perdida. -->
+      <div class="exs-row" id="exPngBgRow" style="display:none;"><label>${T('Background','Fondo')}</label>
+        <div class="exs-seg" id="exPngBg"><button data-bg="alpha">${T('Transparent','Transparente')}</button><button data-bg="black">${T('Black','Negro')}</button></div></div>
       <div class="exs-row"><label>${T('Frame rate','Cuadros/s')}</label><select id="exFps">${[24,25,30,48,50,60].map(f=>`<option value="${f}">${f}</option>`).join('')}</select><span class="exs-unit">fps</span></div>
       <div class="exs-row span"><label>${T('Pixel size','Tamaño en píxeles')}</label>
         <div style="display:flex;align-items:center;gap:8px;width:100%;">
@@ -8816,7 +8856,7 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
      cualquier bitrate; 4096×2160 sí) · H.265 no pasa de ~1080p, y NO es límite de la GPU (NVENC llega a 8192²),
      es el codificador HEVC de Chromium en Windows. La interfaz no repite esos números: los vuelve a preguntar. */
   const EX_CODECS=[
-    {v:'png',  kind:null,   lbl:()=>T('PNG sequence · alpha, lossless','Secuencia PNG · alfa, sin pérdida')},
+    {v:'png',  kind:null,   lbl:()=>T('PNG sequence · lossless','Secuencia PNG · sin pérdida')},   /* [R279] ya no dice «alfa»: el alfa es ahora una eleccion de la fila Fondo */
     {v:'mp4',  kind:'h264', lbl:()=>'MP4 · H.264'},
     {v:'hevc', kind:'hevc', lbl:()=>'MP4 · H.265 / HEVC'},
     {v:'hap',  kind:null,   lbl:()=>'MOV · HAP'},
@@ -8857,7 +8897,8 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
           : nom+T(' is not available on this machine.',' no está disponible en este equipo.');
         hint.textContent=msg; hint.title=msg; } } // [R214] title mirrors the (now 2-line-capable) text — still useful if a future string runs longer still
     exGoGate(); }
-  function exUpd(){ const p=exPx(S), c=S.codec, isVid=(c==='mp4'||c==='hevc'), isHap=(c==='hap'||c==='hapq'); // [R191] H.265 también es vídeo con bitrate: sin él, la fila del bitrate desaparecía y se exportaba con el último valor a ciegas
+  function exUpd(){ try{ exDirSync(); }catch(_){}   /* [R279] la fila del fondo aparece/desaparece con el codec */
+    const p=exPx(S), c=S.codec, isVid=(c==='mp4'||c==='hevc'), isHap=(c==='hap'||c==='hapq'); // [R191] H.265 también es vídeo con bitrate: sin él, la fila del bitrate desaparecía y se exportaba con el último valor a ciegas
     $$('#exFps').value=String(S.fps);
     $$('#exBrRow').style.display=isVid?'flex':'none';
     $$('#exChunkRow').style.display=isHap?'flex':'none';
@@ -8881,7 +8922,7 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
     if(S.phase==='idle'){ $$('#exSub').textContent=n+' '+T('frames','fotogramas')+' · '+exFmtDur(exSecs())+' '+T('of timeline','de la línea de tiempo'); }
     const fc=$('#fmtChip'); if(fc){ fc._codec=(HAP_FMT[c]?HAP_FMT[c].label:c.toUpperCase()); fc.textContent=(dome?(p.w+'²'):(p.w+'×'+p.h))+' · '+S.fps+'p · '+fc._codec; }
     exDrawMon(true); exCodecList();
-    lastExportSet({codec:S.codec,res:(S.szMode==='preset'?S.szPreset:null),fps:S.fps,br:S.br}); }
+    lastExportSet({codec:S.codec,res:(S.szMode==='preset'?S.szPreset:null),fps:S.fps,br:S.br,dir:S.outDir||null}); }   /* [R279] `dir` va aqui tambien: este set REEMPLAZA el objeto entero y se llevaria la carpeta por delante */
 
   /* --- rango: I/O sólo si hay marcas (regla existente) --- */
   { const hw=state.workIn!=null&&state.workOut!=null&&state.workOut>state.workIn; const rg=$$('#exRange');
@@ -8898,6 +8939,21 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
   ov.querySelectorAll('#exSz button').forEach(b=>b.onclick=()=>{ const m=b.dataset.sz;
     if(m==='custom'){ const p=exPx(S); S.szW=p.w; S.szH=p.h; } // Personalizado arranca desde el tamaño actual
     S.szMode=m; exUpd(); });
+  /* [R279] Destino y fondo. `exDirSync` es el unico que pinta estas dos filas, y lo llama `exUpd` para que
+     cambiar de codec baste para que aparezca o desaparezca la del fondo. */
+  function exDirSync(){ const txt=$$('#exDirTxt'), lim=$$('#exDirClear'); if(txt){
+      txt.textContent=S.outDir||T('Ask when exporting','Preguntar al exportar');
+      txt.title=S.outDir||''; }
+    if(lim)lim.style.display=S.outDir?'inline-flex':'none';
+    const fila=$$('#exPngBgRow'); if(fila)fila.style.display=(S.codec==='png')?'flex':'none';
+    const seg=$$('#exPngBg'); if(seg)seg.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.bg===S.pngBg)); }
+  { const bp=$$('#exDirPick'); if(bp)bp.onclick=async()=>{
+      if(!(IS_ELEC&&DSP.chooseExportDir)){ flashStatus(T('Choosing a folder needs the desktop app.','Elegir carpeta necesita la app de escritorio.'),'err'); return; }
+      const d=await DSP.chooseExportDir(); if(!d)return;          // cancelar el dialogo NO borra la carpeta que ya hubiera
+      S.outDir=d; lastExportSet(Object.assign({},lastExportGet()||{},{dir:d}));   /* [R279] la memoria del export ya tenia su sitio; no hacia falta inventar otro */
+      exDirSync(); }; }
+  { const bc=$$('#exDirClear'); if(bc)bc.onclick=()=>{ S.outDir=null; lastExportSet(Object.assign({},lastExportGet()||{},{dir:null})); exDirSync(); }; }
+  { const seg=$$('#exPngBg'); if(seg)seg.querySelectorAll('button').forEach(b=>b.onclick=()=>{ S.pngBg=b.dataset.bg; exDirSync(); }); }
   $$('#exCodec').onchange=e=>{ S.codec=e.target.value; S.brTouched=false; exUpd(); };
   $$('#exFps').onchange=e=>{ S.fps=+e.target.value; S.brTouched=false; exUpd(); };
   $$('#exBr').oninput=e=>{ S.brTouched=true; S.br=Math.max(1,Math.min(800,+e.target.value||1)); exUpd(); };
@@ -9001,7 +9057,7 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
           else { $$('#exNote').textContent=T('Cancelled · partial output kept','Cancelado · se conserva lo escrito'); }
           flashStatus(cx?T('Export cancelled','Exportación cancelada'):T('Export finished','Exportación terminada'),cx?'err':undefined);
           try{ if(IS_ELEC&&DSP.setProgress)DSP.setProgress(-1); }catch(e){} updExportUI(); } };
-      const opt=Object.assign({codec,res:p.w,outW:p.w,outH:p.h,fps,bitrate:br,chunks:S.chunks,range,job,_rec:rec},extra||{});
+      const opt=Object.assign({codec,res:p.w,outW:p.w,outH:p.h,fps,bitrate:br,chunks:S.chunks,range,job,_rec:rec,outDir:S.outDir||undefined,pngBg:S.pngBg},extra||{});   /* [R279] destino y fondo elegidos en la hoja */
       rec.opt=opt; _exq.push(opt); updExportUI(); renderExQueue(); };
     /* [R221] room export, 3 modes (only room.floor makes "stripfloor" meaningful — the segmented control only
        offers it when hasFloor). All three reuse the SAME per-wall crop mechanism (opt.wall — now generalized with
