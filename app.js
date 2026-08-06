@@ -7882,7 +7882,83 @@ async function muxAudioAAC(mux,buf){ if(typeof AudioEncoder==='undefined')return
     const ad=new AudioData({format:'f32-planar',sampleRate:sr,numberOfFrames:len,numberOfChannels:ch,timestamp:Math.round(i/sr*1e6),data}); enc.encode(ad); ad.close();
     if(enc.encodeQueueSize>16)await new Promise(r=>setTimeout(r,0)); }
   try{ await enc.flush(); }catch(e){ err=err||e; } try{ enc.close(); }catch(e){} return !err; }
+/* ═══ [R281] DATOS EN LAS ESQUINAS DEL MÁSTER DE DOMO ═══════════════════════════════════════════════════════
+   Petición de Beltrán: «ya que las esquinas del master dome no se proyectan, quiero aprovechar de agregar
+   datos». Abajo-izquierda el nombre de la obra en grande; abajo-derecha timecode y fotograma avanzando;
+   arriba-izquierda el logo; arriba-derecha creador, resolución, duración y formato.
+
+   LO QUE NUNCA PUEDE PASAR es que un rótulo se meta en el círculo, porque eso sí se proyecta. No se resuelve
+   con tamaños «prudentes» a ojo: se MIDE. Cada bloque se dibuja sólo si sus cuatro esquinas caen fuera del
+   disco, y si no cabe se encoge hasta que quepa. Así da igual el tamaño de export, el largo del nombre o la
+   cobertura del domo — 180° llena el cuadro, 220° deja aún menos esquina.
+
+   Los fotogramas y el timecode avanzan de verdad: es lo que permite cazar un export corrido. */
+const CHAPA_MAX={obra:28, autor:38};                 // tope de caracteres, también aplicado en la hoja de export
+let _chapaCv=null, _chapaCx=null, _chapaLogo=null, _chapaLogoSrc='';
+function chapaFuente(px,peso){ return (peso||400)+' '+Math.round(px)+"px 'Geist',system-ui,-apple-system,'Segoe UI',sans-serif"; }
+/* ¿Cabe esta caja sin tocar el disco? El disco está inscrito: centro (W/2,H/2) y radio min(W,H)/2. */
+function chapaLibre(x0,y0,x1,y1,W,H){ const cx=W/2, cy=H/2, r=Math.min(W,H)/2;
+  const dentro=(x,y)=>((x-cx)*(x-cx)+(y-cy)*(y-cy))<r*r;
+  return !dentro(x0,y0)&&!dentro(x1,y0)&&!dentro(x0,y1)&&!dentro(x1,y1); }
+/* Dibuja un bloque de líneas en una esquina, encogiendo hasta que quepa. `ax` −1 izquierda / +1 derecha,
+   `ay` −1 arriba / +1 abajo. Devuelve la altura ocupada. */
+function chapaBloque(cx2,lineas,px,ax,ay,W,H,margen){
+  if(!lineas.length)return 0;
+  for(let intento=0;intento<14;intento++){
+    cx2.font=chapaFuente(px,ax<0&&ay>0?600:400);
+    const alto=px*1.32, total=alto*lineas.length;
+    let ancho=0; for(const l of lineas)ancho=Math.max(ancho,cx2.measureText(l).width);
+    const x0=(ax<0)?margen:(W-margen-ancho), x1=x0+ancho;
+    const y0=(ay<0)?margen:(H-margen-total),  y1=y0+total;
+    if(chapaLibre(x0,y0,x1,y1,W,H)){
+      cx2.textBaseline='top'; cx2.textAlign=(ax<0)?'left':'right';
+      const xr=(ax<0)?x0:x1;
+      for(let k=0;k<lineas.length;k++)cx2.fillText(lineas[k],xr,y0+alto*k+(alto-px)/2);
+      return total; }
+    px*=0.88;                                        // no cabe: se encoge y se vuelve a medir
+  }
+  return 0; }                                        // ni al 20 % cabía: mejor no dibujar nada que invadir
+/* El logo, cuadrado, arriba a la izquierda; se encoge por el mismo criterio. */
+function chapaLogo(cx2,W,H,margen,lado){
+  if(!_chapaLogo||!_chapaLogo.width)return;
+  for(let i=0;i<14;i++){ if(chapaLibre(margen,margen,margen+lado,margen+lado,W,H)){
+      try{ cx2.drawImage(_chapaLogo,margen,margen,lado,lado); }catch(e){} return; } lado*=0.88; } }
+/* Devuelve el lienzo que hay que codificar: el de siempre si no hay chapa, o una copia con los datos encima.
+   `i` es el índice de fotograma DENTRO del export y `t` su tiempo absoluto en la secuencia. */
+function chapaLienzo(glc,opt,t,i,total,fps){
+  const d=opt&&opt.slate; if(!d||!d.on)return glc;
+  const W=glc.width, H=glc.height;
+  if(!_chapaCv||_chapaCv.width!==W||_chapaCv.height!==H){ _chapaCv=document.createElement('canvas'); _chapaCv.width=W; _chapaCv.height=H; _chapaCx=_chapaCv.getContext('2d'); }
+  const cx2=_chapaCx;
+  cx2.globalCompositeOperation='source-over';
+  cx2.clearRect(0,0,W,H);
+  if(d.bgBlack){ cx2.fillStyle='#000'; cx2.fillRect(0,0,W,H); }
+  cx2.drawImage(glc,0,0);
+  cx2.fillStyle='#FFFFFF';
+  const margen=Math.round(W*0.022);
+  /* Tamaños atados al ANCHO, no en píxeles fijos: a 2048 y a 4096 se ve igual de proporcionado. */
+  const pxGrande=W*0.042, pxChico=W*0.017;
+  chapaLogo(cx2,W,H,margen,Math.round(W*0.055));
+  if(d.obra)   chapaBloque(cx2,[String(d.obra).slice(0,CHAPA_MAX.obra)],pxGrande,-1,1,W,H,margen);
+  { const L=[]; if(d.autor)L.push(T('Created by ','Creado por ')+String(d.autor).slice(0,CHAPA_MAX.autor));
+    L.push(T('Resolution: ','Resolución: ')+W+'x'+H+'px');
+    if(d.durTxt)L.push(T('Duration: ','Duración: ')+d.durTxt);
+    L.push(T('Format: ','Formato: ')+Math.round(fps||0)+'fps');
+    chapaBloque(cx2,L,pxChico,1,-1,W,H,margen); }
+  /* Fotograma y timecode del PROPIO export, avanzando: es lo que delata un export corrido. */
+  chapaBloque(cx2,[T('Frames: ','Fotogramas: ')+(i+1)+'F', T('Timecode: ','Timecode: ')+chapaTC(i,fps)],pxChico,1,1,W,H,margen);
+  return _chapaCv; }
+/* Timecode contado en FOTOGRAMAS del export, no en segundos de reloj: si se cuenta en segundos y los fps del
+   export no son los de la secuencia, el rótulo miente justo cuando más falta hace que no mienta. */
+function chapaTC(i,fps){ const f=Math.max(1,Math.round(fps||30));
+  const tot=Math.max(0,Math.round(i)), ff=tot%f, ss=Math.floor(tot/f)%60, mm=Math.floor(tot/(f*60))%60, hh=Math.floor(tot/(f*3600));
+  const dd=n=>String(n).padStart(2,'0');
+  return (hh?dd(hh)+':':'')+dd(mm)+':'+dd(ss)+':'+dd(ff); }
+/* El logo se carga UNA vez por export y se reutiliza; llega como data URL desde la hoja. */
+async function chapaCargarLogo(src){ _chapaLogo=null; _chapaLogoSrc=src||'';
+  if(!src)return; await new Promise(res=>{ const im=new Image(); im.onload=()=>{ _chapaLogo=im; res(); }; im.onerror=()=>res(); im.src=src; }); }
 async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
+  try{ if(opt&&opt.slate&&opt.slate.on)await chapaCargarLogo(opt.slate.logo); else await chapaCargarLogo(null); }catch(_){}
   let _rsSeq=null; if(opt.seqId && isSeqMedia(mediaById(opt.seqId)) && opt.seqId!==state.activeSeqId){ _rsSeq=state.activeSeqId; switchSeq(opt.seqId); } // F5: export another sequence (e.g. the room floor) in its own job, then restore
   const res=opt.res, fps=opt.fps; diag('info','export','start',{codec:opt.codec,res,fps,bitrate:opt.bitrate, seq:activeSeq()&&activeSeq().name});
   // [R94d] range chosen in the export dialog: 'inout' = the I/O marks · 'clips' = the clip extent (default). Legacy jobs with no range keep the old behaviour (I/O if set).
@@ -7992,10 +8068,14 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
           const planchar=opt.pngBg==='black';
           let cvBg=null, ctxBg=null;
           if(planchar){ cvBg=document.createElement('canvas'); cvBg.width=glc.width; cvBg.height=glc.height; ctxBg=cvBg.getContext('2d'); }
-          const lienzoPng=()=>{ if(!planchar)return glc;
+          const lienzoPng=i=>{
+            /* [R281] Con chapa, es ella quien compone -y tambien planta el negro si toca-. Sin chapa, el
+               camino de siempre. En ningun caso se dibuja dos veces sobre el mismo fotograma. */
+            if(opt.slate&&opt.slate.on){ opt.slate.bgBlack=planchar; return chapaLienzo(glc,opt,t0+i/fps,i,total,fps); }
+            if(!planchar)return glc;
             ctxBg.globalCompositeOperation='source-over'; ctxBg.fillStyle='#000'; ctxBg.fillRect(0,0,cvBg.width,cvBg.height);
             ctxBg.drawImage(glc,0,0); return cvBg; };
-          const comprimirYEscribir=i=>new Promise((res,rej)=>{ lienzoPng().toBlob(async b=>{ try{
+          const comprimirYEscribir=i=>new Promise((res,rej)=>{ lienzoPng(i).toBlob(async b=>{ try{
               if(!b)throw new Error(T('PNG encoding failed.','Falló la codificación PNG.'));
               if(job.wrote)job.wrote(b.size);
               if(await DSP.writeBinary(sub+'/'+filePre+'_'+fnum(i)+'.png', new Uint8Array(await b.arrayBuffer()))===false)
@@ -8084,7 +8164,7 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
       for(let i=0;i<total;i++){ if(cancelExport||encErr||wErr)break; const t=t0+i/fps; await seekExport(t); prepNests(state.clips,t,0); renderExportFrame(t,qRes,ssE,wall);
         if(job.frame)job.frame(i,total); // [R179] live thumbnail for the progress viewer — read glc HERE, while the drawing buffer is still valid (same rule the VideoFrame below lives by)
         if(enc.state!=='configured'){encErr=encErr||new Error('codec closed');break;}
-        const vf=new VideoFrame(glc,{timestamp:Math.round(i*us),duration:Math.round(us)});
+        const vf=new VideoFrame(chapaLienzo(glc,opt,t0+i/fps,i,total,fps),{timestamp:Math.round(i*us),duration:Math.round(us)});   /* [R281] los datos de esquina van HORNEADOS, como en cualquier chapa de entrega */
         try{ enc.encode(vf,{keyFrame:i%gop===0}); }catch(e){ encErr=e; vf.close(); break; }
         vf.close(); job.prog(i+1,total); await exWaitPause(); while((enc.encodeQueueSize>6||pending>4)&&!encErr&&!wErr)await new Promise(r=>setTimeout(r,0)); } // backpressure: also cap pending disk writes so RAM stays bounded
       try{ if(enc.state==='configured')await enc.flush(); }catch(e){ encErr=encErr||e; }
@@ -8688,11 +8768,15 @@ function exFmtDur(s){ s=Math.max(0,Math.round(s)); const m=Math.floor(s/60); ret
 function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the timeline first.','Primero añade clips a la línea de tiempo.'));return;}
   if(document.getElementById('exOv'))return; // [R102·rev] nunca dos hojas: `$()` es querySelector y el cableado se enganchaba a la vieja y oculta
   const as=activeSeq()||{}, dome=!isFlat(), room=isRoom();
-  const S={ outDir:null, pngBg:'alpha',   /* [R279] la carpeta se recuerda entre sesiones; el fondo no, es una decision de cada entrega */
+  const S={ outDir:null, pngBg:'alpha', slate:false, slObra:'', slAutor:'', slLogo:null, slLogoNom:'',   /* [R279] la carpeta se recuerda entre sesiones; el fondo no, es una decision de cada entrega */
             szMode:'match', szPreset:(as.w||4096), szW:(as.w||1920), szH:(dome?(as.w||4096):(as.h||1080)),
             codec:'png', fps:(as.fps||state.fps||60), br:120, brTouched:false, chunks:'auto',
             roomMode:'strip', phase:'idle', pct:0, frame:0, frames:0, t0:0, tPause:0, bytes:0, warns:[], batch:[], batchDone:0 };
-  { const L=lastExportGet(); if(L){ if(L.dir)S.outDir=L.dir;   /* [R279] la carpeta elegida sobrevive a cerrar la app */
+  { const L=lastExportGet(); if(L){ if(L.dir)S.outDir=L.dir;
+    /* [R281] Se recuerdan los DATOS, no el interruptor: que la chapa haya que encenderla a proposito
+       cada vez evita entregar un master con rotulos sin darse cuenta. */
+    if(L.slObra)S.slObra=L.slObra; if(L.slAutor)S.slAutor=L.slAutor;
+    if(L.slLogo){ S.slLogo=L.slLogo; S.slLogoNom=L.slLogoNom||T('Logo','Logo'); }   /* [R279] la carpeta elegida sobrevive a cerrar la app */
     if(L.codec)S.codec=L.codec; if(L.fps)S.fps=+L.fps; if(L.br)S.br=+L.br; // [R191] H.265 vuelve a la lista, así que una memoria vieja con 'hevc' ya es válida
       if(L.res){ S.szMode='preset'; S.szPreset=+L.res; } } } // [R102·D-T4] abre con lo último que usaste, no con valores de fábrica
 
@@ -8744,6 +8828,21 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
           <button class="mbtn" id="exDirPick" style="height:20px;padding:0 9px;flex:0 0 auto;">${T('Choose…','Elegir…')}</button>
           <button class="mbtn" id="exDirClear" style="height:20px;padding:0 8px;flex:0 0 auto;display:none;" title="${T('Ask each time','Preguntar cada vez')}">✕</button>
         </div></div>
+      <!-- [R281] Datos en las esquinas del master de domo. Solo en domo: en plano y en sala no hay esquina
+           libre que aprovechar, ahi todo el cuadro se proyecta. -->
+      <div class="exs-row" id="exSlateRow" style="display:none;"><label>${T('Corner data','Datos de esquina')}</label>
+        <label class="chk" style="display:flex;align-items:center;gap:6px;flex:1;cursor:pointer;"><input type="checkbox" id="exSlate"> ${T('Burn into the unprojected corners','Grabar en las esquinas no proyectadas')}</label></div>
+      <div class="exs-row" id="exSlateObraRow" style="display:none;"><label>${T('Work title','Nombre de la obra')}</label>
+        <input type="text" id="exSlateObra" maxlength="28" placeholder="${T('e.g. Rito Digital','p. ej. Rito Digital')}" style="flex:1;"><span class="exs-unit" id="exSlateObraN">0/28</span></div>
+      <div class="exs-row" id="exSlateAutorRow" style="display:none;"><label>${T('Created by','Creador')}</label>
+        <input type="text" id="exSlateAutor" maxlength="38" placeholder="${T('e.g. Alma Digital Studio','p. ej. Alma Digital Studio')}" style="flex:1;"><span class="exs-unit" id="exSlateAutorN">0/38</span></div>
+      <div class="exs-row" id="exSlateLogoRow" style="display:none;"><label>${T('Logo','Logo')}</label>
+        <div style="display:flex;align-items:center;gap:8px;width:100%;min-width:0;">
+          <span class="exs-hint" id="exSlateLogoTxt" style="flex:1;min-width:0;">${T('None','Ninguno')}</span>
+          <button class="mbtn" id="exSlateLogoPick" style="height:20px;padding:0 9px;flex:0 0 auto;">${T('Choose…','Elegir…')}</button>
+          <button class="mbtn" id="exSlateLogoClear" style="height:20px;padding:0 8px;flex:0 0 auto;display:none;">✕</button>
+        </div></div>
+      <div class="exs-row span hintwrap" id="exSlateHintRow" style="display:none;"><label></label><span class="exs-hint wrap">${T('Resolution, duration and format come from these settings. Frames and timecode advance with the export, which is what lets you spot a drifted render.','La resolución, la duración y el formato salen de estos ajustes. Los fotogramas y el timecode avanzan con el export, que es lo que permite cazar un render corrido.')}</span></div>
       <!-- [R279] Fondo del PNG. La secuencia sale con alfa porque el domo tiene zonas vacias; sobre negro
            se entrega a quien no sabe que hacer con la transparencia, y sigue siendo sin perdida. -->
       <div class="exs-row" id="exPngBgRow" style="display:none;"><label>${T('Background','Fondo')}</label>
@@ -8922,7 +9021,7 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
     if(S.phase==='idle'){ $$('#exSub').textContent=n+' '+T('frames','fotogramas')+' · '+exFmtDur(exSecs())+' '+T('of timeline','de la línea de tiempo'); }
     const fc=$('#fmtChip'); if(fc){ fc._codec=(HAP_FMT[c]?HAP_FMT[c].label:c.toUpperCase()); fc.textContent=(dome?(p.w+'²'):(p.w+'×'+p.h))+' · '+S.fps+'p · '+fc._codec; }
     exDrawMon(true); exCodecList();
-    lastExportSet({codec:S.codec,res:(S.szMode==='preset'?S.szPreset:null),fps:S.fps,br:S.br,dir:S.outDir||null}); }   /* [R279] `dir` va aqui tambien: este set REEMPLAZA el objeto entero y se llevaria la carpeta por delante */
+    lastExportSet({codec:S.codec,res:(S.szMode==='preset'?S.szPreset:null),fps:S.fps,br:S.br,dir:S.outDir||null,slObra:S.slObra,slAutor:S.slAutor,slLogo:S.slLogo,slLogoNom:S.slLogoNom}); }   /* [R279] `dir` va aqui tambien: este set REEMPLAZA el objeto entero y se llevaria la carpeta por delante */
 
   /* --- rango: I/O sólo si hay marcas (regla existente) --- */
   { const hw=state.workIn!=null&&state.workOut!=null&&state.workOut>state.workIn; const rg=$$('#exRange');
@@ -8941,7 +9040,34 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
     S.szMode=m; exUpd(); });
   /* [R279] Destino y fondo. `exDirSync` es el unico que pinta estas dos filas, y lo llama `exUpd` para que
      cambiar de codec baste para que aparezca o desaparezca la del fondo. */
-  function exDirSync(){ const txt=$$('#exDirTxt'), lim=$$('#exDirClear'); if(txt){
+  /* [R281] La chapa, sincronizada. Sus filas solo existen en DOMO: en plano y en sala todo el cuadro se
+     proyecta y no hay esquina que aprovechar. */
+  function exSlateSync(){ const esDomo=(state.seqMode==='dome');
+    const ver=(sel,on)=>{ const e=$$(sel); if(e)e.style.display=on?'flex':'none'; };
+    ver('#exSlateRow',esDomo);
+    const abierto=esDomo&&S.slate;
+    ver('#exSlateObraRow',abierto); ver('#exSlateAutorRow',abierto); ver('#exSlateLogoRow',abierto); ver('#exSlateHintRow',abierto);
+    const ck=$$('#exSlate'); if(ck)ck.checked=!!S.slate;
+    const o=$$('#exSlateObra'), a=$$('#exSlateAutor');
+    if(o&&document.activeElement!==o)o.value=S.slObra||'';
+    if(a&&document.activeElement!==a)a.value=S.slAutor||'';
+    const on1=$$('#exSlateObraN'); if(on1)on1.textContent=(S.slObra||'').length+'/'+CHAPA_MAX.obra;
+    const an1=$$('#exSlateAutorN'); if(an1)an1.textContent=(S.slAutor||'').length+'/'+CHAPA_MAX.autor;
+    const lt=$$('#exSlateLogoTxt'); if(lt)lt.textContent=S.slLogo?(S.slLogoNom||T('Logo','Logo')):T('None','Ninguno');
+    const lc=$$('#exSlateLogoClear'); if(lc)lc.style.display=S.slLogo?'inline-flex':'none'; }
+  { const ck=$$('#exSlate'); if(ck)ck.onchange=e=>{ S.slate=!!e.target.checked; exSlateSync(); }; }
+  { const o=$$('#exSlateObra'); if(o)o.oninput=e=>{ S.slObra=e.target.value.slice(0,CHAPA_MAX.obra); exSlateSync(); }; }
+  { const a=$$('#exSlateAutor'); if(a)a.oninput=e=>{ S.slAutor=e.target.value.slice(0,CHAPA_MAX.autor); exSlateSync(); }; }
+  { const b=$$('#exSlateLogoPick'); if(b)b.onclick=()=>{
+      /* Se lee como data URL: asi viaja dentro de la memoria del export y sobrevive a cerrar la app, sin
+         depender de que el archivo siga en su sitio manana. */
+      const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*';
+      inp.onchange=()=>{ const f=inp.files&&inp.files[0]; if(!f)return;
+        const fr=new FileReader(); fr.onload=()=>{ S.slLogo=String(fr.result||''); S.slLogoNom=f.name; exSlateSync(); }; fr.readAsDataURL(f); };
+      inp.click(); }; }
+  { const b=$$('#exSlateLogoClear'); if(b)b.onclick=()=>{ S.slLogo=null; S.slLogoNom=''; exSlateSync(); }; }
+  function exDirSync(){ try{ exSlateSync(); }catch(_){}
+    const txt=$$('#exDirTxt'), lim=$$('#exDirClear'); if(txt){
       txt.textContent=S.outDir||T('Ask when exporting','Preguntar al exportar');
       txt.title=S.outDir||''; }
     if(lim)lim.style.display=S.outDir?'inline-flex':'none';
@@ -9057,7 +9183,8 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
           else { $$('#exNote').textContent=T('Cancelled · partial output kept','Cancelado · se conserva lo escrito'); }
           flashStatus(cx?T('Export cancelled','Exportación cancelada'):T('Export finished','Exportación terminada'),cx?'err':undefined);
           try{ if(IS_ELEC&&DSP.setProgress)DSP.setProgress(-1); }catch(e){} updExportUI(); } };
-      const opt=Object.assign({codec,res:p.w,outW:p.w,outH:p.h,fps,bitrate:br,chunks:S.chunks,range,job,_rec:rec,outDir:S.outDir||undefined,pngBg:S.pngBg},extra||{});   /* [R279] destino y fondo elegidos en la hoja */
+      const opt=Object.assign({codec,res:p.w,outW:p.w,outH:p.h,fps,bitrate:br,chunks:S.chunks,range,job,_rec:rec,outDir:S.outDir||undefined,pngBg:S.pngBg,
+        slate:{on:(state.seqMode==='dome'&&!!S.slate),obra:S.slObra,autor:S.slAutor,logo:S.slLogo,durTxt:TC(exSecs())}},extra||{});   /* [R281] la duracion sale del rango de export, no del proyecto entero */   /* [R279] destino y fondo elegidos en la hoja */
       rec.opt=opt; _exq.push(opt); updExportUI(); renderExQueue(); };
     /* [R221] room export, 3 modes (only room.floor makes "stripfloor" meaningful — the segmented control only
        offers it when hasFloor). All three reuse the SAME per-wall crop mechanism (opt.wall — now generalized with
