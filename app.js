@@ -5783,9 +5783,10 @@ function _renderInspectorMain(){
   brow.querySelector('#blendSel').value=c.props.blend||'normal';
   brow.querySelector('#blendSel').onchange=e=>{const cc=selClip();if(cc){pushUndo();cc.props.blend=e.target.value;render();}};
   /* [R276c] RETIRADA la fila «React to audio». Beltran: «no lo estabamos usando porque tenemos toda una
-     pestana de Reactive FX». El motor sigue leyendo c.props.react, asi que un proyecto viejo que lo tuviera
-     puesto se sigue viendo igual; lo que desaparece es el mando duplicado. El original queda en
-     _backup/deprecated/react-to-audio-row.js por si hubiera que devolverlo. */
+     pestana de Reactive FX». [R278c] Y en R278b el motor DEJO de leerlo: al desaparecer la unica fila que lo
+     escribia, un proyecto guardado con react:'audio' seguia pulsando SIN NINGUNA FORMA de apagarlo. El dato
+     sigue en el .isp por si hubiera que revivirlo. El original de la fila queda en
+     _backup/deprecated/react-to-audio-row.js. */
   // Fulldome source toggle — source is already a fisheye/dome master → fills the dome 1:1 (no patch warp). Dome-only.
   if(!isFlat()){
     /* [AUDITORÍA Rev1 · §4] Source pasa de checkboxes nativos a los TOGGLES del diseño (26×15, verde al on —
@@ -6170,7 +6171,10 @@ function buildPenMaskUI(host,c){ if(!c)return; const masks=c.penMasks||(c.penMas
           /* [R278b] ...y el desplegable de Mascara hay que ponerlo al dia A MANO: estamos dentro del panel
              que reconstruiria renderInspector, asi que no se puede llamar, y el select se quedaba
              diciendo «Pen» sobre un clip que ya no tiene ninguna. */
-          const sel=document.querySelector('#maskSel'); if(sel)sel.value='none'; } rebuildList(); syncFe(); syncVis(); commit(); }; }); };
+          const sel=document.querySelector('#maskSel'); if(sel)sel.value='none';
+          /* [R278c] ...y su fila companera de tamano, que se quedaba a la vista y arrastrable sobre un clip sin
+             mascara. `msShow()` vive en otro ambito, asi que se oculta por el DOM. */
+          const msr=document.querySelector('#maskScaleR'); const fila=msr&&msr.closest('.prow'); if(fila)fila.style.display='none'; } rebuildList(); syncFe(); syncVis(); commit(); }; }); };
   wrap.querySelector('#penAdd').onclick=()=>{ pushUndo(); c.penMasks=c.penMasks||[]; c.penMasks.push({pts:[[0.35,0.35],[0.65,0.35],[0.65,0.65],[0.35,0.65]],feather:0,invert:false,on:true}); c._penSel=c.penMasks.length-1;
     rasterizePenMasks(c); markDirty(); startMaskEdit(c,c._penSel); }; // crear una máscara entra directo al lienzo: es donde se dibuja
   wrap.querySelector('#penEdit').onclick=()=>{ if(maskEditClip()===c)endMaskEdit(); else startMaskEdit(c,c._penSel); };
@@ -11023,7 +11027,7 @@ window.addEventListener('keydown',e=>{ const tag=(e.target.tagName||'').toLowerC
   if(mod&&e.key.toLowerCase()==='z'){e.preventDefault();e.shiftKey?redo():undo();return;}
   if(mod&&!e.altKey&&e.key.toLowerCase()==='c'&&state.autoSel&&state.autoSel.set&&state.autoSel.set.size){e.preventDefault();copyAutoSel();return;} // selected breakpoints → copy the curve slice, not the clip
   if(mod&&!e.altKey&&e.key.toLowerCase()==='v'&&state.hoverAuto&&state.kfClipboard&&state.kfClipboard.ks&&state.kfClipboard.ks.length){e.preventDefault();pasteAutoAt(state.hoverAuto, state.hoverAuto.t!=null?state.hoverAuto.t:state.playhead);return;} // [L5] pointer over an automation lane → paste the curve at the CURSOR position (not the playhead)
-  if(mod&&!e.altKey&&e.key.toLowerCase()==='a'&&state.hoverAuto){e.preventDefault();selectAllAuto(state.hoverAuto);return;} // Ctrl+A over a lane = select all its breakpoints
+  if(mod&&e.key.toLowerCase()==='a'&&state.hoverAuto)   /* [R278c] sin !altKey: no existe ningun Ctrl+Alt+A que proteger, y ponerlo dejaba escapar la pulsacion a toggleCurves(), que esconde la vista de automatizacion entera */{e.preventDefault();selectAllAuto(state.hoverAuto);return;} // Ctrl+A over a lane = select all its breakpoints
   /* [R278] Con Alt, copiar/pegar ATRIBUTOS. [R278b] Ponerlos antes que Ctrl+C/V NO bastaba: delante habia
      tres manejadores de breakpoints que no miraban Alt, y con puntos de una curva seleccionados el
      Ctrl+Alt+C se iba a copiar el tramo de curva. Ahora esos tres exigen que Alt NO este pulsado. */
@@ -11147,7 +11151,6 @@ const ATTR_FUERA=new Set([
   'group','groupId','slot',                // `slot` es la OTRA MITAD de la relacion de grupo (el indice del miembro). Pegado sobre una
                                             // composicion mas pequena, el siguiente re-layout BORRABA el clip en silencio:
                                             // filter(c=>c.groupId!==g.id||c.slot<lay.length). Lo cazo la auditoria de Fable.
-  'oldgroup','oldgroupId',                        // pertenecer a un grupo es una relación, no un atributo
   'inP',                                    // qué trozo del archivo suena/se ve: es un montaje, y entre medios distintos no significa nada
   'maskTex','peaks'                          // cachés de GPU/audio; se reconstruyen solas
 ]);
@@ -11166,10 +11169,11 @@ function copyAttrs(){ const c=selClip(); if(!c){ flashStatus(T('Select a clip fi
    Un matiz que no está en la frase pero sin él el resultado sería falso: si el primer punto que sobrevive no está
    en 0, el parámetro empezaría con el valor base del clip y daría un salto en ese punto. Se añade el valor
    INTERPOLADO en 0 para que el tramo conservado arranque donde arrancaba. */
-function recortarKf(kf,dur){ if(!kf)return null; const out={};
+function recortarKf(kf,dur,info){ if(!kf)return null; const out={};   /* [R278c] `info.perdidos` lo cuenta AQUI: deducirlo fuera comparando longitudes fallaba justo cuando se perdia un punto, porque el sintetico de t=0 cuadraba las cuentas */
   for(const p in kf){ const pts=(kf[p]||[]).slice().sort((a,b)=>a.t-b.t);
     if(!pts.length)continue;
     const dentro=pts.filter(k=>k.t<=dur+1e-6);
+    if(info&&dentro.length<pts.length)info.perdidos+=(pts.length-dentro.length);
     if(!dentro.length)continue;                       // toda la automatización caía fuera: el clip se queda sin ella
     if(dentro[0].t>1e-6){ const v0=kfEval(pts,0); if(v0!=null) dentro.unshift(Object.assign({},dentro[0],{t:0,v:v0})); }
     out[p]=dentro.map(k=>Object.assign({},k)); }
@@ -11183,7 +11187,7 @@ function kfEval(pts,t){ if(!pts.length)return null;
 function pasteAttrs(){ const cb=state.attrClip; if(!cb){ flashStatus(T('Copy attributes from a clip first','Copia antes los atributos de un clip'),'err'); return; }
   const dest=selClipsAll(); if(!dest.length){ flashStatus(T('Select a clip first','Selecciona un clip primero'),'err'); return; }
   pushUndo();
-  let recortados=0;
+  let recortados=0, conservados=0;
   for(const c of dest){
     const a=JSON.parse(JSON.stringify(cb.attrs));
     /* El bucle es un atributo (él lo pidió: «como el que esté loopeado»), pero su longitud mide dentro del
@@ -11191,19 +11195,27 @@ function pasteAttrs(){ const cb=state.attrClip; if(!cb){ flashStatus(T('Copy att
        del final y el clip se quedaría congelado. */
     if(a.loopLen!=null){ const m=mediaById(c.mediaId); const tope=(m&&m.dur)?m.dur:a.loopLen;
       if(a.loopLen>tope){ a.loopLen=tope; recortados++; } }
-    const kfRec=recortarKf(a.kf,c.dur);
-    /* [R278b] El aviso sólo si de verdad se ha perdido algo. Antes bastaba con que el origen fuese más largo,
-       aunque todos los puntos cupieran: un aviso falso enseña a desconfiar de los avisos. */
-    if(a.kf) for(const k in a.kf){ const orig=(a.kf[k]||[]).length, queda=(kfRec&&kfRec[k]||[]).length;
-      if(queda<orig){ recortados++; break; } }
+    /* [R278b] El aviso sólo si de verdad se ha perdido algo: un aviso falso enseña a desconfiar de los avisos. */
+    const info={perdidos:0}; const kfRec=recortarKf(a.kf,c.dur,info); if(info.perdidos)recortados++;
     delete a.kf;
     /* [R278b] Reemplazo SIMÉTRICO. `Object.assign` sólo pisa las claves que el origen trae, y las opcionales
        -penMasks, maskData, loop, speed, anim, mod...- sólo existen si alguna vez se usaron: pegar un clip
        «limpio» sobre uno con máscara y bucle le dejaba la máscara huérfana y el bucle puesto. Ni reemplazo ni
        fusión: una mezcla de dos clips. Se retira antes todo lo que SÍ es atributo, y luego se asigna. */
+    /* [R278c] EXCEPCION al reemplazo: el bucle del destino no se retira si es lo unico que evita que el clip
+       se quede con fotograma congelado. Un clip loopeado estirado a 60 s sobre un archivo de 5 s, al recibir
+       atributos de un clip sin bucle, se convertia en 60 s de imagen fija y silencio. Su duracion no se toca
+       -es la regla de Beltran-, asi que lo que se conserva es el bucle. Si el archivo da de si, se retira. */
+    const mDest=mediaById(c.mediaId);
+    const necesitaBucle=(()=>{ if(a.loop)return false;                       // el origen ya trae bucle: manda el suyo
+      if(!c.loop||!mDest||!mDest.dur)return false;
+      const gasta=(c.dur||0)*(a.speed!=null?a.speed:(c.speed||1));
+      return gasta > (mDest.dur-(c.inP||0))+1e-6; })();
+    const bucleDest=necesitaBucle?{loop:c.loop,loopLen:c.loopLen,loopRev:c.loopRev}:null;
     for(const k in c){ if(ATTR_FUERA.has(k)||k.charAt(0)==='_')continue;
       if(typeof c[k]==='function')continue; if(!(k in a))delete c[k]; }
     Object.assign(c,a);
+    if(bucleDest){ c.loop=bucleDest.loop; if(bucleDest.loopLen!=null)c.loopLen=bucleDest.loopLen; if(bucleDest.loopRev!=null)c.loopRev=bucleDest.loopRev; conservados++; }
     if(kfRec)c.kf=kfRec; else delete c.kf;
     /* Las máscaras de pluma se rasterizan a una textura: copiar los puntos sin rehacerla deja la de antes. */
     if(c.maskData||(c.penMasks&&c.penMasks.length)){ c.maskTex=null; if(typeof rebuildMaskTex==='function')rebuildMaskTex(c); }
@@ -11214,13 +11226,18 @@ function pasteAttrs(){ const cb=state.attrClip; if(!cb){ flashStatus(T('Copy att
   /* [R278b] Y hay que reprogramar lo que depende de velocidad, volumen, bucle y fundidos. Sin esto, pegar
      atributos sobre un clip que está sonando lo deja reproduciéndose con los valores viejos hasta que otra
      acción cualquiera reprograme. Es la secuencia que ya usaba `setClipSpeed`. */
+  /* [R278c] `link`/`avRole` estan en ATTR_FUERA -el emparejado es de ESE par de clips-, pero velocidad y
+     fundidos SI viajan, y sin volver a emparejar la otra mitad queda desincronizada para siempre. Es el paso
+     que `setClipSpeed` da y que aqui faltaba. */
+  if(typeof linkPartner==='function')for(const c of dest){ try{ linkPartner(c); }catch(_){} }
   if(typeof disposeAllVinst==='function')disposeAllVinst();
   markDirty(); renderTimeline(); renderInspector();
   if(typeof scheduleWaves==='function')scheduleWaves();
   render(); updStatus();
   if(typeof reschedAudio==='function')reschedAudio();
   flashStatus(T('Attributes pasted to ','Atributos pegados a ')+dest.length+(dest.length===1?T(' clip',' clip'):T(' clips',' clips'))
-    +(recortados?T(' · automation trimmed to fit',' · automatización recortada a la duración'):'')); }
+    +(recortados?T(' · automation trimmed to fit',' · automatización recortada a la duración'):'')
+    +(conservados?T(' · loop kept (the source is shorter than the clip)',' · bucle conservado (el archivo es más corto que el clip)'):'')); }
 function copyClip(){ const cs=selClipsAll(); if(!cs.length)return;
   state.clipboard={ items:cs.map(c=>JSON.parse(JSON.stringify(c))), t0:Math.min(...cs.map(c=>c.start||0)) };
   if(cs.length>1)flashStatus(T('Copied ','Copiados ')+cs.length+T(' clips',' clips')); }

@@ -70,3 +70,13 @@ del destino se queda en el suyo, la máscara y el bucle del destino desaparecen 
 viejo ya no existe, el bipolar rellena de 25 % a 50 % en −45 y no rellena nada en 0, y las referencias vivas a
 keyframes se sueltan. Además se volvieron a pasar las tres pruebas de la ronda (atributos, pestañas, inspector)
 para comprobar que no rompí nada al arreglar.
+
+---
+
+## Adenda · code review sobre estos mismos arreglos (R278c)
+
+La revisión de código repasó el commit de arreglos y encontró **siete** cosas más, **cuatro introducidas por
+los propios arreglos**. La peor: al hacer simétrico el reemplazo, pegar atributos de un clip sin bucle sobre
+uno loopeado le quitaba el bucle y le dejaba la duración — un clip estirado a 60 s sobre un archivo de 5 s
+quedaba con 55 segundos de fotograma congelado. Ahora el bucle se conserva cuando es lo único que lo evita, y
+se avisa. Detalle completo en `PLAN.md`, ronda 278c; verificación en `scratchpad/r278c-review.mjs`.

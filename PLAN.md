@@ -1,5 +1,29 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 278c — Los siete del code review sobre la propia auditoría
+
+La revisión de código repasó el commit de arreglos de la auditoría y encontró siete cosas, **cuatro de ellas
+introducidas por esos mismos arreglos**. Todas aplicadas y verificadas (`scratchpad/r278c-review.mjs`).
+
+**El grave, y es una consecuencia que no vi.** Al hacer simétrico el reemplazo, pegar los atributos de un clip
+sin bucle sobre uno **loopeado** le quitaba el bucle pero le dejaba la duración: un clip estirado a 60 s sobre un
+archivo de 5 s se convertía en 55 segundos de fotograma congelado y silencio. La regla de Beltrán manda —la
+duración no se toca—, así que lo que se conserva es el bucle, y sólo cuando es lo único que evita el congelado;
+si el archivo da de sí, el bucle se retira como cualquier otro atributo. Se avisa cuando ocurre.
+
+**Un aviso que se callaba justo en su caso.** El aviso de «automatización recortada» comparaba longitudes, y el
+punto sintético que se inserta en t=0 cuadraba las cuentas cuando se perdía **exactamente un** keyframe. Ahora lo
+cuenta el propio recorte.
+
+**Desincronización A/V permanente.** Copié de `setClipSpeed` la reprogramación pero no su `linkPartner`: pegar
+sobre la mitad de vídeo de un par enlazado revertía sólo esa mitad, y el desfase se guardaba en el proyecto.
+
+Y cuatro de higiene: la fila de tamaño de máscara seguía visible sobre un clip sin máscara (arreglé el desplegable
+y olvidé su compañera); dos claves inventadas que quedé en `ATTR_FUERA` de una edición chapucera; el `!altKey`
+del Ctrl+A, que fue **daño colateral** —no existe ningún Ctrl+Alt+A, y ponerlo dejaba escapar la pulsación a
+`toggleCurves()`, escondiendo la vista de automatización entera—; y un comentario que ese mismo commit volvió
+falso, sobre `props.react`.
+
 ## ROUND 278b — Auditoría independiente (Fable) y sus doce arreglos
 
 Beltrán pidió que la ronda la auditase **otro**, no yo, y que aplicase todo sin consultarle. Informe completo en
