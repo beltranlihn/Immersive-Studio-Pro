@@ -8012,16 +8012,27 @@ async function chapaCargarLogo(src){ _chapaLogo=null; _chapaLogoSrc=src||'';
 let _chapaOv=null, _chapaOvCv=null;
 function chapaVisorVisible(){ return !!(state.slate&&state.slate.viewer&&state.seqMode==='dome'
   && state.view && state.view.mode!=='3d'); }   /* [R284] en el visor 3D no hay master que rotular: se estampaba sobre la orbita */
+/* [R286c] EL RANGO QUE SE VA A ENTREGAR. `runExport` lo decide asi (8109-8110) y la hoja lo PRESELECCIONA igual
+   (`(hw?io:cl).classList.add('on')`), asi que el visor si puede saberlo: es una regla, no una adivinanza. Antes
+   habia dos criterios distintos —el visor con `duration()` desde 0, el export con el tramo o la extension de los
+   clips— y no coincidian ni con marcas ni sin ellas. Una sola funcion para los dos. */
+function exRangoEfectivo(opt){
+  const hasWork=state.workIn!=null&&state.workOut!=null&&state.workOut>state.workIn;
+  const useIO=(opt&&opt.range==='inout')||((!opt||opt.range==null)&&hasWork);
+  const ce=clipExtent(); let t0=useIO?state.workIn:ce[0], t1=useIO?state.workOut:ce[1];
+  if(opt&&opt.rangeT){ t0=Math.max(0,opt.rangeT[0]); t1=Math.max(t0+0.02,opt.rangeT[1]); }
+  return {t0,t1,dur:Math.max(0.05,t1-t0),useIO}; }
 function chapaDatos(extra){ const s=state.slate||{};
-  /* [R285] La duracion del visor sigue el criterio POR DEFECTO del export (rango 'clips'). Intente hacerla
-     seguir al tramo de trabajo y era peor: el export solo usa el tramo si se elige 'in/out' en la hoja, asi que
-     unas marcas puestas para repasar un bucle hacian que el visor dijera 00:05 y el archivo 01:00. El visor no
-     puede saber que rango se elegira; lo que si puede es no inventarse otro. */
-  const dur=duration();
+  /* [R286c] La duracion y el contador salen del MISMO rango que el archivo. R285 lo revirtio a `duration()`
+     creyendo que el export solo usa el tramo si se elige a mano en la hoja; no es asi: se preselecciona en
+     cuanto hay marcas. Con marcas 10-20 sobre un montaje de un minuto, el visor decia 01:00 y el archivo salia
+     de 00:10. Y sin marcas tampoco casaban: `duration()` mide desde 0 y el export desde el primer clip. */
+  const dur=(extra&&extra.durSeg!=null)?extra.durSeg:exRangoEfectivo(null).dur;
   /* [R285] `resW/resH` NO se ponen aqui. Esta funcion alimenta tambien al export, y ahi la resolucion buena
      es la del fotograma que se esta escribiendo: un domo de 4096 exportado a 2048 escribia un archivo de 2048
      rotulado «4096x4096». Solo el VISOR los pasa, porque su lienzo mide 512 y no dice nada del master. */
-  return Object.assign({on:true,obra:s.obra||'',autor:s.autor||'',logo:s.logo||null,durTxt:TC(dur)},extra||{}); }
+  const o=Object.assign({on:true,obra:s.obra||'',autor:s.autor||'',logo:s.logo||null,durTxt:TC(dur)},extra||{});
+  delete o.durSeg; return o; }
 /* Se dibuja al final de `render()`. El lienzo interno va al tamaño del MÁSTER (COMP), no al del visor: así el
    resultado es idéntico al del export y sólo cambia la escala a la que se mira. */
 function chapaPintaVisor(){
@@ -8106,8 +8117,11 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
   const res=opt.res, fps=opt.fps; diag('info','export','start',{codec:opt.codec,res,fps,bitrate:opt.bitrate, seq:activeSeq()&&activeSeq().name});
   // [R94d] range chosen in the export dialog: 'inout' = the I/O marks · 'clips' = the clip extent (default). Legacy jobs with no range keep the old behaviour (I/O if set).
   const hasWork=state.workIn!=null&&state.workOut!=null&&state.workOut>state.workIn;
-  const useIO=(opt.range==='inout')||(opt.range==null&&hasWork);
-  const _ce=clipExtent(); let t0=useIO?state.workIn:_ce[0], endT=useIO?state.workOut:_ce[1]; if(opt.rangeT){ t0=Math.max(0,opt.rangeT[0]); endT=Math.max(t0+0.02,opt.rangeT[1]); } let dur=Math.max(0.05,endT-t0), total=Math.max(1,Math.round(dur*fps));
+  const _rg=exRangoEfectivo(opt); const useIO=_rg.useIO;                     // [R286c] misma regla que anuncia el visor
+  let t0=_rg.t0, endT=_rg.t1; let dur=Math.max(0.05,endT-t0), total=Math.max(1,Math.round(dur*fps));
+  /* [R286c] La chapa horneada tiene que rotular la duracion de ESTE archivo, no la del montaje: se le pasa el
+     rango ya resuelto (incluido `opt.rangeT`, que ni el visor ni la hoja pueden adivinar). */
+  if(opt.slate&&opt.slate.on)opt.slate.durSeg=dur;
   const _ripSaved=opt.isolateClips?state.clips:null; if(opt.isolateClips)state.clips=opt.isolateClips; // [R115] render-in-place: composite ONLY these clips → excludes external adjustment layers (nest-internal ones stay, composited inside the nest)
   const flat=isFlat(); const wall=opt.wall||null; const stripW=state.seqW||1920, stripH=state.seqH||1080; // F5 per-wall: composite the full strip at native res, then crop this wall to its own pxW×pxH file
   let eW=wall?wall.pxW:(flat?(state.seqW||1920):res), eH=wall?wall.pxH:(flat?(state.seqH||1080):res), qRes=wall?Math.max(stripW,stripH):(flat?Math.max(eW,eH):res), dimStr=wall?(wall.pxW+'x'+wall.pxH):(flat?(eW+'x'+eH):(res+'')); // flat exports at the sequence's W×H (rect); dome stays square
@@ -8202,7 +8216,12 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
         else dlBlob(blob,fn); }
       job.prog(1,1);
     } else if(opt.codec==='png'){ const pad=Math.max(6,String(total).length), fnum=i=>String(i+1).padStart(pad,'0'); // [R96] IMERSA/AFDI Dome Master Spec: 6-digit frame number STARTING AT 1 ("Name_000001.png"). We shipped base-0 with a padding that shrank with the take length ("dome_000.png") — a planetarium can't ingest that without renaming every frame, and two exports of different lengths sorted inconsistently.
-      const renderFrame=async i=>{ const t=t0+i/fps; await seekExport(t); prepNests(state.clips,t,0); if(flat){ renderExportFrame(t,qRes,ssExport,wall); } else { composite(t,res,false); gl.finish(); } if(job.frame)job.frame(i,total); return await new Promise(r=>glc.toBlob(r,'image/png')); };
+      /* [R286c] El respaldo en ZIP es una entrega mas: pasa por `chapaLienzo` igual que el streaming a disco.
+         Antes salia sin recorte al circulo y sin datos de esquina, sin avisar de nada. */
+      const renderFrame=async i=>{ const t=t0+i/fps; await seekExport(t); prepNests(state.clips,t,0); if(flat){ renderExportFrame(t,qRes,ssExport,wall); } else { composite(t,res,false); gl.finish(); } if(job.frame)job.frame(i,total);
+        opt.slate=opt.slate||{on:false}; opt.slate.bgBlack=(opt.pngBg==='black');
+        const q=chapaLienzo(glc,opt,t,i,total,fps);
+        return await new Promise(r=>q.toBlob(r,'image/png')); };
       /* [R188] Sólo pinta el lienzo; comprimir y escribir se lanzan aparte y NO se esperan. Medido: comprimir el
          PNG se lleva el 59% del fotograma (152 ms de 257) y mientras tanto la GPU y el disco están parados. Como
          `toBlob` trabaja sobre una INSTANTÁNEA del lienzo, se puede empezar el fotograma siguiente sin esperarla. */
@@ -10668,9 +10687,18 @@ function clearAllUndo(){ for(const k in _undoBySeq)delete _undoBySeq[k]; }
    edicion anterior del usuario, sin relacion. Lo cazo la revision del diff de R253.
    (R253c cerro lo que ese texto dejaba pendiente: nombre y carpeta ya viajan. R253d anadio el guardado de
    seguridad -metaVer/metaOwner- para que una foto no revierta cambios globales que nunca conocio.) */
-function snapshot(trashIds,room){ return JSON.stringify({room:room||undefined,clips:state.clips.map(serClip),lanes:state.lanes,mmeta:state.media.map(m=>[m.id,m.name,(m.folder||null),(m.srcIn!=null?m.srcIn:null),(m.srcOut!=null?m.srcOut:null)]),folders:(state.folders||[]).slice(),folderColors:Object.assign({},state.folderColors||{}),metaVer:_metaVer,collapsedGroups:Object.assign({},state.collapsedGroups||{}),selId:state.selId,selIds:state.selIds,selLane:state.selLane,markers:state.markers,selMarkerId:state.selMarkerId,groups:state.groups,selGroupId:state.selGroupId,reactive:state.reactive||null,autoItems:state.autoItems||{},trashIds:trashIds||undefined}); } // [R95·D2] items are undoable state too: editing a pooled curve rewrites the item · [R212] trashIds: media ids this action just sent to state.mediaTrash — restore() must revive them even if no clip references them (unused media deleted from the panel)
-function pushUndo(trashIds,roomSnap){ if(_demoBatch)return; // [R228] construyendo un proyecto demo: no hay nada que deshacer (`_demoFinish` limpia el historial de todos modos) y cada snapshot de un lote de 8 clips es caro
-  const st=_ustk(); const s=snapshot(trashIds,roomSnap); st.u.push(s); st.bytes+=s.length; st.r.length=0;
+/* [R286c] Foto de los bucles de las OTRAS secuencias. `aplicarTramoAClipsEnBucle` escribe `inP`/`loopLen` en los
+   clips de todos los nidos, pero el snapshot solo guarda los de la secuencia ACTIVA: deshacer devolvia las marcas
+   del medio y dejaba los bucles del nido con el tramo nuevo, contradiciendose entre si y guardandose asi en el
+   .isp. Se capturan tres numeros por clip -es barato- y solo lo rellena quien toca los nidos; en cualquier otra
+   accion la clave no existe y el snapshot es byte por byte el de siempre. Mismo patron que `room` en R234b. */
+function nestLoopSnap(){ const out=[];
+  for(const m of state.media){ if(!isSeqMedia(m)||m.id===state.activeSeqId||!Array.isArray(m.nestClips))continue;
+    out.push({seqId:m.id, clips:m.nestClips.map(c=>[c.id,(c.inP!=null?c.inP:null),(c.loopLen!=null?c.loopLen:null)])}); }
+  return out.length?out:undefined; }
+function snapshot(trashIds,room,nests){ return JSON.stringify({room:room||undefined,nests:nests||undefined,clips:state.clips.map(serClip),lanes:state.lanes,mmeta:state.media.map(m=>[m.id,m.name,(m.folder||null),(m.srcIn!=null?m.srcIn:null),(m.srcOut!=null?m.srcOut:null)]),folders:(state.folders||[]).slice(),folderColors:Object.assign({},state.folderColors||{}),metaVer:_metaVer,collapsedGroups:Object.assign({},state.collapsedGroups||{}),selId:state.selId,selIds:state.selIds,selLane:state.selLane,markers:state.markers,selMarkerId:state.selMarkerId,groups:state.groups,selGroupId:state.selGroupId,reactive:state.reactive||null,autoItems:state.autoItems||{},trashIds:trashIds||undefined}); } // [R95·D2] items are undoable state too: editing a pooled curve rewrites the item · [R212] trashIds: media ids this action just sent to state.mediaTrash — restore() must revive them even if no clip references them (unused media deleted from the panel)
+function pushUndo(trashIds,roomSnap,nestSnap){ if(_demoBatch)return; // [R228] construyendo un proyecto demo: no hay nada que deshacer (`_demoFinish` limpia el historial de todos modos) y cada snapshot de un lote de 8 clips es caro
+  const st=_ustk(); const s=snapshot(trashIds,roomSnap,nestSnap); st.u.push(s); st.bytes+=s.length; st.r.length=0;
   let total=0,count=0; for(const k in _undoBySeq){ total+=_undoBySeq[k].bytes; count+=_undoBySeq[k].u.length; }
   while(count>80||(total>UNDO_BYTE_CAP&&count>8)){ let bk=null; for(const k in _undoBySeq)if(_undoBySeq[k].u.length&&(bk==null||_undoBySeq[k].bytes>_undoBySeq[bk].bytes))bk=k; if(bk==null)break; const d=_undoBySeq[bk].u.shift(); _undoBySeq[bk].bytes-=d.length; total-=d.length; count--; } // evict oldest from the heaviest sequence — caps are global across all stacks
   markDirty(); }
@@ -10681,6 +10709,12 @@ function restore(s){ const o=JSON.parse(s);
       wq.w=o.room.w; wq.h=o.room.h;
       if(state.activeSeqId===wq.id){ state.seqW=wq.w; state.seqH=wq.h; }
       _roomGeo=null; _roomGeoSeq=null; _arCache=null; try{raInvalidate();}catch(e){} try{resize();}catch(e){} } }
+  if(Array.isArray(o.nests)){ /* [R286c] los bucles de los nidos vuelven con el resto */
+    for(const n of o.nests){ const m=mediaById(n.seqId); if(!m||!Array.isArray(m.nestClips))continue;
+      const porId=new Map(n.clips.map(x=>[x[0],x]));
+      for(const c of m.nestClips){ const v=porId.get(c.id); if(!v)continue;
+        if(v[1]==null)delete c.inP; else c.inP=v[1];
+        if(v[2]==null)delete c.loopLen; else c.loopLen=v[2]; } } }
   state.clips=o.clips.map(c=>({...c,maskTex:null})); state.lanes=o.lanes; state.autoSel=null; state.hoverAuto=null; state.shapeBox=null; /* [R95·B1] the box holds live keyframe refs — undo/sequence switch replaces those objects, so it must go with them */ state.selId=o.selId; state.selIds=Array.isArray(o.selIds)?o.selIds:(o.selId!=null?[o.selId]:[]); state.selLane=o.selLane??null; if(o.markers)state.markers=o.markers; state.selMarkerId=o.selMarkerId??null; state.groups=o.groups||[]; state.selGroupId=o.selGroupId??null; if(o.reactive!==undefined){state.reactive=o.reactive;} if(o.autoItems!==undefined)state.autoItems=o.autoItems; /* [R95·D2] */ _arCache=null; _fxEnvCache.clear(); for(const c of state.clips)if(c.maskData||(c.penMasks&&c.penMasks.length))rebuildMaskTex(c);
   if(state.mediaTrash){ const need=new Set(); for(const s of state.media)if(isSeqMedia(s)){ const arr=(s.id===state.activeSeqId?state.clips:s.nestClips)||[]; for(const c of arr)need.add(c.mediaId); } for(const c of state.clips)need.add(c.mediaId); if(Array.isArray(o.trashIds))for(const id of o.trashIds)need.add(id); /* [R212] media deleted from the panel with no clip using it — revive it anyway, undo means undo */ for(const id in state.mediaTrash){ if(need.has(+id)){ if(!mediaById(+id)){ const tm=state.mediaTrash[id]; state.media.push(tm); if(tm._trashed){ delete tm._trashed; tm.missing=false; tm._loading=true; try{ reloadMedia(tm); }catch(e){} } } delete state.mediaTrash[id]; } } renderMedia(); }
   /* [R253c] Devuelve nombre, carpeta y marcas de cada medio, y el arbol de carpetas. Los snapshots que no traen
@@ -12826,7 +12860,7 @@ function srcRange(m){ if(!m)return null; const d=Math.max(0,m.dur||0); if(!(d>0)
 function smCommitMarks(){ const mon=_srcMon; if(!mon)return; const m=mon.m, d=Math.max(0.04,m.dur||0);
   const a=Math.max(0,Math.min(d,mon.in)), b=Math.max(0,Math.min(d,mon.out));
   if(Math.abs((m.srcIn!=null?m.srcIn:0)-a)<1e-4 && Math.abs((m.srcOut!=null?m.srcOut:d)-b)<1e-4){ smPinta(); return; }
-  pushUndo(); bumpMeta(); m.srcIn=a; m.srcOut=b;
+  pushUndo(null,null,nestLoopSnap()); bumpMeta(); m.srcIn=a; m.srcOut=b; // [R286c] los nidos entran en la foto
   const n=aplicarTramoAClipsEnBucle(m,a,b);
   markDirty(); renderMedia(); smPinta();
   if(n)flashStatus(T('Loop range applied to ','Tramo de bucle aplicado a ')+n+' '+T('looped clips','clips en bucle')); }

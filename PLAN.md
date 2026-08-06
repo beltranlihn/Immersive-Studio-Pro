@@ -1,5 +1,41 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 286c — Los tres que quedaban abiertos
+
+Cerrados los tres que R286b dejó reportados sin corregir. Verificado en `scratchpad/r286c-review.mjs`, con la
+sonda de R286b y la del visor partido vueltas a pasar sin regresión. `__errs` vacío.
+
+### El deshacer ya alcanza a los bucles de los nidos
+
+`aplicarTramoAClipsEnBucle` escribe `inP`/`loopLen` en los clips de **todas** las secuencias, pero `snapshot()`
+sólo guardaba los de la activa: un Ctrl+Z tras marcar In/Out en el monitor de origen devolvía las marcas del medio
+y dejaba los bucles del nido con el tramo nuevo — contradiciéndose entre sí, y guardándose así en el `.isp`.
+
+`nestLoopSnap()` captura tres números por clip (`id`, `inP`, `loopLen`) de las secuencias NO activas, y `restore()`
+los repone. Sólo lo rellena quien toca los nidos; en cualquier otra acción la clave no existe y el snapshot es byte
+por byte el de siempre. Mismo patrón que la foto de geometría de sala de R234b.
+
+Medido: un clip en bucle dentro de un nido pasa de `inP 0 / loopLen 22` a `1 / 7,333` al marcar el tramo, y el
+deshacer lo devuelve exactamente a `0 / 22`.
+
+### El visor y el export ya anuncian el mismo rango
+
+Había dos criterios distintos: el visor con `duration()` desde 0, el export con el tramo de trabajo o la extensión
+de los clips. R285 lo revirtió creyendo que «el export sólo usa el tramo si se elige en la hoja» — pero
+`openExport` lo **preselecciona** en cuanto hay marcas (`(hw?io:cl).classList.add('on')`), y `runExport` hace lo
+mismo por su cuenta. No era una adivinanza: es una regla, y ahora vive en una sola función, `exRangoEfectivo()`,
+que usan los dos.
+
+Medido: sin marcas, visor y export dicen 00:22:00; con marcas 2–5, los dos dicen 00:03:00. Antes no coincidían en
+ninguno de los dos casos. Y cuando el usuario fuerza otro rango en la hoja, la chapa **horneada** recibe el rango
+real de esa entrega (`opt.slate.durSeg`), que ni el visor ni la hoja pueden adivinar de antemano.
+
+### El respaldo en ZIP pasa por la chapa
+
+El camino PNG sin puente de disco hacía `glc.toBlob()` directo: salía sin recorte al círculo y sin datos de
+esquina, sin avisar. Ya pasa por `chapaLienzo` como las otras tres salidas.
+
+
 ## ROUND 286b — Revisión desde el Mac de R266→R286
 
 32 commits de Windows. Dos revisores sobre el diff real: **once hallazgos**, siete corregidos y verificados
