@@ -132,6 +132,7 @@ const state = {
          cw:400, ch:400, cam:{yaw:0, pitch:0.5, dist:3.0, fov:60, back:0.8} },
   tl:{ pxPerSec:80/* = TL_PPS_DEF; literal a propósito: la constante se declara más abajo y aquí estaría en TDZ */, tool:'select', tcMode:'timecode', bpm:120, sig:4, gridDiv:0, gridFixed:false, gridFixedBase:1, selA:null, selB:null }, // [R161] fuera `snap` (R158 quitó el ajuste a la cuadrícula) y `simpleClips` (R155 dejó sólo el agarre estilo Premiere): nadie los leía. [archivado 20260804 · R242b] audioCollapsed — el módulo de audio plegable no existe desde R148 y NUNCA hubo un setter → _backup/deprecated/20260804-tl-audiocollapsed.js
   workIn:null, workOut:null,
+  slate:{ viewer:false, obra:'', autor:'', logo:null, logoNom:'' },   /* [R282] los datos de esquina viven en el PROYECTO: visor y export leen lo mismo */
   prefs:{ reducedMotion:false, snapping:true, grid:true, mediaCollapsed:false, inspCollapsed:false, tallInsp:false },
   mediaFilter:'all', mediaQuery:'', mediaGroupBy:'none', collapsedGroups:{}, folders:[], folderColors:{}, mediaView:'list', mediaFolder:null, selFolder:null,
   useProxies:true, previewQuality:1, markers:[], selMarkerId:null, clipboard:null,
@@ -1588,7 +1589,11 @@ function renderRoom3D(wallsTex){ const seq=activeSeq(); const room=seq&&seq.room
   if(_roomGeo.floorVerts>0){ gl.uniform1f(LR.pass,2); gl.drawArrays(gl.TRIANGLES,_roomGeo.wallVerts,_roomGeo.floorVerts); } // same wallsTex still bound
   gl.bindVertexArray(null); gl.disable(gl.DEPTH_TEST); drawRoomLabels3D(cam.mvp); }
 // [archivado 20260729 · R221] drawRoomFloorDock2D (+ _dockVAO/_dockVB) — el suelo dejó de ser una tira dockeada aparte, ahora es parte del mismo composite → _backup/deprecated/20260729-room-floor-dock-2d.js
-function render(){ if(glLost)return;
+/* [R282] La chapa del visor se repinta DESPUES de cada render, envolviendo la funcion en vez de tocar sus
+   veinte puntos de salida -tiene varios `return` por el camino, y colgarlo de cada uno era garantizar olvidarse
+   de alguno-. */
+function render(){ const _r=_renderNucleo.apply(this,arguments); try{ chapaPintaVisor(); }catch(e){} return _r; }
+function _renderNucleo(){ if(glLost)return;
   if(exporting)return;
   try{ syncCompSize(); }catch(_){} // [R237] el máster lleva la FORMA de lo que se va a dibujar (ver syncCompSize)
   const _flat=isFlat(); _drawFlat=_flat; _roomWrap=isRoom(); _compAspect=(state.seqW||1)/(state.seqH||1); _arTime=state.playhead;
@@ -7926,14 +7931,29 @@ function chapaLogo(cx2,W,H,margen,lado){
 /* Devuelve el lienzo que hay que codificar: el de siempre si no hay chapa, o una copia con los datos encima.
    `i` es el índice de fotograma DENTRO del export y `t` su tiempo absoluto en la secuencia. */
 function chapaLienzo(glc,opt,t,i,total,fps){
-  const d=opt&&opt.slate; if(!d||!d.on)return glc;
+  const d=opt&&opt.slate;
+  /* [R283] EL RECORTE AL CÍRCULO, que Beltrán cazó en la primera foto: «las visuales en el dome master sólo
+     debieran existir dentro del círculo del domo. El resto es negro, o transparente si elegimos alpha». Un clip
+     deformado se salía por las esquinas -y por eso el título se le montaba encima-, pero el problema es anterior
+     a la chapa: eso no se proyecta y no debería existir en el máster.
+     Se hace AQUÍ porque es el único sitio por el que pasan las dos rutas de salida, PNG y MP4, y porque un
+     recorte en 2D es exacto: `destination-in` deja fuera del disco alfa 0, y luego el fondo negro -si se pidió-
+     lo rellena. Sin chapa y sin domo, se devuelve el lienzo tal cual y no se paga nada. */
+  const recortar=(state.seqMode==='dome');
+  if((!d||!d.on)&&!recortar)return glc;
   const W=glc.width, H=glc.height;
   if(!_chapaCv||_chapaCv.width!==W||_chapaCv.height!==H){ _chapaCv=document.createElement('canvas'); _chapaCv.width=W; _chapaCv.height=H; _chapaCx=_chapaCv.getContext('2d'); }
   const cx2=_chapaCx;
   cx2.globalCompositeOperation='source-over';
   cx2.clearRect(0,0,W,H);
-  if(d.bgBlack){ cx2.fillStyle='#000'; cx2.fillRect(0,0,W,H); }
   cx2.drawImage(glc,0,0);
+  if(recortar){ /* fuera del disco, nada */
+    cx2.globalCompositeOperation='destination-in';
+    cx2.beginPath(); cx2.arc(W/2,H/2,Math.min(W,H)/2,0,Math.PI*2); cx2.fill();
+    cx2.globalCompositeOperation='destination-over'; }   /* lo que venga ahora va DEBAJO: el negro, si se pidió */
+  if(d&&d.bgBlack){ cx2.fillStyle='#000'; cx2.fillRect(0,0,W,H); }
+  cx2.globalCompositeOperation='source-over';
+  if(!d||!d.on)return _chapaCv;                          /* recorte sí, rótulos no */
   cx2.fillStyle='#FFFFFF';
   const margen=Math.round(W*0.022);
   /* Tamaños atados al ANCHO, no en píxeles fijos: a 2048 y a 4096 se ve igual de proporcionado. */
@@ -7957,6 +7977,86 @@ function chapaTC(i,fps){ const f=Math.max(1,Math.round(fps||30));
 /* El logo se carga UNA vez por export y se reutiliza; llega como data URL desde la hoja. */
 async function chapaCargarLogo(src){ _chapaLogo=null; _chapaLogoSrc=src||'';
   if(!src)return; await new Promise(res=>{ const im=new Image(); im.onload=()=>{ _chapaLogo=im; res(); }; im.onerror=()=>res(); im.src=src; }); }
+/* ═══ [R282] LA CHAPA, TAMBIÉN EN EL VISOR ═══════════════════════════════════════════════════════════════════
+   Beltrán: «¿podemos incorporar esos elementos para que se vean en el canvas 2D? Que se puedan activar o
+   desactivar desde Window, y que en alguna de esas herramientas de arriba nos permita agregar la data».
+
+   La decisión que importa: los datos viven en `state.slate`, en el PROYECTO, no dentro de la hoja de export.
+   Así el visor y el export leen exactamente lo mismo — si estuvieran duplicados, un día el máster saldría con
+   un título distinto del que llevas mirando toda la tarde, y sería imposible de cazar. La hoja de export ya no
+   guarda obra/autor/logo: los lee de aquí.
+
+   Lo que NO se comparte es el interruptor: `state.slate.viewer` enciende la vista y `state.slate.export` el
+   horneado. Ver los rótulos mientras montas no puede implicar entregarlos.
+
+   El dibujo es el MISMO código que el export (`chapaLienzo`), sobre un lienzo del tamaño del máster; luego se
+   escala al hueco del visor. Por eso lo que ves es lo que sale: misma regla de «fuera del círculo», mismos
+   tamaños relativos, mismo recorte de caracteres. */
+let _chapaOv=null, _chapaOvCv=null;
+function chapaVisorVisible(){ return !!(state.slate&&state.slate.viewer&&state.seqMode==='dome'); }
+function chapaDatos(extra){ const s=state.slate||{};
+  return Object.assign({on:true,obra:s.obra||'',autor:s.autor||'',logo:s.logo||null,durTxt:TC(duration())},extra||{}); }
+/* Se dibuja al final de `render()`. El lienzo interno va al tamaño del MÁSTER (COMP), no al del visor: así el
+   resultado es idéntico al del export y sólo cambia la escala a la que se mira. */
+function chapaPintaVisor(){
+  const gl0=$('#gl'); if(!gl0)return;
+  if(!_chapaOv){ _chapaOv=document.createElement('canvas'); _chapaOv.id='slateOv';
+    _chapaOv.style.cssText='position:absolute;pointer-events:none;z-index:6;';
+    if(gl0.parentElement)gl0.parentElement.appendChild(_chapaOv); }
+  if(!chapaVisorVisible()){ _chapaOv.style.display='none'; return; }
+  const r=gl0.getBoundingClientRect(), pr=gl0.parentElement.getBoundingClientRect();
+  /* El visor dibuja el domo en un CUADRADO centrado; la chapa tiene que ir sobre ese cuadrado, no sobre todo
+     el hueco, o los rótulos se irían a las esquinas de la ventana y dejarían de corresponderse con el máster. */
+  const lado=Math.min(r.width,r.height);
+  _chapaOv.style.display='block';
+  _chapaOv.style.left=Math.round(r.left-pr.left+(r.width-lado)/2)+'px';
+  _chapaOv.style.top =Math.round(r.top -pr.top +(r.height-lado)/2)+'px';
+  _chapaOv.style.width=Math.round(lado)+'px'; _chapaOv.style.height=Math.round(lado)+'px';
+  const N=512;                                  // resolución del lienzo de la chapa: de sobra para mirarla
+  if(!_chapaOvCv||_chapaOvCv.width!==N){ _chapaOvCv=document.createElement('canvas'); _chapaOvCv.width=_chapaOvCv.height=N; }
+  if(_chapaOv.width!==N){ _chapaOv.width=_chapaOv.height=N; }
+  const cx=_chapaOv.getContext('2d'); cx.clearRect(0,0,N,N);
+  /* Un lienzo transparente del tamaño del máster hace de «fotograma»: `chapaLienzo` compone encima y devuelve
+     su copia, de la que sólo nos quedamos con los rótulos (el fondo va transparente porque el fotograma lo es). */
+  const vacio=_chapaOvCv.getContext('2d'); vacio.clearRect(0,0,N,N);
+  const fps=Math.round(state.fps||30), i=Math.max(0,Math.round(state.playhead*fps));
+  const salida=chapaLienzo(_chapaOvCv, {slate:chapaDatos({bgBlack:false})}, state.playhead, i, 0, fps);
+  try{ cx.drawImage(salida,0,0,N,N); }catch(e){}
+}
+/* El cuadro para rellenar los datos, desde el menú Window. Mismos topes que al hornear. */
+function openSlateDialog(){
+  const s=state.slate=state.slate||{};
+  const ov=document.createElement('div'); ov.className='overlay';
+  ov.innerHTML='<div class="modal" style="width:420px;"><div class="mh"><span class="t">'+T('Corner data','Datos de esquina')+'</span></div><div class="mb">'
+    +'<div class="frow"><label>'+T('Work title','Nombre de la obra')+'</label><input type="text" id="slObra" maxlength="'+CHAPA_MAX.obra+'"><span class="tnum" id="slObraN"></span></div>'
+    +'<div class="frow"><label>'+T('Created by','Creador')+'</label><input type="text" id="slAutor" maxlength="'+CHAPA_MAX.autor+'"><span class="tnum" id="slAutorN"></span></div>'
+    +'<div class="frow"><label>'+T('Logo','Logo')+'</label><span class="tnum" id="slLogoTxt" style="flex:1;text-align:left;color:var(--ink-2);"></span>'
+    +'<button class="mbtn" id="slLogoPick" style="height:20px;padding:0 9px;">'+T('Choose…','Elegir…')+'</button>'
+    +'<button class="mbtn" id="slLogoClear" style="height:20px;padding:0 8px;">✕</button></div>'
+    +'<div class="frow"><label>'+T('Show','Mostrar')+'</label><label class="chk" style="display:flex;align-items:center;gap:6px;flex:1;cursor:pointer;"><input type="checkbox" id="slViewer"> '+T('In the viewer','En el visor')+'</label></div>'
+    +'<div class="frow"><label></label><span class="tnum" style="flex:1;color:var(--ink-dim);font-size:10px;line-height:1.4;">'
+    +T('Resolution, duration, format, frames and timecode fill in on their own. Burning them into the file is a separate switch, in the export sheet.',
+       'La resolución, la duración, el formato, los fotogramas y el timecode se rellenan solos. Grabarlos en el archivo es un interruptor aparte, en la hoja de export.')+'</span></div>'
+    +'</div><div class="mf"><button class="mbtn" id="slClose">'+T('Done','Listo')+'</button></div></div>';
+  document.body.appendChild(ov);
+  const q=x=>ov.querySelector(x);
+  const sync=()=>{ q('#slObraN').textContent=(s.obra||'').length+'/'+CHAPA_MAX.obra;
+    q('#slAutorN').textContent=(s.autor||'').length+'/'+CHAPA_MAX.autor;
+    q('#slLogoTxt').textContent=s.logo?(s.logoNom||T('Logo','Logo')):T('None','Ninguno');
+    q('#slLogoClear').style.display=s.logo?'inline-flex':'none';
+    q('#slViewer').checked=!!s.viewer; markDirty(); render(); };
+  q('#slObra').value=s.obra||''; q('#slAutor').value=s.autor||'';
+  q('#slObra').oninput=e=>{ s.obra=e.target.value.slice(0,CHAPA_MAX.obra); sync(); };
+  q('#slAutor').oninput=e=>{ s.autor=e.target.value.slice(0,CHAPA_MAX.autor); sync(); };
+  q('#slViewer').onchange=e=>{ s.viewer=!!e.target.checked; sync(); };
+  q('#slLogoPick').onclick=()=>{ const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*';
+    inp.onchange=()=>{ const f=inp.files&&inp.files[0]; if(!f)return; const fr=new FileReader();
+      fr.onload=()=>{ s.logo=String(fr.result||''); s.logoNom=f.name; chapaCargarLogo(s.logo).then(sync); }; fr.readAsDataURL(f); };
+    inp.click(); };
+  q('#slLogoClear').onclick=()=>{ s.logo=null; s.logoNom=''; chapaCargarLogo(null).then(sync); };
+  q('#slClose').onclick=()=>ov.remove();
+  chapaCargarLogo(s.logo).then(sync);
+}
 async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
   try{ if(opt&&opt.slate&&opt.slate.on)await chapaCargarLogo(opt.slate.logo); else await chapaCargarLogo(null); }catch(_){}
   let _rsSeq=null; if(opt.seqId && isSeqMedia(mediaById(opt.seqId)) && opt.seqId!==state.activeSeqId){ _rsSeq=state.activeSeqId; switchSeq(opt.seqId); } // F5: export another sequence (e.g. the room floor) in its own job, then restore
@@ -8071,7 +8171,11 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
           const lienzoPng=i=>{
             /* [R281] Con chapa, es ella quien compone -y tambien planta el negro si toca-. Sin chapa, el
                camino de siempre. En ningun caso se dibuja dos veces sobre el mismo fotograma. */
-            if(opt.slate&&opt.slate.on){ opt.slate.bgBlack=planchar; return chapaLienzo(glc,opt,t0+i/fps,i,total,fps); }
+            /* [R283] TODO fotograma de domo pasa por aqui, con chapa o sin ella: el recorte al circulo no es
+               un adorno de la chapa, es lo que debe salir del master. */
+            opt.slate=opt.slate||{on:false}; opt.slate.bgBlack=planchar;
+            const q=chapaLienzo(glc,opt,t0+i/fps,i,total,fps);
+            if(q!==glc)return q;
             if(!planchar)return glc;
             ctxBg.globalCompositeOperation='source-over'; ctxBg.fillStyle='#000'; ctxBg.fillRect(0,0,cvBg.width,cvBg.height);
             ctxBg.drawImage(glc,0,0); return cvBg; };
@@ -8768,15 +8872,14 @@ function exFmtDur(s){ s=Math.max(0,Math.round(s)); const m=Math.floor(s/60); ret
 function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the timeline first.','Primero añade clips a la línea de tiempo.'));return;}
   if(document.getElementById('exOv'))return; // [R102·rev] nunca dos hojas: `$()` es querySelector y el cableado se enganchaba a la vieja y oculta
   const as=activeSeq()||{}, dome=!isFlat(), room=isRoom();
-  const S={ outDir:null, pngBg:'alpha', slate:false, slObra:'', slAutor:'', slLogo:null, slLogoNom:'',   /* [R279] la carpeta se recuerda entre sesiones; el fondo no, es una decision de cada entrega */
+  const S={ outDir:null, pngBg:'alpha', slate:false,   /* [R279] la carpeta se recuerda entre sesiones; el fondo no, es una decision de cada entrega */
             szMode:'match', szPreset:(as.w||4096), szW:(as.w||1920), szH:(dome?(as.w||4096):(as.h||1080)),
             codec:'png', fps:(as.fps||state.fps||60), br:120, brTouched:false, chunks:'auto',
             roomMode:'strip', phase:'idle', pct:0, frame:0, frames:0, t0:0, tPause:0, bytes:0, warns:[], batch:[], batchDone:0 };
   { const L=lastExportGet(); if(L){ if(L.dir)S.outDir=L.dir;
     /* [R281] Se recuerdan los DATOS, no el interruptor: que la chapa haya que encenderla a proposito
        cada vez evita entregar un master con rotulos sin darse cuenta. */
-    if(L.slObra)S.slObra=L.slObra; if(L.slAutor)S.slAutor=L.slAutor;
-    if(L.slLogo){ S.slLogo=L.slLogo; S.slLogoNom=L.slLogoNom||T('Logo','Logo'); }   /* [R279] la carpeta elegida sobrevive a cerrar la app */
+    /* [R282] obra/autor/logo ya NO se guardan aqui: viven en el proyecto (state.slate) y se guardan con el .isp */   /* [R279] la carpeta elegida sobrevive a cerrar la app */
     if(L.codec)S.codec=L.codec; if(L.fps)S.fps=+L.fps; if(L.br)S.br=+L.br; // [R191] H.265 vuelve a la lista, así que una memoria vieja con 'hevc' ya es válida
       if(L.res){ S.szMode='preset'; S.szPreset=+L.res; } } } // [R102·D-T4] abre con lo último que usaste, no con valores de fábrica
 
@@ -9021,7 +9124,7 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
     if(S.phase==='idle'){ $$('#exSub').textContent=n+' '+T('frames','fotogramas')+' · '+exFmtDur(exSecs())+' '+T('of timeline','de la línea de tiempo'); }
     const fc=$('#fmtChip'); if(fc){ fc._codec=(HAP_FMT[c]?HAP_FMT[c].label:c.toUpperCase()); fc.textContent=(dome?(p.w+'²'):(p.w+'×'+p.h))+' · '+S.fps+'p · '+fc._codec; }
     exDrawMon(true); exCodecList();
-    lastExportSet({codec:S.codec,res:(S.szMode==='preset'?S.szPreset:null),fps:S.fps,br:S.br,dir:S.outDir||null,slObra:S.slObra,slAutor:S.slAutor,slLogo:S.slLogo,slLogoNom:S.slLogoNom}); }   /* [R279] `dir` va aqui tambien: este set REEMPLAZA el objeto entero y se llevaria la carpeta por delante */
+    lastExportSet({codec:S.codec,res:(S.szMode==='preset'?S.szPreset:null),fps:S.fps,br:S.br,dir:S.outDir||null}); }   /* [R279] `dir` va aqui tambien: este set REEMPLAZA el objeto entero y se llevaria la carpeta por delante */
 
   /* --- rango: I/O sólo si hay marcas (regla existente) --- */
   { const hw=state.workIn!=null&&state.workOut!=null&&state.workOut>state.workIn; const rg=$$('#exRange');
@@ -9049,23 +9152,24 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
     ver('#exSlateObraRow',abierto); ver('#exSlateAutorRow',abierto); ver('#exSlateLogoRow',abierto); ver('#exSlateHintRow',abierto);
     const ck=$$('#exSlate'); if(ck)ck.checked=!!S.slate;
     const o=$$('#exSlateObra'), a=$$('#exSlateAutor');
-    if(o&&document.activeElement!==o)o.value=S.slObra||'';
-    if(a&&document.activeElement!==a)a.value=S.slAutor||'';
-    const on1=$$('#exSlateObraN'); if(on1)on1.textContent=(S.slObra||'').length+'/'+CHAPA_MAX.obra;
-    const an1=$$('#exSlateAutorN'); if(an1)an1.textContent=(S.slAutor||'').length+'/'+CHAPA_MAX.autor;
-    const lt=$$('#exSlateLogoTxt'); if(lt)lt.textContent=S.slLogo?(S.slLogoNom||T('Logo','Logo')):T('None','Ninguno');
-    const lc=$$('#exSlateLogoClear'); if(lc)lc.style.display=S.slLogo?'inline-flex':'none'; }
+    const sl=state.slate=state.slate||{};
+    if(o&&document.activeElement!==o)o.value=sl.obra||'';
+    if(a&&document.activeElement!==a)a.value=sl.autor||'';
+    const on1=$$('#exSlateObraN'); if(on1)on1.textContent=(sl.obra||'').length+'/'+CHAPA_MAX.obra;
+    const an1=$$('#exSlateAutorN'); if(an1)an1.textContent=(sl.autor||'').length+'/'+CHAPA_MAX.autor;
+    const lt=$$('#exSlateLogoTxt'); if(lt)lt.textContent=sl.logo?(sl.logoNom||T('Logo','Logo')):T('None','Ninguno');
+    const lc=$$('#exSlateLogoClear'); if(lc)lc.style.display=sl.logo?'inline-flex':'none'; }
   { const ck=$$('#exSlate'); if(ck)ck.onchange=e=>{ S.slate=!!e.target.checked; exSlateSync(); }; }
-  { const o=$$('#exSlateObra'); if(o)o.oninput=e=>{ S.slObra=e.target.value.slice(0,CHAPA_MAX.obra); exSlateSync(); }; }
-  { const a=$$('#exSlateAutor'); if(a)a.oninput=e=>{ S.slAutor=e.target.value.slice(0,CHAPA_MAX.autor); exSlateSync(); }; }
+  { const o=$$('#exSlateObra'); if(o)o.oninput=e=>{ (state.slate=state.slate||{}).obra=e.target.value.slice(0,CHAPA_MAX.obra); markDirty(); render(); exSlateSync(); }; }
+  { const a=$$('#exSlateAutor'); if(a)a.oninput=e=>{ (state.slate=state.slate||{}).autor=e.target.value.slice(0,CHAPA_MAX.autor); markDirty(); render(); exSlateSync(); }; }
   { const b=$$('#exSlateLogoPick'); if(b)b.onclick=()=>{
       /* Se lee como data URL: asi viaja dentro de la memoria del export y sobrevive a cerrar la app, sin
          depender de que el archivo siga en su sitio manana. */
       const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*';
       inp.onchange=()=>{ const f=inp.files&&inp.files[0]; if(!f)return;
-        const fr=new FileReader(); fr.onload=()=>{ S.slLogo=String(fr.result||''); S.slLogoNom=f.name; exSlateSync(); }; fr.readAsDataURL(f); };
+        const fr=new FileReader(); fr.onload=()=>{ const sl=state.slate=state.slate||{}; sl.logo=String(fr.result||''); sl.logoNom=f.name; markDirty(); chapaCargarLogo(sl.logo).then(()=>{ render(); exSlateSync(); }); }; fr.readAsDataURL(f); };
       inp.click(); }; }
-  { const b=$$('#exSlateLogoClear'); if(b)b.onclick=()=>{ S.slLogo=null; S.slLogoNom=''; exSlateSync(); }; }
+  { const b=$$('#exSlateLogoClear'); if(b)b.onclick=()=>{ const sl=state.slate=state.slate||{}; sl.logo=null; sl.logoNom=''; markDirty(); chapaCargarLogo(null).then(()=>{ render(); exSlateSync(); }); }; }
   function exDirSync(){ try{ exSlateSync(); }catch(_){}
     const txt=$$('#exDirTxt'), lim=$$('#exDirClear'); if(txt){
       txt.textContent=S.outDir||T('Ask when exporting','Preguntar al exportar');
@@ -9184,7 +9288,7 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
           flashStatus(cx?T('Export cancelled','Exportación cancelada'):T('Export finished','Exportación terminada'),cx?'err':undefined);
           try{ if(IS_ELEC&&DSP.setProgress)DSP.setProgress(-1); }catch(e){} updExportUI(); } };
       const opt=Object.assign({codec,res:p.w,outW:p.w,outH:p.h,fps,bitrate:br,chunks:S.chunks,range,job,_rec:rec,outDir:S.outDir||undefined,pngBg:S.pngBg,
-        slate:{on:(state.seqMode==='dome'&&!!S.slate),obra:S.slObra,autor:S.slAutor,logo:S.slLogo,durTxt:TC(exSecs())}},extra||{});   /* [R281] la duracion sale del rango de export, no del proyecto entero */   /* [R279] destino y fondo elegidos en la hoja */
+        slate:Object.assign(chapaDatos({durTxt:TC(exSecs())}),{on:(state.seqMode==='dome'&&!!S.slate)})}   /* [R282] los datos salen del PROYECTO; aqui solo se decide si se hornean */,extra||{});   /* [R281] la duracion sale del rango de export, no del proyecto entero */   /* [R279] destino y fondo elegidos en la hoja */
       rec.opt=opt; _exq.push(opt); updExportUI(); renderExQueue(); };
     /* [R221] room export, 3 modes (only room.floor makes "stripfloor" meaningful — the segmented control only
        offers it when hasFloor). All three reuse the SAME per-wall crop mechanism (opt.wall — now generalized with
@@ -9898,7 +10002,8 @@ function renderSeqBar(){ const bar=$('#seqTabs'); if(!bar)return; const _sl=bar.
       const d=(Math.abs(e.deltaX)>Math.abs(e.deltaY))?e.deltaX:e.deltaY; if(!d)return;
       e.preventDefault(); bar.scrollLeft+=d; },{passive:false}); } // [R242c] sin `seqTabsOvf`: el borde va a hueso (ver el archivado)
   bar.scrollLeft=_sl; seqTabsReveal(); } // [R239] el repintado no mueve la vista… salvo lo justo para que la pestaña activa se vea
-function serProject(){ saveActiveSeq(); return { app:'DomeStudioPro', v:4, fps:state.fps, lanes:state.lanes, playhead:state.playhead, markers:[], groups:[], clips:[], media:state.media.map(serMedia), workIn:state.workIn, workOut:state.workOut, folders:state.folders, folderColors:state.folderColors||{}, tl:{bpm:state.tl.bpm,sig:state.tl.sig,tcMode:state.tl.tcMode,pxPerSec:state.tl.pxPerSec,inlineCurves:!!state.inlineCurves/* [archivado 20260804 · R242b] aquí iba `audioCollapsed`: R242 lo revivió por error — su módulo no existe desde R148 y nunca hubo setter → _backup/deprecated/20260804-tl-audiocollapsed.js */}, /* [R214] audioH removed — loadProject never read it back (vestige of R148) */ exportPresets:state.exportPresets||[], openSeqs:(state.openSeqs||[]).slice(), activeSeqId:state.activeSeqId, seqW:state.seqW, seqH:state.seqH, reactive:state.reactive||null, autoItems:state.autoItems||{} }; } // [R95·D2] the Automation Item library travels with the project (clips reference items by id via kfLink) // v4: the active sequence's clips/markers/groups live in its nest media (serMedia); top-level kept empty to avoid doubling the heaviest data (kf + maskData)
+function serProject(){ saveActiveSeq(); return { app:'DomeStudioPro', v:4, slate:state.slate||null,   /* [R282] los datos de esquina se guardan CON el proyecto: son de la obra, no del ordenador */
+    fps:state.fps, lanes:state.lanes, playhead:state.playhead, markers:[], groups:[], clips:[], media:state.media.map(serMedia), workIn:state.workIn, workOut:state.workOut, folders:state.folders, folderColors:state.folderColors||{}, tl:{bpm:state.tl.bpm,sig:state.tl.sig,tcMode:state.tl.tcMode,pxPerSec:state.tl.pxPerSec,inlineCurves:!!state.inlineCurves/* [archivado 20260804 · R242b] aquí iba `audioCollapsed`: R242 lo revivió por error — su módulo no existe desde R148 y nunca hubo setter → _backup/deprecated/20260804-tl-audiocollapsed.js */}, /* [R214] audioH removed — loadProject never read it back (vestige of R148) */ exportPresets:state.exportPresets||[], openSeqs:(state.openSeqs||[]).slice(), activeSeqId:state.activeSeqId, seqW:state.seqW, seqH:state.seqH, reactive:state.reactive||null, autoItems:state.autoItems||{} }; } // [R95·D2] the Automation Item library travels with the project (clips reference items by id via kfLink) // v4: the active sequence's clips/markers/groups live in its nest media (serMedia); top-level kept empty to avoid doubling the heaviest data (kf + maskData)
 async function saveProject(saveAs){ const json=JSON.stringify(serProject());
   if(IS_ELEC){ let p=currentPath; if(saveAs||!p){ p=await DSP.saveDialog(p||((currentTitle()==='Untitled project'?T('untitled','proyecto'):currentTitle())+'.isp')); if(!p)return; }
     try{ const old=await DSP.readText(p); if(old&&old.length>2)await DSP.writeText(p+'.bak',old); }catch(e){} // rotate a .bak of the previous save — protects against a corrupted/interrupted overwrite
@@ -10149,6 +10254,9 @@ function resetProjDefaults(){ state.seqMode='dome'; state.seqCov=180;
   resetProjView(); }
 function loadProject(obj){ relinkReset(); // [R204] el índice de reenlace es de ESTE proyecto: se tira al cargar otro
   resetProjDefaults(); // [R242·Aud-2.1] fábrica ANTES de leer `obj`: lo que el archivo no diga, no se hereda
+  /* [R282] Los datos de esquina son de la OBRA, así que viajan en el .isp. `resetProjDefaults` acaba de
+     dejarlos en blanco, y aquí se recuperan los del archivo (o se quedan en blanco si es de antes). */
+  try{ state.slate=Object.assign({viewer:false,obra:'',autor:'',logo:null,logoNom:''},(obj&&obj.slate)||{}); chapaCargarLogo(state.slate.logo); }catch(e){}
   try{ if(!_bootEsperandoProyecto)showLoadingScreen(T('Loading project…','Cargando proyecto…')); else bootMark(72); }catch(e){} /* [R175] durante el arranque la cuenta la lleva el splash, no una segunda pantalla encima del editor */ // [U9] logo-loop loading screen while the project + its proxies buffer
   if(state.playing)pause(); disposeAllVinst(); try{freeFxResources();}catch(e){} for(const _tid in (state.mediaTrash||{})) disposeMedia(state.mediaTrash[_tid]); state.mediaTrash={}; resetLutReg(); // free deleted-media textures + FX history from the previous project
   /* [R242·Aud-3.1] Los MEDIOS del proyecto saliente también se liberan — `newProject` siempre lo hizo y aquí
@@ -11571,6 +11679,13 @@ function openAppMenu(which,btn){ const r=btn.getBoundingClientRect(); const x=r.
     {label:(state.prefs.inspCollapsed?'':'✓  ')+T('Inspector panel','Panel de inspector'),fn:()=>{ const c=!state.prefs.inspCollapsed; state.prefs.inspCollapsed=c; setPaneCollapsed('#inspPane',c); }},
     'sep',
     {label:T('Viewer-only window','Ventana solo-visor'),ico:'popout',fn:openViewerWindow},
+    /* [R282] La chapa: verla mientras montas y rellenar sus datos. Grabarla en el archivo es OTRO interruptor,
+       en la hoja de export: mirar no puede implicar entregar. */
+    {label:T('Corner data','Datos de esquina'),ico:(state.slate&&state.slate.viewer)?'check':undefined,
+     fn:()=>{ state.slate=state.slate||{}; state.slate.viewer=!state.slate.viewer; markDirty(); render();
+              flashStatus(state.slate.viewer?T('Corner data on','Datos de esquina activados'):T('Corner data off','Datos de esquina desactivados')); }},
+    {label:T('Corner data…','Datos de esquina…'),fn:()=>openSlateDialog()},
+    'sep',
     {label:T('Full performance','Rendimiento total'),fn:()=>setPerfMode(true)},
     'sep',
     {label:T('Guided tour','Recorrido guiado'),ico:'flag',fn:()=>startTour()}, // [D7] re-launch the onboarding overlay on demand
