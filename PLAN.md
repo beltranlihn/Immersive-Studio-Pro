@@ -1,5 +1,67 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 286b — Revisión desde el Mac de R266→R286
+
+32 commits de Windows. Dos revisores sobre el diff real: **once hallazgos**, siete corregidos y verificados
+(`scratchpad/r286b-review.mjs`), cuatro reportados. Mis sondas de regresión pasan enteras, `__errs` vacío.
+
+### Antes que nada: los archivos llegaron en CRLF
+
+`app.js` e `index.html` vienen convertidos a CRLF (13.926 líneas). El diff aparenta 27.000 líneas cambiadas
+cuando el cambio real son **1.030**. No rompe nada en ejecución, pero inutiliza todo diff futuro entre las dos
+máquinas y `git blame`. Se arregla de una vez con `.gitattributes` (`* text=auto eol=lf`) y
+`git add --renormalize .`; no se ha hecho aquí para no chocar con trabajo a medias en Windows.
+
+### La reproducción no paraba nunca
+
+R279 soltó dos ataduras del transporte y se llevó por delante **la rama de parada entera**. Su propio comentario
+promete «sigue parándose sólo al final del tramo de trabajo», y era falso: la única rama que mira `workOut` es el
+envolvimiento del bucle, que sólo actúa si se arrancó DENTRO del tramo. Arrancando fuera, el cabezal pasaba de
+largo y seguía corriendo indefinidamente — la línea de tiempo creciendo en el DOM y `state.playhead` guardándose
+en el `.isp` con un valor arbitrario. Repuesta la parada que el comentario promete; correr por encima de la nada
+sin tramo, que es lo que R279 buscaba, se conserva. Medido: arrancando en 0,5 con tramo 2–4, para en 4,00.
+
+### Copiar y pegar atributos: cuatro agujeros
+
+- **`adjust` no estaba excluido.** Pegar sobre una capa de ajuste le borraba la marca: desaparecía del render en
+  silencio conservando su rótulo. Y al revés, pegar DESDE una convertía un clip de vídeo en capa de ajuste sobre
+  todo lo de abajo. Excluido.
+- **`kfLink` viajaba**, metiendo al destino en el grupo de automatización del origen. Como aquí la curva se
+  RECORTA a la duración del destino, el primer retoque propagaba la curva truncada a todos los hermanos —
+  incluido el clip origen, que perdía keyframes sin haberlo tocado. Se pega la curva, no la pertenencia al grupo.
+- **`linkPartner(c)` es un getter**: R278c lo llamaba y tiraba el resultado, así que la desincronización A/V que
+  daba por cerrada seguía ahí. Ahora aplica de verdad con `_applyClipSpeed`, igual que `setClipSpeed`.
+- **El cálculo de si hace falta bucle** usaba la velocidad VIEJA del destino, que el propio pegado borra un
+  instante después: un destino a 0,5× se quedaba sin bucle y consumía el doble de archivo del que hay — fotograma
+  congelado y silencio al final, que es el fallo que R278c decía haber cerrado.
+
+### La chapa
+
+- **El «Still frame · PNG» de un domo no pasaba por `chapaLienzo`**: salía sin recorte al círculo y sin datos de
+  esquina, mientras el MP4 y la secuencia del mismo fotograma salían limpios. R283 dio por hecho que sólo había
+  dos rutas de salida; hay tres.
+- **`_chapaCv` se quedaba retenido al tamaño del export para siempre.** Todo export de domo lo crea (el recorte se
+  aplica con chapa o sin ella) y `_exportCleanup` no lo soltaba: ~67 MB a 4096, ~268 MB a 8192, en una app con
+  historial de GPU reset a esos tamaños.
+- **En domo se asignaba un canvas de fondo que no se usa jamás**, porque `chapaLienzo` siempre devuelve el suyo.
+  Otros ~67 MB tirados a la basura en cada entrega PNG sobre negro.
+- **Abrir «Corner data settings…» ensuciaba el proyecto** sin tocar nada: el pre-rellenado del cuadro llamaba a
+  `markDirty()`.
+
+### Reportado, no corregido
+
+- **El deshacer no alcanza a los `nestClips` de otras secuencias.** `aplicarTramoAClipsEnBucle` escribe `inP` y
+  `loopLen` en los clips de todos los nidos, pero `snapshot()` sólo guarda los de la secuencia activa: un Ctrl+Z
+  tras marcar In/Out en el monitor de origen deja las marcas del medio y los bucles del nido contradiciéndose.
+  Es el mismo patrón que resolví en R234b para la geometría de la sala (foto opcional en el snapshot), pero aquí
+  el alcance es mayor y conviene decidirlo con Beltrán.
+- **La duración y el contador del visor no coinciden con el export.** R285 revirtió la duración a `duration()`
+  argumentando que el export sólo usa el tramo si se elige en la hoja — pero `openExport` lo PRESELECCIONA en
+  cuanto hay marcas. Es una decisión de diseño: qué debe anunciar el visor.
+- **El camino PNG de respaldo (ZIP, sin puente de disco)** tampoco pasa por `chapaLienzo`. Sólo alcanza al build
+  de navegador.
+
+
 ## ROUND 278c — Los siete del code review sobre la propia auditoría
 
 La revisión de código repasó el commit de arreglos de la auditoría y encontró siete cosas, **cuatro de ellas

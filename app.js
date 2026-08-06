@@ -7672,6 +7672,12 @@ function ploop(){ if(!state.playing)return; const now=performance.now(),dt=(now-
   const enBucle=hasWork&&_enBucle;
   if(enBucle){ if(state.playhead>=state.workOut){ state.playhead=state.workIn;
       for(const m of state.media)if(m.kind==='video'&&m.el){try{m.el.currentTime=0;}catch(e){}} startAudio(); } }
+  /* [R286b] R279 se llevo la rama de PARADA entera junto con el confinamiento, asi que la reproduccion no se
+     detenia nunca: arrancando fuera del tramo, el cabezal pasaba de largo por workOut y seguia corriendo
+     indefinidamente -la linea de tiempo crecia en el DOM y `state.playhead` se guardaba en el .isp con un
+     valor arbitrario-. Se repone lo que el propio comentario de R279 promete: para al final del tramo de
+     trabajo, que es un limite puesto a proposito. Poder correr por encima de la nada SIN tramo se conserva. */
+  else if(hasWork && state.playhead>=state.workOut){ state.playhead=state.workOut; pause(); }
   { const ra=raHas(state.playhead); const drawn=collectDrawnVideoClips(state.clips,state.lanes,state.playhead,0,[]); const act=new Set(); // [R92-T6] the drawn pass runs EVERY frame now: with render-ahead serving cached frames, the per-clip <audio> used to go orphan (kept playing stale volume/position)
     for(const {c,m,local,gain,rate} of drawn){ act.add(c.id); const vi=vinstEnsure(c,m); if(!vi||!vi.vel)continue; const v=vi.vel; const eff=Math.max(0.0625,Math.min(16,rate||c.speed||1)); const cdOn=driveCD(vi,c,m,local); // [R108·E4] ClipDecoder owns VIDEO when active; <video> below is skipped, audio still runs
       /* [R104] TORMENTA DE SEEKS. R92 metió el servo de velocidad pero dejó el seek duro a 0.2s de deriva.
@@ -8071,11 +8077,14 @@ function openSlateDialog(){
     +'</div><div class="mf"><button class="mbtn" id="slClose">'+T('Done','Listo')+'</button></div></div>';
   document.body.appendChild(ov);
   const q=x=>ov.querySelector(x);
+  /* [R286b] El primer `sync` es el PRE-RELLENADO del cuadro, no una edicion: marcaba el proyecto como sucio con
+     solo abrir «Corner data settings…» y cerrar, y al salir de la app saltaba el aviso de cambios sin guardar. */
+  let _slPrimerSync=true;
   const sync=()=>{ q('#slObraN').textContent=(s.obra||'').length+'/'+CHAPA_MAX.obra;
     q('#slAutorN').textContent=(s.autor||'').length+'/'+CHAPA_MAX.autor;
     q('#slLogoTxt').textContent=s.logo?(s.logoNom||T('Logo','Logo')):T('None','Ninguno');
     q('#slLogoClear').style.display=s.logo?'inline-flex':'none';
-    q('#slViewer').checked=!!s.viewer; markDirty(); render(); };
+    q('#slViewer').checked=!!s.viewer; if(!_slPrimerSync)markDirty(); _slPrimerSync=false; render(); };
   q('#slObra').value=s.obra||''; q('#slAutor').value=s.autor||'';
   q('#slObra').oninput=e=>{ s.obra=e.target.value.slice(0,CHAPA_MAX.obra); sync(); };
   q('#slAutor').oninput=e=>{ s.autor=e.target.value.slice(0,CHAPA_MAX.autor); sync(); };
@@ -8119,6 +8128,10 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
   function _exportCleanup(doneArg){
     if(_ripSaved)state.clips=_ripSaved; // [R115] restore the full clip list after an isolated render-in-place
     glc.width=oW;glc.height=oH; freeExportFBO(); dxtFree(); nestSize=COMP; freeNestPool();
+    /* [R286b] El lienzo 2D de la chapa se dimensiona al EXPORT (W x H) y solo se reemplaza si alguien vuelve a
+       llamar con otro tamano. Con la vista de chapa apagada nadie lo reduce, asi que un domo a 4096 dejaba ~67 MB
+       retenidos para siempre (~268 MB a 8192), justo en la app que ya tiene historial de GPU reset a esos tamanos. */
+    _chapaCv=null; _chapaCx=null;
     try{ if($('#renderMask'))$('#renderMask').classList.remove('on'); }catch(_){}
     exporting=false; _exportQuality=false; _exCD=false; _vinstCap=VINST_MAX; _ncSquare=false; disposeAllVinst();
     try{ if(IS_ELEC&&DSP.powerSave)DSP.powerSave(false); }catch(e){}
@@ -8178,7 +8191,12 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
           flashStatus(msg,'err'); if(job&&job.warn)job.warn(msg); } } } // a still has no audio; neither has a render-in-place bake (opt.noAudio)
     if(opt.codec==='still'){ // single high-quality PNG of the current frame, rendered from ORIGINAL media (seekExport→seekMedia useOrig=true), with SSAA
       const t=state.playhead; await seekExport(t); prepNests(state.clips,t,0); renderExportFrame(t,qRes,ssExport,wall);
-      const blob=await new Promise(r=>glc.toBlob(r,'image/png'));
+      /* [R286b] El fotograma suelto es una SALIDA MAS, y se entrega como master igual que el MP4 o la secuencia:
+         tiene que pasar por `chapaLienzo` como ellos. Sin esto, el mismo fotograma salia con las esquinas sucias
+         y sin rotulos por esta via, y limpio por las otras. R283 dio por hecho que solo habia dos rutas. */
+      { opt.slate=opt.slate||{on:false}; opt.slate.bgBlack=(opt.pngBg==='black'); }
+      const _q=chapaLienzo(glc,opt,t,0,1,fps);
+      const blob=await new Promise(r=>_q.toBlob(r,'image/png'));
       if(!cancelExport && blob){ const fn=`${filePre}_still_${dimStr}_${TC(t).replace(/:/g,'-')}.png`;
         if(IS_ELEC && DSP.saveFile){ const p=await DSP.saveFile(fn,'png','PNG image'); if(p){ job.label&&job.label(T('Saving…','Guardando…')); const ok=await DSP.writeBinary(p, new Uint8Array(await blob.arrayBuffer())); if(ok===false)throw new Error(T('Write failed (disk full, locked, or no permission).','Fallo de escritura (disco lleno, bloqueado o sin permiso).')); expOut=p; } }
         else dlBlob(blob,fn); }
@@ -8201,7 +8219,10 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
              cambia es que el canal alfa va a 255. El canvas se crea UNA vez, no uno por fotograma. */
           const planchar=opt.pngBg==='black';
           let cvBg=null, ctxBg=null;
-          if(planchar){ cvBg=document.createElement('canvas'); cvBg.width=glc.width; cvBg.height=glc.height; ctxBg=cvBg.getContext('2d'); }
+          /* [R286b] En domo `chapaLienzo` SIEMPRE devuelve su propio lienzo (el recorte al circulo se aplica con
+             chapa o sin ella), asi que `lienzoPng` retorna antes y este canvas no se usa nunca: eran ~67 MB
+             asignados y tirados a la basura en un domo 4096, y ~268 MB a 8192, sumados a `glc` y a `_chapaCv`. */
+          if(planchar && state.seqMode!=='dome'){ cvBg=document.createElement('canvas'); cvBg.width=glc.width; cvBg.height=glc.height; ctxBg=cvBg.getContext('2d'); }
           const lienzoPng=i=>{
             /* [R281] Con chapa, es ella quien compone -y tambien planta el negro si toca-. Sin chapa, el
                camino de siempre. En ningun caso se dibuja dos veces sobre el mismo fotograma. */
@@ -11491,7 +11512,17 @@ const ATTR_FUERA=new Set([
                                             // composicion mas pequena, el siguiente re-layout BORRABA el clip en silencio:
                                             // filter(c=>c.groupId!==g.id||c.slot<lay.length). Lo cazo la auditoria de Fable.
   'inP',                                    // qué trozo del archivo suena/se ve: es un montaje, y entre medios distintos no significa nada
-  'maskTex','peaks'                          // cachés de GPU/audio; se reconstruyen solas
+  'maskTex','peaks',                         // cachés de GPU/audio; se reconstruyen solas
+  /* [R286b] `adjust` marca una CAPA DE AJUSTE (`makeAdjustClip`: adjust:true, mediaId:null). Como `mediaId` sí
+     estaba excluido y `adjust` no, el reemplazo simétrico lo borraba al pegar sobre una capa de ajuste —que
+     desaparecía del render en silencio, conservando su rótulo— y lo inyectaba al pegar DESDE una: un clip de
+     vídeo pasaba a pintarse como ajuste sobre todo lo de abajo y su medio dejaba de verse. */
+  'adjust',
+  /* [R286b] `kfLink` es el enlace al elemento de automatización COMPARTIDO. Copiarlo mete al destino en el
+     grupo del origen, y como aquí la curva se RECORTA a la duración del destino (`recortarKf`), el primer
+     retoque en el destino propagaba la curva truncada a todos los hermanos — incluido el clip ORIGEN, que
+     perdía sus keyframes sin haberlo tocado. Se pega la curva, no la pertenencia al grupo. */
+  'kfLink'
 ]);
 function attrsDeClip(c){ const o={};
   for(const k in c){ if(ATTR_FUERA.has(k)||k.charAt(0)==='_')continue;   // '_' = estado efímero (_penCv, _penSel…)
@@ -11548,7 +11579,11 @@ function pasteAttrs(){ const cb=state.attrClip; if(!cb){ flashStatus(T('Copy att
     const mDest=mediaById(c.mediaId);
     const necesitaBucle=(()=>{ if(a.loop)return false;                       // el origen ya trae bucle: manda el suyo
       if(!c.loop||!mDest||!mDest.dur)return false;
-      const gasta=(c.dur||0)*(a.speed!=null?a.speed:(c.speed||1));
+      /* [R286b] La velocidad que cuenta es la que tendrá el clip DESPUÉS de pegar: el reemplazo simétrico borra
+         `c.speed` cuando el origen no trae la clave (lo normal, porque `_applyClipSpeed` la borra al volver a
+         100 %). Midiendo con la vieja, un destino a 0,5× se quedaba sin bucle y consumía el doble de archivo
+         del que hay: fotograma congelado y silencio al final. */
+      const gasta=(c.dur||0)*(a.speed!=null?a.speed:1);
       return gasta > (mDest.dur-(c.inP||0))+1e-6; })();
     const bucleDest=necesitaBucle?{loop:c.loop,loopLen:c.loopLen,loopRev:c.loopRev}:null;
     for(const k in c){ if(ATTR_FUERA.has(k)||k.charAt(0)==='_')continue;
@@ -11568,7 +11603,11 @@ function pasteAttrs(){ const cb=state.attrClip; if(!cb){ flashStatus(T('Copy att
   /* [R278c] `link`/`avRole` estan en ATTR_FUERA -el emparejado es de ESE par de clips-, pero velocidad y
      fundidos SI viajan, y sin volver a emparejar la otra mitad queda desincronizada para siempre. Es el paso
      que `setClipSpeed` da y que aqui faltaba. */
-  if(typeof linkPartner==='function')for(const c of dest){ try{ linkPartner(c); }catch(_){} }
+  /* [R286b] `linkPartner` es un GETTER: llamarlo y tirar el resultado no aplicaba nada, así que la mitad de
+     audio enlazada se quedaba a su velocidad vieja — la desincronización A/V permanente que R278c daba por
+     cerrada. Quien aplica de verdad es `_applyClipSpeed`, igual que hace `setClipSpeed`. */
+  for(const c of dest){ try{ const pr=(typeof linkPartner==='function')?linkPartner(c):null;
+    if(pr && typeof _applyClipSpeed==='function')_applyClipSpeed(pr, c.speed||1); }catch(_){} }
   if(typeof disposeAllVinst==='function')disposeAllVinst();
   markDirty(); renderTimeline(); renderInspector();
   if(typeof scheduleWaves==='function')scheduleWaves();
