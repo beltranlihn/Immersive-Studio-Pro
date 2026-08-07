@@ -865,6 +865,7 @@ let _previewClock=0,_prevRaf=0,_prevLast=0;
    efecto, no verlo reiniciarse. `prepNests` mete aquí la diferencia entre el tiempo sin envolver y el envuelto,
    así que fuera de un nido en bucle vale 0 y nada cambia. */
 let _animNido=0;
+let _diagNido=null;   /* [R298] apagado; ponerlo a [] enciende el diagnostico del reloj de los nidos */
 function animTime(t){ return ((state.playing||exporting)?t:(t+_previewClock))+_animNido; } // paused editor advances a preview clock; export/playback use the real frame time (deterministic)
 /* per-modifier dry/wet (0..1) — keyframeable so the user can decide WHEN a motion ramps in on the timeline.
    Uses the real render time t (not the preview clock) so the ramp is anchored to the playhead; multiplies the offset. */
@@ -1359,6 +1360,17 @@ function prepNests(clips,t,depth){ if(!depth)_nestN=0; if((depth||0)>5||!clips)r
     prepNests(m.nestClips,lt,(depth||0)+1);
     const e=nestSlot(); const oc=state.clips,ol=state.lanes,odf=_drawFlat,oca=_compAspect,orw=_roomWrap,ozs=_zsortSize,oan=_animNido;
     /* [R273] el reloj de los modificadores del interior no envuelve: se le suma lo que el bucle le quita */
+    /* [R298] Instrumento de diagnostico. La compensacion es TRANSITORIA -se aplica al entrar en el nido y se
+       restaura al salir-, asi que leerla desde fuera siempre da cero y no hay forma de comprobarla. Apagado
+       salvo que alguien ponga `_diagNido=[]`; entonces apunta lo justo para ver si el reloj del interior sigue
+       corrido al cruzar un bucle. Cuesta una comparacion por nido y fotograma. */
+    if(typeof _diagNido!=='undefined'&&_diagNido) _diagNido.push({t:+t.toFixed(3),lt:+lt.toFixed(3),
+      comp:+((((c.inP||0)+(t-c.start)*(c.speed||1))-lt)).toFixed(3),
+      /* El reloj que ven los modificadores es LOCAL + compensacion, no el de fuera + compensacion: dentro del
+         nido `animTime` recibe `lt`. La primera version de este instrumento sumaba sobre el tiempo de fuera y
+         hacia parecer que el reloj se disparaba a 6,05 en el segundo 3,05. Un instrumento mal etiquetado
+         inventa averias. */
+      reloj:+(lt+_animNido+(((c.inP||0)+(t-c.start)*(c.speed||1))-lt)).toFixed(3)});
     _animNido += (((c.inP||0)+(t-c.start)*(c.speed||1)) - lt); state.clips=m.nestClips||[]; state.lanes=(m.nestLanes&&m.nestLanes.length?m.nestLanes:ol); _drawFlat=flatLikeMode(m.mode); _roomWrap=false; _compAspect=(m.w||1)/(m.h||1); _zsortSize=!!(m.comp&&m.comp.kind==='tunnel'); /* [R246] el túnel se dibuja de lejos a cerca (ver composite) */ gl.bindFramebuffer(gl.FRAMEBUFFER,e.fbo); composite(lt,nestSize,false); gl.bindFramebuffer(gl.FRAMEBUFFER,null); state.clips=oc; state.lanes=ol; _drawFlat=odf; _roomWrap=orw; _compAspect=oca; _zsortSize=ozs; _animNido=oan; c._ntex=e.tex; } }
 /* active video media at time t, descending into active nests (local-time-adjusted), deduped by media — so playback/scrub drive videos INSIDE nests, not just top-level clips. */
 function collectActiveVideos(clips,lanes,t,depth,out,seen){ out=out||[]; seen=seen||new Set(); if((depth||0)>5||!clips||!lanes)return out;
