@@ -41,21 +41,15 @@ CSS = u"""
   --accent:#5E7A3A; --accent-soft:#EEF2E7; --warn:#8C4A2B; --warn-soft:#F8EEE8;
   --paper:#fff; --panel:#F4F6F4; --shot:#0E1012;
 }
-@media (prefers-color-scheme:dark){:root{
-  --ink:#E6E9EA; --ink-2:#A8B0B5; --ink-3:#7C858B; --rule:#2C3134;
-  --accent:#A3C271; --accent-soft:#1E2418; --warn:#D99C77; --warn-soft:#2A1C14;
-  --paper:#121415; --panel:#1B1E20; --shot:#0A0C0D;
-}}
-:root[data-theme=dark]{
-  --ink:#E6E9EA; --ink-2:#A8B0B5; --ink-3:#7C858B; --rule:#2C3134;
-  --accent:#A3C271; --accent-soft:#1E2418; --warn:#D99C77; --warn-soft:#2A1C14;
-  --paper:#121415; --panel:#1B1E20; --shot:#0A0C0D;
-}
-:root[data-theme=light]{
+/* PAPEL BLANCO, SIEMPRE. Es un documento, no una interfaz: se lee como la version impresa y no se invierte con
+   el tema del telefono. Por eso se reafirman los mismos valores bajo `data-theme=dark` — el visor estampa ese
+   atributo en la raiz y ganaria a una simple consulta de medios. */
+:root[data-theme=dark], :root[data-theme=light]{
   --ink:#15181A; --ink-2:#4C5257; --ink-3:#787F84; --rule:#DEE2E4;
   --accent:#5E7A3A; --accent-soft:#EEF2E7; --warn:#8C4A2B; --warn-soft:#F8EEE8;
   --paper:#fff; --panel:#F4F6F4; --shot:#0E1012;
 }
+html{background:#fff}
 *{box-sizing:border-box}
 body{margin:0;background:var(--paper);color:var(--ink);
   font:17px/1.66 Georgia,"Times New Roman",serif;-webkit-text-size-adjust:100%}
@@ -65,15 +59,18 @@ h1,h2,h3,h4,.ui,.kbd,th,figcaption,.lead,.toc,.hero,dt,nav{
 p{margin:0 0 .8em}
 a{color:var(--accent)}
 
-/* ── cabecera ── */
-.hero{background:var(--shot);color:#fff;padding:3.2rem 1.15rem 2.4rem;margin-bottom:2rem;position:relative;overflow:hidden}
-.hero .disc{position:absolute;right:-38%;top:12%;width:115%;padding-bottom:115%;border-radius:50%;
-  background:radial-gradient(circle at 38% 32%,#2A3340 0%,#20262E 46%,#141719 74%)}
+/* ── portadilla: pagina de titulo impresa, no cabecera de sitio web ── */
+.hero{background:var(--paper);color:var(--ink);padding:3.4rem 1.15rem 2.2rem;margin-bottom:2rem;
+  position:relative;overflow:hidden;border-bottom:2px solid var(--ink)}
+.hero .disc{position:absolute;right:-42%;top:6%;width:118%;padding-bottom:118%;border-radius:50%;
+  border:1px solid var(--rule)}
+.hero .disc::before,.hero .disc::after{content:"";position:absolute;border:1px solid var(--rule);border-radius:50%}
+.hero .disc::before{inset:14%}.hero .disc::after{inset:30%}
 .hero .in{position:relative;max-width:44rem;margin:0 auto}
-.hero img{width:72px;display:block;margin-bottom:1.6rem}
+.hero img{width:60px;display:block;margin-bottom:1.5rem}
 .hero h1{font-size:1.95rem;line-height:1.14;font-weight:600;letter-spacing:-.02em;margin:0 0 .5rem}
-.hero .sub{font-family:Georgia,serif;color:#B6BDC3;font-size:1rem;line-height:1.5;max-width:28rem}
-.hero .meta{margin-top:2rem;font-size:.72rem;letter-spacing:.11em;text-transform:uppercase;color:#8A9298}
+.hero .sub{font-family:Georgia,serif;color:var(--ink-2);font-size:1rem;line-height:1.5;max-width:28rem}
+.hero .meta{margin-top:2rem;font-size:.72rem;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3)}
 
 /* ── indice ── */
 .toc{border:1px solid var(--rule);border-radius:10px;padding:1rem 1.1rem;margin:0 0 2.4rem;background:var(--panel)}
@@ -110,8 +107,6 @@ dd{margin:.1em 0 0;padding-left:.9rem;border-left:2px solid var(--rule)}
   border:1px solid var(--rule);border-radius:4px;padding:.05em .35em;white-space:nowrap}
 .kbd{font-size:.78em;font-weight:600;background:#2A2E31;color:#fff;border-radius:4px;
   padding:.1em .42em;white-space:nowrap}
-@media (prefers-color-scheme:dark){.kbd{background:#3A4045}}
-:root[data-theme=dark] .kbd{background:#3A4045}
 .path{font-family:"Segoe UI",system-ui,sans-serif;font-size:.93em;color:var(--ink-2)}
 
 /* ── figuras ── */
@@ -148,6 +143,19 @@ ol.steps>li::before{content:counter(s);position:absolute;left:0;top:.12em;width:
   border-radius:50%;background:var(--accent);color:#fff;font-family:"Segoe UI",system-ui,sans-serif;
   font-size:.75rem;font-weight:700;display:flex;align-items:center;justify-content:center}
 
+/* ── impreso desde el navegador ── */
+@media print{
+  @page{margin:16mm}
+  body{font-size:10.5pt}
+  .hero{padding:0 0 1.5rem;margin-bottom:1.5rem;break-after:page}
+  .hero .disc{display:none}
+  .pdfbar,.toc{break-after:page}
+  .wrap{max-width:none;padding:0}
+  h1.ch{break-before:page}
+  .fig,.note,.warn,tr,ol.steps>li{break-inside:avoid}
+  h1,h2,h3,h4{break-after:avoid}
+  a{color:var(--ink)}
+}
 .colophon{margin-top:3.5rem;padding-top:1.4rem;border-top:1px solid var(--rule);color:var(--ink-2);font-size:.92rem}
 .colophon h2{margin-top:0}
 .small{font-size:.85rem;color:var(--ink-3)}
@@ -173,7 +181,17 @@ cuerpo = cuerpo.replace('</table>', '</table></div>')
 usadas = set(re.findall(r'src="img/([^"]+)"', cuerpo))
 for n in sorted(usadas):
     cuerpo = cuerpo.replace('src="img/%s"' % n, 'src="%s"' % imagen_empotrada(os.path.join(DIR, 'img', n)))
-logo = imagen_empotrada(os.path.join(DIR, 'img', 'logo.png'))
+def logo_en_tinta(ruta):
+    """El logotipo del programa es BLANCO sobre transparente, hecho para la portada oscura del PDF. Sobre papel
+       blanco no se veria nada, asi que se invierte el color y se conserva el alfa: mismo dibujo, en tinta."""
+    im = Image.open(ruta).convert('RGBA')
+    r, g, b, a = im.split()
+    inv = Image.merge('RGBA', (r.point(lambda v: 255 - v), g.point(lambda v: 255 - v),
+                               b.point(lambda v: 255 - v), a))
+    buf = io.BytesIO(); inv.save(buf, 'PNG', optimize=True)
+    return 'data:image/png;base64,' + base64.b64encode(buf.getvalue()).decode('ascii')
+
+logo = logo_en_tinta(os.path.join(DIR, 'img', 'logo.png'))
 
 datos = json.load(io.open(os.path.join(AQUI, 'datos.json'), encoding='utf-8'))
 inyec = json.dumps({'comandos': datos['comandos'], 'efectos': datos['efectos']}, ensure_ascii=False)
