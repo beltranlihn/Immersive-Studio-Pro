@@ -501,8 +501,20 @@ void main(){ v_p=a_p; float s=sin(u_spin),c=cos(u_spin); vec2 q=a_p-u_off*max(u_
 const FSFD=`#version 300 es
 precision highp float; in vec2 v_uv; in vec2 v_p; uniform sampler2D u_tex; uniform sampler2D u_maskTex; uniform float u_op,u_exp,u_con,u_sat,u_tmp,u_tnt,u_premul,u_mask,u_feather,u_blend,u_maskScale;
 uniform highp sampler3D u_lut; uniform float u_hasLut,u_lutMix; uniform vec3 u_lift,u_gamma,u_gain; uniform sampler2D u_curve; uniform float u_hasCurve; // [grade gap] wheels/curves/LUT parity with FSW
+uniform float u_fishK;   // [R305] ojo de pez PLEGADO en el muestreo: 0 = apagado
 out vec4 o;
-void main(){ if(length(v_p)>1.0) discard; if(v_uv.x<0.0||v_uv.x>1.0||v_uv.y<0.0||v_uv.y>1.0) discard; vec4 c=texture(u_tex,v_uv); vec3 col=c.rgb; // [N1] zoom-out (scale<1) samples outside the source → discard for a clean transparent border instead of edge smear
+void main(){ if(length(v_p)>1.0) discard; if(v_uv.x<0.0||v_uv.x>1.0||v_uv.y<0.0||v_uv.y>1.0) discard; vec2 uvS=v_uv;
+  /* [R305] EL OJO DE PEZ, AQUI. Antes se hacia en un pase aparte que escribia una textura intermedia, y ese
+     paso costaba un remuestreo: a 4096 de export era la mitad del detalle de la composicion. Deformar la UV al
+     muestrear da el MISMO resultado sin pasar por ninguna textura de por medio.
+     Dos cosas que hay que respetar para que salga identico y no solo parecido:
+       - la MISMA formula y la misma k que _FISHFS, de ahi que se calcule igual en drawClip;
+       - el BORDE se FIJA con clamp, como hacia el pase intermedio. FSFD descarta fuera de rango, y descartar
+         aqui cambiaria el contorno de cada elemento: el pase viejo repetia el pixel del borde. */
+  if(u_fishK>0.0){ vec2 fxy=(v_uv-0.5)*2.0; float fd=length(fxy);
+    if(fd>=1e-4){ float tk=max(tan(u_fishK),1e-4); float rs=tan(min(fd,1.0)*u_fishK)/tk;
+      uvS=clamp((fxy/fd)*rs*0.5+0.5,0.0,1.0); } }
+  vec4 c=texture(u_tex,uvS); vec3 col=c.rgb; // [N1] zoom-out (scale<1) samples outside the source → discard for a clean transparent border instead of edge smear
   col*=exp2(u_exp); col=(col-0.5)*(1.0+u_con)+0.5; float L=dot(col,vec3(0.2126,0.7152,0.0722)); col=mix(vec3(L),col,1.0+u_sat); col*=vec3(1.0+u_tmp,1.0,1.0-u_tmp); col*=vec3(1.0-u_tnt*0.5,1.0+u_tnt,1.0-u_tnt*0.5);
   col=pow(max(u_gain*col+u_lift,0.0), u_gamma); col=clamp(col,0.0,1.0);                 // R130 lift/gamma/gain primary grade
   if(u_hasCurve>0.5){ col.r=texture(u_curve,vec2(col.r,0.5)).r; col.g=texture(u_curve,vec2(col.g,0.5)).g; col.b=texture(u_curve,vec2(col.b,0.5)).b; col=vec3(texture(u_curve,vec2(col.r,0.5)).a, texture(u_curve,vec2(col.g,0.5)).a, texture(u_curve,vec2(col.b,0.5)).a); } // R132 tone curves
@@ -519,7 +531,7 @@ void main(){ if(length(v_p)>1.0) discard; if(v_uv.x<0.0||v_uv.x>1.0||v_uv.y<0.0|
   else if(u_blend>0.5){ o=vec4(mix(vec3(1.0),col,ef),1.0); }
   else { o=vec4(mix(col,col*ef,u_premul), ef); } }`;
 const PFD=prog(VSFD,FSFD);
-const LFD={p:gl.getAttribLocation(PFD,'a_p'),mir:gl.getUniformLocation(PFD,'u_mir'),spin:gl.getUniformLocation(PFD,'u_spin'),tex:gl.getUniformLocation(PFD,'u_tex'),op:gl.getUniformLocation(PFD,'u_op'),exp:gl.getUniformLocation(PFD,'u_exp'),con:gl.getUniformLocation(PFD,'u_con'),sat:gl.getUniformLocation(PFD,'u_sat'),tmp:gl.getUniformLocation(PFD,'u_tmp'),tnt:gl.getUniformLocation(PFD,'u_tnt'),premul:gl.getUniformLocation(PFD,'u_premul'),mask:gl.getUniformLocation(PFD,'u_mask'),feather:gl.getUniformLocation(PFD,'u_feather'),blend:gl.getUniformLocation(PFD,'u_blend'),maskTex:gl.getUniformLocation(PFD,'u_maskTex'),maskScale:gl.getUniformLocation(PFD,'u_maskScale'),scale:gl.getUniformLocation(PFD,'u_scale'),off:gl.getUniformLocation(PFD,'u_off'),
+const LFD={fishK:gl.getUniformLocation(PFD,'u_fishK'),p:gl.getAttribLocation(PFD,'a_p'),mir:gl.getUniformLocation(PFD,'u_mir'),spin:gl.getUniformLocation(PFD,'u_spin'),tex:gl.getUniformLocation(PFD,'u_tex'),op:gl.getUniformLocation(PFD,'u_op'),exp:gl.getUniformLocation(PFD,'u_exp'),con:gl.getUniformLocation(PFD,'u_con'),sat:gl.getUniformLocation(PFD,'u_sat'),tmp:gl.getUniformLocation(PFD,'u_tmp'),tnt:gl.getUniformLocation(PFD,'u_tnt'),premul:gl.getUniformLocation(PFD,'u_premul'),mask:gl.getUniformLocation(PFD,'u_mask'),feather:gl.getUniformLocation(PFD,'u_feather'),blend:gl.getUniformLocation(PFD,'u_blend'),maskTex:gl.getUniformLocation(PFD,'u_maskTex'),maskScale:gl.getUniformLocation(PFD,'u_maskScale'),scale:gl.getUniformLocation(PFD,'u_scale'),off:gl.getUniformLocation(PFD,'u_off'),
   lut:gl.getUniformLocation(PFD,'u_lut'),hasLut:gl.getUniformLocation(PFD,'u_hasLut'),lutMix:gl.getUniformLocation(PFD,'u_lutMix'),lift:gl.getUniformLocation(PFD,'u_lift'),gamma:gl.getUniformLocation(PFD,'u_gamma'),gain:gl.getUniformLocation(PFD,'u_gain'),curve:gl.getUniformLocation(PFD,'u_curve'),hasCurve:gl.getUniformLocation(PFD,'u_hasCurve')}; // [grade gap] wheels/curves/LUT
 const fdVAO=gl.createVertexArray(); gl.bindVertexArray(fdVAO);
 (()=>{const vb=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,vb);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,-1,1,1,-1,1]),gl.STATIC_DRAW);gl.enableVertexAttribArray(LFD.p);gl.vertexAttribPointer(LFD.p,2,gl.FLOAT,false,0,0);})();
@@ -1116,8 +1128,17 @@ function drawClip(c,m,t,xf){
   /* [R301b] El valor AUSENTE vale 60, que es lo que asumen `applyFisheye` y el inspector. Mi guarda leia
      `+undefined||0` = 0 y apagaba el ojo de pez en cualquier proyecto viejo con `fisheye:true` y sin cantidad
      guardada: se veria plano en el domo mientras el mando del inspector marca 60. */
+  /* [R305] Se PLIEGA en el shader del domo cuando se puede, y solo entonces. Hacen falta las dos cosas:
+       - que el clip vaya por el camino fulldome (FSFD), que es el unico shader al que se le enseno;
+       - que el ojo de pez sea el UNICO pre-pase: con efectos reactivos o clave de negro sigue haciendo falta la
+         textura intermedia, porque esos pases leen una imagen ya deformada.
+     Al plegarse, el pase aparte no se ejecuta: un remuestreo menos en toda composicion de domo. */
+  _fishFold=0;
   { const fa=(c.props.fisheyeAmt!=null)?+c.props.fisheyeAmt:60;
-    if(c.props.fisheye && Math.abs(fa)>0.01) ntex=applyFisheye(ntex, fxChainSize(), c); } // R83: flat→fisheye pre-warp (before FX + dome placement) so flat clips gain the curvature a dome master needs
+    if(c.props.fisheye && Math.abs(fa)>0.01){
+      const k=0.02+Math.max(0,Math.min(100,fa))/100*1.35;
+      if(c.props.fulldome && !hasFx(c) && !c.props.blackKey) _fishFold=k;
+      else ntex=applyFisheye(ntex, fxChainSize(), c); } } // R83: flat→fisheye pre-warp (before FX + dome placement) so flat clips gain the curvature a dome master needs
   if(hasFx(c)) ntex=applyChain(ntex, fxChainSize(), c, t); // Reactive FX: run the audio-reactive chain on the clip texture before dome/2D placement (dome+flat agnostic; deterministic in export)
   if(c.props.blackKey) ntex=applyBlackKey(ntex, fxChainSize(), c); // R85: luma-key the black background → real transparency (after FX so it keys the final look)
   if(_drawFlat){ const opf=Math.max(0,Math.min(1,evalR(c,'opacity',t)/100))*fadeFactor(c,t)*(xf==null?1:xf); drawClipFlat(c,m,t,xf,ntex,opf); return; } // FLAT (2D) sequence: place clip as a rectangle (x/y/scale/rot), no dome projection
@@ -1150,6 +1171,7 @@ function drawClip(c,m,t,xf){
     bindClipLUT(c,LFD); // [grade gap] wheels + curves + LUT on the fulldome path (units 2/3), restores TEXTURE0 before the tex bind below
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,ntex); gl.uniform1i(LFD.tex,0);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, c.maskTex||m.tex); gl.uniform1i(LFD.maskTex,1);
+    gl.uniform1f(LFD.fishK,_fishFold||0);   /* [R305] la deformacion viaja como uniforme; 0 = el clip no la lleva o ya paso por el pase aparte */
     const bm0=c.props.blend||'normal'; setBlend(bm0); gl.uniform1f(LFD.premul,(bm0==='screen'||bm0==='multiply')?1:0); gl.uniform1f(LFD.blend,BLEND_ID[bm0]||0); gl.drawArrays(gl.TRIANGLES,0,6); if(bm0!=='normal')NORMAL_BLEND(); gl.bindVertexArray(null); return; }
   { const p=((el%180)+180)%180; el=(p<=90)?p:(180-p); if(p>90)az+=180; } // diameter wrap: a linear 'el' scroll rises over the zenith and descends the far side, reappearing at the opposite dome edge (infinite strip). Identity for normal el∈[0,90].
   /* [R246] DESPLAZAMIENTO EN EL PLANO DEL OJO DE PEZ (`fx`/`fy`), con ENVOLTURA. Azimut y elevación mueven en
@@ -14125,6 +14147,7 @@ function applyChain(inputTex,size,host,t){ const list=enabledFx(host); if(!list.
    objetivo de 8192 son 268 MB por textura y son tres, que es justo el territorio del reinicio de GPU que cazo
    [R187]. A 4096 son 67 MB cada una y MAX_TEXTURE_SIZE aqui es 16384, asi que cabe con holgura. */
 let _fxCap=2048;
+let _fishFold=0;   /* [R305] `k` del ojo de pez plegado para el clip que se esta dibujando; 0 = sin plegar */
 function fxChainSize(){ return exporting ? Math.max(512,Math.min(_fxCap||2048, nestSize||_fxCap||2048)) : 1280; }
 /* does any (nested) clip use a feedback effect (Trails) whose output is path-dependent? Used to skip the render-ahead cache, which would otherwise bake temporally-wrong trails when populated out of order (scrubbing). */
 function anyFeedbackFx(clips){ clips=clips||state.clips; if(!clips)return false; for(const c of clips){ if(c.fx&&c.fx.some(f=>f&&f.on!==false&&FXBY[f.type]&&FXBY[f.type].needsPrev))return true; const m=mediaById(c.mediaId); if(m&&m.nestClips&&anyFeedbackFx(m.nestClips))return true; } return false; }
