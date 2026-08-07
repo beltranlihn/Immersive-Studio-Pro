@@ -36,6 +36,34 @@ mandar NV12. A 4096² son **24 MB por fotograma**, unos 500 MB/s a 20 fps, que u
 Sin ese paso, el cuello de botella sería la tubería y no se notaría la mejora. Es la pieza con más trabajo real
 de todo esto, y la que hay que hacer primero para no construir sobre arena.
 
+## Fase 3 hecha y medida (2026-08-06) — el cuello de botella se ha MOVIDO
+
+Puente en `main.js` + `preload.js`, y prueba de punta a punta: fotogramas de nuestro FBO de 4096², por la
+tubería, a `h264_nvenc`. **Sale un MP4 real de 4096×4096** que ffprobe lee sin quejarse, la memoria del
+renderer se queda en **+0 MB** durante el volcado —la contrapresión funciona— y cancelar mata el proceso.
+
+Pero la velocidad de punta a punta es **5,3 fps**, no los ~12 estimados. Desglose de los 189 ms por fotograma:
+
+| | ms |
+|---|---|
+| `readPixels` | 34 |
+| codificador | ~45 |
+| **el resto (IPC)** | **~110** |
+
+**El cuello de botella ya no es ni la lectura ni el codificador: es pasar 64 MB del renderer al proceso
+principal.** `ipcRenderer.invoke` clona el búfer, y a 64 MB por fotograma eso se paga caro.
+
+Y esto **resucita la fase 1 aplazada, pero por otro motivo del que se aplazó**. NV12 bajaría el fotograma de
+64 a 24 MB: menos IPC, no menos lectura. Alternativas a estudiar antes de elegir:
+
+- **NV12 en la GPU** — 2,7× menos bytes por el mismo camino.
+- **Saltarse el IPC**: que el renderer escriba a un socket o a una tubería con nombre que FFmpeg lea directo,
+  sin pasar por el proceso principal.
+- **Solapar**: leer el fotograma N+1 mientras FFmpeg digiere el N. No baja el coste, lo esconde.
+
+Lo honesto es medirlas antes de elegir, igual que se hizo con la fase 1 — que es precisamente lo que evitó
+construir NV12 sobre una suposición equivocada.
+
 ## Codificadores por plataforma
 
 | | Windows / RTX | macOS Silicon |

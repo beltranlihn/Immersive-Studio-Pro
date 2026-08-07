@@ -369,6 +369,107 @@ ipcMain.handle('dsp:openExternal', async (e, u) => {
 });
 ipcMain.handle('dsp:revealPath', async (e, p) => { try { if (!p) return false; const st = await fsp.stat(p).catch(() => null); if (st && st.isDirectory()) { await shell.openPath(p); } else { shell.showItemInFolder(p); } return true; } catch (err) { return false; } }); // reveal an exported file / folder in the OS file manager
 ipcMain.handle('dsp:autosaveDir', async () => { try { const d = path.join(app.getPath('userData'), 'autosave'); await fsp.mkdir(d, { recursive: true }); return d; } catch (err) { return null; } }); // disk autosave for not-yet-saved projects
+
+/* ═══ [R288] PUENTE A FFmpeg ══════════════════════════════════════════════════════════════════════════════
+   El renderer no puede lanzar procesos, asi que el proceso principal hace de puente: encuentra el binario,
+   lanza el codificador, le mete los fotogramas por la entrada estandar y devuelve el progreso.
+
+   POR QUE UN PROCESO Y NO UNA BIBLIOTECA: un proceso aparte se puede MATAR. Si el codificador se atasca o el
+   usuario cancela, se acaba y ya; enlazado dentro, un cuelgue se lleva la app y el proyecto sin guardar.
+
+   LA CONTRAPRESION ES LO QUE IMPORTA. A 4096x4096 cada fotograma son 64 MB. `stdin.write` devuelve `false`
+   cuando el buffer del sistema esta lleno, y si se ignora, Electron acumula fotogramas en RAM hasta reventar:
+   30 fotogramas de retraso son 2 GB. Aqui se ESPERA al 'drain' antes de aceptar el siguiente, asi que el
+   renderer avanza al ritmo que el codificador traga y la memoria se queda plana. */
+const _ff = new Map(); let _ffSeq = 1;
+
+/* El binario: primero el que viaje con la app (cuando se empaquete), luego el del sistema. Se prueba
+   ejecutandolo, no mirando si el archivo existe: un binario para otra arquitectura existe igual y falla luego. */
+function _ffCandidatos() {
+  const exe = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+  const out = [];
+  try { out.push(path.join(process.resourcesPath || '', 'ffmpeg', exe)); } catch (e) {}
+  try { out.push(path.join(__dirname, 'vendor', 'ffmpeg', exe)); } catch (e) {}
+  out.push(exe);                                  // el del PATH
+  if (process.platform !== 'win32') { out.push('/opt/homebrew/bin/ffmpeg'); out.push('/usr/local/bin/ffmpeg'); }
+  return out;
+}
+let _ffPath = null;
+function _ffBuscar() {
+  if (_ffPath) return _ffPath;
+  for (const c of _ffCandidatos()) {
+    try {
+      const r = require('child_process').spawnSync(c, ['-hide_banner', '-version'], { timeout: 8000 });
+      if (r.status === 0) { _ffPath = c; return c; }
+    } catch (e) {}
+  }
+  return null;
+}
+ipcMain.handle('dsp:ffProbe', async () => {
+  const bin = _ffBuscar(); if (!bin) return null;
+  try {
+    const r = require('child_process').spawnSync(bin, ['-hide_banner', '-encoders'], { timeout: 15000, maxBuffer: 8 << 20 });
+    const txt = String(r.stdout || '');
+    /* Se declara lo que ESTE binario dice tener. Que ademas acepte el tamano pedido se comprueba aparte,
+       codificando de verdad: un encoder listado puede negarse a 4096 y solo se sabe intentandolo. */
+    const tiene = n => new RegExp('^\\s*V\\S*\\s+' + n + '\\b', 'm').test(txt);
+    return { path: bin,
+      h264: ['h264_nvenc', 'h264_videotoolbox', 'h264_amf', 'h264_qsv', 'libx264'].filter(tiene),
+      hevc: ['hevc_nvenc', 'hevc_videotoolbox', 'hevc_amf', 'hevc_qsv', 'libx265'].filter(tiene) };
+  } catch (e) { return null; }
+});
+/* Lanza el codificador. `args` los arma el renderer, que es quien sabe de codecs y calidad; aqui solo se
+   comprueba que la salida sea una ruta y que el binario exista. */
+ipcMain.handle('dsp:ffStart', async (e, args, outPath) => {
+  const bin = _ffBuscar(); if (!bin) return { id: null, err: 'ffmpeg no encontrado' };
+  if (!outPath || typeof outPath !== 'string') return { id: null, err: 'destino no valido' };
+  try {
+    const ch = require('child_process').spawn(bin, args, { windowsHide: true, stdio: ['pipe', 'ignore', 'pipe'] });
+    const id = _ffSeq++;
+    const st = { ch, err: '', fin: null, code: null, drenando: null };
+    /* stderr es donde FFmpeg cuenta lo que hace. Se guarda SOLO el final: un export largo escupe megabytes de
+       lineas de progreso y guardarlas todas seria una fuga lenta. Lo que hace falta al fallar es el ultimo tramo. */
+    ch.stderr.on('data', d => { st.err = (st.err + d.toString()).slice(-8000); });
+    st.fin = new Promise(res => { ch.on('close', c => { st.code = c; res(c); }); });
+    ch.on('error', () => { st.code = -1; });
+    /* Una sola promesa de 'drain' compartida: si llegan varios write seguidos con el buffer lleno, todos
+       esperan al MISMO drain en vez de apilar escuchadores sobre el mismo evento. */
+    ch.stdin.on('drain', () => { const d = st.drenando; st.drenando = null; if (d) d(); });
+    ch.stdin.on('error', () => {});          // si el proceso muere, el write revienta: se ignora y lo cuenta el close
+    _ff.set(id, st);
+    return { id, path: bin };
+  } catch (err) { return { id: null, err: String(err && err.message || err) }; }
+});
+/* Un fotograma. Devuelve cuando el codificador lo ha aceptado: ahi esta la contrapresion. */
+ipcMain.handle('dsp:ffWrite', async (e, id, data) => {
+  const st = _ff.get(id); if (!st || st.code !== null) return false;
+  try {
+    const buf = Buffer.from(data.buffer || data, data.byteOffset || 0, data.byteLength || data.length);
+    if (st.ch.stdin.write(buf)) return true;
+    if (!st.drenando) st.drenando = null;
+    await new Promise(res => { st.drenando = res; setTimeout(() => { if (st.drenando === res) { st.drenando = null; res(); } }, 30000); });
+    return true;
+  } catch (err) { return false; }
+});
+/* Cierra la entrada y espera a que termine de escribir el archivo. Sin esperar, el MP4 se queda sin su indice
+   final y no lo abre nadie. */
+ipcMain.handle('dsp:ffEnd', async (e, id) => {
+  const st = _ff.get(id); if (!st) return { ok: false, err: 'sin trabajo' };
+  try { st.ch.stdin.end(); } catch (err) {}
+  const code = await st.fin;
+  _ff.delete(id);
+  return { ok: code === 0, code, err: code === 0 ? '' : st.err.slice(-1200) };
+});
+/* Cancelar de verdad: matar el proceso. Es la razon de haber elegido proceso y no biblioteca. */
+ipcMain.handle('dsp:ffKill', async (e, id) => {
+  const st = _ff.get(id); if (!st) return true;
+  try { st.ch.kill('SIGKILL'); } catch (err) {}
+  _ff.delete(id); return true;
+});
+/* Y que no sobreviva ninguno a la app: un ffmpeg huerfano sigue escribiendo en un archivo que el usuario cree
+   cancelado, y en Windows deja el archivo bloqueado. */
+app.on('before-quit', () => { for (const [, st] of _ff) { try { st.ch.kill('SIGKILL'); } catch (e) {} } _ff.clear(); });
+
 ipcMain.handle('dsp:fileOpen', async (e, p) => { try { const fh = await fsp.open(p, 'w'); const id = _fdSeq++; _fds.set(id, fh); return id; } catch (err) { return null; } });
 ipcMain.handle('dsp:fileWriteAt', async (e, id, position, data) => { try { const fh = _fds.get(id); if (!fh) return false; const buf = Buffer.from(data.buffer || data, data.byteOffset || 0, data.byteLength != null ? data.byteLength : data.length); await fh.write(buf, 0, buf.length, position); return true; } catch (err) { return false; } });
 ipcMain.handle('dsp:fileClose', async (e, id) => { try { const fh = _fds.get(id); if (fh) { await fh.close(); _fds.delete(id); } return true; } catch (err) { return false; } });

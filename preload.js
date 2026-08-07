@@ -94,6 +94,14 @@ contextBridge.exposeInMainWorld('dsp', {
   fileOpen: (p) => ipcRenderer.invoke('dsp:fileOpen', p),
   fileWriteAt: (id, position, data) => ipcRenderer.invoke('dsp:fileWriteAt', id, position, data),
   fileClose: (id) => ipcRenderer.invoke('dsp:fileClose', id),
+  /* [R288] Puente a FFmpeg. `ffWrite` DEVUELVE UNA PROMESA que no resuelve hasta que el codificador ha tragado
+     el fotograma: esa espera es la contrapresion, y es lo que impide que el renderer acumule fotogramas de
+     64 MB en RAM mientras FFmpeg va por detras. Hay que esperarla, no dispararla y seguir. */
+  ffProbe: () => ipcRenderer.invoke('dsp:ffProbe'),
+  ffStart: (args, outPath) => ipcRenderer.invoke('dsp:ffStart', args, outPath),
+  ffWrite: (id, data) => ipcRenderer.invoke('dsp:ffWrite', id, data),
+  ffEnd: (id) => ipcRenderer.invoke('dsp:ffEnd', id),
+  ffKill: (id) => ipcRenderer.invoke('dsp:ffKill', id),
   openRead: (p) => ipcRenderer.invoke('dsp:openRead', p),
   readAt: (id, position, length) => ipcRenderer.invoke('dsp:readAt', id, position, length),
   closeRead: (id) => ipcRenderer.invoke('dsp:closeRead', id),
