@@ -1113,7 +1113,11 @@ function drawClip(c,m,t,xf){
   if(!m) return; let ntex; if(isSeqMedia(m)) ntex=(c._ntex||m.tex); else if(m.kind==='video'){ const vi=_vinst.get(c.id); ntex=(vi&&vi.ready&&vi.vtex)?vi.vtex:m.tex; } else ntex=m.tex; if(!ntex) return; // nests sample their per-clip pool tex; videos sample their PER-CLIP decode tex so duplicated clips show different frames (fallback m.tex until the private decoder has its first frame) — [R220] this readiness branching is mirrored by clipTexReady(), keep both in sync
   if(m.kind==='sequence'&&m.frames&&m.frames.length){ const idx=Math.max(0,Math.min(m.frames.length-1,Math.floor(srcT(c,t)*(m.fps||24)))); if(idx!==m._curFrame&&m.frames[idx]){ upTex(m.tex,m.frames[idx]); m._curFrame=idx; } }
   /* [R301] Con cantidad 0 el pase no deforma NADA: lo unico que hacia era remuestrear y ablandar. */
-  if(c.props.fisheye && Math.abs(+c.props.fisheyeAmt||0)>0.01) ntex=applyFisheye(ntex, fxChainSize(), c); // R83: flat→fisheye pre-warp (before FX + dome placement) so flat clips gain the curvature a dome master needs
+  /* [R301b] El valor AUSENTE vale 60, que es lo que asumen `applyFisheye` y el inspector. Mi guarda leia
+     `+undefined||0` = 0 y apagaba el ojo de pez en cualquier proyecto viejo con `fisheye:true` y sin cantidad
+     guardada: se veria plano en el domo mientras el mando del inspector marca 60. */
+  { const fa=(c.props.fisheyeAmt!=null)?+c.props.fisheyeAmt:60;
+    if(c.props.fisheye && Math.abs(fa)>0.01) ntex=applyFisheye(ntex, fxChainSize(), c); } // R83: flat→fisheye pre-warp (before FX + dome placement) so flat clips gain the curvature a dome master needs
   if(hasFx(c)) ntex=applyChain(ntex, fxChainSize(), c, t); // Reactive FX: run the audio-reactive chain on the clip texture before dome/2D placement (dome+flat agnostic; deterministic in export)
   if(c.props.blackKey) ntex=applyBlackKey(ntex, fxChainSize(), c); // R85: luma-key the black background → real transparency (after FX so it keys the final look)
   if(_drawFlat){ const opf=Math.max(0,Math.min(1,evalR(c,'opacity',t)/100))*fadeFactor(c,t)*(xf==null?1:xf); drawClipFlat(c,m,t,xf,ntex,opf); return; } // FLAT (2D) sequence: place clip as a rectangle (x/y/scale/rot), no dome projection
@@ -8331,7 +8335,12 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
      solo se carga cuando hace falta, y nunca se borra desde aqui. */
   try{ if(opt&&opt.slate&&opt.slate.on&&opt.slate.logo)await chapaCargarLogo(opt.slate.logo); }catch(_){}
   /* [R301] El tope de los pre-pases, a la resolucion de ESTE export. */
-  try{ _fxCap=Math.max(1024,Math.min(8192, +(opt&&(opt.outW||opt.res))||2048)); }catch(_){ _fxCap=2048; }
+  /* [R301b] En un trabajo por MURO el `outW` es el ancho de la tira entera -12 000 px o mas- mientras cada
+     archivo sale a 4K. Sin mirarlo, el tope se iba al techo de 8192 y cada objetivo pasaba a 268 MB; son
+     varios, mas de 1 GB: justo el reinicio de GPU que cerro [R187]. La linea de al lado ya guardaba su
+     `outW` con `!wall` por esta misma razon. */
+  try{ const _w=(opt&&opt.wall)?Math.max(opt.wall.pxW||0,opt.wall.pxH||0):(+(opt&&(opt.outW||opt.res))||2048);
+       _fxCap=Math.max(1024,Math.min(8192, _w||2048)); }catch(_){ _fxCap=2048; }
   let _rsSeq=null; if(opt.seqId && isSeqMedia(mediaById(opt.seqId)) && opt.seqId!==state.activeSeqId){ _rsSeq=state.activeSeqId; switchSeq(opt.seqId); } // F5: export another sequence (e.g. the room floor) in its own job, then restore
   const res=opt.res, fps=opt.fps; diag('info','export','start',{codec:opt.codec,res,fps,bitrate:opt.bitrate, seq:activeSeq()&&activeSeq().name});
   // [R94d] range chosen in the export dialog: 'inout' = the I/O marks · 'clips' = the clip extent (default). Legacy jobs with no range keep the old behaviour (I/O if set).
@@ -8360,6 +8369,9 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
      for one paint if anything between the two lines throws. Restored to size-first, mask-last. */
   function _exportCleanup(doneArg){
   _fxCap=2048;   /* [R301] devuelto a su valor de reposo: fuera del export no manda */
+  /* [R301b] Y se SUELTAN los objetivos: solo encogian al volver a renderizar a 1280, asi que hasta entonces
+     se quedaban ocupando 67 MB cada uno en la tarjeta. Con el tope viejo de 2048 eran 16 MB y no importaba. */
+  try{ freeFxResources(); }catch(e){}
 
   /* [R291] Si hay un FFmpeg corriendo, se mata aqui: es lo que hace que Cancelar signifique algo en esa ruta. */
   try{ if(_ffJob!=null&&DSP.ffKill){ DSP.ffKill(_ffJob); _ffJob=null; } }catch(e){}
@@ -13852,7 +13864,10 @@ const FXTYPES=[
  {key:'edge',cat:'stylize',label:['Edge','Bordes'],
   params:[{k:'thick',label:['Thickness','Grosor'],min:1,max:5,def:1,unit:'px'},{k:'mix',label:['Mix','Mezcla'],min:0,max:100,def:100,unit:''}],
   frag:_FH+`uniform float u_thick,u_mix; float lm(vec2 uv){ vec3 c=texture(u_tex,uv).rgb; return dot(c,vec3(0.299,0.587,0.114)); }
-   void main(){ vec2 e=vec2(max(1.0,u_thick))/u_res;
+   /* [R301b] El grosor va en pixeles de la cadena, que ANTES era siempre 2048. Al seguir la resolucion de
+      export, el mismo proyecto daria un borde de la mitad de grosor relativo a 4096 — y un re-render dejaria
+      de coincidir con un master ya entregado. Se referencia a 2048 para que el aspecto no dependa del tamano. */
+   void main(){ vec2 e=vec2(max(1.0,u_thick*(u_res.x/2048.0)))/u_res;
     float tl=lm(v_uv+vec2(-e.x,e.y)),tm=lm(v_uv+vec2(0.0,e.y)),tr=lm(v_uv+vec2(e.x,e.y));
     float ml=lm(v_uv+vec2(-e.x,0.0)),mr=lm(v_uv+vec2(e.x,0.0));
     float bl=lm(v_uv+vec2(-e.x,-e.y)),bm=lm(v_uv+vec2(0.0,-e.y)),br=lm(v_uv+vec2(e.x,-e.y));
@@ -13986,7 +14001,7 @@ const FX_APPLY={ bloom:(src,size,host,fx,t,amt,di)=>{
   gl.bindFramebuffer(gl.FRAMEBUFFER,A.fbo); gl.viewport(0,0,hs,hs); gl.drawArrays(gl.TRIANGLES,0,6);
   gl.useProgram(_BLOOM_BL); gl.uniform1i(_BU.blTex,0);
   let cur=A, dst=B; const st=(0.6+rad*0.045);
-  for(const d of [[1,0],[0,1],[2.2,0],[0,2.2]]){ gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,cur.tex); gl.uniform2f(_BU.blDir,d[0]*st/hs,d[1]*st/hs); gl.bindFramebuffer(gl.FRAMEBUFFER,dst.fbo); gl.viewport(0,0,hs,hs); gl.drawArrays(gl.TRIANGLES,0,6); const tmp=cur; cur=dst; dst=tmp; }
+  for(const d of [[1,0],[0,1],[2.2,0],[0,2.2]]){ gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,cur.tex); gl.uniform2f(_BU.blDir,d[0]*st/1024.0,d[1]*st/1024.0);   /* [R301b] radio referenciado a la cadena de 2048 (mitad = 1024), no a `hs`: si no, el halo encoge al exportar mas grande */ gl.bindFramebuffer(gl.FRAMEBUFFER,dst.fbo); gl.viewport(0,0,hs,hs); gl.drawArrays(gl.TRIANGLES,0,6); const tmp=cur; cur=dst; dst=tmp; }
   gl.useProgram(_BLOOM_MX); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,src); gl.uniform1i(_BU.mxTex,0); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D,cur.tex); gl.uniform1i(_BU.mxGlow,1); gl.uniform1f(_BU.mxBoost,boost);
   gl.bindFramebuffer(gl.FRAMEBUFFER,out.fbo); gl.viewport(0,0,size,size); gl.drawArrays(gl.TRIANGLES,0,6);
   return out.tex; } };
