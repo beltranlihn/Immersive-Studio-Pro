@@ -12993,7 +12993,7 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
     <div class="frow"><label>${T('Mask','Máscara')}</label><select id="cMask"><option value="none">${T('None','Ninguna')}</option><option value="circle">${T('Circle (alpha)','Círculo (alfa)')}</option><option value="rounded">${T('Rounded','Redondeada')}</option><option value="diamond">${T('Diamond','Rombo')}</option><option value="vignette">${T('Vignette','Viñeta')}</option></select></div>
     <!-- [R268] Tamano de la mascara. Existia por clip desde siempre (maskScale, en los dos shaders) pero no habia
          forma de pedirlo al componer: habia que entrar clip a clip. 100 % = como estaba. -->
-    <div class="frow" id="cMaskSzRow"><label>${T('Mask size','Tamaño de máscara')}</label><input type="range" id="cMaskSz" min="0" max="300" value="100" style="flex:1;height:20px;"><span class="tnum" id="cMaskSzV" style="width:52px;text-align:right;color:var(--ink-2);">100%</span></div>
+    <div class="frow" id="cMaskSzRow"><label>${T('Mask size','Tamaño de máscara')}</label><input type="range" id="cMaskSz" min="0" max="100" value="100" style="flex:1;height:20px;"><span class="tnum" id="cMaskSzV" style="width:52px;text-align:right;color:var(--ink-2);">100%</span></div>
     <div class="frow" data-only="tile"><label>${T('Tile','Mosaico')}</label><label style="display:flex;align-items:center;gap:6px;flex:1;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="cTile"> ${T('Seamless dome tiling (perfect ring)','Mosaico continuo del domo (anillo perfecto)')}</label></div>
     <div class="frow" data-only="tileband"><label>${T('Band','Banda')}</label><input type="number" class="tnum" id="cBand" value="30" min="4" max="90"><span class="tnum" style="color:var(--ink-dim);">°</span></div>
     <!-- [R246] TÚNEL: las fuentes son imágenes 1:1 (anillos con alfa) tratadas como máster de domo; crecen desde el
@@ -13196,7 +13196,15 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
     const _put=(id,v)=>{ const el=$(id); if(el&&v!=null)el.value=v; };
     const _chk=(id,v)=>{ const el=$(id); if(el)el.checked=!!v; };
     _put('#cTFrom',pre.sizeFrom!=null?pre.sizeFrom:1); _put('#cTTo',pre.sizeTo!=null?pre.sizeTo:200);
-    _put('#cTCurve',pre.curve!=null?pre.curve:60); _put('#cTTwist',pre.twist||0); _put('#cTHelix',pre.helix||0); _put('#cMaskSz',pre.maskScale!=null?pre.maskScale:100);
+    _put('#cTCurve',pre.curve!=null?pre.curve:60); _put('#cTTwist',pre.twist||0); _put('#cTHelix',pre.helix||0); { /* [R304] El mando va de 0 a 100, como pidio Beltran (R296): por encima de 100 la mascara se sale del
+       elemento y deja de recortar nada. Pero un proyecto ANTIGUO puede llevar un 250 legitimo, y con el tope en
+       100 el `input` lo recortaria al mostrarlo y se guardaria ese 100: le cambiaria el aspecto sin avisar. Por
+       eso el Mac lo habia devuelto a 300 en R301c — resolvia el recorte pero deshacia la peticion.
+       Se concilian: el tope SUBE solo para esa composicion, lo justo para que su valor quepa. Los composes
+       nuevos siguen ofreciendo 0..100; los viejos se abren intactos. */
+      const _ms=(pre&&pre.maskScale!=null)?+pre.maskScale:100;
+      const _e=$('#cMaskSz'); if(_e&&_ms>100)_e.max=String(Math.ceil(_ms));
+      _put('#cMaskSz',_ms); }
     if(kind!=='weave')_put('#cTSpeed',Math.round((pre.speed!=null?pre.speed:0.12)*100));
     { const fi=tunnelFadeIn(pre), fo=tunnelFadeOut(pre);
       _chk('#cTFadeIn',fi>0); if(fi>0)_put('#cTFadeInA',Math.round(fi*100));

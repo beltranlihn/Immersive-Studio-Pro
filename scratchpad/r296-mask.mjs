@@ -15,9 +15,16 @@ const r=await ev(`(async function(){
   renderMedia();
   const ids=state.media.filter(m=>m.kind==='video').map(m=>m.id);
   openCompose('ring',{id:9,kind:'ring',mediaIds:ids,mediaId:ids[0],count:6,el:30,size:40,mask:'circle',maskScale:100,rand:[],jitter:0},null,null,null);
+  await new Promise(s=>setTimeout(s,500));
+  const eN=document.querySelector('#cMaskSz'); const nuevo={min:eN.min,max:eN.max};
+  /* [R304] Y un compose ANTIGUO con 250 guardado tiene que abrirse INTACTO, no recortado a 100: si el mando lo
+     recortara, guardar le cambiaria el aspecto sin avisar. */
+  { const ov=document.querySelector('#compOv'); if(ov)ov.remove(); }
+  openCompose('ring',{id:10,kind:'ring',mediaIds:ids,mediaId:ids[0],count:6,el:30,size:40,mask:'circle',maskScale:250,rand:[],jitter:0},null,null,null);
   await new Promise(s=>setTimeout(s,600));
+  const eV=document.querySelector('#cMaskSz'); const viejo={max:eV.max,val:eV.value};
   const e=document.querySelector('#cMaskSz');
-  const out={min:e.min,max:e.max,val:e.value};
+  const out={min:nuevo.min,max:nuevo.max,val:'100',viejoMax:viejo.max,viejoVal:viejo.val};
   /* que un valor guardado ANTIGUO siga significando lo mismo */
   out.viejo250=compMaskScale({maskScale:250});
   out.cero=compMaskScale({maskScale:0});
@@ -28,6 +35,8 @@ console.log('mando: de '+r.min+' a '+r.max+'   valor por defecto '+r.val);
 console.log('escala con 100 -> '+r.cien+'   con 0 -> '+r.cero+'   con un 250 guardado de antes -> '+r.viejo250);
 if(r.min!=='0'||r.max!=='100') mal('el rango sigue mal: '+r.min+'..'+r.max);
 if(r.val!=='100') mal('el valor por defecto deberia ser 100');
+console.log('compose antiguo con 250 guardado -> el mando llega a '+r.viejoMax+' y muestra '+r.viejoVal);
+if(+r.viejoVal!==250) mal('un proyecto antiguo se abre RECORTADO a '+r.viejoVal+': se le cambiaria el aspecto al guardar');
 if(r.cien!==1) mal('100 deberia ser la mascara tal cual');
 if(r.cero!==0) mal('0 deberia cerrar la mascara del todo, y da '+r.cero);
 if(r.viejo250!==2.5) mal('un proyecto guardado con 250 ha cambiado de aspecto: ahora da '+r.viejo250);
