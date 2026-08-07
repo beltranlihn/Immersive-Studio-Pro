@@ -26,7 +26,9 @@
     "npmRebuild": false,
     "appId": "com.almadigitalstudio.immersivestudiopro",
     "productName": "Immersive Studio Pro",
-    "directories": { "output": "dist" },
+    "directories": {
+      "output": "dist"
+    },
     "fileAssociations": [
       {
         "ext": "isp",
@@ -70,15 +72,28 @@
     "win": {
       "icon": "assets/alma-logo.png",
       "target": [
-        { "target": "portable", "arch": ["x64"] },
-        { "target": "nsis", "arch": ["x64"] }
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
       ]
     },
     "mac": {
       "icon": "assets/alma-logo.png",
       "category": "public.app-category.video",
       "identity": null,
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "files": [
         "!node_modules/dsp-spout-send/**",
         "!node_modules/dsp-ndi-send/**"
@@ -90,6 +105,18 @@
       "createDesktopShortcut": true,
       "shortcutName": "Immersive Studio Pro"
     },
-    "portable": { "artifactName": "Immersive Studio Pro ${version} portable.exe" }
+    "portable": {
+      "artifactName": "Immersive Studio Pro ${version} portable.exe"
+    },
+    "extraResources": [
+      {
+        "from": "vendor/ffmpeg/${os}",
+        "to": "ffmpeg",
+        "filter": [
+          "**/*",
+          "!.gitkeep"
+        ]
+      }
+    ]
   }
 }

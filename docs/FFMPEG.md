@@ -241,11 +241,34 @@ Verificado que aparecen donde deben y desaparecen donde no significan nada. **Lo
 clic final en Exportar, porque el encolado es asíncrono detrás de avisos que el arnés no sabe pilotar. Que
 `opt.ffq` llega a `runExport` y se usa quedó probado en R291, exportando un 4096² real pasándolo directamente.
 
+### El binario, empaquetado (R294)
+
+Verificado sobre el **`.exe` instalado**, no sobre el de desarrollo: usa
+`…\Immersive Studio Proesourcesfmpegfmpeg.exe`, con `h264_nvenc` y `hevc_nvenc`. En un equipo limpio
+—sin FFmpeg en el PATH— seguirá funcionando, que era el punto.
+
+**El binario NO está en el repositorio.** Son 213 MB por plataforma, y git no es sitio para eso: cada clon se
+los traería y cada actualización los duplicaría en el historial para siempre. Va en `vendor/ffmpeg/<os>/`, que
+está en `.gitignore`, y electron-builder lo mete en el instalador desde ahí.
+
+**Cómo reponerlo** si se pierde la carpeta, o al montar otra máquina:
+
+- **Windows** — `winget install Gyan.FFmpeg`, y copiar el `ffmpeg.exe` del paquete a `vendor/ffmpeg/win/`.
+- **macOS** — `brew install ffmpeg`, y copiar `$(brew --prefix)/bin/ffmpeg` a `vendor/ffmpeg/mac/`.
+
+Si la carpeta está vacía, el instalador se monta igual y la app cae al FFmpeg del sistema: no se rompe, sólo
+deja de ser autosuficiente.
+
+**Detalle de electron-builder que costó una compilación:** `extraResources` dentro de `win`/`mac` **no se
+recogió** — el instalador salió sin la carpeta. Va en la **raíz** de `build`, con el macro `${os}` en el
+`from`, que resuelve a `win`/`mac`/`linux` y hace que cada plataforma se lleve su propio binario.
+
+El instalador pasa de ~30 MB a **144 MB**. Para uso interno es un precio razonable; si algún día molesta, una
+compilación mínima de FFmpeg con sólo lo que se usa bajaría a unos 30.
+
 ### Pendiente
 
-- **Empaquetar el binario.** Hoy se usa el FFmpeg del sistema; `_ffBuscar` ya mira primero en `resourcesPath`,
-  así que empaquetarlo es añadirlo a `extraResources` y nada más.
-- **macOS.** VideoToolbox sigue sin medir.
+- **macOS.** VideoToolbox sigue sin medir, y es lo único que queda.
 
 ## Plan por fases (revisado)
 

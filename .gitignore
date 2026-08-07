@@ -32,3 +32,11 @@ scratchpad/**/*.jpg
 scratchpad/autosave/
 scratchpad/*.isp
 scratchpad/*.json
+
+# [R294] El binario de FFmpeg NO va al repositorio: son 213 MB por plataforma, y git no es un sitio para eso
+# -cada clon se los traeria, y cada actualizacion los duplicaria en el historial para siempre-. Se coloca a
+# mano en vendor/ffmpeg/<plataforma>/ y electron-builder lo mete en el instalador desde ahi.
+# Como conseguirlo: docs/FFMPEG.md, seccion «El binario».
+vendor/ffmpeg/win/*
+vendor/ffmpeg/mac/*
+!vendor/ffmpeg/*/.gitkeep
