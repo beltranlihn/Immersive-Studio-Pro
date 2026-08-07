@@ -1,5 +1,80 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 301c — Revisión desde el Mac de R288→R301b
+
+20 commits de Windows: el export por FFmpeg/NVENC y el arreglo de nitidez. Dos revisores sobre el diff real;
+**siete defectos corregidos y verificados** (`scratchpad/r301c-review.mjs`), el resto reportado. Mis sondas de
+regresión pasan enteras, `__errs` vacío.
+
+### Lo primero: la mejora de nitidez, MEDIDA
+
+R301 dejó escrito que la mejora **no** estaba verificada — al volver a renderizar, la textura del nido está
+cacheada y el arnés acaba midiendo dos veces el mismo fotograma. Rompiendo esa caché a mano
+(`scratchpad/r301c-nitidez.mjs`):
+
+- **Evidencia del cuello:** el objetivo intermedio del ojo de pez medía **2048** con el tope viejo y **4096** con
+  el nuevo. La composición ya no se estruja a la mitad.
+- **Consecuencia en la imagen**, con fuente de detalle fino (damero de 4 px) a 4096 de salida: nitidez **30,35 →
+  33,02**, un **+8,8 %**.
+- Matiz que conviene decir: con material SUAVE la diferencia es **0 %**. El arreglo se nota en fotos y renders con
+  detalle, no en degradados.
+
+### El tope seguía llegando a 8192 por tres caminos
+
+R301b cerró el caso «un archivo por muro», pero no los otros tres, y los tres eran alcanzables desde la interfaz:
+domo a **6144 y 8192** (los ofrece el selector), sala en **tira completa** (que es el modo por defecto: `pxW` son
+los 15 360 de cuatro muros) y **sala sin piso** (llega sin `wall`, con `outW` = el ancho de la tira). Medido: los
+tres daban tope 8192 → cuatro objetivos de 256 MB = **1 GB**, justo el reinicio de GPU que [R187] cerró y que el
+propio comentario de R301 dice estar evitando. El razonamiento de R301 concluye que 4096 es el límite sano; el
+tope se pone ahí.
+
+### Y en vertical seguía ablandando
+
+El tope medía `outW` a secas. Una entrega **1080×1920** dejaba el tope en 1080 con el fotograma midiendo 1920 de
+alto: exactamente el ablandamiento que R301 venía a quitar, intacto en formatos verticales. Manda el lado MAYOR,
+como ya hacía la rama de muro.
+
+### Dos que rompían proyectos existentes
+
+- **Reabrir Compose recortaba a 100 cualquier `maskScale` legacy mayor.** R296 bajó el rango del control a 0-100;
+  el DOM recorta al escribir, así que abrir el cuadro de una composición al 250 % y pulsar Aplicar la dejaba en
+  100. El rango vuelve a 300: lo guardado se respeta.
+- **La firma del tejido no veía ni la velocidad ni el reparto de fuentes.** Mover el fader de velocidad dejaba el
+  período viejo (volvía el salto que R300 quitó, más otro a destiempo); rebarajar daba firma idéntica y conservaba
+  el orden anterior; y quitar una fuente dejaba ids muertos con los que el elemento **desaparece**. Ahora se firman
+  las dos. De paso, `_wv` deja de viajar en el `.isp`: es caché derivada, y guardarla congelaba ids que al reabrir
+  podían estar muertos.
+
+### El 0 del mando de máscara no hacía nada
+
+`+'0'||100` = 100. El arreglo de R301b estaba aguas abajo del fallo: el valor ya llegaba convertido, así que
+arrastrar «Mask size» a 0 % abría la máscara del todo en vez de cerrarla — discontinuidad en el extremo del rango.
+
+### Y dos del export por FFmpeg que afectan también a Windows
+
+- **`nv12Read` dejaba el BLEND apagado.** Del fotograma 1 en adelante **todo el composite se dibujaba sin
+  mezcla**: opacidad ignorada, fundidos convertidos en cortes secos, add/screen/multiply sin efecto. Y el visor en
+  vivo se quedaba así al terminar el export. El fotograma 0 salía bien, que es justo lo que hace que una prueba de
+  punta a punta con un clip no lo cace. Medido: ahora se restaura.
+- **El MP4 salía siempre sin audio.** Se escribía el `AudioBuffer` en crudo en vez de convertirlo con
+  `audioBufferToWav`; como `AudioBuffer.length` son muestras, la guarda pasaba, el IPC no podía clonarlo y todo
+  caía en el `catch` en silencio. El camino PNG ya lo hacía bien.
+
+### Reportado, no corregido — para la máquina Windows
+
+Del informe de FFmpeg quedan, con su detalle en el hilo: `ffWrite` **miente** cuando el proceso muere (espera los
+30 s del timeout y devuelve `true`, y el renderer ni mira el valor) → un export entero corriendo contra un proceso
+muerto; el hijo de FFmpeg **no se mata** si el renderer se cae, y en macOS cerrar la ventana no cierra la app, así
+que queda vivo indefinidamente; los códecs nuevos se ofrecen **sin sondear** si el binario existe ni si el tamaño
+cabe; el empaquetado NV12 exige ancho múltiplo de **4** y el export sólo garantiza múltiplo de 2 (1366×768 saldría
+cizallado); el bucle de FFmpeg no respeta **Pausar**; `_ffBuscar` usa `spawnSync` y **bloquea el proceso
+principal** hasta 8 s por candidato; y hay cinco cadenas de UI en castellano sin tildes en la hoja de export.
+
+**Nota para el Mac:** `vendor/ffmpeg/mac/` está vacía, así que el `.app` no lleva FFmpeg dentro y aquí se usa el
+del sistema (`ffProbe` devuelve `path:"ffmpeg"` con `h264_videotoolbox`). Funciona, pero contradice el titular de
+R294 («deja de depender del que haya en el sistema»): en Windows sí, en Mac no.
+
+
 ## ROUND 286c — Los tres que quedaban abiertos
 
 Cerrados los tres que R286b dejó reportados sin corregir. Verificado en `scratchpad/r286c-review.mjs`, con la

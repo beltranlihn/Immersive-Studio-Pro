@@ -1209,8 +1209,18 @@ function activeClips(t){ const out=[]; for(const li of state.lanes.map((_,i)=>i)
 function wvPrep(m){
   const g=m&&m.comp; if(!g||g.kind!=='weave'||!g.shuffle)return;
   const cl=m.nestClips||[]; if(!cl.length)return;
-  /* Firma barata: si el tejido no ha cambiado, no se recalcula. */
-  const firma=cl.length+'|'+(g.bands||0)+'|'+(g.count||0)+'|'+(g.motion||'')+'|'+(g._orderR?1:0);
+  /* Firma barata: si el tejido no ha cambiado, no se recalcula.
+     [R301c] Le faltaban las dos cosas que MAS cambian el resultado:
+     · La VELOCIDAD. `compWeaveAnim` la mete en el diente de sierra, no en `bands`/`count`/`motion`, asi que mover
+       el fader dejaba `per` con el periodo viejo: la rotacion de fuente se desacoplaba del salto y volvia el
+       intercambio que R300 quito, mas otro nuevo a destiempo.
+     · El REPARTO DE FUENTES. `_orderR` ya lo ha devuelto `ensureCompOrder` a false antes de que esto lo vea, asi
+       que rebarajar daba firma identica y `ord` conservaba el orden ANTERIOR; y quitar una fuente dejaba ids
+       muertos, con los que `drawClip` sale por `if(!m)return` y el elemento DESAPARECE. Se firma el orden real. */
+  const _vel=(function(){ try{ const a=(cl[0]&&cl[0].anim)||[]; const sw=a.find(x=>x&&x.k==='saw'&&(x.p==='x'||x.p==='y'));
+    return sw?(sw.speed||0)+':'+(sw.phase||0):''; }catch(_){ return ''; } })();
+  const _ord=(function(){ try{ return (g.order||[]).join(',')+'#'+cl.map(c=>c.mediaId).join(','); }catch(_){ return ''; } })();
+  const firma=cl.length+'|'+(g.bands||0)+'|'+(g.count||0)+'|'+(g.motion||'')+'|'+(g._orderR?1:0)+'|'+_vel+'|'+_ord;
   if(m._wvSig===firma)return; m._wvSig=firma;
   /* Cada elemento se agrupa por su TIRA -la coordenada perpendicular al desplazamiento- y dentro de ella se
      ordena por la coordenada que se mueve. El orden asi obtenido es el que rota. */
@@ -8322,6 +8332,11 @@ function nv12Read(srcTex,W,H,disco,chapa){
   const N=nv12Prep(W,H); if(!N)return null;
   gl.bindFramebuffer(gl.FRAMEBUFFER,N.fbo);
   gl.viewport(0,0,N.oW,N.oH);
+  /* [R301c] Se guarda el estado de BLEND para restaurarlo al salir. Sin esto, del fotograma 1 en adelante TODO
+     el composite se dibujaba sin mezcla -opacidad ignorada, fundidos convertidos en cortes secos, add/screen/
+     multiply sin efecto- y el visor en vivo se quedaba igual al terminar el export. El fotograma 0 salia bien,
+     que es justo lo que hace que una prueba de punta a punta con un clip no lo cace. */
+  const _blendPrev=gl.isEnabled(gl.BLEND);
   gl.disable(gl.BLEND); gl.disable(gl.DEPTH_TEST);
   gl.useProgram(N.prog);
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,srcTex);
@@ -8345,6 +8360,7 @@ function nv12Read(srcTex,W,H,disco,chapa){
   gl.bindVertexArray(quadVAO); gl.drawArrays(gl.TRIANGLES,0,6);
   gl.readPixels(0,0,N.oW,N.oH,gl.RGBA,gl.UNSIGNED_BYTE,N.buf);
   gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+  if(_blendPrev){ gl.enable(gl.BLEND); NORMAL_BLEND(); }   // [R301c] devuelto como estaba
   return N.buf; }
 
 let _ffJob=null;   /* [R291] el trabajo de FFmpeg en curso, para que Cancelar lo mate de verdad */
@@ -8358,8 +8374,18 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
      archivo sale a 4K. Sin mirarlo, el tope se iba al techo de 8192 y cada objetivo pasaba a 268 MB; son
      varios, mas de 1 GB: justo el reinicio de GPU que cerro [R187]. La linea de al lado ya guardaba su
      `outW` con `!wall` por esta misma razon. */
-  try{ const _w=(opt&&opt.wall)?Math.max(opt.wall.pxW||0,opt.wall.pxH||0):(+(opt&&(opt.outW||opt.res))||2048);
-       _fxCap=Math.max(1024,Math.min(8192, _w||2048)); }catch(_){ _fxCap=2048; }
+  /* [R301c] Dos agujeros que R301b no cerro, los dos medidos:
+     · El techo seguia en 8192. El selector ofrece domo a 6144 y 8192, y en sala el trabajo POR DEFECTO es la tira
+       entera (`kind:'strip'`, pxW = los 15 360 de cuatro muros) y la sala sin piso llega sin `wall`, con `outW` =
+       el ancho de la tira. En los tres casos el tope se iba a 8192: cuatro objetivos de 256 MB = 1 GB, justo el
+       reinicio de GPU que [R187] cerro y que el propio comentario de R301 dice estar evitando. El razonamiento de
+       R301 concluye que 4096 es el limite sano; el tope se pone AHI.
+     · Se medía `outW` a secas. Una entrega VERTICAL -1080x1920, o un tamano a medida con alto mayor que ancho-
+       dejaba el tope en 1080 con el fotograma midiendo 1920 de alto: seguia ablandando, que es justo lo que R301
+       venia a quitar. Manda el lado MAYOR, como ya hacia la rama de muro. */
+  try{ const _w=(opt&&opt.wall)?Math.max(opt.wall.pxW||0,opt.wall.pxH||0)
+                              :Math.max(+(opt&&(opt.outW||opt.res))||0, +(opt&&(opt.outH||opt.res))||0)||2048;
+       _fxCap=Math.max(1024,Math.min(4096, _w||2048)); }catch(_){ _fxCap=2048; }
   let _rsSeq=null; if(opt.seqId && isSeqMedia(mediaById(opt.seqId)) && opt.seqId!==state.activeSeqId){ _rsSeq=state.activeSeqId; switchSeq(opt.seqId); } // F5: export another sequence (e.g. the room floor) in its own job, then restore
   const res=opt.res, fps=opt.fps; diag('info','export','start',{codec:opt.codec,res,fps,bitrate:opt.bitrate, seq:activeSeq()&&activeSeq().name});
   // [R94d] range chosen in the export dialog: 'inout' = the I/O marks · 'clips' = the clip extent (default). Legacy jobs with no range keep the old behaviour (I/O if set).
@@ -8501,8 +8527,13 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
          ritmos distintos y es justo donde se descuadra el sonido. */
       let wavTmp=null;
       if(!opt.noAudio){ try{
-        const wav=await exportAudioMix(t0,t0+total/fps);
-        if(wav&&wav.length){ wavTmp=outPath.replace(/\.mp4$/i,'')+'.__mix.wav';
+        /* [R301c] exportAudioMix devuelve un AudioBuffer, no bytes. Se escribia tal cual, y como
+           AudioBuffer.length es el numero de MUESTRAS la guarda pasaba; luego el IPC no puede clonar un
+           AudioBuffer y todo caia en el catch de abajo: el MP4 salia SIN AUDIO, siempre y en silencio. El
+           camino PNG ya lo hacia bien con audioBufferToWav. */
+        const mezcla=await exportAudioMix(t0,t0+total/fps);
+        if(mezcla&&mezcla.length){ const wav=audioBufferToWav(mezcla);
+          wavTmp=outPath.replace(/\.mp4$/i,'')+'.__mix.wav';
           if(await DSP.writeBinary(wavTmp,wav)===false)wavTmp=null; }
       }catch(e){ wavTmp=null; } }
 
@@ -9801,7 +9832,10 @@ function serMedia(m){ return {id:m.id,name:m.name,kind:m.kind,w:m.w,h:m.h,mode:m
   nestMarkers:(m.kind==='nest'?(m.nestMarkers||[]):null), nestGroups:(m.kind==='nest'?(m.nestGroups||[]):null), nestPlayhead:(m.kind==='nest'?(m.nestPlayhead||0):null), nestScrollT:(m.kind==='nest'?(m.nestScrollT||0):null), /* [R239] el encuadre horizontal de la secuencia, en segundos */ nestWorkIn:(m.kind==='nest'?(m.nestWorkIn??null):null), nestWorkOut:(m.kind==='nest'?(m.nestWorkOut??null):null), comp:(m.comp||null), /* [archivado 20260725] grade: del nest */
   thumb:(m.kind==='audio'?m.thumb:null)}; }
 let _serLight=false; // when true (autosave), drop heavy fields (maskData PNGs) to stay under the localStorage quota
-function serClip(c){ const o=JSON.parse(JSON.stringify(c)); delete o.maskTex; delete o._penCv; delete o._elB; delete o._szB; delete o._curveTex; delete o._curveDirty; if(_serLight)delete o.maskData; return o; } // R132: _curveTex is a live GL texture (rebuilt from props.curves), _curveDirty a transient flag // maskTex is a live GL texture; _penCv is the pen-mask raster canvas (rebuilt from penMasks); _elB/_szB are transient drag baselines; maskData (dataURL) kept except in the light autosave copy
+/* [R301c] `_wv` es cache derivada del nido (orden de rotacion, periodo, direccion). Guardarla en el .isp la
+   congela: al reabrir con un medio borrado o reenlazado, sus ids muertos harian desaparecer elementos. Se
+   recalcula sola, asi que no viaja. */
+function serClip(c){ const o=JSON.parse(JSON.stringify(c)); delete o.maskTex; delete o._penCv; delete o._elB; delete o._szB; delete o._curveTex; delete o._curveDirty; delete o._wv; if(_serLight)delete o.maskData; return o; } // [R301c] _wv: cache derivada del nido // R132: _curveTex is a live GL texture (rebuilt from props.curves), _curveDirty a transient flag // maskTex is a live GL texture; _penCv is the pen-mask raster canvas (rebuilt from penMasks); _elB/_szB are transient drag baselines; maskData (dataURL) kept except in the light autosave copy
 /* ===================== SEQUENCES (Premiere-style; a sequence IS a media item, kind 'nest') ===================== */
 function isSeqMedia(m){ return !!(m&&m.kind==='nest'); }
 function seqReaches(rootId,targetId){ const seen=new Set(); const walk=id=>{ if(id===targetId)return true; if(seen.has(id))return false; seen.add(id); const mm=mediaById(id); return !!(mm&&isSeqMedia(mm)&&(mm.nestClips||[]).some(c=>walk(c.mediaId))); }; return walk(rootId); } // does sequence rootId (transitively) already contain targetId?
@@ -12937,7 +12971,7 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
     <div class="frow"><label>${T('Mask','Máscara')}</label><select id="cMask"><option value="none">${T('None','Ninguna')}</option><option value="circle">${T('Circle (alpha)','Círculo (alfa)')}</option><option value="rounded">${T('Rounded','Redondeada')}</option><option value="diamond">${T('Diamond','Rombo')}</option><option value="vignette">${T('Vignette','Viñeta')}</option></select></div>
     <!-- [R268] Tamano de la mascara. Existia por clip desde siempre (maskScale, en los dos shaders) pero no habia
          forma de pedirlo al componer: habia que entrar clip a clip. 100 % = como estaba. -->
-    <div class="frow" id="cMaskSzRow"><label>${T('Mask size','Tamaño de máscara')}</label><input type="range" id="cMaskSz" min="0" max="100" value="100" style="flex:1;height:20px;"><span class="tnum" id="cMaskSzV" style="width:52px;text-align:right;color:var(--ink-2);">100%</span></div>
+    <div class="frow" id="cMaskSzRow"><label>${T('Mask size','Tamaño de máscara')}</label><input type="range" id="cMaskSz" min="0" max="300" value="100" style="flex:1;height:20px;"><span class="tnum" id="cMaskSzV" style="width:52px;text-align:right;color:var(--ink-2);">100%</span></div>
     <div class="frow" data-only="tile"><label>${T('Tile','Mosaico')}</label><label style="display:flex;align-items:center;gap:6px;flex:1;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="cTile"> ${T('Seamless dome tiling (perfect ring)','Mosaico continuo del domo (anillo perfecto)')}</label></div>
     <div class="frow" data-only="tileband"><label>${T('Band','Banda')}</label><input type="number" class="tnum" id="cBand" value="30" min="4" max="90"><span class="tnum" style="color:var(--ink-dim);">°</span></div>
     <!-- [R246] TÚNEL: las fuentes son imágenes 1:1 (anillos con alfa) tratadas como máster de domo; crecen desde el
@@ -13034,7 +13068,7 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
       bandW:(+($('#cWBandW')?$('#cWBandW').value:100)||100), gap:+($('#cWGap')?$('#cWGap').value:0)||0, rotSpeed:+($('#cWRot')?$('#cWRot').value:0)||0, rotDir:_wRotD, flip:false, // [R265] el sentido lo lleva ahora "motion" (un sentido / el otro / intercalado); "flip" se sigue respetando al dibujar, por los proyectos viejos
       speedV:((+($('#cWSpeedV2')?$('#cWSpeedV2').value:12)||0)/100),
       interlace:($('#cWInter')?$('#cWInter').checked:true),
-      _aspect:compAspectOf(_srcs), _aspects:compAspectsOf(_srcs), cols:+$('#cCols').value||3, arc:+$('#cArc').value||140, el:+$('#cEl').value||30, elMin:+$('#cElMin').value||10, elMax:+$('#cElMax').value||60, size:+$('#cSize').value||40, turns:+($('#cTurns')?$('#cTurns').value:3)||3, lineRot:$('#cLineRot')?$('#cLineRot').checked:true, tile:$('#cTile')?$('#cTile').checked:false, band:+($('#cBand')?$('#cBand').value:30)||30, rings, segs, gapEl:+($('#cGapEl')?$('#cGapEl').value:0)||0, gapAz:+($('#cGapAz')?$('#cGapAz').value:0)||0, brick:$('#cBrick')?$('#cBrick').checked:false, shuffle:$('#cShuffle')?$('#cShuffle').checked:false, mask:$('#cMask').value, maskScale:+($('#cMaskSz')?$('#cMaskSz').value:100)||100, spin:(pre&&pre.spin)||0, rand:_rand, jitter:_jit, noWarp:$('#cNoWarp')?$('#cNoWarp').checked:false, infinite:($('#cInfinite')?$('#cInfinite').checked:_infinite),
+      _aspect:compAspectOf(_srcs), _aspects:compAspectsOf(_srcs), cols:+$('#cCols').value||3, arc:+$('#cArc').value||140, el:+$('#cEl').value||30, elMin:+$('#cElMin').value||10, elMax:+$('#cElMax').value||60, size:+$('#cSize').value||40, turns:+($('#cTurns')?$('#cTurns').value:3)||3, lineRot:$('#cLineRot')?$('#cLineRot').checked:true, tile:$('#cTile')?$('#cTile').checked:false, band:+($('#cBand')?$('#cBand').value:30)||30, rings, segs, gapEl:+($('#cGapEl')?$('#cGapEl').value:0)||0, gapAz:+($('#cGapAz')?$('#cGapAz').value:0)||0, brick:$('#cBrick')?$('#cBrick').checked:false, shuffle:$('#cShuffle')?$('#cShuffle').checked:false, mask:$('#cMask').value, maskScale:(function(){ const el=$('#cMaskSz'); if(!el)return 100; const v=Number(el.value); return isFinite(v)?v:100; })(), /* [R301c] el `||100` convertia el 0 en 100: el extremo del fader no hacia nada y la mascara saltaba de cerrada del todo a abierta del todo */ spin:(pre&&pre.spin)||0, rand:_rand, jitter:_jit, noWarp:$('#cNoWarp')?$('#cNoWarp').checked:false, infinite:($('#cInfinite')?$('#cInfinite').checked:_infinite),
       /* [R246] túnel */ sizeFrom:+($('#cTFrom')?$('#cTFrom').value:1)||1, sizeTo:+($('#cTTo')?$('#cTTo').value:200)||200,
       speed:(kind==='weave')?((+($('#cWSpeed')?$('#cWSpeed').value:12)||0)/100):((+($('#cTSpeed')?$('#cTSpeed').value:12)||12)/100), // [R247d] 0 es un valor válido: quieto
       curve:+($('#cTCurve')?$('#cTCurve').value:60), twist:+($('#cTTwist')?$('#cTTwist').value:0)||0, helix:+($('#cTHelix')?$('#cTHelix').value:0)||0,
