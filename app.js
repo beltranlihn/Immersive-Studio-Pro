@@ -12526,7 +12526,16 @@ function compAspectsOf(srcs){ const a=(srcs||[]).map(s=>(s&&s.w>0&&s.h>0)?(s.w/s
 /* [R268] Tamaño de la máscara de la composición. El mando va en % y el shader lo quiere como factor (`u_maskScale`
    divide la coordenada del recorte: 1 = como siempre, 2 = el doble de grande). Un solo sitio para que las tres
    ramas de `compElProps` no puedan discrepar. */
-function compMaskScale(g){ const v=(g&&g.maskScale!=null)?g.maskScale:100; return Math.max(0.2,Math.min(3,(+v||100)/100)); }
+/* [R296] El mando del cuadro de Compose va de 0 a 100, no de 20 a 300: Beltran lo pidio asi porque a 300 la
+   mascara se sale del elemento y deja de recortar nada, que es lo contrario de para lo que esta. 100 = la
+   mascara tal cual, y de ahi hacia abajo se cierra.
+   El TOPE de aqui NO baja a 1: `compMaskScale` la usan tambien las composiciones ya guardadas, y un proyecto de
+   antes puede llevar un 250 legitimo. Recortarlo le cambiaria el aspecto al abrirlo. Lo que cambia es lo que se
+   puede PEDIR de ahora en adelante; lo que ya esta, se respeta. */
+function compMaskScale(g){ const v=(g&&g.maskScale!=null)?g.maskScale:100;
+  /* [R296] `(+v||100)` convertia el CERO en 100, porque 0 es falso. Daba igual mientras el minimo del mando era
+     20; al bajarlo a 0 el extremo del rango dejaba de funcionar y la mascara salia sin tocar. Lo cazo la prueba. */
+  const n=Number(v); return Math.max(0,Math.min(3,(isFinite(n)?n:100)/100)); }
 function compElProps(g,p){ if(p.x!=null){
     /* [R247c] Tejido: NI x/y NI scale se redondean. El encaje borde con borde depende de que el paso y el tamaño
        salgan exactos — con 6 tiras el grosor es 33,33, y redondear a 33 abre una rendija en cada junta. */
@@ -12828,7 +12837,7 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
     <div class="frow"><label>${T('Mask','Máscara')}</label><select id="cMask"><option value="none">${T('None','Ninguna')}</option><option value="circle">${T('Circle (alpha)','Círculo (alfa)')}</option><option value="rounded">${T('Rounded','Redondeada')}</option><option value="diamond">${T('Diamond','Rombo')}</option><option value="vignette">${T('Vignette','Viñeta')}</option></select></div>
     <!-- [R268] Tamano de la mascara. Existia por clip desde siempre (maskScale, en los dos shaders) pero no habia
          forma de pedirlo al componer: habia que entrar clip a clip. 100 % = como estaba. -->
-    <div class="frow" id="cMaskSzRow"><label>${T('Mask size','Tamaño de máscara')}</label><input type="range" id="cMaskSz" min="20" max="300" value="100" style="flex:1;height:20px;"><span class="tnum" id="cMaskSzV" style="width:52px;text-align:right;color:var(--ink-2);">100%</span></div>
+    <div class="frow" id="cMaskSzRow"><label>${T('Mask size','Tamaño de máscara')}</label><input type="range" id="cMaskSz" min="0" max="100" value="100" style="flex:1;height:20px;"><span class="tnum" id="cMaskSzV" style="width:52px;text-align:right;color:var(--ink-2);">100%</span></div>
     <div class="frow" data-only="tile"><label>${T('Tile','Mosaico')}</label><label style="display:flex;align-items:center;gap:6px;flex:1;font-size:11px;color:var(--ink-2);cursor:pointer;"><input type="checkbox" id="cTile"> ${T('Seamless dome tiling (perfect ring)','Mosaico continuo del domo (anillo perfecto)')}</label></div>
     <div class="frow" data-only="tileband"><label>${T('Band','Banda')}</label><input type="number" class="tnum" id="cBand" value="30" min="4" max="90"><span class="tnum" style="color:var(--ink-dim);">°</span></div>
     <!-- [R246] TÚNEL: las fuentes son imágenes 1:1 (anillos con alfa) tratadas como máster de domo; crecen desde el
