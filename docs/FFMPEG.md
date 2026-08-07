@@ -209,11 +209,23 @@ Lo que va dentro de esa rama y por qué:
   solo conducto es justo donde se descuadra el sonido.
 - **Cancelar mata el proceso** desde `_exportCleanup`.
 
-### Pendiente en esta rama
+### La chapa, resuelta (R292)
 
-- **La chapa de esquina no se aplica aquí.** Vive en el camino del lienzo 2D (`chapaLienzo`), y esta ruta va de
-  la textura del composite directa al shader. Hay que resolverlo antes de dar la rama por terminada: hoy un
-  export por FFmpeg sale sin los datos de esquina aunque estén activados.
+Ya aparece en esta ruta, y **sin coste**: 0,5 s con chapa y 0,5 s sin ella en la misma prueba.
+
+La clave es no rehacerla entera cada fotograma. Se parte en dos:
+- **Lo estático** (logo, obra, autor, resolución, duración, formato) se dibuja y se sube **una vez por export**.
+- **El contador**, que es lo único que avanza, va en un lienzo pequeño —unos 100 KB— que sí se sube por
+  fotograma.
+
+Rehacer el lienzo completo cada vez habría significado subir 64 MB a la GPU por fotograma: exactamente el coste
+que NV12 acababa de quitar.
+
+El shader compone las dos capas **antes** de pasar a YUV, para que los rótulos se conviertan igual que la
+imagen. Medido: 11 213 px de chapa fuera del círculo, **0 dentro**, el logo aparece, y entre el fotograma 1 y
+el 4 cambian 1930 px, **ninguno fuera de la esquina del contador**.
+
+### Pendiente en esta rama
 - Ajustes de calidad en la interfaz (hoy llegan por `opt.ffq`).
 - Empaquetar el binario.
 - macOS.

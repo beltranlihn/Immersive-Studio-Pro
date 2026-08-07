@@ -7982,8 +7982,11 @@ function chapaLienzo(glc,opt,t,i,total,fps){
     if(d.durTxt)L.push(T('Duration: ','Duración: ')+d.durTxt);
     L.push(T('Format: ','Formato: ')+Math.round(fps||0)+'fps');
     chapaBloque(cx2,L,pxChico,1,-1,W,H,margen); }
-  /* Fotograma y timecode del PROPIO export, avanzando: es lo que delata un export corrido. */
-  chapaBloque(cx2,[T('Frames: ','Fotogramas: ')+(i+1)+'F', T('Timecode: ','Timecode: ')+chapaTC(i,fps)],pxChico,1,1,W,H,margen);
+  /* Fotograma y timecode del PROPIO export, avanzando: es lo que delata un export corrido.
+     [R292] `d.sinContador` los omite. Lo usa la ruta de FFmpeg para hornear TODO LO DEMAS una sola vez por
+     export: si se rehiciera la chapa entera cada fotograma habria que subir 64 MB de lienzo a la GPU cada vez,
+     que es exactamente el coste que NV12 vino a quitar. */
+  if(!d.sinContador)chapaBloque(cx2,[T('Frames: ','Fotogramas: ')+(i+1)+'F', T('Timecode: ','Timecode: ')+chapaTC(i,fps)],pxChico,1,1,W,H,margen);
   return _chapaCv; }
 /* Timecode contado en FOTOGRAMAS del export, no en segundos de reloj: si se cuenta en segundos y los fps del
    export no son los de la secuencia, el rótulo miente justo cuando más falta hace que no mienta. */
@@ -7991,6 +7994,21 @@ function chapaTC(i,fps){ const f=Math.max(1,Math.round(fps||30));
   const tot=Math.max(0,Math.round(i)), ff=tot%f, ss=Math.floor(tot/f)%60, mm=Math.floor(tot/(f*60))%60, hh=Math.floor(tot/(f*3600));
   const dd=n=>String(n).padStart(2,'0');
   return (hh?dd(hh)+':':'')+dd(mm)+':'+dd(ss)+':'+dd(ff); }
+/* [R292] El contador, en su propio lienzo PEQUENO. Es lo unico de la chapa que cambia entre fotogramas, y
+   asi se sube un bloque de unos 100 KB por fotograma en vez de los 64 MB del lienzo entero. Devuelve tambien
+   donde va colocado, en pixeles del master, para que el shader lo situe. */
+let _chapaCont=null;
+function chapaContador(W,H,i,fps){
+  const cw=Math.max(64,Math.round(W*0.30)), ch=Math.max(24,Math.round(W*0.055));
+  if(!_chapaCont||_chapaCont.width!==cw||_chapaCont.height!==ch){ _chapaCont=document.createElement('canvas'); _chapaCont.width=cw; _chapaCont.height=ch; }
+  const cx=_chapaCont.getContext('2d'); cx.clearRect(0,0,cw,ch);
+  cx.fillStyle='#FFFFFF'; cx.textBaseline='top'; cx.textAlign='right';
+  const px=W*0.017, alto=px*1.32;
+  cx.font=chapaFuente(px,400);
+  const L=[T('Frames: ','Fotogramas: ')+(i+1)+'F', T('Timecode: ','Timecode: ')+chapaTC(i,fps)];
+  for(let k=0;k<L.length;k++)cx.fillText(L[k],cw-2,ch-alto*(L.length-k)+(alto-px)/2);
+  const margen=Math.round(W*0.022);
+  return { cv:_chapaCont, x:W-margen-cw, y:H-margen-ch, w:cw, h:ch }; }
 /* El logo se carga UNA vez por export y se reutiliza; llega como data URL desde la hoja. */
 async function chapaCargarLogo(src){ _chapaLogo=null; _chapaLogoSrc=src||'';
   if(!src)return; await new Promise(res=>{ const im=new Image(); im.onload=()=>{ _chapaLogo=im; res(); }; im.onerror=()=>res(); im.src=src; }); }
@@ -8128,6 +8146,11 @@ void main(){ gl_Position=vec4(a_p,0.0,1.0); }`;
 const FSNV12=`#version 300 es
 precision highp float; precision highp int;
 uniform sampler2D u_src; uniform int u_W; uniform int u_H; uniform int u_disco;
+/* [R292] La chapa se compone AQUI, antes de pasar a YUV, para que los rotulos se conviertan igual que la
+   imagen. u_fija lleva todo lo que no cambia (logo, obra, autor, resolucion...) y se sube UNA vez por export;
+   u_cont es el bloque pequeno del contador, que si cambia, y se sube por fotograma. */
+uniform sampler2D u_fija; uniform sampler2D u_cont;
+uniform int u_chapa; uniform ivec4 u_contR;
 out vec4 o;
 /* [R291] El recorte al circulo va AQUI en la ruta de FFmpeg: no hay lienzo 2D donde hacerlo como en el camino
    de PNG, y el master de domo no puede llevar nada fuera del disco (R283). Fuera del circulo, negro de video
@@ -8136,7 +8159,19 @@ bool fuera(int x,int y){ if(u_disco==0)return false;
   float r=float(min(u_W,u_H))*0.5, dx=float(x)-float(u_W)*0.5+0.5, dy=float(y)-float(u_H)*0.5+0.5;
   return (dx*dx+dy*dy)>r*r; }
 /* El vuelco va aquí dentro: la fila 0 de salida es la de ARRIBA de la imagen. */
-vec3 pix(int x,int y){ x=clamp(x,0,u_W-1); y=clamp(y,0,u_H-1); if(fuera(x,y))return vec3(0.0); return texelFetch(u_src,ivec2(x,u_H-1-y),0).rgb; }
+vec3 pix(int x,int y){ x=clamp(x,0,u_W-1); y=clamp(y,0,u_H-1);
+  vec3 c = fuera(x,y) ? vec3(0.0) : texelFetch(u_src,ivec2(x,u_H-1-y),0).rgb;
+  if(u_chapa==1){
+    /* Los lienzos de la chapa se suben con la fila 0 arriba, asi que aqui NO se voltean: (x,y) ya es la
+       coordenada de imagen con el origen arriba, que es como se dibujaron. */
+    vec4 f=texelFetch(u_fija,ivec2(x,y),0);
+    c = mix(c, f.rgb, f.a);
+    ivec2 r0=u_contR.xy, rs=u_contR.zw;
+    if(x>=r0.x && y>=r0.y && x<r0.x+rs.x && y<r0.y+rs.y){
+      vec4 d=texelFetch(u_cont,ivec2(x-r0.x,y-r0.y),0);
+      c = mix(c, d.rgb, d.a); }
+  }
+  return c; }
 float luma(vec3 c){ return 0.2126*c.r + 0.7152*c.g + 0.0722*c.b; }   /* BT.709 */
 void main(){
   int px=int(gl_FragCoord.x), py=int(gl_FragCoord.y);
@@ -8186,12 +8221,16 @@ function nv12Prep(W,H){
   const ok=gl.checkFramebufferStatus(gl.FRAMEBUFFER)===gl.FRAMEBUFFER_COMPLETE;
   gl.bindFramebuffer(gl.FRAMEBUFFER,null);
   if(!ok){ try{ gl.deleteFramebuffer(fbo); gl.deleteTexture(tex); }catch(e){} return null; }
-  _nv12={ prog:(_nv12&&_nv12.prog)||prog(VSQ_NV12,FSNV12), fbo, tex, W, H, oW, oH,
+  const vacia=(_nv12&&_nv12.vacia)||(()=>{ const tv=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,tv);
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,1,1,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array([0,0,0,0]));
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
+    return tv; })();
+  _nv12={ prog:(_nv12&&_nv12.prog)||prog(VSQ_NV12,FSNV12), fbo, tex, W, H, oW, oH, vacia,
           buf:new Uint8Array(W*H*3/2) };
   return _nv12; }
 /* Devuelve el búfer NV12 del contenido de `srcTex`. El búfer se REUTILIZA entre fotogramas a propósito:
    reservar 24 MB por fotograma haría trabajar al recolector justo durante el export. */
-function nv12Read(srcTex,W,H,disco){
+function nv12Read(srcTex,W,H,disco,chapa){
   const N=nv12Prep(W,H); if(!N)return null;
   gl.bindFramebuffer(gl.FRAMEBUFFER,N.fbo);
   gl.viewport(0,0,N.oW,N.oH);
@@ -8202,6 +8241,16 @@ function nv12Read(srcTex,W,H,disco){
   gl.uniform1i(gl.getUniformLocation(N.prog,'u_W'),W);
   gl.uniform1i(gl.getUniformLocation(N.prog,'u_H'),H);
   gl.uniform1i(gl.getUniformLocation(N.prog,'u_disco'),disco?1:0);
+  /* Las dos texturas de la chapa se enlazan SIEMPRE, aunque no se usen: una unidad de textura sin enlazar con
+     un sampler declarado es comportamiento indefinido en algunos controladores, y ahi los fallos son del tipo
+     que solo aparece en la maquina de otro. */
+  gl.uniform1i(gl.getUniformLocation(N.prog,'u_chapa'),chapa?1:0);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D,(chapa&&chapa.fija)||N.vacia);
+  gl.uniform1i(gl.getUniformLocation(N.prog,'u_fija'),1);
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D,(chapa&&chapa.cont)||N.vacia);
+  gl.uniform1i(gl.getUniformLocation(N.prog,'u_cont'),2);
+  gl.uniform4i(gl.getUniformLocation(N.prog,'u_contR'),chapa?chapa.x:0,chapa?chapa.y:0,chapa?chapa.w:0,chapa?chapa.h:0);
+  gl.activeTexture(gl.TEXTURE0);
   /* [R290] SEIS vertices y TRIANGLES, como el resto del programa: `quadVAO` son dos triangulos, no una tira.
      Con TRIANGLE_STRIP,0,4 se dibujaba uno y medio y el resto del FBO quedaba con basura — se veia como una
      cuna diagonal verde, y el PSNR se hundia a 11 dB. */
@@ -8383,12 +8432,34 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
       if(!st||!st.id){ if(wavTmp)try{ await DSP.deleteFile(wavTmp); }catch(e){}
         throw new Error(T('Could not start FFmpeg: ','No se pudo arrancar FFmpeg: ')+((st&&st.err)||'')); }
       _ffJob=st.id;                               /* para que Cancelar lo mate */
+
+      /* [R292] La chapa en esta ruta. Lo ESTATICO -logo, obra, autor, resolucion, duracion, formato- se dibuja
+         UNA vez y se sube una vez; el contador, que es lo unico que avanza, va en un lienzo pequeno que se sube
+         por fotograma (unos 100 KB frente a los 64 MB del lienzo entero). Rehacer la chapa completa cada
+         fotograma habria devuelto el coste que NV12 acaba de quitar. */
+      let chapa=null;
+      if(opt.slate&&opt.slate.on&&esDome){
+        try{
+          await chapaCargarLogo(opt.slate.logo);
+          const vacio=document.createElement('canvas'); vacio.width=eW; vacio.height=eH;
+          const fijaCv=chapaLienzo(vacio,{slate:Object.assign({},opt.slate,{bgBlack:false,sinContador:true})},0,0,total,fps);
+          const subir=(cv,tex)=>{ const tx=tex||gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,tx);
+            gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false); gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,false);
+            gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,gl.RGBA,gl.UNSIGNED_BYTE,cv);
+            gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+            return tx; };
+          chapa={ fija:subir(fijaCv,null), cont:null, x:0,y:0,w:0,h:0, subir };
+        }catch(e){ chapa=null; diag('warn','export','chapa',{e:String(e&&e.message||e)}); }
+      }
       try{
         for(let i=0;i<total;i++){
           if(cancelExport)break;
           const t=t0+i/fps; await seekExport(t); prepNests(state.clips,t,0);
           if(flat){ renderExportFrame(t,qRes,ssExport,wall); } else { composite(t,eW,false); gl.finish(); }
-          const buf=nv12Read(compTex,eW,eH,esDome);
+          if(chapa){ const c=chapaContador(eW,eH,i,fps);
+            chapa.cont=chapa.subir(c.cv,chapa.cont); chapa.x=c.x; chapa.y=c.y; chapa.w=c.w; chapa.h=c.h; }
+          const buf=nv12Read(compTex,eW,eH,esDome,chapa);
           if(!buf)throw new Error('nv12Read');
           await DSP.ffWrite(st.id,buf);           /* esperar: contrapresión */
           if(job.frame)job.frame(i,total); job.prog(i+1,total);
@@ -8397,6 +8468,7 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
                      usuario cree cancelado, y en Windows lo deja bloqueado */ }
       const fin=cancelExport?(await DSP.ffKill(st.id),{ok:false}):await DSP.ffEnd(st.id);
       _ffJob=null;
+      if(chapa){ try{ if(chapa.fija)gl.deleteTexture(chapa.fija); if(chapa.cont)gl.deleteTexture(chapa.cont); }catch(e){} }
       if(wavTmp)try{ await DSP.deleteFile(wavTmp); }catch(e){}
       if(!cancelExport&&!fin.ok)throw new Error(T('FFmpeg failed: ','FFmpeg ha fallado: ')+(fin.err||''));
       if(!cancelExport&&job.wrote){ try{ const stt=await DSP.stat(outPath); if(stt&&stt.size)job.wrote(stt.size); }catch(e){} }
