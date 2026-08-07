@@ -1112,7 +1112,8 @@ function drawClipFlat(c,m,t,xf,ntex,op){ const SR=clipSurfaceRect(c); let P;
 function drawClip(c,m,t,xf){
   if(!m) return; let ntex; if(isSeqMedia(m)) ntex=(c._ntex||m.tex); else if(m.kind==='video'){ const vi=_vinst.get(c.id); ntex=(vi&&vi.ready&&vi.vtex)?vi.vtex:m.tex; } else ntex=m.tex; if(!ntex) return; // nests sample their per-clip pool tex; videos sample their PER-CLIP decode tex so duplicated clips show different frames (fallback m.tex until the private decoder has its first frame) — [R220] this readiness branching is mirrored by clipTexReady(), keep both in sync
   if(m.kind==='sequence'&&m.frames&&m.frames.length){ const idx=Math.max(0,Math.min(m.frames.length-1,Math.floor(srcT(c,t)*(m.fps||24)))); if(idx!==m._curFrame&&m.frames[idx]){ upTex(m.tex,m.frames[idx]); m._curFrame=idx; } }
-  if(c.props.fisheye) ntex=applyFisheye(ntex, fxChainSize(), c); // R83: flat→fisheye pre-warp (before FX + dome placement) so flat clips gain the curvature a dome master needs
+  /* [R301] Con cantidad 0 el pase no deforma NADA: lo unico que hacia era remuestrear y ablandar. */
+  if(c.props.fisheye && Math.abs(+c.props.fisheyeAmt||0)>0.01) ntex=applyFisheye(ntex, fxChainSize(), c); // R83: flat→fisheye pre-warp (before FX + dome placement) so flat clips gain the curvature a dome master needs
   if(hasFx(c)) ntex=applyChain(ntex, fxChainSize(), c, t); // Reactive FX: run the audio-reactive chain on the clip texture before dome/2D placement (dome+flat agnostic; deterministic in export)
   if(c.props.blackKey) ntex=applyBlackKey(ntex, fxChainSize(), c); // R85: luma-key the black background → real transparency (after FX so it keys the final look)
   if(_drawFlat){ const opf=Math.max(0,Math.min(1,evalR(c,'opacity',t)/100))*fadeFactor(c,t)*(xf==null?1:xf); drawClipFlat(c,m,t,xf,ntex,opf); return; } // FLAT (2D) sequence: place clip as a rectangle (x/y/scale/rot), no dome projection
@@ -8329,6 +8330,8 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
      borraba el que el visor estaba usando: desaparecia de la pantalla hasta reabrir el cuadro. Ahora
      solo se carga cuando hace falta, y nunca se borra desde aqui. */
   try{ if(opt&&opt.slate&&opt.slate.on&&opt.slate.logo)await chapaCargarLogo(opt.slate.logo); }catch(_){}
+  /* [R301] El tope de los pre-pases, a la resolucion de ESTE export. */
+  try{ _fxCap=Math.max(1024,Math.min(8192, +(opt&&(opt.outW||opt.res))||2048)); }catch(_){ _fxCap=2048; }
   let _rsSeq=null; if(opt.seqId && isSeqMedia(mediaById(opt.seqId)) && opt.seqId!==state.activeSeqId){ _rsSeq=state.activeSeqId; switchSeq(opt.seqId); } // F5: export another sequence (e.g. the room floor) in its own job, then restore
   const res=opt.res, fps=opt.fps; diag('info','export','start',{codec:opt.codec,res,fps,bitrate:opt.bitrate, seq:activeSeq()&&activeSeq().name});
   // [R94d] range chosen in the export dialog: 'inout' = the I/O marks · 'clips' = the clip extent (default). Legacy jobs with no range keep the old behaviour (I/O if set).
@@ -8356,6 +8359,8 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
      specifically to hide glc while it's sized for export). Lifting the mask first exposes a stretched stale frame
      for one paint if anything between the two lines throws. Restored to size-first, mask-last. */
   function _exportCleanup(doneArg){
+  _fxCap=2048;   /* [R301] devuelto a su valor de reposo: fuera del export no manda */
+
   /* [R291] Si hay un FFmpeg corriendo, se mata aqui: es lo que hace que Cancelar signifique algo en esa ruta. */
   try{ if(_ffJob!=null&&DSP.ffKill){ DSP.ffKill(_ffJob); _ffJob=null; } }catch(e){}
 
@@ -14013,7 +14018,16 @@ function applyChain(inputTex,size,host,t){ const list=enabledFx(host); if(!list.
   }
   gl.bindVertexArray(null); gl.bindFramebuffer(gl.FRAMEBUFFER,prevFBO); gl.viewport(pv[0],pv[1],pv[2],pv[3]); gl.enable(gl.BLEND); NORMAL_BLEND();
   return src; }
-function fxChainSize(){ return exporting ? Math.min(2048, nestSize||2048) : 1280; }
+/* [R301] EL CUELLO DE 2048 QUE ABLANDABA LAS COMPOSICIONES. Todo clip con ojo de pez, efectos reactivos o
+   clave de negro pasa por un objetivo intermedio de este tamano. Estaba fijo en 2048, asi que una composicion
+   ya montada a 4096 se estrujaba a la MITAD de resolucion lineal y se volvia a estirar: perdida irreversible.
+   Beltran lo cazo poniendo el mismo PNG directo al lado del que pasa por el tejido — y el tejido en domo activa
+   el ojo de pez SIEMPRE, asi que le afectaba al 100 % de sus tejidos.
+   Ahora sigue a la resolucion del fotograma que se esta escribiendo. NO al master con supermuestreo: ahi un
+   objetivo de 8192 son 268 MB por textura y son tres, que es justo el territorio del reinicio de GPU que cazo
+   [R187]. A 4096 son 67 MB cada una y MAX_TEXTURE_SIZE aqui es 16384, asi que cabe con holgura. */
+let _fxCap=2048;
+function fxChainSize(){ return exporting ? Math.max(512,Math.min(_fxCap||2048, nestSize||_fxCap||2048)) : 1280; }
 /* does any (nested) clip use a feedback effect (Trails) whose output is path-dependent? Used to skip the render-ahead cache, which would otherwise bake temporally-wrong trails when populated out of order (scrubbing). */
 function anyFeedbackFx(clips){ clips=clips||state.clips; if(!clips)return false; for(const c of clips){ if(c.fx&&c.fx.some(f=>f&&f.on!==false&&FXBY[f.type]&&FXBY[f.type].needsPrev))return true; const m=mediaById(c.mediaId); if(m&&m.nestClips&&anyFeedbackFx(m.nestClips))return true; } return false; }
 /* clear all feedback-history buffers → deterministic first frame for export / render-ahead (no leftover scrub state) */
