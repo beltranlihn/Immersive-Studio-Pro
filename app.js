@@ -9209,7 +9209,7 @@ function exFmtDur(s){ s=Math.max(0,Math.round(s)); const m=Math.floor(s/60); ret
 function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the timeline first.','Primero añade clips a la línea de tiempo.'));return;}
   if(document.getElementById('exOv'))return; // [R102·rev] nunca dos hojas: `$()` es querySelector y el cableado se enganchaba a la vieja y oculta
   const as=activeSeq()||{}, dome=!isFlat(), room=isRoom();
-  const S={ outDir:null, pngBg:'alpha', slate:false,   /* [R279] la carpeta se recuerda entre sesiones; el fondo no, es una decision de cada entrega */
+  const S={ outDir:null, pngBg:'alpha', slate:false, ffq:'max', ffbr:200, ff10:true,   /* [R279] la carpeta se recuerda entre sesiones; el fondo no, es una decision de cada entrega */
             szMode:'match', szPreset:(as.w||4096), szW:(as.w||1920), szH:(dome?(as.w||4096):(as.h||1080)),
             codec:'png', fps:(as.fps||state.fps||60), br:120, brTouched:false, chunks:'auto',
             roomMode:'strip', phase:'idle', pct:0, frame:0, frames:0, t0:0, tPause:0, bytes:0, warns:[], batch:[], batchDone:0 };
@@ -9268,6 +9268,14 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
           <button class="mbtn" id="exDirPick" style="height:20px;padding:0 9px;flex:0 0 auto;">${T('Choose…','Elegir…')}</button>
           <button class="mbtn" id="exDirClear" style="height:20px;padding:0 8px;flex:0 0 auto;display:none;" title="${T('Ask each time','Preguntar cada vez')}">✕</button>
         </div></div>
+      <!-- [R293] Calidad del codificador por GPU. Solo con los codecs de FFmpeg: en los demas no significa nada. -->
+      <div class="exs-row" id="exFfRow" style="display:none;"><label>${T('Quality','Calidad')}</label>
+        <div class="exs-seg" id="exFfQ"><button data-q="max">${T('Maximum','Maxima')}</button><button data-q="bal">${T('Balanced','Equilibrada')}</button><button data-q="fast">${T('Fast','Rapida')}</button></div></div>
+      <div class="exs-row" id="exFfBrRow" style="display:none;"><label>${T('Bitrate','Tasa de bits')}</label>
+        <input type="number" class="tnum" id="exFfBr" value="200" min="5" max="900" style="width:70px;"><span class="exs-unit">Mb/s</span>
+        <span class="exs-hint" id="exFfBrHint" style="flex:1;"></span></div>
+      <div class="exs-row" id="exFf10Row" style="display:none;"><label>${T('Bit depth','Profundidad')}</label>
+        <label class="chk" style="display:flex;align-items:center;gap:6px;flex:1;cursor:pointer;"><input type="checkbox" id="exFf10" checked> ${T('10-bit (fewer gradient bands in the dome)','10 bits (menos bandas en los degradados del domo)')}</label></div>
       <!-- [R281] Datos en las esquinas del master de domo. Solo en domo: en plano y en sala no hay esquina
            libre que aprovechar, ahi todo el cuadro se proyecta. -->
       <div class="exs-row" id="exSlateRow" style="display:none;"><label>${T('Corner data','Datos de esquina')}</label>
@@ -9487,7 +9495,25 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
      cambiar de codec baste para que aparezca o desaparezca la del fondo. */
   /* [R281] La chapa, sincronizada. Sus filas solo existen en DOMO: en plano y en sala todo el cuadro se
      proyecta y no hay esquina que aprovechar. */
-  function exSlateSync(){ const esDomo=(state.seqMode==='dome');
+  /* [R293] Las filas del codificador por GPU: solo con ffh264/ffhevc, y la de 10 bits solo con HEVC -H.264 por
+     NVENC no admite main10-. La tasa sugerida sale del TAMANO: 200 Mb/s en 1080p es derroche y en 4096 es
+     justo, asi que se recalcula y se avisa en vez de dejar un numero fijo que miente en la mitad de los casos. */
+  function exFfSync(){ const esFf=(S.codec==='ffh264'||S.codec==='ffhevc');
+    const ver=(sel,on)=>{ const e=$$(sel); if(e)e.style.display=on?'flex':'none'; };
+    ver('#exFfRow',esFf); ver('#exFfBrRow',esFf); ver('#exFf10Row',esFf&&S.codec==='ffhevc');
+    const seg=$$('#exFfQ'); if(seg)seg.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.q===S.ffq));
+    const br=$$('#exFfBr'); if(br&&document.activeElement!==br)br.value=S.ffbr;
+    const c10=$$('#exFf10'); if(c10)c10.checked=!!S.ff10;
+    const h=$$('#exFfBrHint');
+    if(h&&esFf){ const p=exPx(S); const sug=Math.max(20,Math.round((p.w*p.h*S.fps)/1e6*0.14));
+      h.textContent=(S.ffbr<sug*0.5)?T('low for this size — suggested ','baja para este tamano — sugerida ')+sug
+        :(S.ffbr>sug*3)?T('very high — suggested ','muy alta — sugerida ')+sug
+        :T('suggested for this size: ','sugerida para este tamano: ')+sug; } }
+  { const seg=$$('#exFfQ'); if(seg)seg.querySelectorAll('button').forEach(b=>b.onclick=()=>{ S.ffq=b.dataset.q; exFfSync(); }); }
+  { const br=$$('#exFfBr'); if(br)br.oninput=e=>{ S.ffbr=Math.max(5,Math.min(900,+e.target.value||200)); exFfSync(); }; }
+  { const c=$$('#exFf10'); if(c)c.onchange=e=>{ S.ff10=!!e.target.checked; exFfSync(); }; }
+  function exSlateSync(){ try{ exFfSync(); }catch(_){}
+    const esDomo=(state.seqMode==='dome');
     const ver=(sel,on)=>{ const e=$$(sel); if(e)e.style.display=on?'flex':'none'; };
     ver('#exSlateRow',esDomo);
     const abierto=esDomo&&S.slate;
@@ -9630,7 +9656,11 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
           flashStatus(cx?T('Export cancelled','Exportación cancelada'):T('Export finished','Exportación terminada'),cx?'err':undefined);
           try{ if(IS_ELEC&&DSP.setProgress)DSP.setProgress(-1); }catch(e){} updExportUI(); } };
       const opt=Object.assign({codec,res:p.w,outW:p.w,outH:p.h,fps,bitrate:br,chunks:S.chunks,range,job,_rec:rec,outDir:S.outDir||undefined,pngBg:S.pngBg,
-        slate:Object.assign(chapaDatos({durTxt:TC(exSecs())}),{on:(state.seqMode==='dome'&&!!S.slate)})}   /* [R282] los datos salen del PROYECTO; aqui solo se decide si se hornean */,extra||{});   /* [R281] la duracion sale del rango de export, no del proyecto entero */   /* [R279] destino y fondo elegidos en la hoja */
+        /* [R282] los datos de la chapa salen del PROYECTO; aqui solo se decide si se hornean */
+        slate:Object.assign(chapaDatos({durTxt:TC(exSecs())}),{on:(state.seqMode==='dome'&&!!S.slate)}),
+        /* [R293] Calidad del codificador por GPU: el preajuste sale del segmentado, y `bits10` solo lo mira HEVC. */
+        ffq:{ mbps:S.ffbr, preset:(S.ffq==='max'?'p7':S.ffq==='bal'?'p5':'p3'),
+              x264:(S.ffq==='max'?'slow':S.ffq==='bal'?'medium':'veryfast'), bits10:S.ff10 }},extra||{});   /* [R281] la duracion sale del rango de export, no del proyecto entero */   /* [R279] destino y fondo elegidos en la hoja */
       rec.opt=opt; _exq.push(opt); updExportUI(); renderExQueue(); };
     /* [R221] room export, 3 modes (only room.floor makes "stripfloor" meaningful — the segmented control only
        offers it when hasFloor). All three reuse the SAME per-wall crop mechanism (opt.wall — now generalized with

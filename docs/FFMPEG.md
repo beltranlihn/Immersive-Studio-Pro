@@ -226,9 +226,26 @@ imagen. Medido: 11 213 px de chapa fuera del círculo, **0 dentro**, el logo apa
 el 4 cambian 1930 px, **ninguno fuera de la esquina del contador**.
 
 ### Pendiente en esta rama
-- Ajustes de calidad en la interfaz (hoy llegan por `opt.ffq`).
-- Empaquetar el binario.
-- macOS.
+### Los mandos de calidad, en la hoja (R293)
+
+Tres filas que sólo asoman con los códecs de FFmpeg:
+
+- **Calidad**: Máxima / Equilibrada / Rápida → preajuste `p7` / `p5` / `p3` de NVENC (y `slow`/`medium`/`veryfast`
+  si cae al respaldo por software).
+- **Tasa de bits** en Mb/s, con **sugerencia calculada por tamaño**: 200 Mb/s en 1080p es derroche y en 4096²
+  es justo, así que se recalcula y se avisa en vez de dejar un número fijo que miente en la mitad de los casos.
+  A 4096²/30 sugiere 141.
+- **10 bits**, sólo con HEVC — H.264 por NVENC no admite `main10`.
+
+Verificado que aparecen donde deben y desaparecen donde no significan nada. **Lo que la prueba NO cubre:** el
+clic final en Exportar, porque el encolado es asíncrono detrás de avisos que el arnés no sabe pilotar. Que
+`opt.ffq` llega a `runExport` y se usa quedó probado en R291, exportando un 4096² real pasándolo directamente.
+
+### Pendiente
+
+- **Empaquetar el binario.** Hoy se usa el FFmpeg del sistema; `_ffBuscar` ya mira primero en `resourcesPath`,
+  así que empaquetarlo es añadirlo a `extraResources` y nada más.
+- **macOS.** VideoToolbox sigue sin medir.
 
 ## Plan por fases (revisado)
 
