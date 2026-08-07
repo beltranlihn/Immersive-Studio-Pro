@@ -92,6 +92,5 @@ audio, dos finales — no dos caminos que puedan divergir.
 - **`h264_nvenc` topa justo en 4096².** Es exactamente lo que se pide, sin margen: por encima hay que ir a HEVC.
 - **VideoToolbox sin medir.** Todos los números de arriba son de Windows. El Mac puede responder distinto y sólo
   se sabrá probándolo allí.
-- **HAP.** (ver abajo)
 - **HAP.** Sigue sin pasar por el recorte al círculo (ver R284). Si FFmpeg entra, quizá convenga replantear HAP
   entero en vez de arreglarlo por separado.
