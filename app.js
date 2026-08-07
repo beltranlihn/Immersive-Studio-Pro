@@ -2531,9 +2531,21 @@ function upTex(tex,src){const w=src.videoWidth||src.naturalWidth||src.displayWid
    Y el filtrado anisotropico si la tarjeta lo ofrece: sin el, una imagen muy inclinada -que en un domo lo estan
    casi todas- se ve borrosa en la direccion larga aunque tenga mipmaps. */
 let _aniso=null, _anisoMax=0;
-function mipTex(tex){ if(!tex)return;
+/* [R303] Los mipmaps cuestan un 33 % mas de memoria por imagen, y R301b acaba de apretar ese presupuesto para
+   no repetir el reinicio de GPU de [R187]. No se pagan a ciegas: solo cuando la imagen es GRANDE, que es
+   exactamente cuando se dibuja reducida y donde sirven. Una imagen de 512 nunca se minifica lo bastante como
+   para que compense, y en un proyecto con cientos de PNG pequenos esos 33 % suman de verdad. */
+const MIP_MIN=1024;
+function mipTex(tex,w,h){ if(!tex)return;
+  if(w&&h&&Math.max(w,h)<MIP_MIN)return;
   try{ gl.bindTexture(gl.TEXTURE_2D,tex);
+    /* [R303] WebGL no lanza excepciones: avisa por `getError`. El try/catch de R302 no protegia de nada, y si
+       `generateMipmap` fallaba -sin memoria en una imagen de 8192, por ejemplo- se estampaba igual el filtro de
+       mipmap sobre una textura SIN cadena. Eso no es "peor aspecto": una textura incompleta se muestrea NEGRO
+       OPACO, o sea el clip desaparecido. Se comprueba y, si fallo, se deja el filtrado de siempre. */
+    while(gl.getError()!==gl.NO_ERROR){}                 /* limpiar errores ajenos antes de mirar el nuestro */
     gl.generateMipmap(gl.TEXTURE_2D);
+    if(gl.getError()!==gl.NO_ERROR){ gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR); return; }
     gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);
     gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
     if(_aniso===null){ _aniso=gl.getExtension('EXT_texture_filter_anisotropic')||false;
@@ -2660,7 +2672,12 @@ function renderTextMedia(m){ const ff=m.tfont||'Inter, sans-serif', weight=m.twe
   x.font=style+weight+' '+fs+'px '+ff; x.textAlign=align; x.textBaseline='middle';
   const ax=align==='left'?pad:align==='right'?(W-pad):W/2;
   lines.forEach((ln,i)=>{ const y=pad+lh*(i+0.5); if(m.tstroke){ x.lineWidth=Math.max(2,fs*0.09); x.strokeStyle=m.tstrokeColor||'#000000'; x.lineJoin='round'; x.strokeText(ln,ax,y); } x.fillStyle=m.tcolor||'#ffffff'; x.fillText(ln,ax,y); });
-  m.w=W; m.h=H; m.el=cv; m.originalEl=cv; if(!m.tex)m.tex=newTex(); upTex(m.tex,cv); mipTex(m.tex);   /* [R302] */ try{m.thumb=cv.toDataURL();}catch(e){} }
+  m.w=W; m.h=H; m.el=cv; m.originalEl=cv; if(!m.tex)m.tex=newTex(); upTex(m.tex,cv);
+  /* [R303] Las FORMAS si, el TEXTO no. Las texturas se suben SIN premultiplicar, asi que al generar mipmaps el
+     color se promedia contra texeles transparentes -RGB en cero- y el borde se oscurece. En una forma llena
+     apenas se nota; en texto blanco sobre transparente, minificado, se vuelve gris con halo. Los anillos de
+     Beltran van sobre negro, asi que ahi el halo cae sobre negro y no se ve; el texto es el caso donde si. */
+  if(m.kind!=='text')mipTex(m.tex,W,H); try{m.thumb=cv.toDataURL();}catch(e){} }
 function createTextClip(preset){ preset=(preset&&typeof preset==='object'&&!preset.preventDefault)?preset:{};
   const m={id:uid(),kind:'text',name:preset.name||T('Text','Texto'),text:preset.text||'TITLE',tfontSize:TXT_BASE_PX,tweight:preset.tweight||'700',tfont:'Inter, sans-serif',tcolor:preset.tcolor||'#ffffff',tbg:'transparent',tstroke:!!preset.tstroke,tstrokeColor:'#000000',dur:6,fps:0,color:clipColorFor('text'),folder:(state.mediaView==='grid'&&state.mediaFolder)||null}; // [R225·6] cuerpo = resolución interna, siempre la base generosa (el tamaño en pantalla lo pone c.props.size/scale del preset) // file into the folder being browsed (R88 audit)
   renderTextMedia(m); state.media.push(m); renderMedia(); addClip(m);
@@ -2674,7 +2691,12 @@ function renderShapeMedia(m){ const W=m.sw||512,H=m.sh||512, sw=m.strokeW||0, in
   if(m.shape==='ellipse'){ x.beginPath(); x.ellipse(W/2,H/2,Math.max(1,W/2-inset),Math.max(1,H/2-inset),0,0,7); x.fill(); if(sw>0)x.stroke(); }
   else if(m.shape==='line'){ x.beginPath(); x.moveTo(inset,H/2); x.lineTo(W-inset,H/2); x.lineCap='round'; x.lineWidth=Math.max(4,sw||Math.round(H*0.18)); x.strokeStyle=m.fill||'#ffffff'; x.stroke(); }
   else { x.beginPath(); x.rect(inset,inset,W-inset*2,H-inset*2); x.fill(); if(sw>0)x.stroke(); }
-  m.w=W; m.h=H; m.el=cv; m.originalEl=cv; if(!m.tex)m.tex=newTex(); upTex(m.tex,cv); mipTex(m.tex);   /* [R302] */ try{m.thumb=cv.toDataURL();}catch(e){} }
+  m.w=W; m.h=H; m.el=cv; m.originalEl=cv; if(!m.tex)m.tex=newTex(); upTex(m.tex,cv);
+  /* [R303] Las FORMAS si, el TEXTO no. Las texturas se suben SIN premultiplicar, asi que al generar mipmaps el
+     color se promedia contra texeles transparentes -RGB en cero- y el borde se oscurece. En una forma llena
+     apenas se nota; en texto blanco sobre transparente, minificado, se vuelve gris con halo. Los anillos de
+     Beltran van sobre negro, asi que ahi el halo cae sobre negro y no se ve; el texto es el caso donde si. */
+  if(m.kind!=='text')mipTex(m.tex,W,H); try{m.thumb=cv.toDataURL();}catch(e){} }
 function createShapeClip(shape){ const m={id:uid(),kind:'shape',name:T('Shape','Forma'),shape:shape||'rect',fill:'#C9CDD3',stroke:'#0E0F11',strokeW:0,sw:512,sh:512,dur:6,fps:0,color:clipColorFor('shape'),folder:(state.mediaView==='grid'&&state.mediaFolder)||null};
   renderShapeMedia(m); state.media.push(m); renderMedia(); addClip(m); markDirty(); flashStatus(T('Shape clip added','Clip de forma añadido')); }
 /* ---- AUDIO (Web Audio) ---- */
@@ -2767,7 +2789,7 @@ function liveAudioGain(c){ if(!c||!actx)return; const g=_audioGains[c.id]; if(!g
 function setMeters(v){ const p=(v*100)+'%'; if($('#mL'))$('#mL').style.width=p; if($('#mR'))$('#mR').style.width=p; }
 function addImage(file,path){ const url=URL.createObjectURL(file); const img=new Image(); const folder=_importFolder;
   img.onload=()=>{const fit=fitImage(img); const m={id:uid(),name:file.name,kind:'image',el:fit.src,originalEl:img,tex:newTex(),w:fit.w,h:fit.h,dur:5,fps:0,thumb:url,color:clipColorFor('image'),proxyReady:false,proxyPct:0,path:path||null,fsize:file.size||0,folder:folder||null}; // [M5] photos default to 5 s
-    upTex(m.tex,fit.src); mipTex(m.tex);   /* [R302] material fijo: los mipmaps se generan UNA vez, aqui */
+    upTex(m.tex,fit.src); mipTex(m.tex,fit.w,fit.h);   /* [R302] material fijo: los mipmaps se generan UNA vez, aqui */
     state.media.push(m); adopt(m); renderMedia(); render(); markDirty(); }; img.src=url; }
 /* [R242·Aud-3.3] Aviso de material pesado al importar. R241 midió que con este material (HEVC 6,5 Mpx, 410 Mbps,
    GOP de 250 fotogramas) el proxy no es una optimización: es la diferencia entre poder montar (8 ms de scrub) y
@@ -10912,7 +10934,7 @@ async function reloadMedia(m){
      para vídeo, sin arreglar para audio. */
   if(m.kind==='image'){ return await new Promise(res=>{ const img=new Image();
     let fin=false; const acabar=()=>{ if(fin)return; fin=true; res(); };
-    img.onload=()=>{ const fit=fitImage(img); m.el=fit.src;m.originalEl=img;m.tex=newTex();upTex(m.tex,fit.src);m.w=fit.w;m.h=fit.h;m.missing=false;m._loading=false;m.thumb=url;renderMedia();render(); acabar(); };
+    img.onload=()=>{ const fit=fitImage(img); m.el=fit.src;m.originalEl=img;m.tex=newTex();upTex(m.tex,fit.src);mipTex(m.tex,fit.w,fit.h);/* [R303] o los mipmaps solo existirian en la sesion en que se importo la imagen: guardar y reabrir volvia a dejarla dentada */m.w=fit.w;m.h=fit.h;m.missing=false;m._loading=false;m.thumb=url;renderMedia();render(); acabar(); };
     img.onerror=()=>{ m.missing=true;m._loading=false;renderMedia();updRelink(); acabar(); };
     img.src=url; setTimeout(acabar,15000); }); }
   /* [R205] El camino de vídeo AHORA SE PUEDE ESPERAR. Antes registraba el oyente de metadatos y volvía en el acto,
