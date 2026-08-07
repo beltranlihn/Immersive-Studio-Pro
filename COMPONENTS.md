@@ -13,6 +13,10 @@
 
 ---
 
+> Para **orientarse por primera vez** (los tres procesos, el modelo de datos, el recorrido de `app.js` por
+> tramos de línea y las trampas conocidas), leer antes `docs/ESTRUCTURA-DEL-CODIGO.md`. Este fichero es el
+> inventario de detalle.
+
 ## Índice maestro (jump table)
 
 ### 1 · Motor GL & shaders → [detalle](#1--motor-gl--shaders-detalle)

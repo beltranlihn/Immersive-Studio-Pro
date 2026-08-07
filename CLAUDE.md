@@ -66,6 +66,9 @@ Lo que hace por dentro (y por qué), si hay que hacerlo a mano:
 - **Addon NDI:** `node_modules/dsp-ndi-send` es COPIA de `native/ndi-send` → editar el `.cc` requiere re-copiar antes de `npm run dist`.
 
 ## Docs del repo
+- **`docs/ESTRUCTURA-DEL-CODIGO.md`** = guía de orientación para quien lee el repositorio por primera vez
+  (los tres procesos, el modelo de datos, el recorrido de `app.js` por tramos de línea, los flujos, las
+  trampas conocidas). Es la capa de ORDEN DE LECTURA; el inventario sigue en `COMPONENTS.md`.
 - **`PLAN.md`** = bitácora / changelog por rondas (ROUND …, lo más nuevo arriba). Se le agrega una entrada por sesión.
 - **`_backup/`** = archivos archivados (logo viejo, ENFOQUE-TECNICO histórico).
 - El detalle profundo y multi-sesión también vive en la **memoria de Claude** (se carga sola cada sesión).
