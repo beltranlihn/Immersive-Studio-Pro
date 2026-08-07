@@ -70,12 +70,28 @@ completa en la GPU y no hay escalado intermedio. Lo que sí se controla es el co
 4. **La rama de export.** Un códec nuevo en `EX_CODECS` con su sondeo, y los ajustes de calidad en la hoja.
 5. **macOS.** Verificar en el Mac de Beltrán: VideoToolbox tiene sus propios topes y no se puede dar por hecho.
 
+## Audio — DECIDIDO
+
+Beltrán, 2026-08-06: **si el export es MP4, audio estéreo integrado; en cualquier otro códec, el audio va
+aparte.**
+
+La mezcla ya existe y no hay que rehacerla: `exportAudioMix(t0,endT)` la produce con un `OfflineAudioContext`.
+Lo que cambia es a dónde va:
+
+- **MP4** (los nuevos `h264_nvenc` / `hevc_nvenc`, y el actual por WebCodecs): la mezcla entra a FFmpeg como
+  segunda entrada y se muxea dentro. Estéreo, AAC.
+- **Secuencia PNG, HAP, y lo que venga**: la mezcla se escribe como **WAV suelto** junto a la salida. Un HAP no
+  lleva audio y una secuencia de imágenes tampoco; ponerlo aparte es lo único honesto, y además es lo que
+  esperan los reproductores de domo, que sincronizan el sonido por su cuenta.
+
+Consecuencia de diseño: la mezcla se calcula IGUAL en los dos casos y sólo cambia el destino. Un solo camino de
+audio, dos finales — no dos caminos que puedan divergir.
+
 ## Riesgos anotados
 
 - **`h264_nvenc` topa justo en 4096².** Es exactamente lo que se pide, sin margen: por encima hay que ir a HEVC.
 - **VideoToolbox sin medir.** Todos los números de arriba son de Windows. El Mac puede responder distinto y sólo
   se sabrá probándolo allí.
-- **Audio.** El export actual mezcla el audio por su cuenta; hay que decidir si se le pasa a FFmpeg o se sigue
-  muxeando como ahora.
+- **HAP.** (ver abajo)
 - **HAP.** Sigue sin pasar por el recorte al círculo (ver R284). Si FFmpeg entra, quizá convenga replantear HAP
   entero en vez de arreglarlo por separado.
