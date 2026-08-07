@@ -1185,6 +1185,57 @@ function drawClip(c,m,t,xf){
 }
 function activeClips(t){ const out=[]; for(const li of state.lanes.map((_,i)=>i)){ let best=null;
   for(const c of state.clips) if(c.lane===li && t>=c.start && t<c.start+c.dur) best=c; if(best)out.push(best);} return out; }
+/* ═══ [R300] EL TEJIDO BARAJADO, SIN SALTO AL VOLVER EL DIENTE DE SIERRA ══════════════════════════════════
+   Diagnostico sobre el proyecto real de Beltran (Test.isp): cada elemento lleva un diente de sierra de
+   `speed 0.3` y `amp 40`, y los elementos estan separados exactamente 40. Es el truco clasico del
+   desplazamiento infinito: justo antes de volver, cada elemento esta donde estaba su vecino, asi que el salto
+   deberia ser invisible. Y lo es... si el vecino muestra LA MISMA imagen.
+
+   Con `shuffle` cada elemento lleva una imagen distinta, asi que al saltar las imagenes se INTERCAMBIAN de
+   golpe. Eso es lo que se ve como «el randomize se resetea», y ocurre cada 1/speed = 3,33 s — nada que ver con
+   el bucle, por eso pasaba tambien sin loopear.
+
+   LA SOLUCION: si el salto mueve cada elemento UNA posicion, que su fuente avance tambien UNA posicion. Asi
+   cada sitio de la pantalla sigue enseñando la misma imagen que enseñaba, y el salto pasa a ser un no-op
+   perfecto. Se conservan las dos cosas que se estorbaban: el barajado y la continuidad.
+
+   Se deriva del NIDO, no de la composicion guardada, para que los proyectos que ya existen se arreglen solos
+   sin tener que rehacer el tejido. */
+function wvPrep(m){
+  const g=m&&m.comp; if(!g||g.kind!=='weave'||!g.shuffle)return;
+  const cl=m.nestClips||[]; if(!cl.length)return;
+  /* Firma barata: si el tejido no ha cambiado, no se recalcula. */
+  const firma=cl.length+'|'+(g.bands||0)+'|'+(g.count||0)+'|'+(g.motion||'')+'|'+(g._orderR?1:0);
+  if(m._wvSig===firma)return; m._wvSig=firma;
+  /* Cada elemento se agrupa por su TIRA -la coordenada perpendicular al desplazamiento- y dentro de ella se
+     ordena por la coordenada que se mueve. El orden asi obtenido es el que rota. */
+  const tiras=new Map();
+  for(const c of cl){ c._wv=null;
+    const a=(c.anim||[]).find(x=>x&&x.mode==='saw'&&(x.param==='x'||x.param==='y')&&x.on!==false);
+    if(!a||!a.speed)continue;
+    const eje=a.param, otro=(eje==='x')?'y':'x';
+    const base=c._layBase||c.props||{};
+    const k=eje+'|'+Math.round((base[otro]||0)*1000)/1000+'|'+(a.speed>0?'+':'-');
+    if(!tiras.has(k))tiras.set(k,[]);
+    tiras.get(k).push({c, pos:(base[eje]||0), per:1/Math.abs(a.speed), dir:(a.speed>0?1:-1)});
+  }
+  for(const [,arr] of tiras){
+    if(arr.length<2)continue;                       /* con un solo elemento no hay vecino: nada que rotar */
+    arr.sort((p,q)=>p.pos-q.pos);
+    const ord=arr.map(p=>p.c.mediaId), n=ord.length;
+    for(let i=0;i<n;i++) arr[i].c._wv={ ord, n, idx:i, per:arr[i].per, dir:arr[i].dir };
+  }
+}
+/* El medio que le toca a este clip AHORA. `at` es el reloj de los modificadores, el mismo que mueve el diente:
+   asi la rotacion y el salto ocurren en el mismo instante y se cancelan. */
+function mediaEfId(c,t){
+  const w=c&&c._wv; if(!w||!w.n||!(w.per>0))return c?c.mediaId:null;
+  const at=animTime(t);
+  const vuelta=Math.floor(at/w.per + 1e-9);
+  const i=(((w.idx - w.dir*vuelta) % w.n) + w.n) % w.n;
+  return w.ord[i];
+}
+
 function compositeClips(t){ const anySolo=state.lanes.some(l=>l.kind==='video'&&l.solo); const out=[];
   for(let li=0;li<state.lanes.length;li++){ const lane=state.lanes[li]; if(!lane||lane.kind!=='video'||lane.mute||(anySolo&&!lane.solo))continue;
     const act=state.clips.filter(c=>c.lane===li&&!c.disabled&&t>=c.start&&t<c.start+c.dur).sort((a,b)=>a.start-b.start); // disabled (Ableton "0") clips are invisible
@@ -1230,7 +1281,7 @@ function composite(t,size,opaque,fill){
   gl.clearColor(0,0,0,opaque?1:0); gl.clear(gl.COLOR_BUFFER_BIT);
   let lista=compositeClips(t);
   if(_zsortSize&&lista.length>1) lista=lista.slice().sort((a,b)=>(evalR(a.c,'size',t)||0)-(evalR(b.c,'size',t)||0));
-  for(const x of lista){ if(x.c.adjust) drawAdjustment(x.c,t,x.xf); else drawClip(x.c,mediaById(x.c.mediaId),t,x.xf); }
+  for(const x of lista){ if(x.c.adjust) drawAdjustment(x.c,t,x.xf); else drawClip(x.c,mediaById(mediaEfId(x.c,t)),t,x.xf); }   /* [R300] `mediaEfId` rota la fuente del tejido barajado al volver el diente de sierra; para todo lo demas devuelve el medio de siempre */
 }
 
 /* ===================== RENDER ===================== */
@@ -1357,6 +1408,7 @@ function prepNests(clips,t,depth){ if(!depth)_nestN=0; if((depth||0)>5||!clips)r
       if(vi&&!vi.ready&&!vi._ncKick&&!state.playing&&!exporting){ vi._ncKick=1; // un solo tiro por instancia: al llegar su primer fotograma se pide UN repintado
         (vi.loadP||Promise.resolve()).then(()=>vinstSeek(c,m,lt)).then(()=>{ if(!state.playing&&!exporting)render(); },()=>{}); }
       continue; }
+    try{ wvPrep(m); }catch(e){}   /* [R300] deriva la rotacion del tejido; se cachea por firma, no cuesta por fotograma */
     prepNests(m.nestClips,lt,(depth||0)+1);
     const e=nestSlot(); const oc=state.clips,ol=state.lanes,odf=_drawFlat,oca=_compAspect,orw=_roomWrap,ozs=_zsortSize,oan=_animNido;
     /* [R273] el reloj de los modificadores del interior no envuelve: se le suma lo que el bucle le quita */
