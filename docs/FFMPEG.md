@@ -59,10 +59,23 @@ completa en la GPU y no hay escalado intermedio. Lo que sí se controla es el co
 - **10 bits en HEVC** (`-pix_fmt p010le -profile:v main10`) — importa en el domo, donde los degradados grandes
   hacen bandas en 8 bits.
 
-## Plan por fases
+## Fase 1 medida (2026-08-06) — y el plan cambia
 
-1. **Transporte.** Conversión RGBA→NV12 en la GPU y tubería al proceso principal. Medir de punta a punta antes
-   de seguir: si esto no da los ~500 MB/s, lo demás no sirve.
+`readPixels` de un FBO de 4096² en esta máquina: **33,9 ms por fotograma** (64 MB a 1888 MB/s), o sea un techo
+de **29,5 fps** sólo por la lectura. Con el codificador en 19-22 fps, la cadena en serie da **~12 fps a 4096²**.
+
+Beltrán, al ver el número: «es normal que se demore, en Premiere también salía lento». Con esa vara, 12 fps
+sobra — y compara contra lo de hoy, que es **no poder exportar 4096² en MP4 en absoluto**.
+
+**Consecuencia: la conversión a NV12 en la GPU deja de ser requisito y pasa a ser optimización posterior.** Era
+la pieza con más trabajo y más riesgo de todo el proyecto, y resulta que no bloquea. Se hace después, cuando
+haya algo funcionando que medir de verdad, y no antes sobre una suposición.
+
+## Plan por fases (revisado)
+
+1. ~~**Transporte NV12.**~~ **Medido y aplazado**: `readPixels` en RGBA ya da 29,5 fps, por encima del
+   codificador. Vuelve al final como optimización — pasar de 64 a 24 MB por fotograma subiría el techo de la
+   lectura a ~78 fps, pero sólo se notará cuando el codificador deje de ser el límite.
 2. **El binario.** FFmpeg como `extraResources` de electron-builder (no dentro del asar), uno por plataforma,
    con `asarUnpack` como ya se hace con los addons de NDI y Spout. Suma unos 80 MB al instalador.
 3. **Puente en `main.js`.** `spawn` del proceso, tubería por stdin, progreso leyendo stderr, y cancelación que
