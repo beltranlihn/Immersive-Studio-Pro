@@ -1,5 +1,28 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 305 — El ojo de pez, plegado en el shader del domo
+
+El último remuestreo evitable de la cadena de una composición. El ojo de pez se hacía en un pase aparte que
+escribía una textura intermedia; deformar la UV al MUESTREAR da lo mismo sin textura de por medio.
+
+**Mi propio reconocimiento se equivocaba en lo principal.** Había escrito que plegar reordenaba la cadena,
+porque la máscara y el suavizado pasarían a operar en otro espacio. Es falso: usan la coordenada de SALIDA, y
+el remapeo sólo cambia dónde se muestrea la fuente. El orden no cambia. Lo que sí había que respetar era el
+BORDE: el pase intermedio fija la UV fuera de rango (`clamp`) mientras `FSFD` descarta, y descartar aquí habría
+cambiado el contorno de cada elemento del tejido.
+
+Se pliega sólo si el clip va por el camino fulldome y el ojo de pez es el único pre-pase; con efectos reactivos
+o clave de negro sigue haciendo falta la textura intermedia, porque esos pases leen una imagen ya deformada.
+
+**Medido** (`scratchpad/r305-ojo.mjs`, el mismo clip por los dos caminos): nitidez 18,66 → 20,92, un **+12,1 %**,
+con una diferencia media de 4,46 sobre 255 en material de alta frecuencia — ese número es el detalle RECUPERADO,
+no un desplazamiento; un error de geometría daría un orden de magnitud más. La identidad literal era imposible
+por definición: el sentido del cambio es justamente que uno tenga más detalle que el otro.
+
+Con esto un elemento de composición en domo pasa de tres remuestreos a dos, y el que queda — el lienzo del
+nido — es inherente a componer algo aparte.
+
+
 ## ROUND 301c — Revisión desde el Mac de R288→R301b
 
 20 commits de Windows: el export por FFmpeg/NVENC y el arreglo de nitidez. Dos revisores sobre el diff real;

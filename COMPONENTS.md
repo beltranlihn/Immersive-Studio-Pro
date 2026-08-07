@@ -21,7 +21,7 @@
 | GL2 context init | Contexto WebGL2 + helpers de compilación | app.js · `prog`/`sh` (~L118) | ✅ | — |
 | PW (VSW/FSW) warp | Fisheye de domo + compositing de clip flat | app.js · `PW`/`LW` (~L213) | ✅ | R114 |
 | PB (VSB/FSB) blit | Textura máster → pantalla (pan/zoom) | app.js · `PB`/`LB` (~L315) | ✅ | — |
-| PFD fulldome | Máster fisheye dibujado 1:1 | app.js · `PFD`/`LFD` (~L340) | ✅ | — |
+| PFD fulldome | Máster fisheye dibujado 1:1. **[R305]** el ojo de pez se PLIEGA en el muestreo (`u_fishK`, var. `_fishFold`) en vez de pasar por una textura intermedia — sólo si es el único pre-pase (sin FX ni clave de negro); +12,1 % de nitidez, mismo aspecto (borde con `clamp`, como el pase viejo) | app.js · `PFD`/`LFD` (~L340), `FSFD`, `drawClip` | ✅ | R305 |
 | PEQ equirect→domo | 360 equirect reproyectado al domo | app.js · `PEQ`/`LEQ` (~L365) | ✅ | [F7] |
 | P3 (VS3/FS3) malla 3D | Máster sobre casquete esférico 3D | app.js · `P3`/`buildDomeMesh` (~L389) | ✅ | [U4], R114 |
 | PR (VSR/FSR) sala 3D | Quads de muros+piso de la sala 360 | app.js · `PR`/`LR` (~L422) | ✅ | — |
