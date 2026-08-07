@@ -1,6 +1,6 @@
 # El manual de usuario — cómo se hace y cómo se rehace
 
-Salida: **`Immersive Studio Pro - User Manual.pdf`** en la raíz del repositorio. 79 páginas, A4, en inglés.
+Salida: **`docs/Immersive Studio Pro - User Manual.pdf`**. 79 páginas, A4, en inglés.
 
 ## La regla que lo sostiene
 

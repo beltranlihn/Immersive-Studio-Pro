@@ -7,11 +7,12 @@ numeros ya puestos. Al final se pegan portada y cuerpo y se escriben los marcado
 """
 import io, json, os, subprocess, sys, fitz
 
-AQUI = os.path.dirname(os.path.abspath(__file__))
-RAIZ = os.path.dirname(os.path.dirname(AQUI))
+AQUI = os.path.dirname(os.path.abspath(__file__))          # docs/manual/build
+DOCS = os.path.dirname(os.path.dirname(AQUI))              # docs
+RAIZ = os.path.dirname(DOCS)                               # el repositorio
 DIR  = os.path.dirname(AQUI)
 OUT  = os.path.join(AQUI, 'salida')
-FINAL = sys.argv[1] if len(sys.argv) > 1 else os.path.join(RAIZ, 'Immersive Studio Pro - User Manual.pdf')
+FINAL = sys.argv[1] if len(sys.argv) > 1 else os.path.join(DOCS, 'Immersive Studio Pro - User Manual.pdf')
 
 CAPS = [
  (1,'Welcome to Immersive Studio Pro'), (2,'Installing and launching'), (3,'Immersive concepts'),
