@@ -66,9 +66,19 @@ Lo que hace por dentro (y por qué), si hay que hacerlo a mano:
 - **Addon NDI:** `node_modules/dsp-ndi-send` es COPIA de `native/ndi-send` → editar el `.cc` requiere re-copiar antes de `npm run dist`.
 
 ## Docs del repo
-- **`docs/ESTRUCTURA-DEL-CODIGO.md`** = guía de orientación para quien lee el repositorio por primera vez
-  (los tres procesos, el modelo de datos, el recorrido de `app.js` por tramos de línea, los flujos, las
-  trampas conocidas). Es la capa de ORDEN DE LECTURA; el inventario sigue en `COMPONENTS.md`.
-- **`PLAN.md`** = bitácora / changelog por rondas (ROUND …, lo más nuevo arriba). Se le agrega una entrada por sesión.
-- **`_backup/`** = archivos archivados (logo viejo, ENFOQUE-TECNICO histórico).
+- **`README.md`** = índice del repositorio: qué hay en cada carpeta. Es la puerta de entrada.
+- **`docs/ESTRUCTURA-DEL-CODIGO.md`** = guía de ORDEN DE LECTURA del código (los tres procesos, el modelo de
+  datos, el recorrido de `app.js` por tramos de línea, los flujos y las trampas conocidas). El inventario de
+  detalle sigue en `COMPONENTS.md`.
+- **`PLAN.md`** = bitácora / changelog por rondas (ROUND …, lo más nuevo arriba). Se le agrega una entrada por
+  sesión.
+- **`docs/historial/`** = auditorías, investigaciones y propuestas YA CERRADAS (19 documentos, movidos de la
+  raíz en R309). Se citan por su nombre desde `PLAN.md` y desde comentarios del código; explican por qué el
+  código es como es, pero no son referencia de estado actual.
+- **`_backup/`** = archivos archivados (logo viejo, ENFOQUE-TECNICO histórico) y `_backup/deprecated/` con el
+  código retirado, con fecha.
 - El detalle profundo y multi-sesión también vive en la **memoria de Claude** (se carga sola cada sesión).
+- **Higiene de la carpeta [R309]:** la raíz sólo lleva código, `package.json`, y cinco documentos vivos
+  (`README`, `CLAUDE`, `ARCHITECTURE`, `COMPONENTS`, `PLAN`). Lo cerrado va a `docs/historial/`. Los volcados
+  de las sondas (imágenes y vídeos) NO se versionan y se pueden borrar sin pérdida: se regeneran con
+  `scratchpad/*.mjs`.

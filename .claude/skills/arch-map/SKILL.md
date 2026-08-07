@@ -15,7 +15,7 @@ ubicar algo.** El mapa ya existe:
 - **`ARCHITECTURE.md`** (raíz) — el relato: C4/arc42, el pipeline de render, los flujos, los conceptos transversales (binding
   manual `state→render()`, handedness, i18n), riesgos/deuda técnica, glosario.
 - **`docs/adr/`** — las decisiones y su porqué (sin build step, sin FFmpeg, proxies manuales, handedness, `.isp`, automatización AE).
-- **`PLAN.md`** — bitácora por ronda (lo más nuevo arriba). **`CORRECCIONES-V2.md`** — el roadmap de tickets ([F2], [V1], etc.).
+- **`PLAN.md`** — bitácora por ronda (lo más nuevo arriba). **`docs/historial/CORRECCIONES-V2.md`** — el roadmap de tickets ([F2], [V1], etc.); cerrado, se mantiene por las claves que cita el código.
 
 ## Para LOCALIZAR algo (antes de grepear)
 1. Abrí `COMPONENTS.md` y buscá en el **índice maestro** el subsistema (Motor GL, Render/modos, Timeline, Automatización,
