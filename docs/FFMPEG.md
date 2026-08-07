@@ -86,6 +86,53 @@ descartadas o aplazadas por una razón medida, no por intuición:
 Proyección de la cadena con NV12: 34 (lectura) + 47 (IPC) + 45 (codificador) = 126 ms ≈ **8 fps en serie**, y
 ~12 fps si además se solapa. Contra los 5,3 de ahora, y contra el «no se puede» de antes de todo esto.
 
+## El shader NV12 — diseño cerrado (pendiente de escribir)
+
+La pieza que queda. Un error aquí es **sutil y caro**: colores levemente lavados que no se ven en el monitor y
+sí al proyectar. Por eso el diseño va escrito antes que el código, y con una prueba que lo compare contra la
+conversión del propio FFmpeg.
+
+### Disposición de memoria
+
+NV12 son dos planos contiguos: **Y** de W×H bytes, y detrás **UV** entrelazado (U,V,U,V…) de W×(H/2) bytes.
+Total = W×H×1,5. Para 4096²: 24 MB.
+
+El truco para sacarlo de la GPU **en una sola lectura**: un FBO RGBA8 de **(W/4) × (H + H/2)**, donde cada
+téxel empaqueta 4 bytes consecutivos. Para 4096² son 1024 × 6144. `readPixels` devuelve entonces exactamente
+la secuencia de bytes que FFmpeg espera, sin reordenar nada en la CPU.
+
+- **Zona Y** (filas `0 … H-1`): el téxel `(x,y)` lleva los Y de las columnas `4x, 4x+1, 4x+2, 4x+3`.
+- **Zona UV** (filas `H … H+H/2-1`): fila de croma `cy = y - H`. El téxel `(x,cy)` lleva `U₀,V₀,U₁,V₁` de los
+  dos bloques de croma que cubren las columnas `4x…4x+3` y las filas fuente `2·cy` y `2·cy+1`. Cada U y cada V
+  es la media de su bloque 2×2, que es lo que hace `swscale`.
+
+### Matriz de color
+
+**BT.709, rango limitado** — el estándar de HD/4K, y lo que asume cualquier reproductor de domo salvo que se
+le diga otra cosa. Sobre R,G,B ya en 0..1 **no lineales** (con gamma, tal como salen del composite):
+
+    Y  = 16  + 219 · ( 0,2126·R + 0,7152·G + 0,0722·B )
+    U  = 128 + 224 · ( (B - Y') / 1,8556 ) / 2
+    V  = 128 + 224 · ( (R - Y') / 1,5748 ) / 2
+
+donde `Y'` es la luma en 0..1 antes de escalar. Los `/2` no son cosméticos: llevan el rango de −0,5..0,5 a
+0..1 antes de aplicar la excursión de 224.
+
+Y hay que **decírselo a FFmpeg**, o etiquetará el archivo como indefinido y cada reproductor adivinará:
+`-colorspace bt709 -color_primaries bt709 -color_trc bt709 -color_range tv`.
+
+### Cómo se comprueba que está bien
+
+No a ojo. Se exporta el mismo fotograma por dos caminos: el nuestro (shader → NV12 → FFmpeg) y el de control
+(RGBA → FFmpeg, que convierte con `swscale`). Se comparan los dos vídeos decodificados. **Criterio: PSNR por
+encima de 45 dB.** Por debajo, la matriz o el submuestreo están mal; una diferencia de rango (limitado contra
+completo) se delata sola porque hunde el PSNR a ~30 dB.
+
+### Riesgo anotado
+
+`readPixels` sobre un FBO de 1024×6144 — hay que comprobar que `MAX_TEXTURE_SIZE` y `MAX_RENDERBUFFER_SIZE` lo
+admiten. En esta GPU sobra, pero conviene sondearlo y caer al camino RGBA si algún día no.
+
 ## Codificadores por plataforma
 
 | | Windows / RTX | macOS Silicon |
