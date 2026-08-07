@@ -1,0 +1,53 @@
+[
+ {"n":"01-launcher","prep":"(async()=>{ showLanding(); })()","espera":1800},
+
+ {"n":"02-workspace-dome","prep":"(async()=>{ await startDemoProject('dome'); await new Promise(r=>setTimeout(r,1600)); if(_tourStop)_tourStop(); document.querySelector('#viewModeSeg button[data-v=\"2d\"]').click(); state.playhead=6.4; scrubRender(); positionPlayhead(); })()","espera":3400},
+ {"n":"03-viewer-dome","sel":"#stage","espera":600},
+ {"n":"04-media-panel","sel":"#mediaPane","espera":300},
+ {"n":"04b-media-grid","prep":"(function(){ const b=document.querySelector('#mediaViewSeg button:last-child'); if(b)b.click(); })()","sel":"#mediaPane","espera":600},
+ {"n":"04c-media-list","prep":"(function(){ const b=document.querySelector('#mediaViewSeg button:first-child'); if(b)b.click(); })()","sel":"#mediaPane","espera":600},
+
+ {"n":"05-inspector","prep":"(function(){ const st=insColState(); document.querySelectorAll('#insCtl .sechead[data-sec]').forEach(h=>st[h.dataset.sec]=!(h.dataset.sec==='tf'||h.dataset.sec==='source')); applySecCollapse(); })()","sel":"#inspPane","espera":500},
+ {"n":"05b-inspector-clip","prep":"(function(){ const st=insColState(); document.querySelectorAll('#insCtl .sechead[data-sec]').forEach(h=>st[h.dataset.sec]=(h.dataset.sec!=='clip')); applySecCollapse(); })()","sel":"#inspPane","espera":500},
+ {"n":"05c-inspector-playback","prep":"(function(){ const st=insColState(); document.querySelectorAll('#insCtl .sechead[data-sec]').forEach(h=>st[h.dataset.sec]=(h.dataset.sec!=='playback')); applySecCollapse(); })()","sel":"#inspPane","espera":500},
+ {"n":"05d-inspector-color","prep":"(function(){ const st=insColState(); document.querySelectorAll('#insCtl .sechead[data-sec]').forEach(h=>st[h.dataset.sec]=(h.dataset.sec!=='color')); applySecCollapse(); })()","sel":"#inspPane","espera":500},
+ {"n":"05e-inspector-motion","prep":"(function(){ const st=insColState(); document.querySelectorAll('#insCtl .sechead[data-sec]').forEach(h=>st[h.dataset.sec]=(h.dataset.sec!=='motion')); applySecCollapse(); })()","sel":"#inspPane","espera":500},
+ {"n":"05f-reactivefx","prep":"(function(){ const b=[...document.querySelectorAll('#inspTabs button')].find(x=>/react/i.test(x.textContent)); if(b)b.click(); })()","sel":"#inspPane","espera":800},
+ {"n":"05g-inspector-back","prep":"(function(){ const b=[...document.querySelectorAll('#inspTabs button')].find(x=>/inspector/i.test(x.textContent)); if(b)b.click(); const st=insColState(); document.querySelectorAll('#insCtl .sechead[data-sec]').forEach(h=>st[h.dataset.sec]=!(h.dataset.sec==='tf'||h.dataset.sec==='source')); applySecCollapse(); })()","espera":700},
+
+ {"n":"06-timeline","sel":"#tlwrap,#timeline,#tlscroll","espera":300},
+ {"n":"07-transport","sel":".transport","pad":4,"espera":300},
+ {"n":"08-toolrail","sel":"#toolRail","pad":4,"espera":300},
+ {"n":"09-menubar","sel":"#menubar","pad":4,"espera":300},
+ {"n":"09b-menu-window","prep":"(function(){ const b=document.querySelector('#menubar [data-menu=window]'); if(b)b.click(); })()","sel":".mpop,.menu,#menuPop","pad":8,"espera":600},
+ {"n":"09c-menu-edit","prep":"(function(){ closeMenu(); const b=document.querySelector('#menubar [data-menu=edit]'); if(b)b.click(); })()","sel":".mpop,.menu,#menuPop","pad":8,"espera":600},
+ {"n":"09d-output","prep":"(function(){ closeMenu(); const b=document.querySelector('#outputBtn'); if(b)b.click(); })()","sel":".mpop,.menu,#menuPop","pad":8,"espera":600},
+ {"n":"09e-clipmenu","prep":"(function(){ closeMenu(); const c=document.querySelector('#tracks .clip'); if(c){ const b=c.getBoundingClientRect(); c.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:b.x+30,clientY:b.y+10})); } })()","sel":".mpop,.menu,#menuPop","pad":8,"espera":700},
+
+ {"n":"10-automation","prep":"(function(){ closeMenu(); const b=document.querySelector('#curvesBtn'); if(b&&!document.body.classList.contains('automode'))b.click(); })()","sel":"#tlwrap,#timeline,#tlscroll","espera":1100},
+ {"n":"10b-automation-off","prep":"(function(){ const b=document.querySelector('#curvesBtn'); if(b&&document.body.classList.contains('automode'))b.click(); })()","espera":800},
+
+ {"n":"11-viewer-3d","prep":"(function(){ document.querySelector('#viewModeSeg button[data-v=\"3d\"]').click(); })()","sel":"#stage","espera":1400},
+ {"n":"12-palette","prep":"(function(){ document.querySelector('#viewModeSeg button[data-v=\"2d\"]').click(); openPalette(); })()","sel":"#palOv .modal","pad":10,"espera":800},
+
+ {"n":"13-export","prep":"(function(){ const o=document.querySelector('#palOv'); if(o)o.remove(); openExport(); })()","sel":"#exOv .exs,#exOv .modal,#exOv>div","pad":8,"espera":1600},
+ {"n":"14-slate","prep":"(function(){ document.querySelectorAll('.overlay,#exOv').forEach(e=>e.remove()); openSlateDialog(); })()","sel":".overlay .modal","pad":8,"espera":1000},
+ {"n":"15-seqsettings","prep":"(function(){ document.querySelectorAll('.overlay').forEach(e=>e.remove()); openSeqSettings(); })()","sel":".overlay .modal","pad":8,"espera":1000},
+ {"n":"16-prefs","prep":"(function(){ document.querySelectorAll('.overlay').forEach(e=>e.remove()); openPrefs(); })()","sel":"#prefOv .modal","pad":8,"espera":1000},
+ {"n":"17-newseq","prep":"(function(){ document.querySelectorAll('.overlay').forEach(e=>e.remove()); newSequenceDialog(); })()","sel":".overlay .modal","pad":8,"espera":1200},
+
+ {"n":"18-compose-domefill","prep":"(function(){ document.querySelectorAll('.overlay').forEach(e=>e.remove()); openCompose('domegrid'); })()","sel":"#compOv .modal,#compOv>div","pad":8,"espera":1600},
+ {"n":"19-compose-weave","prep":"(function(){ try{if(typeof _cerrarComp==='function')_cerrarComp();}catch(e){} document.querySelectorAll('.overlay,#compOv').forEach(e=>e.remove()); openCompose('weave'); })()","sel":"#compOv .modal,#compOv>div","pad":8,"espera":1600},
+ {"n":"20-compose-tunnel","prep":"(function(){ try{if(typeof _cerrarComp==='function')_cerrarComp();}catch(e){} document.querySelectorAll('.overlay,#compOv').forEach(e=>e.remove()); openCompose('tunnel'); })()","sel":"#compOv .modal,#compOv>div","pad":8,"espera":1600},
+ {"n":"21-compose-ring","prep":"(function(){ try{if(typeof _cerrarComp==='function')_cerrarComp();}catch(e){} document.querySelectorAll('.overlay,#compOv').forEach(e=>e.remove()); openCompose('ring'); })()","sel":"#compOv .modal,#compOv>div","pad":8,"espera":1600},
+
+ {"n":"22-sourcemon","prep":"(function(){ try{if(typeof _cerrarComp==='function')_cerrarComp();}catch(e){} document.querySelectorAll('.overlay,#compOv').forEach(e=>e.remove()); const m=state.media.find(x=>x.kind!=='nest'); if(m)openSourceMonitor(m); })()","sel":"#srcMon","pad":8,"espera":1400},
+
+ {"n":"23-workspace-flat","prep":"(async()=>{ try{closeSourceMonitor();}catch(e){} document.querySelectorAll('.overlay').forEach(e=>e.remove()); await startDemoProject('flat'); await new Promise(r=>setTimeout(r,1600)); if(_tourStop)_tourStop(); state.playhead=6.0; scrubRender(); positionPlayhead(); })()","espera":3400},
+ {"n":"24-viewer-flat","sel":"#stage","espera":600},
+
+ {"n":"25-workspace-room","prep":"(async()=>{ document.querySelectorAll('.overlay').forEach(e=>e.remove()); await startDemoProject('room'); await new Promise(r=>setTimeout(r,1800)); if(_tourStop)_tourStop(); document.querySelector('#viewModeSeg button[data-v=\"2d\"]').click(); state.playhead=6.0; scrubRender(); positionPlayhead(); })()","espera":3600},
+ {"n":"26-room-strip","sel":"#stage","espera":700},
+ {"n":"27-room-3d","prep":"(function(){ document.querySelector('#viewModeSeg button[data-v=\"3d\"]').click(); })()","sel":"#stage","espera":1600},
+ {"n":"28-room-setup","prep":"(function(){ document.querySelectorAll('.overlay').forEach(e=>e.remove()); roomSetupDialog(function(){}, (activeSeq()||{}).room); })()","sel":".overlay .modal","pad":8,"espera":1400}
+]

@@ -329,6 +329,17 @@
 - **Invariants / gotchas:** `startTour` recibe el FORMATO, no un booleano. Espera 900 ms a que el editor esté pintado — recorta agujeros sobre elementos reales y necesita sus medidas. **[R210]** Se eliminaron las banderas de localStorage `dspOnboardV1` y `dspTour_*` con sus seis funciones: al salir siempre ya nadie las leía (y `onboardDone()` llevaba sin lectores desde R178).
 - **Status:** ✅
 
+### Manual de usuario — `docs/manual/`
+| Componente | Qué hace | Ubicación | Estado | Roadmap |
+|---|---|---|---|---|
+| Texto del manual | 29 capítulos en inglés, seis partes | `docs/manual/manual.html` | ✅ | R306 |
+| Extracción de catálogos | Vuelca `commandList()`, `FXTYPES`, `ANIM_PRESETS`, menús, códecs y tipos de composición de la app VIVA → `datos.json`; el índice y los capítulos 26 y 28 se generan desde ahí | `docs/manual/build/extraer.mjs` · `extraer2.mjs` | ✅ | R306 |
+| Capturas | 45 fotos por CDP: monta los demos, abre cada cuadro, recorta por selector a escala 2. **Los selectores se prueban EN ORDEN** (`querySelector` con lista devuelve el primero del DOCUMENTO) y el recorrido guiado se cierra por `_tourStop` TRAS la espera | `docs/manual/build/capturar.mjs` · `tomas.json` | ✅ | R306 |
+| Impresión a PDF | Portada (sin pie, sin márgenes) y cuerpo (con pie numerado) por separado, porque Chromium reserva margen de pie en todas las hojas | `docs/manual/build/imprimir.js` | ✅ | R306 |
+| Armado + índice | Dos pasadas: imprime, LOCALIZA los titulares por **tamaño de fuente** (19-24 pt; la altura que devuelve `search_for` es la de la línea y metía cuatro capítulos en la página equivocada), reimprime con los números y pega + marcadores | `docs/manual/build/armar.py` | ✅ | R306 |
+
+---
+
 ## Deuda técnica & gaps detectados en el mapeo
 
 - **🗄️ Automatización legacy — ARCHIVADO (R137).** Las funciones muertas (`_autoOff` override/re-enable + perform-and-bake `recWrite`/`bakeRecorded` + `#autoRecBtn`) se sacaron del software y viven en `_backup/deprecated/20260722-automation-override-and-perform-bake.js` (recuperables). Verificado por CDP: motor de automatización intacto. **Barrido menor HECHO (R137):** removidos los reads no-op de `_autoOff` en sepAuto, returnToDefault, `drawAutoCurve` (var `off`), fxKfToggle y borrado de fx — solo queda `_autoOff` en un comentario (app.js L463). Curva renderiza OK (verificado por píxel).

@@ -40,3 +40,4 @@ scratchpad/*.json
 vendor/ffmpeg/win/*
 vendor/ffmpeg/mac/*
 !vendor/ffmpeg/*/.gitkeep
+docs/manual/build/salida/

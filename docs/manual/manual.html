@@ -1,0 +1,1904 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Immersive Studio Pro — User Manual</title>
+<style>
+:root{
+  --ink:#16181A; --ink-2:#4A5054; --ink-3:#767D82; --rule:#D8DCDE;
+  --accent:#5E7A3A;            /* el verde del propio editor: pistas, barra del inspector */
+  --accent-soft:#EDF1E6;
+  --warn:#8C4A2B; --warn-soft:#F7EDE7;
+  --paper:#FFFFFF; --panel:#F5F6F5;
+  --dark:#1B1D1F;
+}
+@page{ size:A4; margin:19mm 17mm 17mm 17mm; }
+@page:first{ margin:0; }
+
+*{box-sizing:border-box}
+html{-webkit-print-color-adjust:exact; print-color-adjust:exact;}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font:10.6pt/1.62 Georgia,"Times New Roman",serif;
+  text-rendering:geometricPrecision;
+}
+p{margin:0 0 .62em}
+p+p{text-indent:0}
+a{color:inherit;text-decoration:none}
+strong{font-weight:700}
+em{font-style:italic}
+
+/* ── tipografia de titulos: palo seco para la interfaz, serif para leer ───────────────────── */
+h1,h2,h3,h4,.ui,.tocnum,.fig figcaption,.kbd,th,.tag,.lead{font-family:"Segoe UI","Inter",system-ui,-apple-system,sans-serif}
+
+/* ── portada ─────────────────────────────────────────────────────────────────────────────── */
+.cover{
+  page-break-after:always; background:var(--dark); color:#fff;
+  height:297mm; width:210mm; padding:26mm 22mm; display:flex; flex-direction:column;
+  position:relative; overflow:hidden;
+}
+.cover .disc{
+  position:absolute; right:-70mm; top:38mm; width:190mm; height:190mm; border-radius:50%;
+  background:radial-gradient(circle at 38% 32%, #2A3340 0%, #20262E 46%, #1B1D1F 72%);
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.07);
+}
+.cover .rings{position:absolute; right:-70mm; top:38mm; width:190mm; height:190mm;}
+.cover .rings i{position:absolute; border:1px solid rgba(255,255,255,.055); border-radius:50%; inset:0;}
+.cover-in{position:relative; z-index:2; display:flex; flex-direction:column; height:100%}
+.cover img.logo{width:44mm; opacity:.96; margin-bottom:14mm}
+.cover h1{font-size:34pt; line-height:1.08; font-weight:600; letter-spacing:-.02em; margin:0 0 5mm; max-width:120mm}
+.cover .sub{font-family:Georgia,serif; font-size:12.5pt; color:#B9C0C6; max-width:104mm; line-height:1.55}
+.cover .foot{margin-top:auto; display:flex; justify-content:space-between; align-items:flex-end;
+  font-family:"Segoe UI",system-ui,sans-serif; font-size:9pt; color:#8D959B; letter-spacing:.04em; text-transform:uppercase}
+.cover .foot b{display:block; color:#E6EAED; font-weight:600; letter-spacing:0; text-transform:none; font-size:11pt}
+
+/* ── estructura ──────────────────────────────────────────────────────────────────────────── */
+.part{page-break-before:always; padding-top:62mm; text-align:left}
+.part .pnum{font-size:9pt; letter-spacing:.22em; text-transform:uppercase; color:var(--accent); font-weight:600;
+  font-family:"Segoe UI",system-ui,sans-serif}
+.part h1{font-size:27pt; font-weight:600; letter-spacing:-.02em; margin:.25em 0 .4em; border:0; padding:0}
+.part .blurb{font-size:11.4pt; color:var(--ink-2); max-width:118mm; line-height:1.6}
+.part .chlist{margin-top:9mm; border-top:1px solid var(--rule); padding-top:4mm; column-count:1}
+.part .chlist div{font-family:"Segoe UI",system-ui,sans-serif; font-size:10pt; color:var(--ink-2); padding:1.6mm 0}
+.part .chlist div b{color:var(--ink); font-weight:600}
+
+h1.ch{page-break-before:always; font-size:21pt; font-weight:600; letter-spacing:-.015em;
+  margin:0 0 6mm; padding-bottom:3mm; border-bottom:2px solid var(--ink); line-height:1.18}
+h1.ch .n{display:block; font-size:9pt; letter-spacing:.2em; text-transform:uppercase;
+  color:var(--accent); font-weight:600; margin-bottom:2.5mm}
+h2{font-size:13pt; font-weight:600; margin:8mm 0 2.5mm; letter-spacing:-.01em; page-break-after:avoid}
+h3{font-size:10.8pt; font-weight:600; margin:5.5mm 0 1.5mm; page-break-after:avoid}
+h4{font-size:9.6pt; font-weight:600; margin:4mm 0 1mm; color:var(--ink-2); page-break-after:avoid;
+   text-transform:uppercase; letter-spacing:.07em}
+.lead{font-size:11.6pt; line-height:1.55; color:var(--ink-2); margin:0 0 6mm; max-width:135mm}
+
+ul,ol{margin:0 0 .7em; padding-left:1.15em}
+li{margin:.2em 0}
+ul.tight li{margin:.06em 0}
+dl{margin:0 0 .7em}
+dt{font-family:"Segoe UI",system-ui,sans-serif; font-weight:600; font-size:9.8pt; margin-top:.55em}
+dd{margin:0 0 .18em 0; padding-left:5mm; color:var(--ink)}   /* sangrado: sin el, el termino y su
+     definicion se leen como dos parrafos sueltos */
+
+/* ── piezas de interfaz ──────────────────────────────────────────────────────────────────── */
+.ui{font-size:9.5pt; font-weight:600; color:var(--ink); background:var(--panel);
+    border:1px solid var(--rule); border-radius:2.5px; padding:.5px 4px; white-space:nowrap}
+.kbd{font-size:8.8pt; font-weight:600; background:#2A2E31; color:#fff; border-radius:3px;
+     padding:1px 5px; white-space:nowrap; letter-spacing:.02em}
+.path{font-family:"Segoe UI",system-ui,sans-serif; font-size:9.6pt; color:var(--ink-2)}
+.path b{color:var(--ink); font-weight:600}
+
+/* ── figuras ─────────────────────────────────────────────────────────────────────────────── */
+.fig{margin:5mm 0 6mm; break-inside:avoid; page-break-inside:avoid}
+.fig .frame{border:1px solid var(--rule); background:#101214; padding:0; overflow:hidden; line-height:0;
+            box-shadow:0 1px 0 rgba(0,0,0,.04)}
+.fig img{width:100%; display:block}
+.fig.tall .frame{max-height:118mm}
+.fig.mid .frame{max-height:86mm}
+.fig figcaption{font-size:8.6pt; color:var(--ink-3); margin-top:2mm; line-height:1.45}
+.fig figcaption b{color:var(--ink-2); font-weight:600}
+.fig.half{width:48%; display:inline-block; vertical-align:top}
+.figrow{display:flex; gap:5mm; break-inside:avoid}
+.figrow .fig{flex:1; margin-top:0}
+
+/* ── avisos ──────────────────────────────────────────────────────────────────────────────── */
+.note,.warn{border-left:3px solid var(--accent); background:var(--accent-soft);
+  padding:3mm 4mm; margin:4mm 0; font-size:9.8pt; line-height:1.55; break-inside:avoid}
+.warn{border-left-color:var(--warn); background:var(--warn-soft)}
+.note .t,.warn .t{font-family:"Segoe UI",system-ui,sans-serif; font-weight:700; font-size:8.4pt;
+  text-transform:uppercase; letter-spacing:.1em; color:var(--accent); display:block; margin-bottom:1mm}
+.warn .t{color:var(--warn)}
+.note p:last-child,.warn p:last-child{margin-bottom:0}
+
+/* ── tablas ──────────────────────────────────────────────────────────────────────────────── */
+table{width:100%; border-collapse:collapse; margin:3mm 0 5mm; font-size:9.3pt; break-inside:auto}
+th{font-size:8.2pt; text-transform:uppercase; letter-spacing:.08em; color:var(--ink-2); font-weight:600;
+   text-align:left; border-bottom:1.5px solid var(--ink); padding:1.6mm 2mm 1.4mm}
+td{border-bottom:1px solid var(--rule); padding:1.7mm 2mm; vertical-align:top; line-height:1.45}
+tr{break-inside:avoid}
+td.k{font-family:"Segoe UI",system-ui,sans-serif; font-weight:600; white-space:nowrap; width:34%}
+td.s{white-space:nowrap; width:22%}
+table.keys td.k{width:26%}
+table.keys td.k .kbd{font-size:8.4pt}
+tbody tr:nth-child(even) td{background:#FAFBFA}
+
+/* ── procedimientos numerados ────────────────────────────────────────────────────────────── */
+ol.steps{counter-reset:s; list-style:none; padding-left:0; margin:3mm 0 5mm}
+ol.steps>li{counter-increment:s; position:relative; padding-left:9mm; margin:0 0 2.4mm; break-inside:avoid}
+ol.steps>li::before{content:counter(s); position:absolute; left:0; top:.15em;
+  width:5.6mm; height:5.6mm; border-radius:50%; background:var(--accent); color:#fff;
+  font-family:"Segoe UI",system-ui,sans-serif; font-size:8pt; font-weight:700;
+  display:flex; align-items:center; justify-content:center}
+
+/* ── indice ──────────────────────────────────────────────────────────────────────────────── */
+.toc{page-break-before:always}
+.toc h1{font-size:19pt; font-weight:600; margin:0 0 7mm; padding-bottom:3mm; border-bottom:2px solid var(--ink)}
+.toc .tpart{font-family:"Segoe UI",system-ui,sans-serif; font-size:8.4pt; letter-spacing:.16em;
+  text-transform:uppercase; color:var(--accent); font-weight:700; margin:6mm 0 2mm}
+.toc .row{display:flex; align-items:baseline; gap:2mm; font-family:"Segoe UI",system-ui,sans-serif;
+  font-size:9.9pt; padding:1.1mm 0}
+.toc .row .tocnum{color:var(--ink-3); width:7mm; font-variant-numeric:tabular-nums; font-size:9pt}
+.toc .row .ttl{color:var(--ink)}
+.toc .row .dots{flex:1; border-bottom:1px dotted #C6CBCE; transform:translateY(-2px)}
+.toc .row .pn{color:var(--ink-2); font-variant-numeric:tabular-nums; font-size:9pt}
+
+.colophon{page-break-before:always; padding-top:70mm; font-size:9.4pt; color:var(--ink-2); max-width:120mm}
+.colophon h2{font-size:12pt; color:var(--ink); margin-top:0}
+.small{font-size:8.8pt; color:var(--ink-3)}
+</style>
+
+<!-- ═══════════════════════════════════════ PORTADA ═══════════════════════════════════════ -->
+<section class="cover">
+  <div class="disc"></div>
+  <div class="rings"><i style="inset:14mm"></i><i style="inset:30mm"></i><i style="inset:48mm"></i><i style="inset:68mm"></i></div>
+  <div class="cover-in">
+    <img class="logo" src="img/logo.png" alt="Immersive Studio Pro">
+    <h1>Immersive Studio Pro</h1>
+    <div class="sub">User manual — editing for fulldome domes, flat screens and 360° rooms.</div>
+    <div class="foot">
+      <div>Alma Digital Studio</div>
+      <div style="text-align:right"><b>Version 1.0</b>August 2026</div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════ INDICE ════════════════════════════════════════ -->
+<section class="toc">
+  <h1>Contents</h1>
+  <div id="tocbody"></div>
+</section>
+
+<!-- ═══════════════════════════ PARTE I ═══════════════════════════ -->
+<section class="part">
+  <div class="pnum">Part one</div>
+  <h1>Getting started</h1>
+  <div class="blurb">What the program is for, how to open it, and the handful of ideas that make everything
+    else make sense. If you read only one part before you start working, read this one — immersive formats
+    behave differently from a rectangular timeline, and the difference is worth ten minutes.</div>
+  <div class="chlist">
+    <div><b>1</b> &nbsp;Welcome to Immersive Studio Pro</div>
+    <div><b>2</b> &nbsp;Installing and launching</div>
+    <div><b>3</b> &nbsp;Immersive concepts</div>
+    <div><b>4</b> &nbsp;Your first project</div>
+  </div>
+</section>
+
+<!-- ── 1 ─────────────────────────────────────────────────────────── -->
+<h1 class="ch" id="ch1"><span class="n">Chapter one</span>Welcome to Immersive Studio Pro</h1>
+
+<p class="lead">Immersive Studio Pro is a video editor for work that is not shown on a rectangle. It edits for
+fulldome domes, for ordinary flat screens, and for rooms whose walls and floor are all projection surfaces —
+and it treats all three as first-class formats rather than as an export option bolted onto a flat timeline.</p>
+
+<p>It is a desktop application built by Alma Digital Studio for its own productions. Everything renders on the
+GPU through WebGL2: clips are warped into the dome in real time, effects run as shaders, and the master is
+composited to a single texture that the viewer, the live outputs and the exporter all read from. There is no
+render queue standing between you and what you are looking at.</p>
+
+<div class="fig">
+  <div class="frame"><img src="img/02-workspace-dome.png" alt="The workspace"></div>
+  <figcaption><b>The workspace in dome mode.</b> Media on the left, the dome master in the centre, the inspector
+  on the right, the timeline below. The circle is the whole of the projected image; nothing outside it is
+  recorded.</figcaption>
+</div>
+
+<h2>What it is good at</h2>
+<dl>
+  <dt>Placing pictures on a dome, not on a plane</dt>
+  <dd>A clip in a dome sequence is positioned by azimuth, elevation and size — where it sits on the hemisphere —
+  and the GPU warps it accordingly. You are steering a direction, not a rectangle.</dd>
+
+  <dt>Filling a dome with generated arrangements</dt>
+  <dd>The <span class="ui">Compose</span> tools build rings, grids, spirals, tunnels and woven basketry out of
+  your own footage, as editable clips rather than as a black box.</dd>
+
+  <dt>Rooms with several surfaces</dt>
+  <dd>A 360° room is edited as one unrolled strip of walls plus a floor, previewed in 3D from the audience
+  position, and exported whole or one wall at a time.</dd>
+
+  <dt>Delivering at real dome resolutions</dt>
+  <dd>4096 × 4096 H.264 and H.265 through the GPU encoder, lossless PNG sequences, and HAP for playback
+  systems that want it.</dd>
+</dl>
+
+<h2>What it is not</h2>
+<p>It is not a colour-grading suite, not an audio workstation, and not a general-purpose NLE competing with
+Premiere or Resolve on breadth. It carries the editing tools an immersive piece actually needs and stops there.
+Sound design happens elsewhere and comes back as a mix; heavy grading happens elsewhere and comes back as a
+LUT, which the program will apply per clip.</p>
+
+<h2>How this manual is arranged</h2>
+<p>Part one covers concepts and a first project. Part two walks the interface panel by panel. Parts three and
+four cover editing and the creative tools in the order you would meet them. Part five covers delivery. Part six
+is reference material — menus, shortcuts, parameter tables — meant for looking things up rather than reading.</p>
+
+<p>Two conventions are used throughout. Interface labels appear as <span class="ui">Fulldome src</span>, exactly
+as they read on screen. Keys appear as <span class="kbd">Ctrl</span>+<span class="kbd">E</span>; on macOS read
+<span class="kbd">Ctrl</span> as <span class="kbd">⌘</span> unless stated otherwise.</p>
+
+<div class="note"><span class="t">The software is in English</span>
+  <p>The interface ships in English with a Spanish translation available. This manual documents the English
+  labels.</p></div>
+
+<!-- ── 2 ─────────────────────────────────────────────────────────── -->
+<h1 class="ch" id="ch2"><span class="n">Chapter two</span>Installing and launching</h1>
+
+<p class="lead">Immersive Studio Pro is a desktop application for Windows and macOS. It has no online component,
+no licence server and no project cloud: everything lives on your disk.</p>
+
+<h2>Requirements</h2>
+<table>
+  <tr><td class="k">Windows</td><td>Windows 10 or 11, 64-bit. A discrete GPU is strongly recommended — the
+    program asks the system for the high-performance adapter automatically on hybrid laptops.</td></tr>
+  <tr><td class="k">macOS</td><td>Apple Silicon. Rendering and export both use the GPU.</td></tr>
+  <tr><td class="k">Memory</td><td>16 GB is a working minimum for dome work at 4096². Decoding several layers of
+    high-bitrate footage at once is the memory-hungry part, not the compositing.</td></tr>
+  <tr><td class="k">Disk</td><td>Fast local storage for media. Exports at 4096² are large: budget roughly
+    300 MB per minute at 200 Mb/s.</td></tr>
+</table>
+
+<h2>Installing on Windows</h2>
+<p>Run the installer, <span class="path">Immersive Studio Pro Setup 1.0.0.exe</span>. It installs per user, so
+it does not ask for administrator rights, and it registers the <span class="ui">.isp</span> project extension so
+that double-clicking a project opens it.</p>
+
+<h2>The start screen</h2>
+<p>The program opens on the start screen. This is where a project begins: you choose the format, set every
+parameter, and see a preview of the result before anything is created.</p>
+
+<div class="fig">
+  <div class="frame"><img src="img/01-launcher.png" alt="Start screen"></div>
+  <figcaption><b>The start screen.</b> Choose Dome, 2D or 360 Room; the panel on the right shows what you are
+  about to make. <span class="ui">Demos</span> in the top bar builds a complete example project instead.</figcaption>
+</div>
+
+<ol class="steps">
+  <li>Pick a format: <span class="ui">Dome</span>, <span class="ui">2D</span> or <span class="ui">360 Room</span>.</li>
+  <li>Set the parameters — resolution, frame rate, dome coverage, or wall geometry for a room. The preview
+    updates as you type.</li>
+  <li>Create the project. The editor opens with an empty timeline.</li>
+</ol>
+
+<p>You can come back to this screen at any time with <span class="ui">File → New project…</span>
+(<span class="kbd">Ctrl</span>+<span class="kbd">N</span>). If a project is already open it stays open behind
+the screen, and <span class="ui">Back to project</span> returns to it untouched.</p>
+
+<h2>The demo projects and the guided tour</h2>
+<p><span class="ui">Demos</span> builds a complete working project in the format you choose — several tracks,
+clips, a composition, motion, an effect and automation — and then runs a short guided tour over it. Nothing in
+it is locked: change it, break it, save it as your own. It is the fastest way to see how the pieces fit.</p>
+
+<div class="fig">
+  <div class="frame"><img src="img/29-tour.png" alt="Guided tour"></div>
+  <figcaption><b>The guided tour</b> highlights one region of the interface at a time. <span class="kbd">→</span>
+  and <span class="kbd">←</span> move through it, <span class="kbd">Esc</span> ends it. You can relaunch it from
+  <span class="ui">Window → Guided tour</span>.</figcaption>
+</div>
+
+<h2>Preferences</h2>
+<p><span class="ui">Project → Preferences…</span> holds the application-wide settings, including the interface
+language. Project settings — resolution, frame rate, dome coverage — live in
+<span class="ui">Project → Sequence settings…</span> instead, because they belong to the sequence rather than to
+the program.</p>
+
+<!-- ── 3 ─────────────────────────────────────────────────────────── -->
+<h1 class="ch" id="ch3"><span class="n">Chapter three</span>Immersive concepts</h1>
+
+<p class="lead">Six ideas explain most of the program's behaviour. They are worth understanding before you
+start, because several of them have no equivalent in a flat editor and guessing produces frustrating
+results.</p>
+
+<h2>The three formats</h2>
+<p>Every sequence is in one of three modes, chosen when it is created and shown in the format chip at the top
+right of the window.</p>
+
+<dl>
+  <dt>Dome</dt>
+  <dd>A fulldome image: a circular fisheye covering a hemisphere. Clips are placed by direction —
+    azimuth and elevation — and warped onto the dome by the GPU. The master is square, and only the inscribed
+    circle is projected.</dd>
+  <dt>2D</dt>
+  <dd>An ordinary rectangular canvas. Clips are placed by x, y and scale. Useful on its own for flat-screen
+    work, and used internally as the workspace for compositions that later enter a dome.</dd>
+  <dt>360 Room</dt>
+  <dd>A room whose walls are projection surfaces, plus an optional floor. The walls are unrolled into one wide
+    rectangular strip that you edit like a 2D canvas; a 3D view shows what the audience will see.</dd>
+</dl>
+
+<h2>The composite master</h2>
+<p>Whatever the format, every visible clip is drawn into a single master image each frame. The viewer shows that
+master; NDI and Spout broadcast it; the exporter records it. There is no separate "render" pass with different
+rules, which is why what you see while editing is what you get on delivery.</p>
+
+<p>In a dome sequence the master is square and the image is a fisheye circle inside it. <b>Nothing outside that
+circle is part of the picture.</b> The corners are black, or transparent if you export with alpha. This is not a
+crop applied at the end — it is what a fulldome master is.</p>
+
+<h2>Dome coverage</h2>
+<p>A fulldome master is an azimuthal-equidistant fisheye, and its <em>coverage</em> is the field of view it
+represents: 180° for a true hemisphere, or 200°, 210° or 220° for domes that continue below the horizon. The
+setting lives in <span class="ui">Project → Sequence settings…</span> and changes the projection everywhere at
+once — the warp, the 2D guides, the 3D preview and the export.</p>
+
+<div class="fig mid">
+  <div class="frame"><img src="img/15-seqsettings.png" alt="Sequence settings"></div>
+  <figcaption><b>Sequence settings.</b> Resolution, frame rate and dome coverage. Coverage updates live, so you
+  can watch the framing change as you choose.</figcaption>
+</div>
+
+<div class="warn"><span class="t">Match the dome you are delivering to</span>
+  <p>Coverage is not a look, it is a statement about the venue. A piece mastered at 180° and projected in a 210°
+  dome will be wrong at the edges, and no amount of repositioning fixes it. Set it once, at the start, from the
+  venue's specification.</p></div>
+
+<h2>Fulldome source versus a placed clip</h2>
+<p>This is the distinction that causes the most confusion, and it is simple once stated. A clip in a dome
+sequence is treated in one of two ways:</p>
+
+<dl>
+  <dt>A placed clip (<span class="ui">Fulldome src</span> off)</dt>
+  <dd>The footage is an ordinary rectangular picture. It is placed somewhere on the dome — a direction and a
+  size — and the GPU bends it to sit on the curved surface. This is what you want for material that was not
+  shot for a dome: a face, a title, a texture.</dd>
+
+  <dt>A fulldome source (<span class="ui">Fulldome src</span> on)</dt>
+  <dd>The footage <em>is already</em> a dome master — a circular fisheye filling the frame. It is drawn straight
+  into the master one-to-one, not placed anywhere, because it already covers the whole sky. Compositions
+  generated by the program are fulldome sources by nature.</dd>
+</dl>
+
+<p>A third switch, <span class="ui">Equirect 360°</span>, handles equirectangular 360° footage and reprojects it
+into the dome. <span class="ui">Fisheye</span> — with its own <span class="ui">Amount</span> — bends a fulldome
+source further, and is only available when <span class="ui">Fulldome src</span> is on, because bending a picture
+that is not covering the dome has no meaning.</p>
+
+<div class="fig tall">
+  <div class="frame"><img src="img/05-inspector.png" alt="Transform and Source"></div>
+  <figcaption><b>Transform and Source in the inspector.</b> Azimuth, elevation, size and rotation position a
+  placed clip; the three switches below decide how the footage is interpreted in the first place.</figcaption>
+</div>
+
+<h2>Sequences are media</h2>
+<p>A sequence is not a separate document — it is an item in the media pool, and it can be dropped into another
+sequence as a clip. That single idea gives you Premiere-style tabs, nesting, and generated compositions, all
+with the same machinery. Chapter 15 covers it properly.</p>
+
+<h2>Everything is a clip</h2>
+<p>Video, stills, audio, text, shapes, generated compositions, nested sequences and adjustment layers are all
+clips on tracks. They trim the same way, they carry the same inspector sections where those apply, and they
+animate the same way. There is no separate title tool or effects layer with its own rules.</p>
+
+<!-- ── 4 ─────────────────────────────────────────────────────────── -->
+<h1 class="ch" id="ch4"><span class="n">Chapter four</span>Your first project</h1>
+
+<p class="lead">A short walkthrough that touches the main parts of the program: create a dome sequence, bring in
+footage, place it on the dome, animate it, add a generated composition and export a master. Twenty minutes,
+start to finish.</p>
+
+<h2>1 — Create the sequence</h2>
+<ol class="steps">
+  <li>On the start screen choose <span class="ui">Dome</span>.</li>
+  <li>Set the resolution to <b>4096 × 4096</b> and the frame rate to the venue's — 30 or 60.</li>
+  <li>Set <b>coverage</b> to whatever the dome is: 180° unless told otherwise.</li>
+  <li>Create the project.</li>
+</ol>
+
+<h2>2 — Bring in footage</h2>
+<p>Drag files onto the media panel, or press <span class="kbd">Ctrl</span>+<span class="kbd">I</span>. Video,
+stills, audio and image sequences are all accepted. If a clip is heavy, the status bar will suggest generating a
+proxy — right-click the item and choose <span class="ui">Generate proxy</span>. Proxies are never made
+automatically; see chapter 10.</p>
+
+<h2>3 — Put a clip on the dome</h2>
+<ol class="steps">
+  <li>Drag a clip from the media panel to a video track.</li>
+  <li>Select it. In the inspector, open <span class="ui">Transform</span>.</li>
+  <li>Drag <span class="ui">Azimuth</span> to swing it around the horizon,
+    <span class="ui">Elevation</span> to raise it towards the zenith, and
+    <span class="ui">Size</span> to make it bigger.</li>
+  <li>Or simply drag the clip in the viewer — the same values move.</li>
+</ol>
+
+<div class="note"><span class="t">Elevation goes below zero</span>
+  <p>Negative elevation places a clip below the horizon. In a dome with coverage above 180° that is real
+  projected area, not a mistake.</p></div>
+
+<h2>4 — Make it move</h2>
+<p>Open <span class="ui">Motion</span> in the inspector and click a preset —
+<span class="ui">Orbit</span> makes it travel around the horizon, <span class="ui">Float</span> gives it a slow
+untethered drift. Presets are not black boxes: each one drops ordinary modifiers into the list, and you can
+retune, disable or delete them one at a time.</p>
+
+<p>For a movement with an exact start and end, use keyframes instead: put the playhead where you want it, set
+the value, and the program records a keyframe automatically — the same rule as After Effects. Chapter 19 covers
+both.</p>
+
+<h2>5 — Fill the dome with a composition</h2>
+<ol class="steps">
+  <li>Select two or three media items in the panel.</li>
+  <li>Click <span class="ui">Compose</span> in the create row.</li>
+  <li>Choose a type — <span class="ui">Ring</span> to start with — and set the count.</li>
+  <li>Confirm. A composition appears on the timeline as a single clip.</li>
+</ol>
+<p>The composition is a nested sequence with real clips inside it. Double-click it to go in and edit them by
+hand; the parameters that generated it stay available in the inspector.</p>
+
+<h2>6 — Export a master</h2>
+<ol class="steps">
+  <li><span class="ui">File → Export…</span> (<span class="kbd">Ctrl</span>+<span class="kbd">Shift</span>+<span class="kbd">E</span>).</li>
+  <li>Choose the destination folder with <span class="ui">Choose…</span> — before you start, not after.</li>
+  <li>Pick a codec. <span class="ui">MP4 H.264 · GPU, up to 4096</span> is the fast path for a 4K dome master.</li>
+  <li>Set <span class="ui">Quality</span> to <span class="ui">Maximum</span> and check the bitrate.</li>
+  <li>Press <span class="ui">Export</span>.</li>
+</ol>
+
+<p>Save your project as you go with <span class="kbd">Ctrl</span>+<span class="kbd">S</span>. Projects are
+<span class="ui">.isp</span> files, written atomically with a <span class="ui">.bak</span> alongside.</p>
+
+<!-- ═══════════════════════════ PARTE II ═══════════════════════════ -->
+<section class="part">
+  <div class="pnum">Part two</div>
+  <h1>The workspace</h1>
+  <div class="blurb">A tour of the four panels and the bars that surround them. This part describes what each
+    control does; the parts that follow describe what to do with them.</div>
+  <div class="chlist">
+    <div><b>5</b> &nbsp;The workspace at a glance</div>
+    <div><b>6</b> &nbsp;The media panel</div>
+    <div><b>7</b> &nbsp;The viewer</div>
+    <div><b>8</b> &nbsp;The timeline</div>
+    <div><b>9</b> &nbsp;The inspector</div>
+  </div>
+</section>
+
+<!-- ── 5 ─────────────────────────────────────────────────────────── -->
+<h1 class="ch" id="ch5"><span class="n">Chapter five</span>The workspace at a glance</h1>
+
+<p class="lead">One window, four panels, and no floating clutter. The layout does not change between formats —
+only what the viewer draws changes.</p>
+
+<div class="fig">
+  <div class="frame"><img src="img/02-workspace-dome.png" alt="Workspace"></div>
+  <figcaption><b>The whole window.</b> Menu bar and format chip on top; media, viewer and inspector across the
+  middle; transport and timeline below; status bar at the foot.</figcaption>
+</div>
+
+<h2>The regions</h2>
+<dl>
+  <dt>Menu bar</dt><dd>Left of the top bar: <span class="ui">File</span>, <span class="ui">Edit</span>,
+    <span class="ui">Project</span>, <span class="ui">Window</span>. Chapter 25 lists every entry.</dd>
+  <dt>Format chip</dt><dd>Top right. Shows the active sequence's format, resolution, frame rate and export
+    codec. Click it to open the sequence settings.</dd>
+  <dt>Media panel</dt><dd>Left. Everything the project knows about: footage, stills, audio, text, shapes,
+    sequences and compositions.</dd>
+  <dt>Viewer</dt><dd>Centre. The master image, in 2D or in 3D preview.</dd>
+  <dt>Inspector</dt><dd>Right. Everything about the selected clip, in collapsible sections. A second tab,
+    <span class="ui">Reactive FX</span>, holds the audio-driven effects chain.</dd>
+  <dt>Transport</dt><dd>Between the viewer and the timeline: playback controls, timecode, sequence tabs and the
+    editing well.</dd>
+  <dt>Timeline</dt><dd>Bottom. Tracks, clips, ruler, markers and the automation lanes.</dd>
+  <dt>Tool rail</dt><dd>The narrow strip at the left edge of the timeline: the six editing tools.</dd>
+  <dt>Status bar</dt><dd>The foot of the window. Left: what the current tool does. Right: CPU, memory and GPU
+    load, and the project's media and clip counts.</dd>
+</dl>
+
+<h2>Resizing and hiding panels</h2>
+<p>Drag the gutters between panels to resize them. The media and inspector panels can be collapsed entirely from
+<span class="ui">Window</span>, or with the two small buttons at the top right of the inspector. The timeline's
+height is dragged from its top edge.</p>
+
+<h2>The command palette</h2>
+<p><span class="kbd">Ctrl</span>+<span class="kbd">K</span>, <span class="kbd">F1</span> or
+<span class="kbd">?</span> opens a searchable list of every command in the program with its shortcut. It is the
+fastest way to find something whose menu you have forgotten, and the fastest way to learn the shortcuts.</p>
+
+<div class="fig mid">
+  <div class="frame"><img src="img/12-palette.png" alt="Command palette"></div>
+  <figcaption><b>The command palette.</b> Type to filter, arrows to move, <span class="kbd">Enter</span> to run.
+  The right-hand column shows the shortcut where one exists.</figcaption>
+</div>
+
+<h2>Preferences</h2>
+<div class="fig mid">
+  <div class="frame"><img src="img/16-prefs.png" alt="Preferences"></div>
+  <figcaption><b>Preferences</b> holds the application-wide settings, including the interface language.</figcaption>
+</div>
+
+<h2>Full performance and the second window</h2>
+<p>Two ways to get the picture onto a projector without the interface around it, both under
+<span class="ui">Window</span> and both in the <span class="ui">Output</span> menu above the viewer:</p>
+<ul>
+  <li><span class="ui">Full performance</span> — the viewer takes over the whole window.</li>
+  <li><span class="ui">Viewer-only window</span> — a second window you can put on another display. It shows the
+    <em>complementary</em> view to the editor: if you are working in 2D it shows 3D, and the other way round.</li>
+</ul>
+
+<!-- ── 6 ─────────────────────────────────────────────────────────── -->
+<h1 class="ch" id="ch6"><span class="n">Chapter six</span>The media panel</h1>
+
+<p class="lead">The project's inventory. Everything that can become a clip lives here, including the sequences
+and compositions the program generates itself.</p>
+
+<div class="figrow">
+  <figure class="fig tall"><div class="frame"><img src="img/04c-media-list.png" alt="List view"></div>
+    <figcaption><b>List view</b> — name, kind, resolution and duration.</figcaption></figure>
+  <figure class="fig tall"><div class="frame"><img src="img/04b-media-grid.png" alt="Grid view"></div>
+    <figcaption><b>Grid view</b> — thumbnails, for picking by eye.</figcaption></figure>
+</div>
+
+<h2>The header</h2>
+<dl>
+  <dt>View</dt><dd>Two buttons at the top right switch between list and grid.</dd>
+  <dt>Filter row</dt><dd><span class="ui">All</span> and the three kind filters — video, stills, audio.</dd>
+  <dt>Sort</dt><dd>By <span class="ui">Name</span>, <span class="ui">Date</span> or <span class="ui">Type</span>.</dd>
+  <dt>Search</dt><dd><span class="kbd">Ctrl</span>+<span class="kbd">F</span> reveals a text filter in the filter
+    row; <span class="kbd">Esc</span> closes it.</dd>
+</dl>
+
+<h2>The create row</h2>
+<p>Below the header: <span class="ui">Import</span> and four generators.</p>
+<table>
+  <tr><td class="k">Import</td><td>Opens the file picker. Also <span class="kbd">Ctrl</span>+<span class="kbd">I</span>.</td></tr>
+  <tr><td class="k">Text</td><td>Creates a text item — font, weight, alignment, fill, outline colour. Custom fonts can be loaded.</td></tr>
+  <tr><td class="k">Shape</td><td>Creates a rectangle, ellipse or line with fill and stroke.</td></tr>
+  <tr><td class="k">Compose</td><td>Builds a generated composition from the selected media. Chapter 16.</td></tr>
+  <tr><td class="k">Adjust</td><td>Creates an adjustment layer — a clip with no picture of its own that applies its effects to everything below it.</td></tr>
+</table>
+
+<h2>Folders</h2>
+<p>Right-click an empty area of the panel to create a folder. Folders nest and can be given colours. Drag items
+between them. Renaming media, moving it between folders and creating or deleting folders are all undoable.</p>
+
+<h2>Badges on an item</h2>
+<dl>
+  <dt>A duration in brackets</dt>
+  <dd>The item has in/out marks set in the source monitor, so it will enter the timeline trimmed. Chapter 10.</dd>
+  <dt>A coloured dot</dt>
+  <dd>The item's assigned colour, which its clips inherit on the timeline.</dd>
+  <dt><span class="ui">SEQ</span></dt>
+  <dd>The item is a sequence or a composition rather than a file.</dd>
+</dl>
+
+<h2>Selecting</h2>
+<p>Click to select, <span class="kbd">Shift</span>+click for a range, <span class="kbd">Ctrl</span>+click to add
+or remove. Multi-selection matters for two things in particular: generating several proxies at once, and
+building a composition from a set of sources.</p>
+
+<!-- ── 7 ─────────────────────────────────────────────────────────── -->
+<h1 class="ch" id="ch7"><span class="n">Chapter seven</span>The viewer</h1>
+
+<p class="lead">The viewer shows the composite master — the actual picture, not an approximation of it. It has
+two modes, and in an immersive format both are worth having open.</p>
+
+<h2>2D and 3D</h2>
+<p>The <span class="ui">2D</span> / <span class="ui">3D</span> switch at the top left of the viewer bar chooses
+between them.</p>
+
+<div class="figrow">
+  <figure class="fig"><div class="frame"><img src="img/03-viewer-dome.png" alt="2D dome master"></div>
+    <figcaption><b>2D — the dome master.</b> The fisheye circle as it will be delivered, with orientation guides
+    (<span class="ui">FRONT</span>, <span class="ui">ZENITH</span>) drawn over it.</figcaption></figure>
+  <figure class="fig"><div class="frame"><img src="img/11-viewer-3d.png" alt="3D preview"></div>
+    <figcaption><b>3D — the preview.</b> The same master mapped onto a dome surface, seen from inside. This is
+    what the audience sees.</figcaption></figure>
+</div>
+
+<p>The 2D view is where you judge framing and delivery; the 3D view is where you judge whether it reads. A shape
+that looks reasonable as a fisheye can be badly distorted overhead, and only the 3D view will tell you.</p>
+
+<h2>The viewer bar</h2>
+<dl>
+  <dt>Quality</dt><dd><span class="ui">Full</span> / <span class="ui">½</span> / <span class="ui">¼</span> —
+    preview resolution. Drop it when playback struggles; it does not affect export.</dd>
+  <dt>Overlays</dt><dd>Grid, outline, horizon fade and, in a room, the floor rectangle.</dd>
+  <dt>Camera (3D only)</dt><dd><span class="ui">Orbit</span> flies around freely;
+    <span class="ui">Viewer</span> puts the camera where a person would stand.</dd>
+  <dt>Zoom</dt><dd>The percentage control, or the wheel over the viewer. Drag with the hand tool to pan.</dd>
+  <dt><span class="ui">Clip</span> / <span class="ui">Comp</span></dt><dd>Whether the viewer shows only the
+    selected clip or the whole composite.</dd>
+  <dt><span class="ui">Output</span></dt><dd>Full performance, the viewer-only window, and the NDI and Spout
+    broadcasts. Chapter 24.</dd>
+  <dt><span class="ui">…</span></dt><dd>When the window is narrow the bar folds its less-used controls into this
+    menu rather than truncating them.</dd>
+</dl>
+
+<h2>Working directly in the viewer</h2>
+<p>Clips can be dragged in the viewer. In a dome that moves azimuth and elevation; in a 2D or room sequence it
+moves x and y. Point masks are drawn and edited on the viewer canvas too — see chapter 17.</p>
+
+<div class="note"><span class="t">The dome circle is the whole picture</span>
+  <p>In a dome sequence nothing outside the inscribed circle is delivered. If part of a clip appears to spill
+  into the corners of the 2D view, it is outside the projected image, and the export will show black — or
+  transparency, if you exported with alpha.</p></div>
+
+<!-- ── 8 ─────────────────────────────────────────────────────────── -->
+<h1 class="ch" id="ch8"><span class="n">Chapter eight</span>The timeline</h1>
+
+<p class="lead">Tracks, clips and time. The gestures are the ones you already know from a conventional editor,
+with two differences worth learning early: overlapping is a cut, and fades are dragged from the clip corner.</p>
+
+<div class="fig">
+  <div class="frame"><img src="img/06-timeline.png" alt="Timeline"></div>
+  <figcaption><b>The timeline.</b> Track headers on the left, ruler on top, clips in the body. The diamonds on a
+  clip are keyframes.</figcaption>
+</div>
+
+<h2>The transport</h2>
+<div class="fig">
+  <div class="frame"><img src="img/07-transport.png" alt="Transport bar"></div>
+  <figcaption><b>The transport bar.</b> Sequence tabs on the left, playback in the centre, the editing well on
+  the right.</figcaption>
+</div>
+
+<table>
+  <tr><td class="k">Play / pause</td><td class="s"><span class="kbd">Space</span></td><td>Plays from the playhead. It plays whether or not there are clips there.</td></tr>
+  <tr><td class="k">Go to start / end</td><td class="s"><span class="kbd">Home</span> · <span class="kbd">End</span></td><td></td></tr>
+  <tr><td class="k">Shuttle</td><td class="s"><span class="kbd">J</span> <span class="kbd">K</span> <span class="kbd">L</span></td><td>Press J or L repeatedly for 2×, 4×, 8×. K stops.</td></tr>
+  <tr><td class="k">Previous / next cut</td><td class="s"><span class="kbd">↑</span> <span class="kbd">↓</span></td><td></td></tr>
+  <tr><td class="k">Timecode</td><td class="s"></td><td>Click <span class="ui">TC</span> or <span class="ui">Frames</span> to switch what is displayed.</td></tr>
+  <tr><td class="k">Loop</td><td class="s"></td><td>Sets the loop range from the time selection.</td></tr>
+</table>
+
+<div class="note"><span class="t">Playing outside a loop</span>
+  <p>With a loop range set, pressing play <em>inside</em> it loops. Pressing play outside it plays straight
+  through. The loop constrains playback only when you start inside it.</p></div>
+
+<h3>The editing well</h3>
+<dl>
+  <dt><span class="ui">Auto</span></dt><dd>Automation mode — clips show their curves inline. Chapter 19.</dd>
+  <dt><span class="ui">Grid</span></dt><dd>Snapping to the grid.</dd>
+  <dt><span class="ui">Fit</span></dt><dd>Zooms the timeline to fit the whole project.</dd>
+</dl>
+
+<h2>The tools</h2>
+<div class="figrow" style="align-items:flex-start">
+  <figure class="fig" style="flex:0 0 26mm"><div class="frame"><img src="img/08-toolrail.png" alt="Tool rail"></div>
+    <figcaption>The tool rail.</figcaption></figure>
+  <div style="flex:1">
+    <table style="margin-top:0">
+      <tr><td class="k">Select</td><td class="s"><span class="kbd">V</span></td><td>Select, move, trim.</td></tr>
+      <tr><td class="k">Track select</td><td class="s"></td><td>Selects everything from the click onwards.</td></tr>
+      <tr><td class="k">Hand</td><td class="s"><span class="kbd">H</span></td><td>Pans the view.</td></tr>
+      <tr><td class="k">Trim</td><td class="s"><span class="kbd">T</span></td><td>Contextual trim: ripple, roll, slip, slide.</td></tr>
+      <tr><td class="k">Razor</td><td class="s"><span class="kbd">B</span></td><td>Cuts a clip.</td></tr>
+      <tr><td class="k">Zoom</td><td class="s"><span class="kbd">Z</span></td><td>Zooms to the click.</td></tr>
+    </table>
+  </div>
+</div>
+<p>The status bar always spells out what the active tool does, so you never have to guess which mode you are in.</p>
+
+<h2>Tracks</h2>
+<div class="fig mid">
+  <div class="frame"><img src="img/31-lanehdr.png" alt="Track headers"></div>
+  <figcaption><b>Track headers.</b> Name, mute and solo. Audio tracks carry a subtle tint; in a room, floor
+  tracks are marked by a blue-framed tag.</figcaption>
+</div>
+<p>Right-click a header to add, duplicate, rename, colour or delete a track. Drag a header up or down to
+reorder. Video tracks stack bottom-to-top: a clip on V3 draws over a clip on V1.</p>
+
+<h2>Zoom and navigation</h2>
+<table>
+  <tr><td class="k">Zoom</td><td><span class="kbd">Ctrl</span>+wheel, or <span class="kbd">+</span> / <span class="kbd">−</span>. Zooming is anchored to the pointer.</td></tr>
+  <tr><td class="k">Track height</td><td><span class="kbd">Alt</span>+wheel.</td></tr>
+  <tr><td class="k">Pan horizontally</td><td><span class="kbd">Shift</span>+wheel, or a horizontal wheel.</td></tr>
+  <tr><td class="k">Scroll vertically</td><td>Plain wheel.</td></tr>
+</table>
+<p>A vertical bar at the right edge of the timeline mirrors the horizontal one: its body scrolls, its end caps
+change the track height.</p>
+
+<h2>Markers</h2>
+<p><span class="kbd">M</span> drops a named marker at the playhead; <span class="kbd">,</span> and
+<span class="kbd">.</span> jump between them. Markers are drawn in the lower half of the ruler. There is also a
+command to detect beats in an audio clip and place markers on them.</p>
+
+<!-- ── 9 ─────────────────────────────────────────────────────────── -->
+<h1 class="ch" id="ch9"><span class="n">Chapter nine</span>The inspector</h1>
+
+<p class="lead">Everything about the selected clip, in seven collapsible sections. Which sections appear depends
+on what kind of clip it is — an audio clip has no Transform, an adjustment layer has no Source.</p>
+
+<table>
+  <tr><td class="k">Transform</td><td>Where the clip sits. Azimuth, elevation, size and rotation in a dome; x, y, scale and rotation in 2D and rooms. Plus <span class="ui">Mirror</span>.</td></tr>
+  <tr><td class="k">Clip</td><td>Opacity, blur, crop, mask, blend mode, black key. Chapter 17.</td></tr>
+  <tr><td class="k">Source</td><td>How the footage is interpreted: <span class="ui">Fulldome src</span>, <span class="ui">Equirect 360°</span>, <span class="ui">Fisheye</span>. Chapter 3.</td></tr>
+  <tr><td class="k">Playback</td><td>Speed and looping. Chapter 11.</td></tr>
+  <tr><td class="k">Color</td><td>Exposure through to LUT. Chapter 18.</td></tr>
+  <tr><td class="k">Motion</td><td>Procedural movement. Chapter 19.</td></tr>
+  <tr><td class="k">Effects</td><td>The effects chain for this clip. Chapter 20.</td></tr>
+</table>
+
+<h2>Parameter rows</h2>
+<p>Every numeric parameter is one row: a name, a coloured track, a value box and a keyframe diamond.</p>
+<ul>
+  <li>Drag the track to change the value.</li>
+  <li>Double-click the value box to type an exact number.</li>
+  <li>Click the diamond to set a keyframe at the playhead; click a filled diamond to remove it.</li>
+  <li>The track's colour identifies the parameter, and the same colour is used for its automation curve.</li>
+</ul>
+
+<div class="note"><span class="t">Editing a value writes a keyframe</span>
+  <p>If a parameter is already animated, changing its value creates a keyframe at the playhead rather than
+  shifting the whole curve — the same rule as After Effects. If it is not animated, the value simply
+  changes.</p></div>
+
+<h2>The header</h2>
+<p>The top of the inspector shows the clip's thumbnail, name and kind, and a <span class="ui">Source</span>
+button that opens the source monitor on that media.</p>
+
+<h2>The Reactive FX tab</h2>
+<p>The second tab holds the audio-reactive engine and the effects chain. It is documented in chapter 20.</p>
+
+<!-- ═══════════════════════════ PARTE III ═══════════════════════════ -->
+<section class="part">
+  <div class="pnum">Part three</div>
+  <h1>Editing</h1>
+  <div class="blurb">Getting material in, cutting it, and placing it in each of the three formats.</div>
+  <div class="chlist">
+    <div><b>10</b> &nbsp;Importing and managing media</div>
+    <div><b>11</b> &nbsp;Editing in the timeline</div>
+    <div><b>12</b> &nbsp;Placing clips in the dome</div>
+    <div><b>13</b> &nbsp;2D sequences</div>
+    <div><b>14</b> &nbsp;The 360° room</div>
+    <div><b>15</b> &nbsp;Sequences and nests</div>
+  </div>
+</section>
+
+<!-- ── 10 ────────────────────────────────────────────────────────── -->
+<h1 class="ch" id="ch10"><span class="n">Chapter ten</span>Importing and managing media</h1>
+
+<h2>Three ways in</h2>
+<dl>
+  <dt><span class="ui">Import media…</span> — the button, <span class="kbd">Ctrl</span>+<span class="kbd">I</span>, or a double-click on empty panel space</dt>
+  <dd>Every image becomes its own clip. It never asks about sequences.</dd>
+  <dt><span class="ui">Import image sequence…</span></dt>
+  <dd>Groups numbered files into a single sequence item and asks for the frame rate. There is a third answer to
+  that question — <span class="ui">As separate images</span> — for when the numbering is a coincidence.</dd>
+  <dt>Dragging files onto the panel</dt>
+  <dd>Never groups. Each file is its own item.</dd>
+</dl>
+
+<div class="note"><span class="t">The choice is made before the picker opens</span>
+  <p>Whether numbered images become a sequence is decided by which command you use, not by a checkbox
+  afterwards. This is the Premiere model.</p></div>
+
+<h2>Proxies</h2>
+<p>A proxy is a light, all-intra copy of a heavy clip used for editing. In this program proxies are
+<b>manual</b>: nothing is transcoded behind your back.</p>
+
+<ul>
+  <li>Right-click a media item and choose <span class="ui">Generate proxy</span>. Select several first to queue
+    a batch.</li>
+  <li>When you import something heavy, the status bar reminds you the option exists. It does not act.</li>
+  <li>Existing proxies on disk are adopted automatically, both when a project is reopened and when the same
+    footage is imported again.</li>
+  <li>A proxy whose generation was interrupted is detected and discarded rather than used.</li>
+</ul>
+
+<div class="warn"><span class="t">With mastering footage a proxy is not an optimisation</span>
+  <p>Long-GOP camera masters can take over a second per frame to scrub. A proxy brings that to a few
+  milliseconds. For that kind of material it is not a nicety — it is the difference between editing and
+  waiting.</p></div>
+
+<h2>The source monitor</h2>
+<p>Double-click a media item — or press <span class="ui">Source</span> in the inspector — to open the source
+monitor: a floating player for reviewing material and marking the part you want.</p>
+
+<div class="fig tall">
+  <div class="frame"><img src="img/22-sourcemon.png" alt="Source monitor"></div>
+  <figcaption><b>The source monitor.</b> Transport, scrub bar, in and out marks and an insert button. The
+  picture itself is the drag handle: what lands on the track is only the marked range.</figcaption>
+</div>
+
+<ul>
+  <li><span class="kbd">I</span> and <span class="kbd">O</span> set the in and out points,
+    <span class="kbd">Space</span> plays, the arrow keys step a frame at a time.</li>
+  <li>The window is deliberately not modal — you can keep working with it open. Move it, resize it from the
+    corner, close it with <span class="kbd">Esc</span>.</li>
+  <li>Marks belong to the <em>media</em>, are saved in the project, and are respected when you drag from the
+    media panel too. An item that will enter trimmed shows its duration in brackets.</li>
+  <li>Simply looking does not change anything: marks are only committed by an explicit gesture.</li>
+</ul>
+
+<h2>Relinking and replacing</h2>
+<dl>
+  <dt>Relink</dt><dd>If a file has moved, point the item at its new location; every clip using it follows.</dd>
+  <dt><span class="ui">Replace media</span></dt>
+  <dd>Swaps the footage under existing clips, keeping their position, duration, effects and automation. If a
+  clip was looping, it loops over the <em>full duration of the new media</em> while keeping its length on the
+  timeline. This applies inside nests and compositions too.</dd>
+</dl>
+
+<h2>Text and shapes</h2>
+<p>Text items carry font, weight, alignment, fill and outline colour, and can load custom font files. They are
+rendered at a generous internal resolution so they stay sharp on a 4K dome; there is no pixel-size field because
+the proportion of the canvas is what matters, not the point size.</p>
+<p>Shape items are a rectangle, ellipse or line with a fill and a stroke.</p>
+
+<h2>Saving</h2>
+<p>Projects are <span class="ui">.isp</span> files — JSON, written atomically with a
+<span class="ui">.bak</span> alongside. The program also autosaves, keeps a recovery history, and can save
+incremental versions (<span class="ui">_v01</span>, <span class="ui">_v02</span>…) from the
+<span class="ui">Save</span> button's right-click menu.</p>
+
+<!-- ── 11 ────────────────────────────────────────────────────────── -->
+<h1 class="ch" id="ch11"><span class="n">Chapter eleven</span>Editing in the timeline</h1>
+
+<h2>Moving clips</h2>
+<p>Drag a clip anywhere on its body to move it. A ghost shows where it will land.
+<span class="kbd">Alt</span>+drag copies instead of moving. Linked audio and video move together, and a linked
+partner is constrained to horizontal movement so the pair cannot be separated onto mismatched tracks.</p>
+
+<h3>Overlapping is a cut</h3>
+<p>When you drop a clip on top of another, the moved clip <b>trims the stationary one</b> — and splits it in two
+if it lands in the middle. Nothing is destroyed: the trimmed material is still there, and dragging the clip away
+again does not restore it, but the source is untouched. No crossfade is created automatically.</p>
+
+<h2>Trimming</h2>
+<dl>
+  <dt>Handles</dt><dd>With the select tool, drag either end of a clip.</dd>
+  <dt>Contextual trim (<span class="kbd">T</span>)</dt>
+  <dd>The trim tool picks the operation from where you grab: <b>ripple</b> at an outer edge, <b>roll</b> on a
+  cut, <b>slip</b> in the middle of a clip, <b>slide</b> below it. A linked partner is trimmed to match.</dd>
+</dl>
+
+<h2>Fades and crossfades</h2>
+<p>Every clip has a small handle in its upper corners.</p>
+<ul>
+  <li>Drag it <b>inwards</b> for a fade in or out.</li>
+  <li>Drag it <b>outwards over a cut</b> for a manual crossfade with the neighbouring clip. Video crossfades
+    geometrically; audio crossfades by gain.</li>
+</ul>
+
+<h2>Cutting and deleting</h2>
+<table>
+  <tr><td class="k">Razor</td><td class="s"><span class="kbd">B</span></td><td>Click to cut.</td></tr>
+  <tr><td class="k">Split at playhead</td><td class="s"><span class="kbd">Ctrl</span>+<span class="kbd">E</span></td><td>Cuts the selection, or every clip under the playhead.</td></tr>
+  <tr><td class="k">Delete</td><td class="s"><span class="kbd">Del</span></td><td>Leaves a gap.</td></tr>
+  <tr><td class="k">Ripple delete</td><td class="s"><span class="kbd">Shift</span>+<span class="kbd">Del</span></td><td>Closes the gap.</td></tr>
+</table>
+
+<h2>Copy and paste</h2>
+<p>Copying works on the whole selection, not one clip. When you paste, each clip lands on its own track at its
+original spacing relative to the first — a multi-layer arrangement pastes back intact. Linked pairs are relinked
+only if both halves were copied.</p>
+
+<h3>Copy and paste attributes</h3>
+<p><span class="kbd">Ctrl</span>+<span class="kbd">Alt</span>+<span class="kbd">C</span> and
+<span class="kbd">Ctrl</span>+<span class="kbd">Alt</span>+<span class="kbd">V</span> carry everything that
+belongs to a clip — transform, looping, speed, colour, masks, effects, motion and all automation — from one clip
+to another. It works in both directions between an ordinary clip and a composition, because a composition
+<em>is</em> a clip.</p>
+
+<p>What does not travel: identity, position, duration and the media itself. <b>The destination always keeps its
+place and its length on the timeline.</b> Neither does a composition's generating configuration.</p>
+
+<div class="note"><span class="t">Automation is trimmed to fit</span>
+  <p>Paste from a 40-second clip onto a 15-second one and only the automation that fits is kept. If the first
+  surviving keyframe is not at the start, the interpolated value is inserted there, so the curve does not begin
+  with a jump.</p></div>
+
+<h2>Selection, snapping and grouping</h2>
+<ul>
+  <li>Drag on empty timeline space for a marquee; drag on the ruler for a time selection, which becomes the loop
+    range.</li>
+  <li>Snapping catches clip edges, the playhead, markers and the grid. The <span class="ui">Grid</span> button
+    in the editing well toggles the grid component.</li>
+  <li><span class="kbd">Ctrl</span>+<span class="kbd">D</span> duplicates,
+    <span class="kbd">Alt</span>+<span class="kbd">←</span>/<span class="kbd">→</span> nudges by a frame.</li>
+</ul>
+
+<h2>Speed and looping</h2>
+<div class="fig tall">
+  <div class="frame"><img src="img/05c-inspector-playback.png" alt="Playback section"></div>
+  <figcaption><b>The Playback section.</b> Speed, and the looping controls.</figcaption>
+</div>
+
+<dl>
+  <dt>Speed</dt><dd>50–200 %. Changing it stretches the clip <em>and its automation</em> together, so a movement
+  you have keyed stays in the same place relative to the picture.</dd>
+  <dt>Loop</dt><dd>Repeats the source for the length of the clip. The inspector shows the cycle length and which
+  part of the source it repeats, in timecode.</dd>
+  <dt><span class="ui">From clip</span></dt><dd>Re-reads the cycle length from the clip's current duration.</dd>
+</dl>
+
+<div class="warn"><span class="t">Do not switch looping off to change the cycle</span>
+  <p>Turning the loop off trims the clip back to whatever is left of the file. Use
+  <span class="ui">From clip</span> to redefine the cycle instead — it changes the cycle length and nothing
+  else.</p></div>
+
+<h2>The clip context menu</h2>
+<div class="fig tall">
+  <div class="frame"><img src="img/09e-clipmenu.png" alt="Clip context menu"></div>
+  <figcaption><b>Right-clicking a clip.</b> The per-clip operations, including nesting, render in place and
+  attribute copying.</figcaption>
+</div>
+
+<!-- ── 12 ────────────────────────────────────────────────────────── -->
+<h1 class="ch" id="ch12"><span class="n">Chapter twelve</span>Placing clips in the dome</h1>
+
+<p class="lead">In a dome sequence a clip is placed by direction. This chapter covers the four transform
+parameters, the three source switches, and how to think about a curved surface.</p>
+
+<h2>The transform parameters</h2>
+<table>
+  <tr><td class="k">Azimuth</td><td>Compass bearing around the horizon, in degrees. 0° is the front of the dome.</td></tr>
+  <tr><td class="k">Elevation</td><td>Height above the horizon, in degrees. 90° is the zenith, directly overhead. Negative values go below the horizon, which is real projected area in a dome with coverage above 180°.</td></tr>
+  <tr><td class="k">Size</td><td>How much of the dome the clip subtends.</td></tr>
+  <tr><td class="k">Rotation</td><td>Roll about the clip's own centre.</td></tr>
+  <tr><td class="k">Mirror</td><td>Flips the clip horizontally.</td></tr>
+</table>
+
+<p>All four can be dragged in the row, typed exactly, keyframed and animated. Dragging the clip in the viewer
+moves azimuth and elevation together.</p>
+
+<h2>What a curved surface does to a picture</h2>
+<p>A rectangle placed on a dome is not a rectangle any more, and the distortion grows with size and with height.
+Two consequences to keep in mind:</p>
+<ul>
+  <li>A large clip near the zenith stretches noticeably. Judge it in the 3D preview, not the fisheye.</li>
+  <li>Near the zenith, a degree of azimuth covers very little distance. This is why the
+    <span class="ui">Float</span> motion preset animates in the dome plane rather than in azimuth and elevation:
+    otherwise the same drift would look different depending on where the clip sat.</li>
+</ul>
+
+<h2>The source switches</h2>
+<p>Chapter 3 explains what these mean; this is how to use them.</p>
+
+<dl>
+  <dt><span class="ui">Fulldome src</span></dt>
+  <dd>Turn on when the footage <em>is</em> a dome master — a circular fisheye filling the frame. It is drawn
+  one-to-one; position and size no longer apply in the usual way.</dd>
+  <dt><span class="ui">Equirect 360°</span></dt>
+  <dd>Turn on for equirectangular 360° footage. It is reprojected into the dome.</dd>
+  <dt><span class="ui">Fisheye</span> + <span class="ui">Amount</span></dt>
+  <dd>Bends a fulldome source further. Only available when <span class="ui">Fulldome src</span> is on — the row
+  is greyed out otherwise, with a tooltip explaining why. Turning <span class="ui">Fulldome src</span> off also
+  turns this off.</dd>
+</dl>
+
+<div class="note"><span class="t">Compositions are fulldome sources</span>
+  <p>A generated composition covers the whole dome by nature, so its clip is created with
+  <span class="ui">Fulldome src</span> already on. You do not place it; you place the things inside it.</p></div>
+
+<h2>Adjustment layers</h2>
+<p>An adjustment layer is a clip with no picture. It applies its effects chain to everything composited below it,
+across the full dome. It has no Transform and no Source section — by contract it is always a full-frame fulldome
+clip — but it carries the complete effects catalogue.</p>
+
+<!-- ── 13 ────────────────────────────────────────────────────────── -->
+<h1 class="ch" id="ch13"><span class="n">Chapter thirteen</span>2D sequences</h1>
+
+<p class="lead">A 2D sequence is an ordinary rectangular canvas. Everything in the program works the same way;
+only the placement model changes.</p>
+
+<div class="fig">
+  <div class="frame"><img src="img/24-viewer-flat.png" alt="2D viewer"></div>
+  <figcaption><b>A 2D sequence.</b> The canvas is a rectangle, with the safe grid drawn over it.</figcaption>
+</div>
+
+<h2>What changes</h2>
+<table>
+  <tr><td class="k">Transform</td><td><span class="ui">X</span>, <span class="ui">Y</span>, <span class="ui">Scale</span> and <span class="ui">Rotation</span> instead of azimuth, elevation and size.</td></tr>
+  <tr><td class="k">Source section</td><td>The dome switches do not apply.</td></tr>
+  <tr><td class="k">Viewer</td><td>The 3D preview is hidden — there is nothing to preview in 3D.</td></tr>
+  <tr><td class="k">Motion presets</td><td>A flat set: <span class="ui">Rotate</span>, <span class="ui">Pulse</span>, <span class="ui">Horizontal</span>, <span class="ui">Vertical</span>, <span class="ui">Float</span>.</td></tr>
+  <tr><td class="k">Compose</td><td>The flat layouts — grid, line, row, column, weave — rather than the dome ones.</td></tr>
+</table>
+
+<h2>Why you will use 2D even for dome work</h2>
+<p>Two reasons, both structural:</p>
+<ul>
+  <li><b>Compositions are built flat.</b> The <span class="ui">Weave</span> composition, for instance, lives in a
+    1:1 flat nest — that is where neighbouring strips meet at exact right angles — and enters the dome as a
+    fulldome source with fisheye applied to the whole assembly at once.</li>
+  <li><b>The floor of a 360° room</b> is edited as a flat area.</li>
+</ul>
+
+<p>You can add a 2D sequence to a dome project at any time from
+<span class="ui">Project → New sequence…</span>; formats mix freely within one project.</p>
+
+<!-- ── 14 ────────────────────────────────────────────────────────── -->
+<h1 class="ch" id="ch14"><span class="n">Chapter fourteen</span>The 360° room</h1>
+
+<p class="lead">A room is several projection surfaces treated as one piece: walls unrolled into a single wide
+strip, an optional floor, a 3D preview from the audience position, and an export that can deliver the whole
+thing or one projector's worth at a time.</p>
+
+<h2>Setting up the geometry</h2>
+<p>The room is defined when the project is created, and can be reconfigured at any time from
+<span class="ui">Project → Room geometry…</span>.</p>
+
+<div class="fig tall">
+  <div class="frame"><img src="img/28-room-setup.png" alt="Room setup"></div>
+  <figcaption><b>Room setup.</b> Walls with their roles, physical measurements and pixel resolutions, the floor,
+  and a plan view that shows whether the walls actually close into a room.</figcaption>
+</div>
+
+<p>Each wall has a role (front, right, back, left), a physical width and height in centimetres, and a pixel
+resolution. The plan preview solves the wall loop into a floor plan and will tell you if the geometry does not
+close, or if it closes by crossing itself.</p>
+
+<div class="note"><span class="t">Centimetres are for the 3D view; pixels are the canvas</span>
+  <p>The strip you edit is measured in <b>pixels</b> — its width is the sum of the walls' pixel widths. The
+  physical measurements exist so the 3D preview has the right proportions and so the floor can be derived
+  correctly. Getting the centimetres wrong makes the preview lie; getting the pixels wrong makes the delivery
+  wrong.</p></div>
+
+<h2>Editing the strip</h2>
+<div class="fig">
+  <div class="frame"><img src="img/26-room-strip.png" alt="Wall strip"></div>
+  <figcaption><b>The unrolled strip.</b> All the walls side by side as one canvas, with seams and wall labels
+  drawn over it. The floor is the band along the bottom of the same canvas.</figcaption>
+</div>
+
+<p>You edit this exactly like a 2D sequence: clips are placed by x, y and scale, and a clip can span a seam and
+run across two walls. The seams and labels are guides, not boundaries.</p>
+
+<p>Floor content goes on floor tracks, identified by a blue-framed tag in the track header. The floor is part of
+the same canvas rather than a separate sequence, so one composite covers everything.</p>
+
+<h2>The 3D preview</h2>
+<div class="fig">
+  <div class="frame"><img src="img/27-room-3d.png" alt="Room 3D"></div>
+  <figcaption><b>The room in 3D.</b> Walls and floor as they will be seen, with the camera either orbiting
+  freely or standing where a person would.</figcaption>
+</div>
+
+<p>The content is drawn unshaded on purpose: this view is a preview of what will be projected, and a decorative
+light would misrepresent the brightness. The shading you see belongs to the translucent shell drawn around the
+outside.</p>
+
+<h2>Exporting a room</h2>
+<p>The export sheet offers three modes for a room:</p>
+<table>
+  <tr><td class="k">Full strip</td><td>The walls only, as one wide file.</td></tr>
+  <tr><td class="k">Strip + floor</td><td>Two files: the wall strip and the floor.</td></tr>
+  <tr><td class="k">Each wall + floor</td><td>One file per wall plus the floor — one per projector. Only offered when the room has a floor.</td></tr>
+</table>
+
+<div class="fig tall">
+  <div class="frame"><img src="img/34-export-room.png" alt="Room export"></div>
+  <figcaption><b>Exporting a room.</b> The mode selector adds the room-specific jobs to the queue.</figcaption>
+</div>
+
+<!-- ── 15 ────────────────────────────────────────────────────────── -->
+<h1 class="ch" id="ch15"><span class="n">Chapter fifteen</span>Sequences and nests</h1>
+
+<p class="lead">A sequence is a media item. That is the whole mechanism, and it gives you tabs, nesting and
+compositions at once.</p>
+
+<h2>Sequence tabs</h2>
+<div class="fig mid" style="max-width:70mm">
+  <div class="frame"><img src="img/33-seqtabs.png" alt="Sequence tabs"></div>
+  <figcaption><b>Sequence tabs</b> sit at the left of the transport bar.</figcaption>
+</div>
+<p>Tabs are a fixed width so the bar does not shift as you rename things; three are visible at a time and the
+rest are reached with the wheel over the tabs. Drag a tab to reorder. <span class="ui">+</span> creates a new
+sequence.</p>
+
+<h2>Creating a sequence</h2>
+<div class="fig tall">
+  <div class="frame"><img src="img/17-newseq.png" alt="New sequence dialog"></div>
+  <figcaption><b>New sequence.</b> Dome, 2D or 360 Room, each with its own parameters and a preview. The new
+  sequence joins the project without disturbing anything already in it.</figcaption>
+</div>
+
+<h2>Nesting</h2>
+<p>Select some clips and choose <span class="ui">Nest selection</span> from the <span class="ui">Edit</span>
+menu or the clip's context menu. They are replaced by a single clip that contains them. Double-click it to go
+inside; the tab bar shows where you are.</p>
+
+<ul>
+  <li>A nested clip is an independent copy — editing it does not affect the originals.</li>
+  <li>In a dome sequence, a nest is created as a fulldome source: it composites internally and enters the dome
+    as a complete dome image.</li>
+  <li>If the content of a nest is shortened, its instances in the parent sequence shorten with it rather than
+    holding a frozen last frame.</li>
+</ul>
+
+<h3>Audio inside a nest</h3>
+<p>The rule is that no sound plays unless it is visible on an audio track. A nest containing audio tracks
+therefore creates a <em>derived</em> audio clip in the parent, linked to the video clip. It moves, trims and
+unlinks like any A/V pair, and you can see exactly what is making sound.</p>
+
+<h2>Composition proxies</h2>
+<p>A nest can be cached as a single video, so playback decodes one stream instead of many. On a heavy
+composition this is the difference between a slideshow and something you can work with. The cache invalidates
+itself when the composition's contents change.</p>
+
+<h2>Render in place</h2>
+<p>Right-click a clip or a nest and choose <span class="ui">Render in place…</span> to bake it to a silent MP4
+and replace the timeline instance with the baked file on a new track. Useful for freezing an expensive
+composition once it is final. A progress view shows the live frame, a bar and an estimate, and can be
+cancelled.</p>
+
+<!-- ═══════════════════════════ PARTE IV ═══════════════════════════ -->
+<section class="part">
+  <div class="pnum">Part four</div>
+  <h1>Creative tools</h1>
+  <div class="blurb">The generators, the image treatments and the two ways of making things move.</div>
+  <div class="chlist">
+    <div><b>16</b> &nbsp;Compose</div>
+    <div><b>17</b> &nbsp;Effects and masks</div>
+    <div><b>18</b> &nbsp;Colour</div>
+    <div><b>19</b> &nbsp;Motion, keyframes and automation</div>
+    <div><b>20</b> &nbsp;Reactive FX</div>
+    <div><b>21</b> &nbsp;Audio</div>
+  </div>
+</section>
+
+<!-- ── 16 ────────────────────────────────────────────────────────── -->
+<h1 class="ch" id="ch16"><span class="n">Chapter sixteen</span>Compose</h1>
+
+<p class="lead">Compose builds an arrangement out of your own footage — a ring of clips around the horizon, a
+tunnel rushing towards the viewer, a woven basket filling the dome — and hands it back as an editable nested
+sequence rather than as an effect you cannot get inside.</p>
+
+<h2>Making one</h2>
+<ol class="steps">
+  <li>Select the media you want to use in the media panel.</li>
+  <li>Click <span class="ui">Compose</span> in the create row.</li>
+  <li>Choose a type and set its parameters. The dome preview updates as you work.</li>
+  <li>Confirm. The composition lands on the nearest track with room for it.</li>
+</ol>
+
+<div class="fig tall">
+  <div class="frame"><img src="img/18-compose-domefill.png" alt="Compose dialog"></div>
+  <figcaption><b>The Compose dialog.</b> Type across the top, the media basket, then the parameters for the
+  chosen type. The preview is live, and the editor stays visible behind the dialog so you can judge the
+  composition against what is already on the dome.</figcaption>
+</div>
+
+<h2>The media basket</h2>
+<p>The <span class="ui">Media</span> field shows what the composition <em>contains</em> — thumbnails, names and
+order — not a checklist of the whole project. Remove with <span class="ui">×</span>; add by dragging from the
+media panel or by double-clicking there. Order matters: it decides which source goes where.</p>
+
+<h2>The types</h2>
+<table>
+  <tr><th>Type</th><th>What it makes</th></tr>
+  <tr><td class="k">Ring</td><td>A circle of clips at one elevation.</td></tr>
+  <tr><td class="k">Dome fill</td><td>Fills the dome with a grid of rings and segments. Tiles are not distorted.</td></tr>
+  <tr><td class="k">Grid</td><td>A rectangular grid.</td></tr>
+  <tr><td class="k">Spiral</td><td>A spiral from the zenith outwards.</td></tr>
+  <tr><td class="k">Sunflower</td><td>Phyllotactic packing — even coverage with no visible rows.</td></tr>
+  <tr><td class="k">Wave</td><td>A wave-shaped band.</td></tr>
+  <tr><td class="k">Dome scatter</td><td>Even quasi-random scattering over the hemisphere.</td></tr>
+  <tr><td class="k">Line</td><td>A straight line of clips.</td></tr>
+  <tr><td class="k">Tunnel</td><td>Depth: elements grow from the centre and pass the viewer.</td></tr>
+  <tr><td class="k">Weave</td><td>Interlaced strips travelling endlessly, like basketry.</td></tr>
+  <tr><td class="k">Random</td><td>Random placement with a jitter control.</td></tr>
+</table>
+
+<h2>Tunnel</h2>
+<div class="fig tall">
+  <div class="frame"><img src="img/20-compose-tunnel.png" alt="Tunnel"></div>
+  <figcaption><b>Tunnel.</b> Sources are 1:1 images with alpha, marked as fulldome, that start small and grow
+  until they leave past the edge of the dome.</figcaption>
+</div>
+
+<p>No particular shape is assumed — a ring reads as a legible tunnel, but any distribution of alpha works. Each
+element is phase-shifted so the stream is continuous. The controls are:</p>
+<dl>
+  <dt><span class="ui">From</span> / <span class="ui">To</span></dt><dd>The size range each element travels through.</dd>
+  <dt><span class="ui">Speed</span></dt><dd>How fast.</dd>
+  <dt><span class="ui">Depth</span></dt><dd>Bends the growth curve. An exponential rise is what reads as perspective — approaching a viewer at constant speed multiplies the radius rather than adding to it.</dd>
+  <dt><span class="ui">Spin</span></dt><dd>Degrees of rotation per cycle. Invisible with a perfectly symmetrical source.</dd>
+  <dt><span class="ui">Helix</span></dt><dd>Pushes elements off the axis in a spiral. Visible with any source.</dd>
+  <dt><span class="ui">Fade in</span> / <span class="ui">Fade out</span></dt><dd>Separate envelopes, each with its own amount as a percentage of the cycle.</dd>
+</dl>
+<p>Elements are drawn in depth order every frame, since their ranking by nearness rotates as they cycle.</p>
+
+<h2>Weave</h2>
+<div class="fig tall">
+  <div class="frame"><img src="img/19-compose-weave.png" alt="Weave"></div>
+  <figcaption><b>Weave.</b> Two families of crossing strips travelling endlessly. Built in a flat 1:1 nest and
+  brought into the dome as a single fulldome source.</figcaption>
+</div>
+
+<p>Weave never distorts its sources: the side that crosses the strip takes the strip's thickness and the other
+follows the media's own proportions. One source per strip. The interlacing — which strip passes over which — is
+decided per crossing rather than per clip, so the pattern stays still while the strips flow through it.</p>
+
+<dl>
+  <dt><span class="ui">Layout</span></dt><dd><span class="ui">Woven</span>, <span class="ui">Lines ↔</span> or <span class="ui">Lines ↕</span>.</dd>
+  <dt><span class="ui">Strips</span></dt><dd>1–24 per direction, one source each.</dd>
+  <dt><span class="ui">Strip width</span></dt><dd>Percentage of the step. 100 % means strips touch and fill the dome; less leaves a transparent gap. Width and spacing are the same control.</dd>
+  <dt><span class="ui">Packing</span></dt><dd>Capped at 100 so one clip begins where the last ends and clips are never cut.</dd>
+  <dt><span class="ui">Direction</span></dt><dd><span class="ui">One way</span>, <span class="ui">The other</span>, <span class="ui">Alternate</span> or <span class="ui">Still</span>.</dd>
+  <dt><span class="ui">Order</span></dt><dd>Shuffles which source goes to which strip.</dd>
+</dl>
+
+<h2>The composition mask</h2>
+<p>Every composition can crop its elements to a shape, with a size from 0 to 100 %. It is the quickest way to
+turn square footage into a ring of circles.</p>
+
+<h2>Editing a composition afterwards</h2>
+<p>Two surfaces, and they agree with each other:</p>
+<ul>
+  <li><b>The inspector</b> shows the type, the two most useful parameters for that type, and
+    <span class="ui">More options…</span>.</li>
+  <li><b>The dialog</b> reopens the full parameter set.</li>
+</ul>
+<p>And because the composition is a real nest, you can also go inside and move individual clips by hand. Manual
+changes are preserved when the composition is regenerated.</p>
+
+<div class="note"><span class="t">Where a composition lands</span>
+  <p>It goes to the nearest track with a free gap for its duration, measured from the selected track header —
+  or from the bottom if none is chosen. Only if there is no room does it create a new track.</p></div>
+
+<!-- ── 17 ────────────────────────────────────────────────────────── -->
+<h1 class="ch" id="ch17"><span class="n">Chapter seventeen</span>Effects and masks</h1>
+
+<h2>The Clip section</h2>
+<div class="fig tall">
+  <div class="frame"><img src="img/05b-inspector-clip.png" alt="Clip section"></div>
+  <figcaption><b>The Clip section</b> holds the per-clip image treatment.</figcaption>
+</div>
+
+<table>
+  <tr><td class="k">Opacity</td><td>0–100 %.</td></tr>
+  <tr><td class="k">Blur</td><td>In pixels.</td></tr>
+  <tr><td class="k">Crop</td><td>Trims the edges of the source.</td></tr>
+  <tr><td class="k">Mask</td><td>A shape or an image mask — see below.</td></tr>
+  <tr><td class="k">Point mask</td><td><span class="ui">Add mask</span> starts a drawn mask.</td></tr>
+  <tr><td class="k">Blend</td><td>Normal, Add, Screen, Multiply, Darken, Lighten.</td></tr>
+  <tr><td class="k">Remove black</td><td>Keys out a black background — for footage delivered without alpha.</td></tr>
+</table>
+
+<h2>Masks</h2>
+<h3>Shape masks</h3>
+<p>The <span class="ui">Mask</span> dropdown offers <span class="ui">Circle</span>,
+<span class="ui">Rounded</span>, <span class="ui">Diamond</span> and <span class="ui">Vignette</span>, plus
+<span class="ui">Custom</span> for a PNG used as a matte. A size control scales the mask, and a feather softens
+its edge.</p>
+
+<h3>Point masks</h3>
+<p><span class="ui">Add mask</span> lets you draw a mask by clicking points, <b>directly on the viewer
+canvas</b> — the same place you see the picture. A clip can carry several, each with its own invert and feather.
+This is the tool for isolating part of a shot rather than cutting it to a geometric shape.</p>
+
+<h2>The effects chain</h2>
+<p>Effects live in the <span class="ui">Effects</span> section of the inspector and in the
+<span class="ui">Reactive FX</span> tab — the same chain seen from two places. Add with
+<span class="ui">Add Effect</span>, reorder by dragging, switch one off with its power button, remove it with
+the bin.</p>
+
+<p>Every effect parameter can be keyframed, and every effect can additionally be driven by audio. Chapter 20
+covers the audio side; chapter 28 lists all 26 effects with their parameters.</p>
+
+<div class="note"><span class="t">Effects on everything below</span>
+  <p>To treat the whole picture rather than one clip, use an adjustment layer: an effects chain that applies to
+  everything composited under it. Create one from <span class="ui">Adjust</span> in the media panel's create
+  row, or from <span class="ui">Add Adjustment Layer</span> in the Reactive FX tab.</p></div>
+
+<!-- ── 18 ────────────────────────────────────────────────────────── -->
+<h1 class="ch" id="ch18"><span class="n">Chapter eighteen</span>Colour</h1>
+
+<p class="lead">Colour is per clip and runs entirely in the shader, which means it costs nothing extra and
+applies identically in the viewer, the live outputs and the export.</p>
+
+<div class="fig tall">
+  <div class="frame"><img src="img/05d-inspector-color.png" alt="Color section"></div>
+  <figcaption><b>The Colour section</b>: primary sliders, three-way wheels, tone curves and a LUT slot.</figcaption>
+</div>
+
+<h2>The sliders</h2>
+<table>
+  <tr><td class="k">Exposure</td><td>Overall brightness.</td></tr>
+  <tr><td class="k">Contrast</td><td></td></tr>
+  <tr><td class="k">Saturation</td><td></td></tr>
+  <tr><td class="k">Temp</td><td>Warm / cool.</td></tr>
+  <tr><td class="k">Tint</td><td>Green / magenta.</td></tr>
+  <tr><td class="k">Glow</td><td>A soft bloom around highlights.</td></tr>
+  <tr><td class="k">Chroma</td><td>Chromatic aberration.</td></tr>
+</table>
+<p>All seven can be keyframed and animated.</p>
+
+<h2>Lift, Gamma, Gain</h2>
+<p>The three wheels are a primary grade in the usual arrangement: <span class="ui">Lift</span> for shadows,
+<span class="ui">Gamma</span> for midtones, <span class="ui">Gain</span> for highlights. Drag inside a wheel to
+push the colour, use the bar beneath it for level.</p>
+
+<h2>Curves</h2>
+<p>A tone curve with <span class="ui">Luma</span>, <span class="ui">R</span>, <span class="ui">G</span> and
+<span class="ui">B</span> channels. Click to add a point, drag to shape, <span class="ui">Reset</span> to
+straighten.</p>
+
+<h2>LUTs</h2>
+<p><span class="ui">LUT → Load…</span> imports a <span class="ui">.cube</span> 3D LUT and applies it per clip as
+the final step of the colour chain. This is the intended route for a look developed in a grading application:
+grade there, export a LUT, apply it here.</p>
+
+<div class="note"><span class="t">Dome brightness is not screen brightness</span>
+  <p>A dome is a large, close, curved surface, and material that looks controlled on a monitor is often too
+  bright in the venue. Judge exposure on the dome itself, or at least in the 3D preview, before committing.</p></div>
+
+<!-- ── 19 ────────────────────────────────────────────────────────── -->
+<h1 class="ch" id="ch19"><span class="n">Chapter nineteen</span>Motion, keyframes and automation</h1>
+
+<p class="lead">Two ways to make something move, meant for different jobs. <b>Motion</b> is procedural: endless,
+parameterised, no keyframes. <b>Automation</b> is keyframed: exact values at exact times. They stack, and a mix
+control balances them.</p>
+
+<h2>Motion</h2>
+<div class="fig tall">
+  <div class="frame"><img src="img/05e-inspector-motion.png" alt="Motion section"></div>
+  <figcaption><b>The Motion section.</b> Preset chips at the top, then the list of modifiers with their
+  parameter, waveform, speed and mix.</figcaption>
+</div>
+
+<p>Click a preset chip to add a modifier. Presets are shortcuts, not black boxes — each one stamps ordinary
+modifiers into the list, and you can retune, disable or delete them individually.</p>
+
+<table>
+  <tr><th>Preset (dome)</th><th>Moves</th></tr>
+  <tr><td class="k">Spin</td><td>Rotation about the clip's own centre.</td></tr>
+  <tr><td class="k">Orbit</td><td>Azimuth — travel around the horizon.</td></tr>
+  <tr><td class="k">Bob</td><td>Elevation, back and forth.</td></tr>
+  <tr><td class="k">Scroll ↕</td><td>Elevation, continuously.</td></tr>
+  <tr><td class="k">Sway</td><td>Azimuth, back and forth.</td></tr>
+  <tr><td class="k">Pulse</td><td>Size.</td></tr>
+  <tr><td class="k">Wobble</td><td>Roll.</td></tr>
+  <tr><td class="k">Flicker</td><td>Opacity.</td></tr>
+  <tr><td class="k">Float</td><td>A chord — see below.</td></tr>
+</table>
+<p>In a 2D or room sequence the set is <span class="ui">Rotate</span>, <span class="ui">Pulse</span>,
+<span class="ui">Horizontal</span>, <span class="ui">Vertical</span> and <span class="ui">Float</span>.</p>
+
+<h3>Waveforms</h3>
+<dl>
+  <dt>Loop</dt><dd>Grows without end — for continuous travel.</dd>
+  <dt>Wave</dt><dd>Goes and comes back.</dd>
+  <dt>Saw</dt><dd>Rises to the amplitude and is reborn at zero. This is the waveform for a cycle that repeats:
+    an endless scroll, a tunnel. Its <span class="ui">Curve</span> control from 0 to 100 bends the rise, and an
+    exponential rise is what reads as perspective.</dd>
+</dl>
+
+<h3>Float</h3>
+<p><span class="ui">Float</span> is the one preset that is a chord rather than a parameter. The sensation of
+floating does not live in any single axis — it lives in the mixture of horizontal drift, vertical drift and a
+gentle roll, out of phase with one another. The preset stamps three normal modifiers with deliberately
+non-multiple periods (11, 14 and 18 seconds) so they never close their cycles together and the movement never
+visibly repeats. A master <span class="ui">Intensity</span> control from 0 to 300 % scales the chord while
+preserving whatever you have retuned by hand.</p>
+
+<div class="note"><span class="t">Float moves in the dome plane</span>
+  <p>In a dome it uses the slide parameters rather than azimuth and elevation, because a degree of azimuth
+  covers far less ground near the zenith than at the horizon — the same drift would otherwise look different
+  depending on where the clip sat.</p></div>
+
+<h2>Keyframes</h2>
+<p>Every parameter row has a diamond. Click it to set a keyframe at the playhead; click a filled one to remove
+it. Once a parameter has any keyframe, editing its value writes another one at the playhead rather than moving
+the whole curve.</p>
+
+<h2>The automation lane</h2>
+<div class="fig">
+  <div class="frame"><img src="img/10-automation.png" alt="Automation"></div>
+  <figcaption><b>Automation mode.</b> Curves are drawn inline over the clips, in the parameter's own colour.
+  The <span class="ui">Auto</span> button in the editing well turns it on.</figcaption>
+</div>
+
+<p>Each track shows one parameter's curve at a time, chosen by two chips in the track header: the left one picks
+the category or device — <span class="ui">Transform</span>, <span class="ui">Clip</span>,
+<span class="ui">Color</span>, or any Motion or Effect actually applied — and the right one picks the parameter.
+A ◆ marks whatever is already automated. Touching a parameter in the inspector brings its curve into view
+automatically, without requiring a keyframe first.</p>
+
+<h3>Working on a curve</h3>
+<ul class="tight">
+  <li>Click to add a point, drag to move, right-click to type an exact value.</li>
+  <li>Drag a selection over several points, then nudge them, scale them or taper them.</li>
+  <li>The shape box gives free transform over a selection.</li>
+  <li>Easing presets apply standard cubic-bezier shapes to a segment.</li>
+  <li>Simplify thins out a dense curve while keeping its shape.</li>
+  <li>Copy a curve and paste it where you click.</li>
+</ul>
+
+<h2>Mixing motion and automation</h2>
+<p>Each Motion modifier has a <span class="ui">Mix</span> from 0 to 100 %, and the mix itself can be keyframed.
+That is how you fade a procedural drift in and out over a scene while a keyframed move handles the composition
+underneath.</p>
+
+<h2>Modulation</h2>
+<p>Beyond keyframes and motion, a parameter can be driven by a stack of modulation layers — LFOs, audio
+followers and spatial functions — from the modulation panel. It is the most open-ended of the three routes and
+the one to reach for when you want a value to wander rather than to arrive.</p>
+
+<!-- ── 20 ────────────────────────────────────────────────────────── -->
+<h1 class="ch" id="ch20"><span class="n">Chapter twenty</span>Reactive FX</h1>
+
+<p class="lead">The second inspector tab: an audio analysis engine and an effects chain whose parameters it can
+drive. Effects work perfectly well without audio — this is where you wire them to it.</p>
+
+<div class="fig tall">
+  <div class="frame"><img src="img/05f-reactivefx.png" alt="Reactive FX"></div>
+  <figcaption><b>The Reactive FX tab.</b> Audio engine on top, effects chain below.</figcaption>
+</div>
+
+<h2>The audio engine</h2>
+<table>
+  <tr><td class="k">Source</td><td>Which audio drives the analysis.</td></tr>
+  <tr><td class="k">Band meters</td><td><span class="ui">BASS</span>, <span class="ui">MID</span>, <span class="ui">TREB</span>, <span class="ui">BRT</span> — live levels for the three frequency bands and overall brightness.</td></tr>
+  <tr><td class="k">BPM</td><td>Detected tempo, or set manually.</td></tr>
+  <tr><td class="k">Gain</td><td>Input level into the analysis.</td></tr>
+  <tr><td class="k">Gate</td><td>Threshold below which nothing responds — keeps room noise from twitching the picture.</td></tr>
+  <tr><td class="k">Attack / Release</td><td>How fast the follower rises and falls, in milliseconds. The engine defaults, which each effect can override.</td></tr>
+</table>
+
+<h2>An effect in the chain</h2>
+<p>Each entry has a power button, a name, a collapse arrow and a bin, and expands into three groups.</p>
+
+<h3>Routing</h3>
+<dl>
+  <dt>Band</dt><dd>Which band drives it — or <span class="ui">None</span> for a static effect.</dd>
+  <dt>Mode</dt><dd><span class="ui">Follow</span> tracks the level; other modes derive from the tempo.</dd>
+  <dt><span class="ui">INV</span></dt><dd>Inverts the response — loud becomes less rather than more.</dd>
+</dl>
+
+<h3>Response</h3>
+<table>
+  <tr><td class="k">Intensity</td><td>The effect's overall strength. Keyframeable.</td></tr>
+  <tr><td class="k">Reactivity</td><td>How much of that strength the audio controls. At 0 % the effect is static.</td></tr>
+  <tr><td class="k">Attack / Release</td><td>Per-effect override of the engine timings.</td></tr>
+  <tr><td class="k">Curve</td><td>Shapes the response — linear through to sharply exponential.</td></tr>
+  <tr><td class="k">Bounce</td><td>Adds overshoot, so a hit springs past its target and settles.</td></tr>
+</table>
+
+<h3>Parameters</h3>
+<p>The effect's own controls, each with a keyframe diamond. Chapter 28 lists them for all 26 effects.</p>
+
+<div class="note"><span class="t">Start with Reactivity low</span>
+  <p>A common mistake is to set reactivity high and then fight the result. Set the look you want statically with
+  <span class="ui">Intensity</span> first, then raise <span class="ui">Reactivity</span> until it breathes.</p></div>
+
+<!-- ── 21 ────────────────────────────────────────────────────────── -->
+<h1 class="ch" id="ch21"><span class="n">Chapter twenty-one</span>Audio</h1>
+
+<p class="lead">Audio handling is deliberately modest. The program is a picture editor: it plays a mix, lets you
+place and trim it, and drives the reactive engine from it.</p>
+
+<h2>Audio tracks and clips</h2>
+<p>Audio tracks live at the bottom of the track column and carry a subtle tint in both the header and the row.
+Audio clips trim, move and fade like any other, and the waveform is drawn at screen resolution for the visible
+span only.</p>
+
+<h2>The audio inspector</h2>
+<dl>
+  <dt>Waveform</dt><dd>A miniature of the clip.</dd>
+  <dt>Volume</dt><dd>Clip gain.</dd>
+  <dt>Wave scale</dt><dd>Vertical zoom of the waveform display, from ¼× to 8×. This is a <em>view</em>
+  preference for the whole timeline — it does not touch the sound or the export.</dd>
+</dl>
+
+<h2>Fades</h2>
+<p>Audio fades are the clip's corner handles, the same gesture as video, and the fade <em>is</em> the volume.
+There are no separate fade-in and fade-out fields.</p>
+
+<h2>Linked audio and video</h2>
+<p>Video imported with sound arrives as a linked pair. The two move and trim together; unlink them from the clip
+context menu when you need to.</p>
+
+<h2>Audio in exports</h2>
+<p>The rule depends on the container:</p>
+<ul>
+  <li><b>MP4</b> — stereo audio is embedded in the file.</li>
+  <li><b>Any other codec</b> — PNG sequence, HAP — audio is written as a separate file, because those formats
+    either cannot carry it or should not.</li>
+</ul>
+
+<h2>Beat markers</h2>
+<p>A command in the palette detects beats on an audio clip and places locators on them, which then act as snap
+targets for cutting to music.</p>
+
+<!-- ═══════════════════════════ PARTE V ═══════════════════════════ -->
+<section class="part">
+  <div class="pnum">Part five</div>
+  <h1>Delivery</h1>
+  <div class="blurb">Getting the piece out of the program — as a file, as a burned-in identification, or as a
+    live signal.</div>
+  <div class="chlist">
+    <div><b>22</b> &nbsp;Exporting</div>
+    <div><b>23</b> &nbsp;Corner data</div>
+    <div><b>24</b> &nbsp;Live output — NDI and Spout</div>
+  </div>
+</section>
+
+<!-- ── 22 ────────────────────────────────────────────────────────── -->
+<h1 class="ch" id="ch22"><span class="n">Chapter twenty-two</span>Exporting</h1>
+
+<div class="fig tall">
+  <div class="frame"><img src="img/30-export-mp4.png" alt="Export sheet"></div>
+  <figcaption><b>The export sheet.</b> Render monitor and status on top; codec, destination, quality and size
+  below. The sheet is draggable and the estimate updates as you change settings.</figcaption>
+</div>
+
+<h2>Before you press Export</h2>
+<ol class="steps">
+  <li><b>Choose the destination folder</b> with <span class="ui">Choose…</span>. Doing it first means the render
+    starts when you press the button instead of stopping to ask.</li>
+  <li><b>Set the range</b> — <span class="ui">Clip extent</span> for everything, or
+    <span class="ui">In / Out</span> for the marked range.</li>
+  <li><b>Pick the codec.</b></li>
+  <li><b>Check the pixel size</b> — <span class="ui">Match source</span> takes it from the sequence.</li>
+  <li><b>Read the estimate</b> at the foot: file size, frame count and dimensions.</li>
+</ol>
+
+<h2>The codecs</h2>
+<table>
+  <tr><th>Codec</th><th>Ceiling</th><th>Use for</th></tr>
+  <tr><td class="k">PNG sequence · lossless</td><td>None</td><td>Mastering and archival. Optionally without alpha, on black — still lossless.</td></tr>
+  <tr><td class="k">MP4 H.264 · GPU</td><td>4096 × 4096</td><td>The fast path for a 4K dome master.</td></tr>
+  <tr><td class="k">MP4 H.265 · GPU</td><td>8192 × 8192, 10-bit</td><td>Large formats, wide room strips, and 10-bit when gradients band.</td></tr>
+  <tr><td class="k">MP4 · H.264 (built-in)</td><td>3072 × 3072</td><td>Fallback when the GPU encoder is unavailable.</td></tr>
+  <tr><td class="k">MP4 · H.265 (built-in)</td><td>1080 × 1080</td><td>Fallback only. Too small for dome delivery.</td></tr>
+  <tr><td class="k">MOV · HAP / HAP Q</td><td>None</td><td>Playback systems that want HAP. Large files, very cheap to decode.</td></tr>
+  <tr><td class="k">Still frame · PNG</td><td>None</td><td>A single frame — stills for documentation.</td></tr>
+</table>
+
+<div class="note"><span class="t">The two H.264 entries are different engines</span>
+  <p>The entries marked <span class="ui">GPU</span> use the graphics card's hardware encoder and reach real dome
+  resolutions. The other two use the built-in browser encoder, which refuses anything above 3072 × 3072 for
+  H.264 and about 1080 × 1080 for H.265. For dome work, use the GPU entries.</p></div>
+
+<h2>Quality and bitrate</h2>
+<p>With a GPU codec selected you get <span class="ui">Quality</span> —
+<span class="ui">Maximum</span>, <span class="ui">Balanced</span>, <span class="ui">Fast</span> — and an explicit
+<span class="ui">Bitrate</span> in Mb/s, with a suggested figure for the chosen size. For a 4096² master,
+150–250 Mb/s at <span class="ui">Maximum</span> is a sensible delivery range.</p>
+
+<p><span class="ui">Bit depth</span> offers 10-bit on H.265, which is worth taking for dome work: large smooth
+gradients across a big surface are exactly where 8-bit banding shows.</p>
+
+<h2>Presets</h2>
+<p>Save a configuration with <span class="ui">Save</span> next to the <span class="ui">Preset</span> dropdown and
+recall it later. Worth doing once per venue.</p>
+
+<h2>The render monitor and the queue</h2>
+<p>The monitor at the top left shows the frame the encoder has just written — not a guess, the actual output.
+Elapsed, remaining and written counters sit beside it. Jobs run one at a time; a room export in
+<span class="ui">Each wall + floor</span> mode queues one job per surface automatically.</p>
+
+<h2>Render in place</h2>
+<p>To bake part of a project rather than deliver it, use <span class="ui">Render in place…</span> from a clip's
+context menu — see chapter 15.</p>
+
+<div class="warn"><span class="t">Check the first minute</span>
+  <p>A 4096² export is a long operation. Let it run a minute, stop it, and look at the file in the player you
+  will actually use before committing to the whole piece.</p></div>
+
+<!-- ── 23 ────────────────────────────────────────────────────────── -->
+<h1 class="ch" id="ch23"><span class="n">Chapter twenty-three</span>Corner data</h1>
+
+<p class="lead">A dome master is a circle inside a square, which leaves four corners that are never projected.
+Corner data uses them for identification — title, author, running timecode — so a review copy carries its own
+labelling without touching the picture.</p>
+
+<div class="fig mid">
+  <div class="frame"><img src="img/14-slate.png" alt="Corner data settings"></div>
+  <figcaption><b>Corner data settings</b>, from <span class="ui">Window → Corner data settings…</span></figcaption>
+</div>
+
+<h2>What goes where</h2>
+<table>
+  <tr><td class="k">Bottom left</td><td>The title of the work, in large type.</td></tr>
+  <tr><td class="k">Bottom right</td><td>Running timecode and frame count, advancing with the export.</td></tr>
+  <tr><td class="k">Top left</td><td>A logo image.</td></tr>
+  <tr><td class="k">Top right</td><td>Creator, resolution, duration and format.</td></tr>
+</table>
+
+<h2>Seeing it while you edit</h2>
+<p><span class="ui">Window → Show corner data</span> draws it in the viewer. This is a view setting only.</p>
+
+<h2>Recording it into the file</h2>
+<p>Burning it in is a separate switch, in the export sheet: <span class="ui">Corner data → Burn into the
+unprojected corners</span>.</p>
+
+<div class="note"><span class="t">Looking is not delivering</span>
+  <p>The two switches are deliberately separate. Turning the overlay on while you edit never affects a file,
+  and a master you export is clean unless you explicitly asked for corner data to be burned in.</p></div>
+
+<h2>Details worth knowing</h2>
+<ul>
+  <li>The timecode counts <b>exported frames</b>, so it matches the delivered file exactly.</li>
+  <li>Text blocks shrink automatically if a long title would collide with the projected circle.</li>
+  <li>In a dome sequence the picture is clipped to the circle before the corner data is drawn, so it can never
+    overlap the image.</li>
+  <li>An optional black background fills the corners for players that dislike transparency.</li>
+</ul>
+
+<!-- ── 24 ────────────────────────────────────────────────────────── -->
+<h1 class="ch" id="ch24"><span class="n">Chapter twenty-four</span>Live output — NDI and Spout</h1>
+
+<p class="lead">The composite master can be broadcast live while you work, which is how you drive a dome during
+a rehearsal or feed a media server without exporting anything.</p>
+
+<div class="fig mid" style="max-width:78mm">
+  <div class="frame"><img src="img/09d-output.png" alt="Output menu"></div>
+  <figcaption><b>The Output menu</b>, above the viewer. A pulsing dot marks an active broadcast.</figcaption>
+</div>
+
+<table>
+  <tr><td class="k">Full performance</td><td>The viewer takes over the whole window.</td></tr>
+  <tr><td class="k">Viewer window</td><td>A second window for another display, showing the complementary view.</td></tr>
+  <tr><td class="k">NDI</td><td>Broadcasts the clean master over the network. Any NDI receiver can pick it up.</td></tr>
+  <tr><td class="k">Spout</td><td>Shares the master with another application on the same Windows machine, GPU to GPU with no copy through system memory.</td></tr>
+</table>
+
+<p>What is broadcast is the <b>clean master</b> — no guides, no overlays, no corner data.</p>
+
+<h3>NDI input</h3>
+<p>NDI also works the other way: a live NDI stream can be added as a media item and used as a clip, which is how
+you bring in a live camera or another machine's output.</p>
+
+<div class="note"><span class="t">NDI needs its runtime</span>
+  <p>If the NDI runtime is not installed the program offers a link to it. Spout is Windows-only.</p></div>
+
+<!-- ═══════════════════════════ PARTE VI ═══════════════════════════ -->
+<section class="part">
+  <div class="pnum">Part six</div>
+  <h1>Reference</h1>
+  <div class="blurb">Tables to look things up in.</div>
+  <div class="chlist">
+    <div><b>25</b> &nbsp;Menu reference</div>
+    <div><b>26</b> &nbsp;Keyboard shortcuts</div>
+    <div><b>27</b> &nbsp;Compose reference</div>
+    <div><b>28</b> &nbsp;Effects reference</div>
+    <div><b>29</b> &nbsp;Performance and troubleshooting</div>
+  </div>
+</section>
+
+<!-- ── 25 ────────────────────────────────────────────────────────── -->
+<h1 class="ch" id="ch25"><span class="n">Chapter twenty-five</span>Menu reference</h1>
+
+<div class="figrow">
+  <figure class="fig"><div class="frame"><img src="img/09c-menu-edit.png" alt="Edit menu"></div>
+    <figcaption>The <span class="ui">Edit</span> menu.</figcaption></figure>
+  <figure class="fig"><div class="frame"><img src="img/09b-menu-window.png" alt="Window menu"></div>
+    <figcaption>The <span class="ui">Window</span> menu.</figcaption></figure>
+</div>
+
+<h2>File</h2>
+<table class="keys">
+  <tr><td class="k">New project…</td><td class="s"><span class="kbd">Ctrl</span>+<span class="kbd">N</span></td><td>Goes to the start screen. The open project stays behind it.</td></tr>
+  <tr><td class="k">Open…</td><td class="s"><span class="kbd">Ctrl</span>+<span class="kbd">O</span></td><td>Opens <span class="ui">.isp</span>, and legacy <span class="ui">.ise</span> / <span class="ui">.rdome</span>.</td></tr>
+  <tr><td class="k">Save</td><td class="s"><span class="kbd">Ctrl</span>+<span class="kbd">S</span></td><td></td></tr>
+  <tr><td class="k">Save As…</td><td class="s"><span class="kbd">Ctrl</span>+<span class="kbd">Shift</span>+<span class="kbd">S</span></td><td></td></tr>
+  <tr><td class="k">Export…</td><td class="s"><span class="kbd">Ctrl</span>+<span class="kbd">Shift</span>+<span class="kbd">E</span></td><td></td></tr>
+</table>
+
+<h2>Edit</h2>
+<table class="keys">
+  <tr><td class="k">Undo / Redo</td><td class="s"><span class="kbd">Ctrl</span>+<span class="kbd">Z</span> · <span class="kbd">Ctrl</span>+<span class="kbd">Shift</span>+<span class="kbd">Z</span></td><td></td></tr>
+  <tr><td class="k">Cut</td><td class="s"><span class="kbd">Ctrl</span>+<span class="kbd">X</span></td><td></td></tr>
+  <tr><td class="k">Copy / Paste</td><td class="s"><span class="kbd">Ctrl</span>+<span class="kbd">C</span> · <span class="kbd">Ctrl</span>+<span class="kbd">V</span></td><td>Operates on the whole selection.</td></tr>
+  <tr><td class="k">Copy attributes</td><td class="s"><span class="kbd">Ctrl</span>+<span class="kbd">Alt</span>+<span class="kbd">C</span></td><td>Chapter 11.</td></tr>
+  <tr><td class="k">Paste attributes</td><td class="s"><span class="kbd">Ctrl</span>+<span class="kbd">Alt</span>+<span class="kbd">V</span></td><td></td></tr>
+  <tr><td class="k">Duplicate</td><td class="s"><span class="kbd">Ctrl</span>+<span class="kbd">D</span></td><td></td></tr>
+  <tr><td class="k">Delete</td><td class="s"><span class="kbd">Del</span></td><td>Leaves a gap.</td></tr>
+  <tr><td class="k">Ripple delete</td><td class="s"><span class="kbd">Shift</span>+<span class="kbd">Del</span></td><td>Closes the gap.</td></tr>
+  <tr><td class="k">Nest selection</td><td class="s"></td><td>Chapter 15.</td></tr>
+</table>
+
+<h2>Project</h2>
+<table class="keys">
+  <tr><td class="k">Sequence settings…</td><td class="s"></td><td>Resolution, frame rate, dome coverage.</td></tr>
+  <tr><td class="k">Dome coverage (FOV)…</td><td class="s"></td><td>Dome sequences only.</td></tr>
+  <tr><td class="k">Room geometry…</td><td class="s"></td><td>Room sequences only. Reconfigures; does not create a new project.</td></tr>
+  <tr><td class="k">New sequence…</td><td class="s"></td><td>Dome, 2D or 360 Room.</td></tr>
+  <tr><td class="k">Preferences…</td><td class="s"><span class="kbd">Ctrl</span>+<span class="kbd">,</span></td><td></td></tr>
+</table>
+
+<h2>Window</h2>
+<table class="keys">
+  <tr><td class="k">Media panel</td><td class="s"></td><td>Show or hide.</td></tr>
+  <tr><td class="k">Inspector panel</td><td class="s"></td><td>Show or hide.</td></tr>
+  <tr><td class="k">Viewer-only window</td><td class="s"></td><td>Second window, complementary view.</td></tr>
+  <tr><td class="k">Show corner data</td><td class="s"></td><td>Draws it in the viewer. Does not affect files.</td></tr>
+  <tr><td class="k">Corner data settings…</td><td class="s"></td><td>Fills in the title, author and logo.</td></tr>
+  <tr><td class="k">Full performance</td><td class="s"></td><td>Viewer fills the window.</td></tr>
+  <tr><td class="k">Guided tour</td><td class="s"></td><td>Relaunches the onboarding tour.</td></tr>
+  <tr><td class="k">All commands & shortcuts</td><td class="s"><span class="kbd">F1</span></td><td>The command palette.</td></tr>
+</table>
+
+<!-- ── 26 ────────────────────────────────────────────────────────── -->
+<h1 class="ch" id="ch26"><span class="n">Chapter twenty-six</span>Keyboard shortcuts</h1>
+<p class="lead">On macOS read <span class="kbd">Ctrl</span> as <span class="kbd">⌘</span>. The complete list is
+always available in the program itself with <span class="kbd">F1</span>.</p>
+<div id="keys"></div>
+
+<!-- ── 27 ────────────────────────────────────────────────────────── -->
+<h1 class="ch" id="ch27"><span class="n">Chapter twenty-seven</span>Compose reference</h1>
+
+<h2>Dome types</h2>
+<table>
+  <tr><th>Type</th><th>Principal parameters</th></tr>
+  <tr><td class="k">Ring</td><td>Count, elevation, size, ring radius.</td></tr>
+  <tr><td class="k">Dome fill</td><td>Rings, segments, ring gap, segment gap, offset, tiles.</td></tr>
+  <tr><td class="k">Spiral</td><td>Count, turns, size.</td></tr>
+  <tr><td class="k">Sunflower</td><td>Count, size.</td></tr>
+  <tr><td class="k">Wave</td><td>Count, amplitude, frequency.</td></tr>
+  <tr><td class="k">Dome scatter</td><td>Count, size, jitter.</td></tr>
+  <tr><td class="k">Random</td><td>Count, size, jitter.</td></tr>
+  <tr><td class="k">Tunnel</td><td>Count, from, to, speed, depth, spin, helix, fade in, fade out.</td></tr>
+</table>
+
+<h2>Flat types</h2>
+<table>
+  <tr><th>Type</th><th>Principal parameters</th></tr>
+  <tr><td class="k">Grid</td><td>Columns, rows, gap.</td></tr>
+  <tr><td class="k">Line</td><td>Count, spacing, angle.</td></tr>
+  <tr><td class="k">Row / Column</td><td>Count, spacing.</td></tr>
+  <tr><td class="k">Weave</td><td>Layout, strips, strip width, packing, long side, direction, speed per family, order.</td></tr>
+</table>
+
+<h2>Common to all</h2>
+<table>
+  <tr><td class="k">Media</td><td>The basket — which sources, and in what order.</td></tr>
+  <tr><td class="k">Mask</td><td>Shape and size (0–100 %) applied to every element.</td></tr>
+  <tr><td class="k">Order</td><td>Shuffle which source goes where.</td></tr>
+</table>
+
+<div class="fig mid">
+  <div class="frame"><img src="img/21-compose-ring.png" alt="Ring composition"></div>
+  <figcaption><b>Ring</b> — the simplest type, and a good place to learn the dialog.</figcaption>
+</div>
+
+<!-- ── 28 ────────────────────────────────────────────────────────── -->
+<h1 class="ch" id="ch28"><span class="n">Chapter twenty-eight</span>Effects reference</h1>
+<p class="lead">Twenty-six effects, grouped by family. Every parameter can be keyframed, and every effect can be
+driven by audio from the Reactive FX tab. Effects marked <b>feedback</b> read the previous frame, so their look
+builds up over time.</p>
+<div id="fx"></div>
+
+<!-- ── 29 ────────────────────────────────────────────────────────── -->
+<h1 class="ch" id="ch29"><span class="n">Chapter twenty-nine</span>Performance and troubleshooting</h1>
+
+<h2>Making playback smooth</h2>
+<ol class="steps">
+  <li><b>Generate proxies for heavy footage.</b> Right-click the media item. With long-GOP camera masters this
+    is the single largest gain available.</li>
+  <li><b>Drop the viewer quality</b> to ½ or ¼. It does not affect the export.</li>
+  <li><b>Cache heavy compositions</b> with a composition proxy, so playback decodes one stream instead of
+    many.</li>
+  <li><b>Render in place</b> anything that is finished and expensive.</li>
+  <li><b>Hide what you are not using.</b> Mute tracks you are not judging.</li>
+</ol>
+
+<h2>Common situations</h2>
+<dl>
+  <dt>Something looks soft inside a composition</dt>
+  <dd>Compositing passes through an intermediate buffer, and its resolution is chosen from the output size.
+  Export at the sequence's real resolution rather than a smaller one, and the difference largely disappears.</dd>
+
+  <dt>The picture spills outside the dome circle</dt>
+  <dd>It does not — anything outside the inscribed circle is not part of a fulldome master and will be black, or
+  transparent with alpha. Reduce the clip's size or move it.</dd>
+
+  <dt>An export refuses a resolution</dt>
+  <dd>Check which codec entry you chose. The built-in H.264 stops at 3072 × 3072 and the built-in H.265 at about
+  1080 × 1080; the entries marked <span class="ui">GPU</span> reach 4096 and 8192.</dd>
+
+  <dt>A clip plays every second frame</dt>
+  <dd>Its proxy was generated at the wrong frame rate because the source's rate could not be detected. Delete
+  the proxy and generate it again.</dd>
+
+  <dt>Turning off a loop shortened the clip</dt>
+  <dd>Switching looping off trims the clip to what remains of the file. Use <span class="ui">From clip</span> to
+  redefine a cycle instead, and undo to recover.</dd>
+
+  <dt>A project opened with the wrong format or framing</dt>
+  <dd>Factory defaults are applied before every project is read, so nothing is inherited from the previous one.
+  If a sequence still looks wrong, check <span class="ui">Project → Sequence settings…</span>.</dd>
+
+  <dt>The 3D view is black</dt>
+  <dd>On a hybrid-graphics laptop, make sure the program is running on the discrete GPU. It requests this
+  automatically; a system-level override can defeat it.</dd>
+</dl>
+
+<h2>Recovering work</h2>
+<ul>
+  <li>Projects save atomically with a <span class="ui">.bak</span> alongside.</li>
+  <li><span class="ui">Restore last autosave</span> and <span class="ui">Recovery history…</span> are in the
+    command palette.</li>
+  <li><span class="ui">Save incremental</span> writes <span class="ui">_v01</span>,
+    <span class="ui">_v02</span>… — worth doing before any large restructuring.</li>
+</ul>
+
+<h2>Reporting a problem</h2>
+<p><span class="ui">Save diagnostics log…</span> in the command palette writes a log file describing the
+environment and recent activity. Send it with a description of what you were doing.</p>
+
+<!-- ── colofon ───────────────────────────────────────────────────── -->
+<section class="colophon">
+  <h2>Colophon</h2>
+  <p><b>Immersive Studio Pro</b> — user manual for version 1.0.</p>
+  <p>Created by Alma Digital Studio. Creative direction by Beltrán.</p>
+  <p class="small" style="margin-top:6mm">Every screenshot in this manual was captured from the running
+  application, and every menu, shortcut, effect and parameter table was read from the program itself rather than
+  transcribed by hand.</p>
+  <p class="small">August 2026.</p>
+</section>
+
+<script src="data.js"></script>
+<script>
+/* El indice, la tabla de atajos y la de efectos se construyen desde los DATOS EXTRAIDOS de la aplicacion, que
+   el generador inyecta aqui como `window.MANDATA`. Escribirlos a mano era garantia de que envejecieran mal. */
+(function(){
+  const D = window.MANDATA || {comandos:[],efectos:[]};
+
+  /* ── indice ── */
+  const PARTES=[
+    ['Part one · Getting started',[[1,'Welcome to Immersive Studio Pro'],[2,'Installing and launching'],[3,'Immersive concepts'],[4,'Your first project']]],
+    ['Part two · The workspace',[[5,'The workspace at a glance'],[6,'The media panel'],[7,'The viewer'],[8,'The timeline'],[9,'The inspector']]],
+    ['Part three · Editing',[[10,'Importing and managing media'],[11,'Editing in the timeline'],[12,'Placing clips in the dome'],[13,'2D sequences'],[14,'The 360° room'],[15,'Sequences and nests']]],
+    ['Part four · Creative tools',[[16,'Compose'],[17,'Effects and masks'],[18,'Colour'],[19,'Motion, keyframes and automation'],[20,'Reactive FX'],[21,'Audio']]],
+    ['Part five · Delivery',[[22,'Exporting'],[23,'Corner data'],[24,'Live output — NDI and Spout']]],
+    ['Part six · Reference',[[25,'Menu reference'],[26,'Keyboard shortcuts'],[27,'Compose reference'],[28,'Effects reference'],[29,'Performance and troubleshooting']]]
+  ];
+  const PG = window.MANPAGES || {};
+  let h='';
+  for(const [nombre,caps] of PARTES){
+    h+='<div class="tpart">'+nombre+'</div>';
+    for(const [n,t] of caps)
+      h+='<div class="row"><span class="tocnum">'+n+'</span><span class="ttl">'+t+
+         '</span><span class="dots"></span><span class="pn">'+(PG['ch'+n]||'')+'</span></div>';
+  }
+  document.getElementById('tocbody').innerHTML=h;
+
+  /* ── atajos, agrupados por la categoria que da la propia aplicacion ── */
+  const porCat={};
+  for(const c of D.comandos){ if(!c.key)continue; (porCat[c.cat]=porCat[c.cat]||[]).push(c); }
+  /* Los glifos de macOS que guarda la aplicacion, a nombres de tecla. `⌘` tiene que traer su OWN `+`: sin el,
+     `⌘N` se leia «CtrlN» de corrido. Y una tecla que ES un signo mas no se puede podar por el sufijo. */
+  const glifo=k=>k.replace(/⌘/g,'Ctrl+').replace(/⇧/g,'Shift+').replace(/⌥/g,'Alt+').replace(/⌫/g,'Del');
+  const parte=x=>{ const t=(x.length>1)?x.replace(/\+$/,''):x; return '<span class="kbd">'+t+'</span>'; };
+  /* Orden de Windows: Ctrl primero. La aplicacion guarda el orden de macOS (⇧⌘E) y al pintarlo como
+     «Ctrl» quedaba «Shift+Ctrl+E», que no es como se escribe aqui. */
+  const orden=t=>{ const m=[]; const r=t.filter(x=>{ if(/^(Ctrl|Shift|Alt)$/.test(x)){m.push(x);return false;} return true; });
+    m.sort((a,b)=>({Ctrl:0,Shift:1,Alt:2})[a]-({Ctrl:0,Shift:1,Alt:2})[b]); return m.concat(r); };
+  const tecla=k=>orden(glifo(k).split(/(?<=[a-zA-Z0-9,])\+/)).map(parte).join('<span style="color:var(--ink-3)">+</span>');
+  let k='';
+  for(const cat of Object.keys(porCat)){
+    k+='<h2>'+cat+'</h2><table class="keys">';
+    for(const c of porCat[cat]) k+='<tr><td class="k">'+tecla(c.key)+'</td><td>'+c.label+'</td></tr>';
+    k+='</table>';
+  }
+  document.getElementById('keys').innerHTML=k;
+
+  /* ── efectos ── */
+  const FAM={distort:'Distortion',color:'Colour',stylize:'Stylize',feedback:'Feedback',dome:'Dome'};
+  const porFam={};
+  for(const e of D.efectos) (porFam[e.cat||'other']=porFam[e.cat||'other']||[]).push(e);
+  let f='';
+  for(const fam of ['distort','stylize','color','feedback','dome']){
+    if(!porFam[fam])continue;
+    f+='<h2>'+(FAM[fam]||fam)+'</h2><table><tr><th>Effect</th><th>Parameters</th></tr>';
+    for(const e of porFam[fam]){
+      const ps=(e.params||[]).map(p=>p.label).join(' · ')||'—';
+      f+='<tr><td class="k">'+e.label+(e.feedback?' <span style="color:var(--ink-3);font-weight:400">· feedback</span>':'')+
+         '</td><td>'+ps+'</td></tr>';
+    }
+    f+='</table>';
+  }
+  document.getElementById('fx').innerHTML=f;
+})();
+</script>

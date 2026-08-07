@@ -1,5 +1,28 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 306 — Manual de usuario (PDF, 79 páginas, en inglés)
+
+`Immersive Studio Pro - User Manual.pdf` en la raíz. Seis partes, 29 capítulos, 45 fotos, índice numerado y
+marcadores de PDF. Fuentes y generador en **`docs/manual/`** (ver su `README.md`).
+
+**La regla que lo sostiene: nada se escribe de memoria.** Las fotos se capturan de la aplicación en marcha —se
+montan los proyectos de demostración, se abre cada cuadro y se captura por selector a escala 2— y las tablas de
+menús, atajos, efectos, presets y tipos de composición se leen de los catálogos vivos (`commandList()`,
+`FXTYPES`, `ANIM_PRESETS`, las opciones reales de los `<select>`). El índice y los dos capítulos de referencia se
+GENERAN al imprimir desde `build/datos.json`, para que no puedan envejecer en silencio.
+
+Estructura tomada de los dos manuales de referencia que pidió Beltrán: Ableton numera capítulos y pone los
+conceptos al principio, Premiere ordena por fase del trabajo. Para un programa con tres formatos inmersivos lo
+primero tiene que ser los conceptos —fuente fulldome contra clip colocado, cobertura, el máster compuesto—,
+porque son justo lo que no tiene equivalente en un montaje plano.
+
+**Cuatro trampas, todas cazadas midiendo y anotadas en el README:** la portada se imprime aparte (Chromium
+reserva margen para el pie en TODAS las hojas); `search_for` devuelve la altura de la línea y no del tipo, y
+filtrar por ella metía cuatro capítulos en la página equivocada; `querySelector` con lista devuelve el primero
+en orden del DOCUMENTO y las fotos de los cuadros salían como ventana entera; y el recorrido guiado se lanza
+después de que `startDemoProject` resuelve, así que oscurecía las dos primeras tandas de capturas.
+
+
 ## ROUND 305 — El ojo de pez, plegado en el shader del domo
 
 El último remuestreo evitable de la cadena de una composición. El ojo de pez se hacía en un pase aparte que
