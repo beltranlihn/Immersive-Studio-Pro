@@ -64,6 +64,28 @@ Y esto **resucita la fase 1 aplazada, pero por otro motivo del que se aplazó**.
 Lo honesto es medirlas antes de elegir, igual que se hizo con la fase 1 — que es precisamente lo que evitó
 construir NV12 sobre una suposición equivocada.
 
+## Fase 4 decidida por medida (2026-08-06) — NV12, y no las otras dos
+
+Se aisló el IPC mandando a un sumidero (`-f null`): sin codificar y sin escribir a disco, lo único medido es el
+viaje renderer → proceso principal.
+
+| | ms por fotograma |
+|---|---|
+| RGBA, 64 MB (lo de hoy) | **161** |
+| NV12, 24 MB (la meta) | **47** |
+
+2,67× menos bytes dan **3,45× menos tiempo**: superlineal, porque los búferes de 64 MB caen en un camino más
+lento del clonado. **El coste es por byte, así que NV12 es el camino** — y las otras dos ideas quedan
+descartadas o aplazadas por una razón medida, no por intuición:
+
+- **Socket en vez de IPC**: mucho más trabajo para atacar el mismo coste que NV12 ya baja 3,45×. Si algún día
+  hace falta más, se retoma.
+- **Solapar lectura y codificado**: no baja el coste, lo esconde. Vale la pena DESPUÉS de NV12, cuando el
+  codificador vuelva a ser el que manda.
+
+Proyección de la cadena con NV12: 34 (lectura) + 47 (IPC) + 45 (codificador) = 126 ms ≈ **8 fps en serie**, y
+~12 fps si además se solapa. Contra los 5,3 de ahora, y contra el «no se puede» de antes de todo esto.
+
 ## Codificadores por plataforma
 
 | | Windows / RTX | macOS Silicon |
