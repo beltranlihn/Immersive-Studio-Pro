@@ -189,6 +189,35 @@ sobra — y compara contra lo de hoy, que es **no poder exportar 4096² en MP4 e
 la pieza con más trabajo y más riesgo de todo el proyecto, y resulta que no bloquea. Se hace después, cuando
 haya algo funcionando que medir de verdad, y no antes sobre una suposición.
 
+## HITO (2026-08-06): la aplicación ya exporta 4096² en MP4
+
+`runExport({codec:'ffh264'|'ffhevc'})` funciona de punta a punta. Verificado con ffprobe sobre un export real
+de la app: **h264, 4096×4096, 30 fotogramas, etiquetado `bt709/tv`**, a 6,4 fps. Chromium se negaba por encima
+de 3072².
+
+Dos códecs nuevos en la hoja, delante del MP4 por WebCodecs — que se queda para tamaños pequeños, donde no hace
+falta depender de un binario externo.
+
+Lo que va dentro de esa rama y por qué:
+- **NV12 en la GPU** antes de salir del renderer (R289/R290), y `ffWrite` **esperado**: ahí está la
+  contrapresión que impide acumular fotogramas de 24 MB en RAM.
+- **El recorte al círculo va en el shader**, no en un lienzo 2D: en esta ruta no hay lienzo donde hacerlo, y el
+  máster de domo no puede llevar nada fuera del disco (R283).
+- **El color se ETIQUETA** (`bt709`, rango limitado). Sin eso el archivo sale como indefinido y cada reproductor
+  adivina — un domo que adivine mal desatura la pieza entera.
+- **El audio va como segunda entrada**, no por la misma tubería: mezclar dos flujos con ritmos distintos por un
+  solo conducto es justo donde se descuadra el sonido.
+- **Cancelar mata el proceso** desde `_exportCleanup`.
+
+### Pendiente en esta rama
+
+- **La chapa de esquina no se aplica aquí.** Vive en el camino del lienzo 2D (`chapaLienzo`), y esta ruta va de
+  la textura del composite directa al shader. Hay que resolverlo antes de dar la rama por terminada: hoy un
+  export por FFmpeg sale sin los datos de esquina aunque estén activados.
+- Ajustes de calidad en la interfaz (hoy llegan por `opt.ffq`).
+- Empaquetar el binario.
+- macOS.
+
 ## Plan por fases (revisado)
 
 1. ~~**Transporte NV12.**~~ **Medido y aplazado**: `readPixels` en RGBA ya da 29,5 fps, por encima del

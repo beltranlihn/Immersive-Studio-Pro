@@ -8127,10 +8127,16 @@ void main(){ gl_Position=vec4(a_p,0.0,1.0); }`;
    dar la vuelta al búfer después. */
 const FSNV12=`#version 300 es
 precision highp float; precision highp int;
-uniform sampler2D u_src; uniform int u_W; uniform int u_H;
+uniform sampler2D u_src; uniform int u_W; uniform int u_H; uniform int u_disco;
 out vec4 o;
+/* [R291] El recorte al circulo va AQUI en la ruta de FFmpeg: no hay lienzo 2D donde hacerlo como en el camino
+   de PNG, y el master de domo no puede llevar nada fuera del disco (R283). Fuera del circulo, negro de video
+   -que en rango limitado es 16, no 0-. */
+bool fuera(int x,int y){ if(u_disco==0)return false;
+  float r=float(min(u_W,u_H))*0.5, dx=float(x)-float(u_W)*0.5+0.5, dy=float(y)-float(u_H)*0.5+0.5;
+  return (dx*dx+dy*dy)>r*r; }
 /* El vuelco va aquí dentro: la fila 0 de salida es la de ARRIBA de la imagen. */
-vec3 pix(int x,int y){ x=clamp(x,0,u_W-1); y=clamp(y,0,u_H-1); return texelFetch(u_src,ivec2(x,u_H-1-y),0).rgb; }
+vec3 pix(int x,int y){ x=clamp(x,0,u_W-1); y=clamp(y,0,u_H-1); if(fuera(x,y))return vec3(0.0); return texelFetch(u_src,ivec2(x,u_H-1-y),0).rgb; }
 float luma(vec3 c){ return 0.2126*c.r + 0.7152*c.g + 0.0722*c.b; }   /* BT.709 */
 void main(){
   int px=int(gl_FragCoord.x), py=int(gl_FragCoord.y);
@@ -8185,7 +8191,7 @@ function nv12Prep(W,H){
   return _nv12; }
 /* Devuelve el búfer NV12 del contenido de `srcTex`. El búfer se REUTILIZA entre fotogramas a propósito:
    reservar 24 MB por fotograma haría trabajar al recolector justo durante el export. */
-function nv12Read(srcTex,W,H){
+function nv12Read(srcTex,W,H,disco){
   const N=nv12Prep(W,H); if(!N)return null;
   gl.bindFramebuffer(gl.FRAMEBUFFER,N.fbo);
   gl.viewport(0,0,N.oW,N.oH);
@@ -8195,6 +8201,7 @@ function nv12Read(srcTex,W,H){
   gl.uniform1i(gl.getUniformLocation(N.prog,'u_src'),0);
   gl.uniform1i(gl.getUniformLocation(N.prog,'u_W'),W);
   gl.uniform1i(gl.getUniformLocation(N.prog,'u_H'),H);
+  gl.uniform1i(gl.getUniformLocation(N.prog,'u_disco'),disco?1:0);
   /* [R290] SEIS vertices y TRIANGLES, como el resto del programa: `quadVAO` son dos triangulos, no una tira.
      Con TRIANGLE_STRIP,0,4 se dibujaba uno y medio y el resto del FBO quedaba con basura — se veia como una
      cuna diagonal verde, y el PSNR se hundia a 11 dB. */
@@ -8203,6 +8210,7 @@ function nv12Read(srcTex,W,H){
   gl.bindFramebuffer(gl.FRAMEBUFFER,null);
   return N.buf; }
 
+let _ffJob=null;   /* [R291] el trabajo de FFmpeg en curso, para que Cancelar lo mate de verdad */
 async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
   /* [R284] El logo lo comparten visor y export. Antes, un export SIN chapa llamaba a cargarlo con null y
      borraba el que el visor estaba usando: desaparecia de la pantalla hasta reabrir el cuadro. Ahora
@@ -8235,6 +8243,9 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
      specifically to hide glc while it's sized for export). Lifting the mask first exposes a stretched stale frame
      for one paint if anything between the two lines throws. Restored to size-first, mask-last. */
   function _exportCleanup(doneArg){
+  /* [R291] Si hay un FFmpeg corriendo, se mata aqui: es lo que hace que Cancelar signifique algo en esa ruta. */
+  try{ if(_ffJob!=null&&DSP.ffKill){ DSP.ffKill(_ffJob); _ffJob=null; } }catch(e){}
+
     if(_ripSaved)state.clips=_ripSaved; // [R115] restore the full clip list after an isolated render-in-place
     glc.width=oW;glc.height=oH; freeExportFBO(); dxtFree(); nestSize=COMP; freeNestPool();
     /* [R286b] El lienzo 2D de la chapa se dimensiona al EXPORT (W x H) y solo se reemplaza si alguien vuelve a
@@ -8310,6 +8321,85 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
         if(IS_ELEC && DSP.saveFile){ const p=await DSP.saveFile(fn,'png','PNG image'); if(p){ job.label&&job.label(T('Saving…','Guardando…')); const ok=await DSP.writeBinary(p, new Uint8Array(await blob.arrayBuffer())); if(ok===false)throw new Error(T('Write failed (disk full, locked, or no permission).','Fallo de escritura (disco lleno, bloqueado o sin permiso).')); expOut=p; } }
         else dlBlob(blob,fn); }
       job.prog(1,1);
+    } else if(opt.codec==='ffh264'||opt.codec==='ffhevc'){
+      /* ═══ [R291] EXPORT POR FFmpeg ═══════════════════════════════════════════════════════════════════════
+         Lo que Chromium no puede: H.264 y H.265 a 4096², con bitrates de verdad y por el chip de vídeo.
+         Medido en esta máquina: Chromium se niega a H.264 por encima de 3072² y a HEVC por encima de ~1080p;
+         NVENC llega a 4096² y 8192² respectivamente.
+
+         El fotograma va a NV12 EN LA GPU antes de salir del renderer. No es una optimización cosmética: medido
+         en R289, pasar el fotograma al proceso principal cuesta 161 ms en RGBA y 47 en NV12, porque el coste
+         del IPC es por byte. Y `ffWrite` se ESPERA — ahí está la contrapresión que impide acumular fotogramas
+         de 24 MB en RAM. */
+      const esDome=!flat;
+      const cap=await DSP.ffProbe();
+      if(!cap) throw new Error(T('FFmpeg is not available. Install it, or export as PNG sequence.',
+                                 'FFmpeg no está disponible. Instálalo, o exporta como secuencia PNG.'));
+      const lista=(opt.codec==='ffhevc')?cap.hevc:cap.h264;
+      if(!lista||!lista.length) throw new Error(T('This FFmpeg has no encoder for that format.',
+                                                  'Este FFmpeg no trae ningún codificador para ese formato.'));
+      /* El primero de la lista es el del hardware: DSP.ffProbe los devuelve en ese orden a propósito, y el
+         de software queda como respaldo. */
+      const enc=lista[0];
+      if(!nv12Cabe(eW,eH)) throw new Error(T('This GPU cannot allocate the conversion buffer at that size.',
+                                             'Esta GPU no admite el búfer de conversión a ese tamaño.'));
+      const _une=(d,n)=>{ const sep=(d.indexOf(String.fromCharCode(92))>=0)?String.fromCharCode(92):'/'; return d+sep+n; };
+      const outPath=opt.outPath||(opt.outDir?_une(opt.outDir,fn.replace(/\.[^.]+$/,'')+'.mp4'):await DSP.saveFile(fn.replace(/\.[^.]+$/,'')+'.mp4','mp4','MP4 video'));
+      if(!outPath){ _exportCleanup(true); return; }
+
+      /* AUDIO: en MP4 va DENTRO, estéreo (decisión de Beltrán). Se escribe la mezcla a un WAV temporal y se le
+         da a FFmpeg como segunda entrada — pasarla por la misma tubería que el vídeo mezclaría dos flujos con
+         ritmos distintos y es justo donde se descuadra el sonido. */
+      let wavTmp=null;
+      if(!opt.noAudio){ try{
+        const wav=await exportAudioMix(t0,t0+total/fps);
+        if(wav&&wav.length){ wavTmp=outPath.replace(/\.mp4$/i,'')+'.__mix.wav';
+          if(await DSP.writeBinary(wavTmp,wav)===false)wavTmp=null; }
+      }catch(e){ wavTmp=null; } }
+
+      const q=opt.ffq||{};
+      const bitrate=Math.max(5,Math.round(q.mbps||opt.bitrate||200));
+      const nvenc=/nvenc/.test(enc), vtb=/videotoolbox/.test(enc);
+      const args=['-hide_banner','-loglevel','error','-y',
+        '-f','rawvideo','-pix_fmt','nv12','-s',eW+'x'+eH,'-r',String(fps),'-i','-'];
+      if(wavTmp)args.push('-i',wavTmp);
+      /* Se ETIQUETA el color. Sin esto el archivo sale como indefinido y cada reproductor adivina — y un domo
+         que adivine mal desaturará toda la pieza. */
+      args.push('-colorspace','bt709','-color_primaries','bt709','-color_trc','bt709','-color_range','tv');
+      args.push('-c:v',enc);
+      if(nvenc){ args.push('-preset',q.preset||'p7','-tune','hq','-rc','vbr',
+          '-b:v',bitrate+'M','-maxrate',Math.round(bitrate*1.4)+'M','-bufsize',(bitrate*2)+'M',
+          '-spatial-aq','1','-temporal-aq','1','-rc-lookahead','32','-bf','3'); }
+      else if(vtb){ args.push('-b:v',bitrate+'M','-realtime','0'); }
+      else { args.push('-preset',q.x264||'slow','-b:v',bitrate+'M','-maxrate',Math.round(bitrate*1.4)+'M'); }
+      /* 10 bits en HEVC: en el domo los degradados grandes hacen bandas visibles en 8 bits. */
+      const diez=(opt.codec==='ffhevc'&&q.bits10!==false&&(nvenc||vtb));
+      args.push('-pix_fmt',diez?'p010le':'yuv420p');
+      if(diez&&nvenc)args.push('-profile:v','main10');
+      if(wavTmp)args.push('-c:a','aac','-b:a','320k','-ac','2','-shortest');
+      args.push('-movflags','+faststart',outPath);
+
+      const st=await DSP.ffStart(args,outPath);
+      if(!st||!st.id){ if(wavTmp)try{ await DSP.deleteFile(wavTmp); }catch(e){}
+        throw new Error(T('Could not start FFmpeg: ','No se pudo arrancar FFmpeg: ')+((st&&st.err)||'')); }
+      _ffJob=st.id;                               /* para que Cancelar lo mate */
+      try{
+        for(let i=0;i<total;i++){
+          if(cancelExport)break;
+          const t=t0+i/fps; await seekExport(t); prepNests(state.clips,t,0);
+          if(flat){ renderExportFrame(t,qRes,ssExport,wall); } else { composite(t,eW,false); gl.finish(); }
+          const buf=nv12Read(compTex,eW,eH,esDome);
+          if(!buf)throw new Error('nv12Read');
+          await DSP.ffWrite(st.id,buf);           /* esperar: contrapresión */
+          if(job.frame)job.frame(i,total); job.prog(i+1,total);
+        }
+      } finally { /* pase lo que pase, el proceso se cierra: uno huérfano sigue escribiendo un archivo que el
+                     usuario cree cancelado, y en Windows lo deja bloqueado */ }
+      const fin=cancelExport?(await DSP.ffKill(st.id),{ok:false}):await DSP.ffEnd(st.id);
+      _ffJob=null;
+      if(wavTmp)try{ await DSP.deleteFile(wavTmp); }catch(e){}
+      if(!cancelExport&&!fin.ok)throw new Error(T('FFmpeg failed: ','FFmpeg ha fallado: ')+(fin.err||''));
+      if(!cancelExport&&job.wrote){ try{ const stt=await DSP.stat(outPath); if(stt&&stt.size)job.wrote(stt.size); }catch(e){} }
     } else if(opt.codec==='png'){ const pad=Math.max(6,String(total).length), fnum=i=>String(i+1).padStart(pad,'0'); // [R96] IMERSA/AFDI Dome Master Spec: 6-digit frame number STARTING AT 1 ("Name_000001.png"). We shipped base-0 with a padding that shrank with the take length ("dome_000.png") — a planetarium can't ingest that without renaming every frame, and two exports of different lengths sorted inconsistently.
       /* [R286c] El respaldo en ZIP es una entrega mas: pasa por `chapaLienzo` igual que el streaming a disco.
          Antes salia sin recorte al circulo y sin datos de esquina, sin avisar de nada. */
@@ -9233,7 +9323,12 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
      cualquier bitrate; 4096×2160 sí) · H.265 no pasa de ~1080p, y NO es límite de la GPU (NVENC llega a 8192²),
      es el codificador HEVC de Chromium en Windows. La interfaz no repite esos números: los vuelve a preguntar. */
   const EX_CODECS=[
-    {v:'png',  kind:null,   lbl:()=>T('PNG sequence · lossless','Secuencia PNG · sin pérdida')},   /* [R279] ya no dice «alfa»: el alfa es ahora una eleccion de la fila Fondo */
+    {v:'png',  kind:null,   lbl:()=>T('PNG sequence · lossless','Secuencia PNG · sin pérdida')},
+    /* [R291] Los dos que rompen el techo de Chromium. Van DELANTE del mp4 por WebCodecs porque a partir de
+       3072 aquel no puede y estos si; el de WebCodecs se queda para tamanos pequenos, donde no hace falta
+       depender de un binario externo. */
+    {v:'ffh264',kind:null,  lbl:()=>T('MP4 H.264 · GPU, up to 4096','MP4 H.264 · GPU, hasta 4096')},
+    {v:'ffhevc',kind:null,  lbl:()=>T('MP4 H.265 · GPU, up to 8192, 10-bit','MP4 H.265 · GPU, hasta 8192, 10 bits')},   /* [R279] ya no dice «alfa»: el alfa es ahora una eleccion de la fila Fondo */
     {v:'mp4',  kind:'h264', lbl:()=>'MP4 · H.264'},
     {v:'hevc', kind:'hevc', lbl:()=>'MP4 · H.265 / HEVC'},
     {v:'hap',  kind:null,   lbl:()=>'MOV · HAP'},
