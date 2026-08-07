@@ -2512,6 +2512,24 @@ function upTex(tex,src){const w=src.videoWidth||src.naturalWidth||src.displayWid
   try{ if(w&&h&&tex._w===w&&tex._h===h){ gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,gl.RGBA,gl.UNSIGNED_BYTE,src); } // [R92-T3] same-size re-upload without realloc (like the NDI path) — per-frame texImage2D reallocs pressure the driver with 3-4 videos on screen
     else { gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,src); tex._w=w; tex._h=h; } }catch(e){console.warn('upTex',e);}}
 /* upload a raw RGBA byte buffer (w×h) into a texture — used for live NDI input frames */
+/* [R302] MIPMAPS PARA LAS IMAGENES FIJAS. Ninguna textura del motor los tenia, asi que al dibujar algo mas
+   pequeno que su tamano original -las tiras de un tejido, un parche de domo, cualquier `size` reducido- cada
+   pixel del resultado muestreaba unos pocos de la fuente en vez de promediar los que le tocan. Eso es el
+   detalle sucio y el hormigueo en movimiento, y afecta por igual a los clips directos y a las composiciones.
+   Solo para material FIJO: se generan UNA vez al importar. Hacerlo por fotograma en video seria carisimo, y por
+   eso `upTex` -que sirve a los dos- no los toca.
+   Y el filtrado anisotropico si la tarjeta lo ofrece: sin el, una imagen muy inclinada -que en un domo lo estan
+   casi todas- se ve borrosa en la direccion larga aunque tenga mipmaps. */
+let _aniso=null, _anisoMax=0;
+function mipTex(tex){ if(!tex)return;
+  try{ gl.bindTexture(gl.TEXTURE_2D,tex);
+    gl.generateMipmap(gl.TEXTURE_2D);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+    if(_aniso===null){ _aniso=gl.getExtension('EXT_texture_filter_anisotropic')||false;
+      if(_aniso)_anisoMax=gl.getParameter(_aniso.MAX_TEXTURE_MAX_ANISOTROPY_EXT)||0; }
+    if(_aniso&&_anisoMax>1)gl.texParameterf(gl.TEXTURE_2D,_aniso.TEXTURE_MAX_ANISOTROPY_EXT,Math.min(8,_anisoMax));
+  }catch(e){ /* si la tarjeta se niega, se queda con el filtrado de siempre: peor aspecto, nunca un fallo */ } }
 function upTexRaw(tex,w,h,u8){gl.bindTexture(gl.TEXTURE_2D,tex);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);try{gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,u8);}catch(e){console.warn('upTexRaw',e);}}
 /* Downscale oversized images so the texture always uploads (large camera JPGs can exceed the GPU's
    limits on integrated GPUs → silent upload failure → transparent image). The dome composite is 2048,
@@ -2632,7 +2650,7 @@ function renderTextMedia(m){ const ff=m.tfont||'Inter, sans-serif', weight=m.twe
   x.font=style+weight+' '+fs+'px '+ff; x.textAlign=align; x.textBaseline='middle';
   const ax=align==='left'?pad:align==='right'?(W-pad):W/2;
   lines.forEach((ln,i)=>{ const y=pad+lh*(i+0.5); if(m.tstroke){ x.lineWidth=Math.max(2,fs*0.09); x.strokeStyle=m.tstrokeColor||'#000000'; x.lineJoin='round'; x.strokeText(ln,ax,y); } x.fillStyle=m.tcolor||'#ffffff'; x.fillText(ln,ax,y); });
-  m.w=W; m.h=H; m.el=cv; m.originalEl=cv; if(!m.tex)m.tex=newTex(); upTex(m.tex,cv); try{m.thumb=cv.toDataURL();}catch(e){} }
+  m.w=W; m.h=H; m.el=cv; m.originalEl=cv; if(!m.tex)m.tex=newTex(); upTex(m.tex,cv); mipTex(m.tex);   /* [R302] */ try{m.thumb=cv.toDataURL();}catch(e){} }
 function createTextClip(preset){ preset=(preset&&typeof preset==='object'&&!preset.preventDefault)?preset:{};
   const m={id:uid(),kind:'text',name:preset.name||T('Text','Texto'),text:preset.text||'TITLE',tfontSize:TXT_BASE_PX,tweight:preset.tweight||'700',tfont:'Inter, sans-serif',tcolor:preset.tcolor||'#ffffff',tbg:'transparent',tstroke:!!preset.tstroke,tstrokeColor:'#000000',dur:6,fps:0,color:clipColorFor('text'),folder:(state.mediaView==='grid'&&state.mediaFolder)||null}; // [R225·6] cuerpo = resolución interna, siempre la base generosa (el tamaño en pantalla lo pone c.props.size/scale del preset) // file into the folder being browsed (R88 audit)
   renderTextMedia(m); state.media.push(m); renderMedia(); addClip(m);
@@ -2646,7 +2664,7 @@ function renderShapeMedia(m){ const W=m.sw||512,H=m.sh||512, sw=m.strokeW||0, in
   if(m.shape==='ellipse'){ x.beginPath(); x.ellipse(W/2,H/2,Math.max(1,W/2-inset),Math.max(1,H/2-inset),0,0,7); x.fill(); if(sw>0)x.stroke(); }
   else if(m.shape==='line'){ x.beginPath(); x.moveTo(inset,H/2); x.lineTo(W-inset,H/2); x.lineCap='round'; x.lineWidth=Math.max(4,sw||Math.round(H*0.18)); x.strokeStyle=m.fill||'#ffffff'; x.stroke(); }
   else { x.beginPath(); x.rect(inset,inset,W-inset*2,H-inset*2); x.fill(); if(sw>0)x.stroke(); }
-  m.w=W; m.h=H; m.el=cv; m.originalEl=cv; if(!m.tex)m.tex=newTex(); upTex(m.tex,cv); try{m.thumb=cv.toDataURL();}catch(e){} }
+  m.w=W; m.h=H; m.el=cv; m.originalEl=cv; if(!m.tex)m.tex=newTex(); upTex(m.tex,cv); mipTex(m.tex);   /* [R302] */ try{m.thumb=cv.toDataURL();}catch(e){} }
 function createShapeClip(shape){ const m={id:uid(),kind:'shape',name:T('Shape','Forma'),shape:shape||'rect',fill:'#C9CDD3',stroke:'#0E0F11',strokeW:0,sw:512,sh:512,dur:6,fps:0,color:clipColorFor('shape'),folder:(state.mediaView==='grid'&&state.mediaFolder)||null};
   renderShapeMedia(m); state.media.push(m); renderMedia(); addClip(m); markDirty(); flashStatus(T('Shape clip added','Clip de forma añadido')); }
 /* ---- AUDIO (Web Audio) ---- */
@@ -2739,7 +2757,8 @@ function liveAudioGain(c){ if(!c||!actx)return; const g=_audioGains[c.id]; if(!g
 function setMeters(v){ const p=(v*100)+'%'; if($('#mL'))$('#mL').style.width=p; if($('#mR'))$('#mR').style.width=p; }
 function addImage(file,path){ const url=URL.createObjectURL(file); const img=new Image(); const folder=_importFolder;
   img.onload=()=>{const fit=fitImage(img); const m={id:uid(),name:file.name,kind:'image',el:fit.src,originalEl:img,tex:newTex(),w:fit.w,h:fit.h,dur:5,fps:0,thumb:url,color:clipColorFor('image'),proxyReady:false,proxyPct:0,path:path||null,fsize:file.size||0,folder:folder||null}; // [M5] photos default to 5 s
-    upTex(m.tex,fit.src); state.media.push(m); adopt(m); renderMedia(); render(); markDirty(); }; img.src=url; }
+    upTex(m.tex,fit.src); mipTex(m.tex);   /* [R302] material fijo: los mipmaps se generan UNA vez, aqui */
+    state.media.push(m); adopt(m); renderMedia(); render(); markDirty(); }; img.src=url; }
 /* [R242·Aud-3.3] Aviso de material pesado al importar. R241 midió que con este material (HEVC 6,5 Mpx, 410 Mbps,
    GOP de 250 fotogramas) el proxy no es una optimización: es la diferencia entre poder montar (8 ms de scrub) y
    no (1148 ms). ADR-0003 se respeta ENTERO — la generación sigue siendo manual —: esto sólo INFORMA, una vez por
