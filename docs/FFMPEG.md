@@ -312,3 +312,32 @@ audio, dos finales — no dos caminos que puedan divergir.
   se sabrá probándolo allí.
 - **HAP.** Sigue sin pasar por el recorte al círculo (ver R284). Si FFmpeg entra, quizá convenga replantear HAP
   entero en vez de arreglarlo por separado.
+
+---
+
+# Plegar el ojo de pez en el shader del domo — reconocimiento previo (2026-08-07)
+
+Es el ultimo remuestreo evitable de la cadena de una composicion, y lo que mas acercaria un elemento de nido a
+un clip directo. **No es un cambio directo**, y conviene saberlo antes de abrirlo:
+
+**La formula si es facil.** `_FISHFS` es un remapeo radial de cuatro lineas: `rs = tan(min(d,1)*k)/tan(k)`, y
+la UV se reproyecta sobre esa distancia. Trasladarlo a `FSFD` es trivial.
+
+**El problema es el ORDEN.** Hoy el ojo de pez produce una textura intermedia, y la mascara, el suavizado y el
+recorte de `FSFD` operan sobre ESA imagen ya deformada. Al plegarlo, esas operaciones pasarian a trabajar en el
+espacio sin deformar. El resultado NO es el mismo, y en los bordes de cada elemento se nota.
+
+**Y el BORDE se trata distinto.** El pase intermedio hace `clamp` de la UV: fuera de rango repite el pixel del
+borde. `FSFD` hace `discard`: fuera de rango, transparente. Plegar sin replicar eso cambia el contorno de cada
+elemento del tejido.
+
+**Como abordarlo cuando toque:**
+1. Anadir `u_fishK` a `FSFD` (0 = apagado) y remapear la UV ANTES de las comprobaciones de rango.
+2. Replicar el `clamp` del pase intermedio, no el `discard`, para el camino con ojo de pez.
+3. Decidir explicitamente donde queda la mascara: manteniendo el orden de hoy -mascara sobre la imagen ya
+   deformada- para no cambiar el aspecto de los proyectos existentes.
+4. Solo se puede plegar si el ojo de pez es el UNICO pre-pase: con efectos reactivos o clave de negro sigue
+   haciendo falta la textura intermedia, asi que el camino viejo se queda para esos casos.
+5. **El criterio de aceptacion es la identidad**, no el parecido: mismo fotograma por los dos caminos y
+   diferencia media por debajo del redondeo. Si cambia el aspecto, no sirve — el montaje de Beltran esta hecho
+   mirando el resultado actual.
