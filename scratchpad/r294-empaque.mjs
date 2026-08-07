@@ -22,3 +22,7 @@ if(!cap.h264.some(e=>/nvenc/.test(e))) mal('el binario empaquetado no trae NVENC
 if(!cap.hevc.some(e=>/nvenc/.test(e))) mal('el binario empaquetado no trae HEVC por NVENC');
 console.log('\n'+(fallos?'*** '+fallos+' FALLOS':'la app empaquetada usa SU propio FFmpeg, con NVENC'));
 ws.close();
+/* [R295] Salir con codigo distinto de cero si algo fallo: imprimir «FALLOS» y devolver 0 hace que cualquier
+   cosa que mire el codigo de salida -una tuberia, un gancho, un futuro yo con prisa- lea un fallo como un
+   aprobado. Es la clase de prueba que da mas confianza de la que merece. */
+process.exit(fallos?1:0);

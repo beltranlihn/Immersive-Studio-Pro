@@ -389,7 +389,11 @@ function _ffCandidatos() {
   const exe = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
   const out = [];
   try { out.push(path.join(process.resourcesPath || '', 'ffmpeg', exe)); } catch (e) {}
-  try { out.push(path.join(__dirname, 'vendor', 'ffmpeg', exe)); } catch (e) {}
+  /* [R295] En DESARROLLO el binario vive en vendor/ffmpeg/<os>/, con subcarpeta por plataforma: es lo que
+     R294 hizo canonico -.gitignore, documentacion y extraResources- pero esta linea se quedo apuntando a la
+     ruta plana de antes. Consecuencia: en una maquina de desarrollo SIN ffmpeg en el PATH, todo export por
+     GPU moria con «ffmpeg no encontrado» mientras el binario estaba ahi al lado. */
+  try { out.push(path.join(__dirname, 'vendor', 'ffmpeg', process.platform === 'win32' ? 'win' : 'mac', exe)); } catch (e) {}
   out.push(exe);                                  // el del PATH
   if (process.platform !== 'win32') { out.push('/opt/homebrew/bin/ffmpeg'); out.push('/usr/local/bin/ffmpeg'); }
   return out;

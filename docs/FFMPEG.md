@@ -244,7 +244,7 @@ clic final en Exportar, porque el encolado es asíncrono detrás de avisos que e
 ### El binario, empaquetado (R294)
 
 Verificado sobre el **`.exe` instalado**, no sobre el de desarrollo: usa
-`…\Immersive Studio Proesourcesfmpegfmpeg.exe`, con `h264_nvenc` y `hevc_nvenc`. En un equipo limpio
+`…/Immersive Studio Pro/resources/ffmpeg/ffmpeg.exe`, con `h264_nvenc` y `hevc_nvenc`. En un equipo limpio
 —sin FFmpeg en el PATH— seguirá funcionando, que era el punto.
 
 **El binario NO está en el repositorio.** Son 213 MB por plataforma, y git no es sitio para eso: cada clon se
@@ -254,7 +254,13 @@ está en `.gitignore`, y electron-builder lo mete en el instalador desde ahí.
 **Cómo reponerlo** si se pierde la carpeta, o al montar otra máquina:
 
 - **Windows** — `winget install Gyan.FFmpeg`, y copiar el `ffmpeg.exe` del paquete a `vendor/ffmpeg/win/`.
-- **macOS** — `brew install ffmpeg`, y copiar `$(brew --prefix)/bin/ffmpeg` a `vendor/ffmpeg/mac/`.
+- **macOS** — **NO vale el de Homebrew.** Ese binario está enlazado dinámicamente contra dylibs de
+  `/opt/homebrew/opt/…`, que no viajan dentro del `.app`: en un Mac limpio no arranca, `_ffBuscar` cae en
+  silencio al PATH —que tampoco tiene nada— y el export por GPU no existe. Hace falta una **compilación
+  estática** (evermeet.cx u osxexperts.net publican una por versión de macOS), copiada a `vendor/ffmpeg/mac/`.
+  **Comprobarlo antes de dar el Mac por bueno**: `otool -L vendor/ffmpeg/mac/ffmpeg` no debe listar nada de
+  `/opt/homebrew` ni `/usr/local`; sólo bibliotecas del sistema (`/usr/lib`, `/System`). Y después, ejecutar
+  `scratchpad/r294-empaque.mjs` sobre el `.app` construido, que es lo único que lo demuestra de verdad.
 
 Si la carpeta está vacía, el instalador se monta igual y la app cae al FFmpeg del sistema: no se rompe, sólo
 deja de ser autosuficiente.
