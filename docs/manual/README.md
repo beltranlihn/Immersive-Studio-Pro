@@ -1,6 +1,13 @@
 # El manual de usuario — cómo se hace y cómo se rehace
 
-Salida: **`docs/Immersive Studio Pro - User Manual.pdf`**. 79 páginas, A4, en inglés.
+Dos salidas del MISMO texto:
+
+- **`docs/Immersive Studio Pro - User Manual.pdf`** — 79 páginas, A4, para imprimir o leer en el escritorio.
+- **`docs/manual/manual-web.html`** — la versión de pantalla, de una sola columna y con las imágenes
+  empotradas en `data:`, para leerla en el teléfono. Se genera con `build/web.py`.
+
+No son dos manuales: la de pantalla **reutiliza `manual.html`** y sólo le cambia la hoja de estilo. Escribir
+el texto dos veces sería garantizar que las dos versiones se separen.
 
 ## La regla que lo sostiene
 
@@ -26,7 +33,8 @@ node docs/manual/build/extraer.mjs
 node docs/manual/build/extraer2.mjs
 node docs/manual/build/capturar.mjs
 node docs/manual/build/capturar.mjs docs/manual/build/tomas2.json
-python docs/manual/build/armar.py
+python docs/manual/build/armar.py      # el PDF
+python docs/manual/build/web.py        # la version de pantalla
 ```
 
 - **`extraer.mjs` / `extraer2.mjs`** → `build/datos.json` y `build/datos2.json`: comandos y atajos, catálogo de
