@@ -33,9 +33,28 @@ node docs/manual/build/extraer.mjs
 node docs/manual/build/extraer2.mjs
 node docs/manual/build/capturar.mjs
 node docs/manual/build/capturar.mjs docs/manual/build/tomas2.json
+node docs/manual/build/capturar.mjs docs/manual/build/tomas-m.json   # las tomas NUMERADAS
+python docs/manual/build/recortar.py   # quita el vacio del pie de las capturas altas
+python docs/manual/build/anotar.py     # dibuja los numeros sobre las capturas
 python docs/manual/build/armar.py      # el PDF
 python docs/manual/build/web.py        # la version de pantalla
 ```
+
+## Las capturas numeradas
+
+El modelo es el manual de Ableton: **si se habla de una zona, se enseña esa zona**, ampliada, con sus
+controles numerados sobre la imagen y la lista debajo. `tomas-m.json` define cada toma y la lista de
+selectores que se numeran; **las coordenadas las mide `capturar.mjs` sobre el DOM vivo**, nunca se estiman.
+
+`"discos": true` dibuja sólo el número, sin recuadro. Es lo que necesita una vista general: dos zonas
+contiguas trazan dos filetes paralelos que se leen como un error de encuadre, y ocho recuadros grandes sobre
+la ventana entera son ruido a tamaño de lectura. El recuadro se reserva a controles pequeños.
+
+## El tono
+
+Instructivo e impersonal. Sin argumentario de venta, **sin definir nada por lo que no hace** y sin segunda
+persona: imperativo para las instrucciones, tercera para las descripciones.
+
 
 - **`extraer.mjs` / `extraer2.mjs`** → `build/datos.json` y `build/datos2.json`: comandos y atajos, catálogo de
   efectos con sus parámetros, presets de movimiento, máscaras, mezclas, menús, códecs de export y tipos de

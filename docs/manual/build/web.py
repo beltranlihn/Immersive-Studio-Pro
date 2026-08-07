@@ -78,8 +78,10 @@ a{color:var(--accent)}
 .toc .tpart{font-size:.68rem;letter-spacing:.13em;text-transform:uppercase;color:var(--accent);
   font-weight:700;margin:1.1rem 0 .35rem}
 .toc .tpart:first-of-type{margin-top:.3rem}
-.toc a{display:flex;gap:.6rem;padding:.28rem 0;font-size:.93rem;text-decoration:none;color:var(--ink)}
-.toc a .n{color:var(--ink-3);width:1.5rem;flex:none;font-variant-numeric:tabular-nums;font-size:.85rem}
+.toc a{display:flex;gap:.6rem;padding:.3rem 0;text-decoration:none;color:var(--ink)}
+.toc a.r1{font-size:.97rem;font-weight:600;margin-top:.7rem}
+.toc a.r2{font-size:.88rem;color:var(--ink-2);padding-left:.9rem}
+.toc a .n{color:var(--ink-3);width:2.1rem;flex:none;font-variant-numeric:tabular-nums;font-size:.82rem}
 
 /* ── partes y capitulos ── */
 .part{margin:3.2rem 0 0;padding:1.4rem 0 .2rem;border-top:2px solid var(--ink)}
@@ -137,6 +139,16 @@ td{border-bottom:1px solid var(--rule);padding:.5rem .5rem;vertical-align:top;li
 td.k{font-family:"Segoe UI",system-ui,sans-serif;font-weight:600}
 td.s{white-space:nowrap}
 
+/* La lista que corresponde a los numeros naranjas de la captura. */
+ol.callouts{list-style:none;padding-left:0;margin:.8rem 0 1.6rem;counter-reset:c;font-size:.95rem}
+ol.callouts>li{counter-increment:c;position:relative;padding-left:2rem;margin:0 0 .55rem;line-height:1.55}
+ol.callouts>li::before{content:counter(c);position:absolute;left:0;top:.12em;width:1.35rem;height:1.35rem;
+  border-radius:50%;background:#FF7A1A;color:#fff;font-family:"Segoe UI",system-ui,sans-serif;
+  font-size:.72rem;font-weight:700;display:flex;align-items:center;justify-content:center}
+.intro{font-size:1.06rem;line-height:1.58;color:var(--ink-2);margin:0 0 1.2rem}
+.note{border-left:2.5px solid var(--ink-3);background:none;border-radius:0;padding:0 0 0 .9rem;
+  margin:1.1rem 0;font-size:.95rem;line-height:1.6;color:var(--ink-2)}
+.note b{color:var(--ink)}
 ol.steps{counter-reset:s;list-style:none;padding-left:0;margin:1rem 0 1.4rem}
 ol.steps>li{counter-increment:s;position:relative;padding-left:2.1rem;margin:0 0 .7rem}
 ol.steps>li::before{content:counter(s);position:absolute;left:0;top:.12em;width:1.5rem;height:1.5rem;
@@ -199,12 +211,15 @@ inyec = json.dumps({'comandos': datos['comandos'], 'efectos': datos['efectos']},
 guion = fuente.split('<script src="data.js"></script>', 1)[1]
 guion = guion.replace("window.MANDATA || {comandos:[],efectos:[]}", "window.MANDATA")
 # en pantalla el indice son ENLACES, no numeros de pagina
-guion = guion.replace(
-  """h+='<div class="row"><span class="tocnum">'+n+'</span><span class="ttl">'+t+
-         '</span><span class="dots"></span><span class="pn">'+(PG['ch'+n]||'')+'</span></div>';""",
-  """h+='<a href="#ch'+n+'"><span class="n">'+n+'</span><span>'+t+'</span></a>';""")
-guion = guion.replace("""h+='<div class="tpart">'+nombre+'</div>';""",
-                      """h+='<div class="tpart">'+nombre+'</div>';""")
+# El indice del PDF lleva numero de pagina; en pantalla ese numero no significa nada, asi que las filas se
+# convierten en ENLACES al capitulo o apartado.
+r1 = ("h+='<div class=\"r1\"><span class=\"n\">'+c.n+'</span><span>'+c.titulo+"
+      "'</span><span class=\"d\"></span><span class=\"p\">'+(PG['ch'+c.n]||'')+'</span></div>';")
+r2 = ("h+='<div class=\"r2\"><span class=\"n\">'+s.n+'</span><span>'+s.t+"
+      "'</span><span class=\"d\"></span><span class=\"p\">'+(PG[s.n]||'')+'</span></div>';")
+assert r1 in guion and r2 in guion, 'las filas del indice han cambiado de forma'
+guion = guion.replace(r1, "h+='<a class=\"r1\" href=\"#ch'+c.n+'\"><span class=\"n\">'+c.n+'</span><span>'+c.titulo+'</span></a>';")
+guion = guion.replace(r2, "h+='<a class=\"r2\" href=\"#ch'+c.n+'\"><span class=\"n\">'+s.n+'</span><span>'+s.t+'</span></a>';")
 guion = guion.replace(".innerHTML=f;\n})();", ".innerHTML=f;\n  document.querySelectorAll('#fx table,#keys table').forEach(t=>{const w=document.createElement('div');w.className='tw';t.parentNode.insertBefore(w,t);w.appendChild(t);});\n})();")
 
 pagina = (u'<title>Immersive Studio Pro — User Manual</title>\n<style>%s</style>\n'
@@ -214,9 +229,7 @@ pagina = (u'<title>Immersive Studio Pro — User Manual</title>\n<style>%s</styl
           u'<div class="sub">User manual — editing for fulldome domes, flat screens and 360° rooms.</div>'
           u'<div class="meta">Alma Digital Studio · Version 1.0 · August 2026</div></div></div>\n'
           u'<div class="wrap">\n'
-          u'<div class="pdfbar">Screen edition of the printed manual — 29 chapters, 45 screenshots. '
-          u'Every screenshot was captured from the running application and every table was read from the '
-          u'program itself.</div>\n'
+          # Sin banda de presentacion: el manual describe el programa, no se describe a si mismo.
           u'<nav class="toc"><h2>Contents</h2><div id="tocbody"></div></nav>\n'
           u'%s\n</div>\n'
           u'<script>window.MANDATA=%s;window.MANPAGES={};</script>\n%s'

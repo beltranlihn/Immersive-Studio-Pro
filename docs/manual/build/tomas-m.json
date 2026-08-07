@@ -1,0 +1,144 @@
+[
+ {
+  "n": "m-workspace",
+  "prep": "(async()=>{ document.querySelectorAll('.overlay,#compOv,#srcMon,#exOv').forEach(e=>e.remove()); await startDemoProject('dome'); await new Promise(r=>setTimeout(r,1700)); if(_tourStop)_tourStop(); document.querySelector('#viewModeSeg button[data-v=\"2d\"]').click(); state.playhead=6.4; scrubRender(); positionPlayhead(); })()",
+  "espera": 3400,
+  "discos": true,
+  "marcas": [
+   "#menubar",
+   "#mediaPane",
+   "#stage",
+   "#inspPane",
+   ".transport",
+   "#tracks"
+  ]
+ },
+ {
+  "n": "m-viewerbar",
+  "rect": [
+   292,
+   26,
+   995,
+   32
+  ],
+  "espera": 400,
+  "marcas": [
+   "#viewModeSeg",
+   "#dispSeg",
+   "#qualitySeg",
+   "#proxyToggle",
+   "#vzReset",
+   "#outputBtn"
+  ]
+ },
+ {
+  "n": "m-transport",
+  "sel": ".transport",
+  "pad": 4,
+  "espera": 400,
+  "marcas": [
+   "#seqTabs",
+   "#playBtn",
+   "#tc",
+   "#tcModeSeg",
+   "#loopBtn",
+   "#addMk",
+   "#tlEditSeg"
+  ]
+ },
+ {
+  "n": "m-media",
+  "sel": "#mediaPane",
+  "espera": 400,
+  "marcas": [
+   "#filtSeg",
+   "#mediaSortBtn",
+   "#mediaViewSeg",
+   "#importBtn",
+   "#textBtn",
+   "#ringBtn",
+   "#adjLayerBtn"
+  ]
+ },
+ {
+  "n": "m-inspector",
+  "prep": "(function(){ const st=insColState(); document.querySelectorAll('#insCtl .sechead[data-sec]').forEach(h=>st[h.dataset.sec]=!(h.dataset.sec==='tf')); applySecCollapse(); })()",
+  "sel": "#inspPane",
+  "espera": 600,
+  "discos": true,
+  "marcas": [
+   "#inspTabs",
+   "#secTf",
+   "#tfRows",
+   "#secFx",
+   "#secSource",
+   "#secPlayback",
+   "#secColor",
+   "#secMotion"
+  ]
+ },
+ {
+  "n": "m-toolrail",
+  "sel": "#toolRail",
+  "pad": 6,
+  "espera": 400,
+  "marcas": [
+   "#toolRail button:nth-of-type(1)",
+   "#toolRail button:nth-of-type(2)",
+   "#toolRail button:nth-of-type(3)",
+   "#toolRail button:nth-of-type(4)",
+   "#toolRail button:nth-of-type(5)",
+   "#toolRail button:nth-of-type(6)"
+  ]
+ },
+ {
+  "n": "m-lanehdr",
+  "sel": "#trackHdr",
+  "pad": 4,
+  "espera": 400,
+  "marcas": [
+   ".lanehdr .tag",
+   ".lanehdr .nm",
+   ".lanehdr .mute,.lanehdr .m"
+  ]
+ },
+ {
+  "n": "m-export",
+  "prep": "(function(){ document.querySelectorAll('.overlay,#exOv').forEach(e=>e.remove()); openExport(); setTimeout(function(){ const s=document.querySelector('#exCodec'); if(s){ const o=[...s.options].find(o=>/h\\.?264/i.test(o.textContent)); if(o){ s.value=o.value; s.dispatchEvent(new Event('change',{bubbles:true})); } } },500); })()",
+  "sel": "#exOv .exs,#exOv .modal,#exOv>div",
+  "pad": 8,
+  "espera": 2200,
+  "marcas": [
+   "#exMon",
+   "#exCodec",
+   "#exDirPick",
+   "#exFfQ",
+   "#exFfBr",
+   "#exFps",
+   "#exEst",
+   "#exGo"
+  ]
+ },
+ {
+  "n": "m-compose",
+  "prep": "(function(){ document.querySelectorAll('.overlay,#exOv').forEach(e=>e.remove()); openCompose('domegrid'); })()",
+  "sel": "#compOv .modal,#compOv>div",
+  "pad": 8,
+  "espera": 1800,
+  "marcas": [
+   "#compOv .kindseg",
+   ".cbasket",
+   "#cMask"
+  ]
+ },
+ {
+  "n": "m-timeline",
+  "prep": "(function(){ try{if(typeof _cerrarComp==='function')_cerrarComp();}catch(e){} document.querySelectorAll('.overlay,#compOv').forEach(e=>e.remove()); })()",
+  "sel": "#tlwrap,#timeline,#tlscroll",
+  "espera": 900,
+  "marcas": [
+   "#ruler",
+   "#tracks .clip"
+  ]
+ }
+]

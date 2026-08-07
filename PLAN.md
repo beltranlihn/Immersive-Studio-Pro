@@ -1,5 +1,27 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 307 — El manual, reescrito como manual
+
+Tres correcciones de Beltrán, las tres ciertas. **El tono era de venta** (un «para esto sirve / esto no es»,
+superlativos, segunda persona): fuera el argumentario, fuera **toda** definición en negativo, y voz impersonal
+— imperativo para instruir, tercera para describir. **Las fotos de ventana entera no sirven**: como Ableton,
+cada capítulo de interfaz lleva su recorte ampliado con los controles numerados sobre la imagen y la lista
+debajo (coordenadas medidas sobre el DOM vivo, no estimadas). **Y las líneas dobles**: rectangular zonas
+contiguas trazaba dos filetes paralelos; la vista general pasa a llevar sólo números y el recuadro se reserva a
+controles pequeños.
+
+Diseño A4 sin editorializar: 11 pt, capítulos y apartados numerados, una sola tinta de color para los números.
+
+**Dos fallos de maqueta cazados midiendo:** las capturas verticales del inspector (850 px, media vacía) se salían
+de la hoja — el capítulo de Color abría en blanco y el documento se iba a 106 páginas; con recorte del vacío y
+altura acotada, **73 páginas y ninguna por debajo del 55 % ocupada**. Y `recortar.py` medía desde la columna 0,
+que es el borde claro del panel: no recortaba nada, y se comía el logotipo por aplanar su transparencia.
+
+**Y uno de infraestructura:** la lista de capítulos vivía escrita a mano en `armar.py`, así que renombrarlos dejó
+nueve sin localizar en silencio. Ahora los titulares se leen del propio HTML: 29 capítulos y 108 apartados, los
+137 localizados.
+
+
 ## ROUND 306 — Manual de usuario (PDF, 79 páginas, en inglés)
 
 `Immersive Studio Pro - User Manual.pdf` en la raíz. Seis partes, 29 capítulos, 45 fotos, índice numerado y
