@@ -112,14 +112,35 @@ la secuencia de bytes que FFmpeg espera, sin reordenar nada en la CPU.
 le diga otra cosa. Sobre R,G,B ya en 0..1 **no lineales** (con gamma, tal como salen del composite):
 
     Y  = 16  + 219 · ( 0,2126·R + 0,7152·G + 0,0722·B )
-    U  = 128 + 224 · ( (B - Y') / 1,8556 ) / 2
-    V  = 128 + 224 · ( (R - Y') / 1,5748 ) / 2
+    U  = 128 + 224 · ( (B - Y') / 1,8556 )
+    V  = 128 + 224 · ( (R - Y') / 1,5748 )
 
-donde `Y'` es la luma en 0..1 antes de escalar. Los `/2` no son cosméticos: llevan el rango de −0,5..0,5 a
-0..1 antes de aplicar la excursión de 224.
+donde `Y'` es la luma en 0..1. **CORREGIDO al escribir el shader:** la primera versión de esta nota llevaba un
+`/2` de más. Sobra, porque `(B−Y')/1,8556` ya cae en ±0,5 por construcción — el máximo de `B−Y'` es 0,9278,
+que dividido da exactamente 0,5. Con el `/2` el croma habría salido a **media saturación**: un error de los que
+no se ven en el monitor y sí al proyectar. Lo cazó escribir el código, no releer el documento.
 
 Y hay que **decírselo a FFmpeg**, o etiquetará el archivo como indefinido y cada reproductor adivinará:
 `-colorspace bt709 -color_primaries bt709 -color_trc bt709 -color_range tv`.
+
+### HECHO (2026-08-06) — y cómo se comprobó de verdad
+
+El shader está escrito (`FSNV12` / `nv12Read` en `app.js`) y **coincide con la conversión del propio FFmpeg**:
+diferencia media de **0,04** en el plano Y (máximo 1) y **0,62** en el UV (máximo 9). Eso es redondeo puro — el
+shader va en coma flotante y `swscale` en enteros.
+
+**El criterio de PSNR sobre vídeo codificado que proponía este documento NO SIRVE**, y conviene dejarlo escrito
+para que nadie lo reintente: comparar dos MP4 mide el codificador, no la conversión. Daba 28 dB con el shader
+YA correcto. La prueba válida (`scratchpad/r290b-crudo.mjs`) no codifica nada: saca el búfer NV12 crudo, le
+pide a FFmpeg que convierta el mismo RGBA, y compara byte a byte.
+
+**Dos errores por el camino, los dos de orientación y los dos míos:**
+
+1. `quadVAO` son **dos triángulos (6 vértices)**, no una tira de 4. Con `TRIANGLE_STRIP,0,4` se dibujaba
+   triángulo y medio y el resto del FBO quedaba con basura — se veía como una cuña diagonal verde.
+2. La primera versión de la prueba cruda daba la referencia sin voltear. El shader asume el origen de GL (fila 0
+   abajo), que es lo correcto leyendo de un FBO; la referencia iba en orden natural. Diferencia media de 71, con
+   toda la pinta de un error de fórmula que no existía. **El equivocado era el control, no el código.**
 
 ### Cómo se comprueba que está bien
 

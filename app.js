@@ -8108,6 +8108,101 @@ function openSlateDialog(){
   q('#slClose').onclick=()=>ov.remove();
   chapaCargarLogo(s.logo).then(sync);
 }
+/* Vertice: un cuadrilatero que cubre todo el destino. No hereda de VSB porque aquel aplica zoom, paneo y
+   proporcion del VISOR, y aqui hay que cubrir el FBO entero sin transformar nada. */
+const VSQ_NV12=`#version 300 es
+precision highp float; in vec2 a_p;
+void main(){ gl_Position=vec4(a_p,0.0,1.0); }`;
+/* ═══ [R290] RGBA → NV12 EN LA GPU ═════════════════════════════════════════════════════════════════════════
+   Medido en R289: pasar el fotograma del renderer al proceso principal cuesta 161 ms en RGBA (64 MB) y 47 ms
+   en NV12 (24 MB) a 4096². El coste es POR BYTE, así que convertir antes de enviar es lo que descongestiona.
+
+   EL TRUCO DE LA DISPOSICIÓN. NV12 son dos planos contiguos: Y de W×H bytes y detrás UV entrelazado de
+   W×(H/2). Se dibuja sobre un FBO RGBA8 de (W/4) × (H + H/2), donde cada téxel empaqueta 4 bytes; así
+   `readPixels` devuelve YA la secuencia exacta que FFmpeg espera y NO hay que reordenar nada en la CPU —
+   reordenar 24 MB por fotograma habría tirado por la borda justo lo que se viene a ganar.
+
+   EL VUELCO VERTICAL. `readPixels` empieza por abajo (el origen de GL) y FFmpeg quiere la primera fila de
+   arriba. Se resuelve leyendo la fuente invertida (`u_H-1-y`) en el propio shader, que sale gratis, en vez de
+   dar la vuelta al búfer después. */
+const FSNV12=`#version 300 es
+precision highp float; precision highp int;
+uniform sampler2D u_src; uniform int u_W; uniform int u_H;
+out vec4 o;
+/* El vuelco va aquí dentro: la fila 0 de salida es la de ARRIBA de la imagen. */
+vec3 pix(int x,int y){ x=clamp(x,0,u_W-1); y=clamp(y,0,u_H-1); return texelFetch(u_src,ivec2(x,u_H-1-y),0).rgb; }
+float luma(vec3 c){ return 0.2126*c.r + 0.7152*c.g + 0.0722*c.b; }   /* BT.709 */
+void main(){
+  int px=int(gl_FragCoord.x), py=int(gl_FragCoord.y);
+  if(py<u_H){
+    /* Zona Y: este téxel lleva las columnas 4px … 4px+3 de la fila py. Rango limitado 16..235. */
+    vec4 y4;
+    y4.x=luma(pix(px*4  ,py)); y4.y=luma(pix(px*4+1,py));
+    y4.z=luma(pix(px*4+2,py)); y4.w=luma(pix(px*4+3,py));
+    o=(16.0+219.0*y4)/255.0;
+  } else {
+    /* Zona UV: fila de croma cy, que cubre las filas fuente 2cy y 2cy+1. Cada téxel lleva U0,V0,U1,V1, o sea
+       DOS bloques de croma: columnas 4px..4px+1 y 4px+2..4px+3. Cada componente es la media del bloque 2×2,
+       que es lo que hace swscale — tomar sólo una muestra dejaría bordes de color dentados. */
+    int cy=py-u_H, sy=cy*2;
+    vec4 r;
+    for(int k=0;k<2;k++){
+      int sx=px*4+k*2;
+      vec3 m=(pix(sx,sy)+pix(sx+1,sy)+pix(sx,sy+1)+pix(sx+1,sy+1))*0.25;
+      float Y=luma(m);
+      /* Sin dividir entre 2: (B-Y)/1.8556 ya cae en ±0,5 por construcción, así que 224· eso da ±112 y con el
+         +128 sale 16..240. Con un /2 de más el croma saldría a media saturación — el error estaba en la primera
+         versión del diseño y lo cazó escribir esto. */
+      float U=128.0+224.0*((m.b-Y)/1.8556);
+      float V=128.0+224.0*((m.r-Y)/1.5748);
+      if(k==0){ r.x=U; r.y=V; } else { r.z=U; r.w=V; }
+    }
+    o=r/255.0;
+  }
+}`;
+let _nv12=null;
+/* ¿Cabe el FBO que hace falta? A 4096² son 1024×6144. Aquí sobra, pero se sondea: si una GPU no lo admite, el
+   export tiene que poder caer al camino RGBA en vez de fallar. */
+function nv12Cabe(W,H){ try{
+  const need=Math.max(W/4, H+H/2);
+  return need<=Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE)||0, gl.getParameter(gl.MAX_RENDERBUFFER_SIZE)||0);
+}catch(e){ return false; } }
+function nv12Prep(W,H){
+  if(_nv12&&_nv12.W===W&&_nv12.H===H)return _nv12;
+  if(_nv12){ try{ gl.deleteFramebuffer(_nv12.fbo); gl.deleteTexture(_nv12.tex); }catch(e){} }
+  const oW=W>>2, oH=H+(H>>1);
+  const tex=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,tex);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,oW,oH,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
+  const fbo=gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,tex,0);
+  const ok=gl.checkFramebufferStatus(gl.FRAMEBUFFER)===gl.FRAMEBUFFER_COMPLETE;
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+  if(!ok){ try{ gl.deleteFramebuffer(fbo); gl.deleteTexture(tex); }catch(e){} return null; }
+  _nv12={ prog:(_nv12&&_nv12.prog)||prog(VSQ_NV12,FSNV12), fbo, tex, W, H, oW, oH,
+          buf:new Uint8Array(W*H*3/2) };
+  return _nv12; }
+/* Devuelve el búfer NV12 del contenido de `srcTex`. El búfer se REUTILIZA entre fotogramas a propósito:
+   reservar 24 MB por fotograma haría trabajar al recolector justo durante el export. */
+function nv12Read(srcTex,W,H){
+  const N=nv12Prep(W,H); if(!N)return null;
+  gl.bindFramebuffer(gl.FRAMEBUFFER,N.fbo);
+  gl.viewport(0,0,N.oW,N.oH);
+  gl.disable(gl.BLEND); gl.disable(gl.DEPTH_TEST);
+  gl.useProgram(N.prog);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,srcTex);
+  gl.uniform1i(gl.getUniformLocation(N.prog,'u_src'),0);
+  gl.uniform1i(gl.getUniformLocation(N.prog,'u_W'),W);
+  gl.uniform1i(gl.getUniformLocation(N.prog,'u_H'),H);
+  /* [R290] SEIS vertices y TRIANGLES, como el resto del programa: `quadVAO` son dos triangulos, no una tira.
+     Con TRIANGLE_STRIP,0,4 se dibujaba uno y medio y el resto del FBO quedaba con basura — se veia como una
+     cuna diagonal verde, y el PSNR se hundia a 11 dB. */
+  gl.bindVertexArray(quadVAO); gl.drawArrays(gl.TRIANGLES,0,6);
+  gl.readPixels(0,0,N.oW,N.oH,gl.RGBA,gl.UNSIGNED_BYTE,N.buf);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+  return N.buf; }
+
 async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
   /* [R284] El logo lo comparten visor y export. Antes, un export SIN chapa llamaba a cargarlo con null y
      borraba el que el visor estaba usando: desaparecia de la pantalla hasta reabrir el cuadro. Ahora
