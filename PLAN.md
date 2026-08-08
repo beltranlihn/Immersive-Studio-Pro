@@ -1,5 +1,39 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 336 — Las quince de la revisión (cuatro eran regresiones propias)
+
+Revisión a máximo esfuerzo sobre R328-R335. **Cuatro hallazgos eran regresiones que introduje al arreglar**, y
+dos de ellas son exactamente los modos de fallo que ya estaban escritos en el método:
+
+- **Un comentario `//` a mitad de línea se comió seis asignaciones** en `replaceMedia`: reemplazar el archivo de
+  un medio dejaba el `AudioBuffer` VIEJO, y esa banda sonora seguía sonando en la previsualización **y en el
+  export**, con sus bandas analizadas como si fueran las del archivo nuevo. Al corregirlo, tres anotaciones más
+  se comieron sus líneas (una, el cuerpo entero de `pickClip`). No es cuestión de mirar mejor: **`tests/
+  comentario-que-se-come-codigo.test.mjs`** convierte la trampa en una regla sobre `app.js`, `main.js` y
+  `preload.js`.
+- **El arreglo de `_arCache` de R332 era INERTE**: `arRecompute()` corría antes de que los clips salieran de
+  `state.clips`, así que la caché se volvía a atar al clip condenado. Y su red pasaba **por la razón
+  equivocada** — nunca puso `srcClipId` apuntando al clip. Ahora la reconstrucción va después del filtro, y la
+  red lo comprueba con la fuente puesta de verdad.
+- **`vi.vf=0` tiraba el manejador sin cancelar nada**: el callback del medio anterior seguía subiendo sus
+  fotogramas a la misma textura y sobrevivía al `deleteTexture`. `stopVFClip` existía justo para esto.
+- **R335 arregló el INV sin señal en la rama de bandas y dejó la gemela**: la de disparo tiene cinco caminos de
+  «no hay datos» y todos pasaban por `fxShape`.
+
+Y tres arreglos estaban a medias: el atajo `_lastSrcTex===compTex` dejaba el agujero abierto por el otro lado
+(`raPrerenderRange` pisa `compTex` — ahora lo invalida quien lo ensucia); `clipsVisibles` tiraba el `xf` y el
+orden por tamaño que sí usa el compositor (un clip a 0 % era seleccionable y en un túnel se pinchaba el de
+detrás); y bajar `SPEC_F1` a Nyquist dejaba mudos los proyectos ya guardados con ventanas por encima —
+`modVentana` las clampa y, si se quedan sin ancho, vuelven a la banda con nombre.
+
+Más: el búfer NV12 con altura impar, `clampNestInstances` al borrar una secuencia, las dos limpiezas que
+faltaban en `.aparam`, el selector de espectro sin deshacer, `_bandsFail` sin forma de olvidarse, y la identidad
+del demux en vuelo (con `mid` a secas, rotar A→B→A filtraba un decodificador).
+
+**Verificación:** `scratchpad/r336-verif.mjs`, nueve casos escritos para fallar con su arreglo revertido — dos
+de ellos cazaron errores de la propia sonda antes de dar verde. **Dieciséis redes en verde** y `npm test` 6/6.
+
+
 ## ROUND 335 — El espectro mentía arriba y el INV se disparaba sin señal
 
 - **El selector de frecuencia llegaba a 12 kHz sobre un análisis a 16 kHz**, es decir **por encima de Nyquist**

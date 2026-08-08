@@ -91,7 +91,7 @@
 | `hasKf` | Test de automatización (devuelve undefined ⚠️) | app.js · `hasKf` | ✅ | — |
 | `evalP` | Evaluador puro de keyframes/base | app.js · `evalP` | ✅ | [A2]/[D1] |
 | `setKf` / clearKf | Escribir/mergear/borrar keyframes | app.js · `setKf` | ✅ | — |
-| `evalR` | Base+motion+mod en tiempo de render. **[R333]** lo usa AHORA todo el dibujo: el bloque de imagen (blur/feather/crop y el color) leía con `evalP` —la base, sólo keyframes— mientras la geometría usaba `evalR`, así que esos parámetros quedaban fuera de los modificadores y de la pila de modulación **mientras la línea de auditoría del inspector sí enseñaba el valor modulado** | app.js · `evalR` | ✅ | R333 |
+| `evalR` | Base+motion+mod en tiempo de render. **[R336]** también lo usan los BUSCADORES del visor (`pickClip`/`domeClipHit`), que resolvían az/el/size con `evalP`: con un Motion encima se buscaba el clip en su posición base y el clic fallaba justo donde se ve. **[R333]** lo usa AHORA todo el dibujo: el bloque de imagen (blur/feather/crop y el color) leía con `evalP` —la base, sólo keyframes— mientras la geometría usaba `evalR`, así que esos parámetros quedaban fuera de los modificadores y de la pila de modulación **mientras la línea de auditoría del inspector sí enseñaba el valor modulado** | app.js · `evalR` | ✅ | R333 |
 | `manualEdit` | Regla AE (editar valor → keyframe) | app.js · `manualEdit` | ✅ | [A2]/[D1] |
 | Toggle modo automatización | inlineCurves → body.automode | app.js · `toggleCurves`/`syncAutoUI` · #curvesBtn (dentro de #tlEditSeg) | ✅ | [A1] |
 | Param del lane (track) | Un overlay por pista (`lane._autoP`) = **única fuente de qué curva se ve** | app.js · `laneAutoP`/`openAuto`/`showAutomation`/`clipArmedTrackKeys` | ✅ | [A5]/[L3]/[L4] |
@@ -1058,6 +1058,7 @@ Reference map of `app.js`. Line numbers verified against the current file.
 - **Purpose:** [R95·B1] Fusion-style free-transform box over a breakpoint selection: corners scale (Alt mirror), edges stretch one axis, top corners skew in time, inside moves. Shift+B toggles. `base` freezes original coords so each drag is absolute.
 - **Location:** app.js · `shapeBoxOpen` (L3368), `shapeBoxClose` (L3375), `shapeBoxToggle` (L3376), `shapeBoxSync` (L3378), `shapeBoxApply` (L3381); drawn in `drawAutoCurve` (~L3657), dragged in `bindAutoCurve` (~L3720)
 - **State owned:** `state.shapeBox={cid,p,t0,t1,v0,v1,base:[{k,t,v}]}`
+- **[R336]** `shapeBoxVivo()` — la caja guarda REFERENCIAS VIVAS a los keyframes y cinco caminos los borran; en vez de acordarse de cerrarla en los cinco, `shapeBoxApply`/`shapeBoxSync` la COMPRUEBAN antes de usarla (fila que R328 debería haber añadido en su propio commit).
 - **Key symbols:** `shapeBoxApply`, `shapeBoxSync`, `cv._sbHandles`
 - **Invariants / gotchas:** [R95] holds live kf refs → must be dropped on undo / project or sequence load. Needs ≥2 selected breakpoints.
 - **Status:** ✅

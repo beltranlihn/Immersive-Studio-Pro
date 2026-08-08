@@ -85,9 +85,12 @@ const r4 = await ev(`(()=>{ try{
   const etiqueta=modLabel({src:'audio',f0:0,f1:200});
   const etiquetaBanda=modLabel({src:'audio',band:'treble'});
   return JSON.stringify({desde0, alReves, vacia, sinNada, etiqueta, etiquetaBanda,
-    cuentaDesdeCero: !!(desde0&&desde0.lo===0&&desde0.hi===200),
+    /* [R336] La ventana ya no conserva el 0 literal: se clampa al suelo del analisis (SPEC_F0=40 Hz), que es
+       lo mas bajo que el espectro representa y lo que el selector ya dibujaba. Lo que este caso comprueba
+       -y era el hallazgo- es que SIGUE SIENDO UNA VENTANA en vez de caerse a la banda con nombre. */
+    cuentaDesdeCero: !!(desde0&&desde0.lo===SPEC_F0&&desde0.hi===200),
     seOrdena: !!(alReves&&alReves.lo===120&&alReves.hi===800),
-    laEtiquetaLaNombra: /0-200Hz/.test(etiqueta),
+    laEtiquetaLaNombra: /-200Hz/.test(etiqueta),   // [R336] el suelo lo pone SPEC_F0, no el 0 tecleado
     labandaSigue: /treble/.test(etiquetaBanda)});
 }catch(e){ return 'ERR '+String(e.message).slice(0,90); } })()`); console.log('  ->', r4);
 

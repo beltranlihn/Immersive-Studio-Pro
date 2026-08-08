@@ -966,7 +966,14 @@ function animOffset(c,p,t){ if(!c||!c.anim||!c.anim.length)return 0; let o=0; co
    otra). Una sola pregunta, con nombre, para los seis. */
 function modVentana(m){ if(!m)return null; const a=m.f0, b=m.f1;
   if(typeof a!=='number'||typeof b!=='number'||!isFinite(a)||!isFinite(b)||a===b)return null;
-  return {lo:Math.min(a,b), hi:Math.max(a,b)}; }
+  /* [R336] Y se CLAMPA al rango que el analisis puede dar. R335 bajo el techo a Nyquist (8 kHz) sin migrar los
+     `f0`/`f1` ya guardados: un proyecto viejo con una ventana de 9-12 kHz caia fuera de todos los bordes de
+     banda y `specRangeRaw` devolvia ceros — no null—, asi que la capa aportaba 0 para siempre mientras la
+     etiqueta seguia anunciando la ventana. Si al clampar se queda sin ancho, no es una ventana: vuelve a la
+     banda con nombre, que es lo que el usuario esperaria ver. */
+  const lo=Math.max(SPEC_F0,Math.min(SPEC_F1,Math.min(a,b))), hi=Math.max(SPEC_F0,Math.min(SPEC_F1,Math.max(a,b)));
+  if(hi-lo<1)return null;
+  return {lo, hi}; }
 function evalR(c,p,t){ let v=evalP(c,p,t); if(v==null)v=0; if(c.anim&&c.anim.length)v+=animOffset(c,p,t); if(c.mod&&c.mod[p])v=evalModStack(c,p,t,v); return v; }
 /* ===================== [R95·C1] MODULATION STACK — the unified, LEGIBLE model =====================
    Bitwig proves modulation belongs ON the control; Cavalry's Behaviour Mixer proves layers need EXPLICIT blend modes;
@@ -1292,7 +1299,13 @@ function drawClip(c,m,t,xf){
    pista silenciada, y el clip apagado de encima le robaba el clic al que sí se veía debajo. Además sólo devolvía
    UNO por pista, así que en un solape elegía el equivocado. Orden de pintado (de abajo arriba) → el último que
    coincide es el de más arriba, que es el que ya elegían los dos buscadores. */
-function clipsVisibles(t){ return compositeClips(t).map(x=>x.c); }
+function clipsVisibles(t){ let l=compositeClips(t);
+  /* [R336] …con el MISMO orden y la misma visibilidad con que se pinta, que era el resto del trabajo. Tirar el
+     `xf` hacia seleccionable un clip que la transicion dibuja al 0 % —y con `dipBlack` eso es media transicion
+     entera—, tapando al que si se ve debajo; y saltarse el reordenado por tamano rompia «el ultimo es el de
+     arriba» justo en el tunel, que es el unico que lo usa (y que desde R330 tambien lo usa como master). */
+  if(_zsortSize&&l.length>1) l=l.slice().sort((a,b)=>(evalR(a.c,'size',t)||0)-(evalR(b.c,'size',t)||0));
+  return l.filter(x=>x.xf==null||x.xf>0.001).map(x=>x.c); }
 /* ═══ [R300] EL TEJIDO BARAJADO, SIN SALTO AL VOLVER EL DIENTE DE SIERRA ══════════════════════════════════
    Diagnostico sobre el proyecto real de Beltran (Test.isp): cada elemento lleva un diente de sierra de
    `speed 0.3` y `amp 40`, y los elementos estan separados exactamente 40. Es el truco clasico del
@@ -1538,7 +1551,12 @@ function prepNests(clips,t,depth){ if(!depth)_nestN=0; if((depth||0)>5||!clips)r
         (vi.loadP||Promise.resolve()).then(()=>vinstSeek(c,m,lt)).then(()=>{ if(!state.playing&&!exporting)render(); },()=>{}); }
       continue; }
     try{ wvPrep(m); }catch(e){}   /* [R300] deriva la rotacion del tejido; se cachea por firma, no cuesta por fotograma */
-    prepNests(m.nestClips,lt,(depth||0)+1);
+    /* [R336] La compensacion del reloj se aplicaba DESPUES de preparar los nidos interiores, asi que solo valia
+       para un nivel: desde profundidad 2, `mediaEfId` dentro del nido rotaba en un instante distinto del que usa
+       `collectDrawnVideoClips` (que si acumula), y se pilotaban decodificadores de un medio que el compositor no
+       estaba dibujando. Es el mismo desajuste que R330 cerro en el primer nivel. */
+    const _comp=(((c.inP||0)+(t-c.start)*(c.speed||1)) - lt);
+    { const _oan=_animNido; _animNido+=_comp; try{ prepNests(m.nestClips,lt,(depth||0)+1); } finally { _animNido=_oan; } }
     const e=nestSlot(); const oc=state.clips,ol=state.lanes,odf=_drawFlat,oca=_compAspect,orw=_roomWrap,ozs=_zsortSize,oan=_animNido,ocv=state.seqCov;
     /* [R273] el reloj de los modificadores del interior no envuelve: se le suma lo que el bucle le quita */
     /* [R298] Instrumento de diagnostico. La compensacion es TRANSITORIA -se aplica al entrar en el nido y se
@@ -1552,7 +1570,7 @@ function prepNests(clips,t,depth){ if(!depth)_nestN=0; if((depth||0)>5||!clips)r
          hacia parecer que el reloj se disparaba a 6,05 en el segundo 3,05. Un instrumento mal etiquetado
          inventa averias. */
       reloj:+(lt+_animNido+(((c.inP||0)+(t-c.start)*(c.speed||1))-lt)).toFixed(3)});
-    _animNido += (((c.inP||0)+(t-c.start)*(c.speed||1)) - lt); state.clips=m.nestClips||[]; state.lanes=(m.nestLanes&&m.nestLanes.length?m.nestLanes:ol); _drawFlat=flatLikeMode(m.mode); _roomWrap=false; _compAspect=(m.w||1)/(m.h||1); _zsortSize=!!(m.comp&&m.comp.kind==='tunnel'); /* [R246] el túnel se dibuja de lejos a cerca (ver composite) */ if(m.mode==='dome')state.seqCov=m.cov||180; /* [R330] la COBERTURA es de cada secuencia (`m.cov`), y este era el único dato del contexto que no se cambiaba al entrar en el nido: un nido de 200° compuesto dentro de un padre de 180° deformaba sus clips con la del PADRE (curCovDeg lee state.seqCov), así que la misma secuencia se veía de una forma abierta en su pestaña y de otra dentro del padre */ gl.bindFramebuffer(gl.FRAMEBUFFER,e.fbo); composite(lt,nestSize,false); gl.bindFramebuffer(gl.FRAMEBUFFER,null); state.clips=oc; state.lanes=ol; _drawFlat=odf; _roomWrap=orw; _compAspect=oca; _zsortSize=ozs; _animNido=oan; state.seqCov=ocv; c._ntex=e.tex; } }
+    _animNido += _comp; state.clips=m.nestClips||[]; state.lanes=(m.nestLanes&&m.nestLanes.length?m.nestLanes:ol); _drawFlat=flatLikeMode(m.mode); _roomWrap=false; _compAspect=(m.w||1)/(m.h||1); _zsortSize=!!(m.comp&&m.comp.kind==='tunnel'); /* [R246] el túnel se dibuja de lejos a cerca (ver composite) */ if(m.mode==='dome')state.seqCov=m.cov||180; /* [R330] la COBERTURA es de cada secuencia (`m.cov`), y este era el único dato del contexto que no se cambiaba al entrar en el nido: un nido de 200° compuesto dentro de un padre de 180° deformaba sus clips con la del PADRE (curCovDeg lee state.seqCov), así que la misma secuencia se veía de una forma abierta en su pestaña y de otra dentro del padre */ gl.bindFramebuffer(gl.FRAMEBUFFER,e.fbo); composite(lt,nestSize,false); gl.bindFramebuffer(gl.FRAMEBUFFER,null); state.clips=oc; state.lanes=ol; _drawFlat=odf; _roomWrap=orw; _compAspect=oca; _zsortSize=ozs; _animNido=oan; state.seqCov=ocv; c._ntex=e.tex; } }
 /* [R330] Aquí vivía `collectActiveVideos`, MUERTA: sólo se llamaba a sí misma. La sustituyó `collectDrawnVideoClips`, que compone ganancia y velocidad hacia dentro y no reimplementa «qué se ve» (usa `compositeClips`). Se queda la referencia porque un comentario de `collectAudioEvents` dice «mirrors collectActiveVideos»: el espejo es hoy `collectDrawnVideoClips`. */
 function nestSelection(){ const ids=(state.selIds&&state.selIds.length)?state.selIds.slice():(state.selId!=null?[state.selId]:[]); let clips=ids.map(clipById).filter(Boolean); if(!clips.length){flashStatus(T('Select clips to nest','Selecciona clips para anidar'));return;}
   pushUndo();
@@ -1647,7 +1665,8 @@ async function raPrerenderRange(t0,t1,onProg){ _raOn=true; try{fxResetHistory();
   for(let F=F0;F<=F1;F++){ const t=F/fps;
     if(!raHas(t)){ _arTime=t; await Promise.all(collectDrawnVideoClips(state.clips,state.lanes,t,0,[]).map(({c,m,local})=>vinstSeek(c,m,local))); // per-CLIP decode so nested/duplicated videos cache at their OWN local time
       prepNests(state.clips,t,0); // render active nests into their FBOs (now sampling the decoded frame for t)
-      gl.bindFramebuffer(gl.FRAMEBUFFER,compFBO); composite(t,null,false,true); gl.bindFramebuffer(gl.FRAMEBUFFER,null); raStore(t); }
+      gl.bindFramebuffer(gl.FRAMEBUFFER,compFBO); composite(t,null,false,true); gl.bindFramebuffer(gl.FRAMEBUFFER,null); raStore(t);
+      _lastSrcTex=null; } /* [R336] el adelanto acaba de PISAR compTex con otro instante: la guarda de reutilizacion tiene una rama `_lastSrcTex===compTex` que se salta la comprobacion de frescura, asi que quien ensucia la textura la invalida */
     done++; if(onProg&&(done%8===0||done===total))onProg(done,total); }
   return total; }
 let _raIdleOn=false,_raIdleT=0;
@@ -3563,7 +3582,7 @@ async function armMediaAudio(m){
        la consola, para un caso que el `catch` de abajo ya trata como normal. Mismo remedio que el export en R240·7419. */
     const buf=await new Promise((res,rej)=>{ const pr=ACTX().decodeAudioData(ab,res,rej); if(pr&&pr.catch)pr.catch(()=>{}); });
     if(!buf||!buf.length){ m._noAudio=true; m._audioBusy=false; return false; }
-    m.buffer=buf; const wv=await computeWave(buf); m.peaks=wv.peak; m.rms=wv.rms;
+    m.buffer=buf; m._bandsFail=false; /* [R336] audio recien decodificado: el fallo recordado ya no vale */ const wv=await computeWave(buf); m.peaks=wv.peak; m.rms=wv.rms;
     m._audioBusy=false; return true;
   }catch(e){ m._noAudio=true; m._audioBusy=false; return false; } // sin pista de audio, o Chromium no la sabe demuxar
 }
@@ -6215,12 +6234,12 @@ function pix2frame(px,py,P){ P=P||vpPanelAt(px,py)||vpPanels()[0];
   const st=vpState(P.surf), z=st.zoom, p=st.pan;
   const ndx=((px-P.x)/P.w*2-1), ndy=(1-(py-P.y)/P.h)*2-1; return [ndx/(z*sx)+p[0], ndy/(z*sy)+p[1]]; }
 function pickClipFlat(px,py){ const fp=pix2frame(px,py), fx=fp[0],fy=fp[1]; const A=(state.seqW||16)/(state.seqH||9), Fx=Math.min(1,A),Fy=Math.min(1,1/A), t=state.playhead; let hit=null;
-  for(const c of clipsVisibles(t)){ const m=mediaById(c.mediaId); if(!m||m.kind==='audio')continue; const P=flatPlace(c,m,t);
+  for(const c of clipsVisibles(t)){ const m=mediaById(mediaEfId(c,t)); if(!m||m.kind==='audio')continue; const P=flatPlace(c,m,t); /* [R336] el medio EFECTIVO: con un tejido barajado el visor pinta el rotado y el rectangulo de impacto salia del original */
     const cx=P.fc[0]/Fx, cy=P.fc[1]/Fy, hax=Math.abs(P.fx[0]/Fx)+Math.abs(P.fy[0]/Fx), hay=Math.abs(P.fx[1]/Fy)+Math.abs(P.fy[1]/Fy);
     if(Math.abs(fx-cx)<=hax && Math.abs(fy-cy)<=hay) hit=c; } // topmost active clip whose rect contains the cursor
   return hit; }
 /* is the cursor over THIS clip's flat rect? (R88: 2D viewport drags only the selected clip, so an overlapping top clip can't steal it) */
-function flatRectHit(c,px,py){ if(!c)return false; const m=mediaById(c.mediaId); if(!m||m.kind==='audio')return false; const t=state.playhead; if(t<c.start||t>=c.start+c.dur)return false;
+function flatRectHit(c,px,py){ if(!c)return false; const m=mediaById(mediaEfId(c,state.playhead)); if(!m||m.kind==='audio')return false; /* [R336] idem: arrastrar en el visor 2D usaba el aspecto del medio sin rotar */ const t=state.playhead; if(t<c.start||t>=c.start+c.dur)return false;
   /* [R230] se prueba en el panel del clip: si el cursor está sobre la OTRA superficie, no lo toca. */
   const CP=clipPanel(c); if(!CP)return false; if(px<CP.x||px>=CP.x+CP.w||py<CP.y||py>=CP.y+CP.h)return false;
   const fp=pix2frame(px,py,CP), fx=fp[0],fy=fp[1]; const Asurf=clipSurfA(c); const A=(Asurf!=null?Asurf:(state.seqW||16)/(state.seqH||9)), Fx=Math.min(1,A),Fy=Math.min(1,1/A); const P=flatPlace(c,m,t,Asurf);
@@ -6228,10 +6247,10 @@ function flatRectHit(c,px,py){ if(!c)return false; const m=mediaById(c.mediaId);
   return (Math.abs(fx-cx)<=hax && Math.abs(fy-cy)<=hay); }
 /* [R94e] is the cursor over THIS clip in the dome? (same rule as flatRectHit: the 2D viewport only drags the timeline-selected clip) */
 function domeClipHit(c,px,py){ if(!c)return false; const m=mediaById(c.mediaId); if(!m||m.kind==='audio')return false; const t=state.playhead; if(t<c.start||t>=c.start+c.dur)return false;
-  const f=pix2f(px,py); const ae=f2azel(f[0],f[1]); const az=evalP(c,'az',t),el=evalP(c,'el',t),size=evalP(c,'size',t);
+  const f=pix2f(px,py); const ae=f2azel(f[0],f[1]); const az=evalR(c,'az',t),el=evalR(c,'el',t),size=evalR(c,'size',t); /* [R336] gemelo de pickClip: el arrastre en el domo tambien buscaba la posicion base */
   return angDist(ae.az,ae.el,az,el) < size*0.55; }
 function pickClip(f){ const ae=f2azel(f[0],f[1]); const t=state.playhead; let hit=null;
-  for(const c of clipsVisibles(t)){ const mm=mediaById(c.mediaId); if(!mm||mm.kind==='audio')continue; const az=evalP(c,'az',t),el=evalP(c,'el',t),size=evalP(c,'size',t); const d=angDist(ae.az,ae.el,az,el); if(d<size*0.55) hit=c; } return hit; } // audio / adjustment layers aren't selectable in the dome
+  for(const c of clipsVisibles(t)){ const mm=mediaById(mediaEfId(c,t)); if(!mm||mm.kind==='audio')continue; const az=evalR(c,'az',t),el=evalR(c,'el',t),size=evalR(c,'size',t); /* [R336] `evalR`, como `drawClip`: con un Motion sobre az/el se buscaba el clip en su posicion BASE, no donde se ve */ const d=angDist(ae.az,ae.el,az,el); if(d<size*0.55) hit=c; } return hit; } // audio / adjustment layers aren't selectable in the dome
 function angDist(az1,el1,az2,el2){ const d1=dirAzEl(az1,el1),d2=dirAzEl(az2,el2); return Math.acos(Math.max(-1,Math.min(1,dot(d1,d2))))*R2D; }
 /* [A6] manual edit of a parameter (inspector drag/type/wheel, viewport move). If the param is automated,
    editing by hand OVERRIDES the envelope (Ableton-style): the curve is bypassed (kept, not deleted) and the
@@ -6919,8 +6938,12 @@ function buildAnimList(c){ const host=$('#animList'); if(!host)return; host.inne
         if(state.autoSel&&state.autoSel.cid===c.id&&state.autoSel.p===kv)state.autoSel.p=kn;
         if(state.shapeBox&&state.shapeBox.cid===c.id&&state.shapeBox.p===kv)state.shapeBox.p=kn; }
       else soltarMixSiHuerfana(c,viejo);
+      /* [R336] …y las dos limpiezas que `.animdel` si hace y aqui faltaban: la pista que tuviera la clave vieja
+         como superposicion seguia dibujando una curva que ya no existe, y sin `renderTimeline` la Shape Box
+         muerta se quedaba pintada con sus tiradores inertes. */
+      for(const l of state.lanes){ if(l._autoP&&isMotKey(l._autoP)&&!laneMotParams(state.lanes.indexOf(l)).includes(l._autoP.split(':')[1]))delete l._autoP; }
       if(habia||!libre)buildAnimList(selClip()); // el Mix de esta fila muestra otro valor: hay que repintarla
-      render(); startMotionPreview(); markDirty(); };
+      render(); renderTimeline(); startMotionPreview(); markDirty(); };
     item.querySelector('.amode').onchange=e=>{ pushUndo(); a.mode=e.target.value; if(a.mode==='wave'&&!a.amp)a.amp=15; buildAnimList(selClip()); render(); startMotionPreview(); markDirty(); };
     item.querySelector('.aspeed').onchange=e=>{ pushUndo(); a.speed=+e.target.value||0; render(); startMotionPreview(); markDirty(); };
     item.querySelector('.aamp').onchange=e=>{ pushUndo(); a.amp=+e.target.value||0; render(); startMotionPreview(); markDirty(); };
@@ -7403,7 +7426,11 @@ function bindSpecPicker(cv,m,c,onChange){
   const info=cv.parentElement.querySelector('.mpspecinfo');
   const setInfo=()=>{ if(!info)return; const _v=modVentana(m); info.textContent=_v?(Math.round(_v.lo)+' – '+Math.round(_v.hi)+' Hz'):T('Drag across the spectrum to pick a band','Arrastra sobre el espectro para elegir una banda'); };
   setInfo();
-  cv.addEventListener('pointerdown',e=>{ e.stopPropagation(); const r=cv.getBoundingClientRect(); const W=cv._W||r.width; const px=e.clientX-r.left;
+  /* [R336] El arrastre empuja deshacer AL AGARRAR, como los demas del panel (`mpdep`, `mpbl`, la mezcla…).
+     R328 recorrio los controles de capa y se dejo este: arrastrar una ventana de frecuencia sobre el espectro
+     —o el doble clic que la borra— reescribia `m.f0`/`m.f1` sin foto, asi que el Ctrl+Z siguiente revertia la
+     edicion ANTERIOR y la ventana se perdia igual. Una sola foto por gesto, no una por pixel del arrastre. */
+  cv.addEventListener('pointerdown',e=>{ e.stopPropagation(); pushUndo(); const r=cv.getBoundingClientRect(); const W=cv._W||r.width; const px=e.clientX-r.left;
     const _vw=modVentana(m); const inWin=!!_vw&&px>=specX(_vw.lo,W)-3&&px<=specX(_vw.hi,W)+3;
     const f0=specF(px,W); const startLo=m.f0, startHi=m.f1;
     const mv=ev=>{ const p2=ev.clientX-r.left;
@@ -8210,12 +8237,20 @@ function vinstEnsure(c,m){ if(!m||(m.kind!=='video' && !(m.kind==='nest'&&ncUsab
      NADA — se dibujaba el medio rotado (su tamaño, su aspecto, su LUT) con los fotogramas del original — y en
      imágenes sí funcionaba, así que el fallo sólo aparecía con tejidos de vídeo. Cambiar de medio tira el
      decodificador viejo y desata el `<video>`; `mid` también cierra la carrera del demux en vuelo. */
-  if(vi.mid!=null && vi.mid!==m.id){ if(vi.cd){ try{vi.cd.close();}catch(e){} vi.cd=null; } vi.cdPending=false; vi.cdReadyP=null; vi.vsrc=null; vi.ready=false; vi.vf=0; }
+  if(vi.mid!=null && vi.mid!==m.id){ if(vi.cd){ try{vi.cd.close();}catch(e){} vi.cd=null; } vi.cdPending=false; vi.cdReadyP=null; vi.vsrc=null; vi.ready=false;
+    /* [R336] `vi.vf=0` a pelo TIRABA el manejador sin cancelar nada: el callback del medio anterior seguia
+       disparando sobre su `<video>`, subiendo sus fotogramas a la misma textura y re-armandose — y como el
+       manejador se habia perdido, `vinstDispose` ya no podia cancelarlo y el callback sobrevivia al
+       `deleteTexture`. `stopVFClip` existe justo para esto. El elemento viejo se para, ademas, o sigue
+       decodificando en segundo plano un archivo que este clip ya no ensena. */
+    try{ stopVFClip(vi); }catch(e){}
+    try{ if(vi.vel&&!vi.vel.paused)vi.vel.pause(); }catch(e){}
+    vi.gen=(vi.gen||0)+1; }
   vi.mid=m.id;
   if(_useCD(m)){ // WebCodecs path: kick off the demux once; the <video> stays unbound (no second decoder competing)
     if(!vi.cd && !vi.cdPending){ vi.cdPending=true;
-      const exNow=_exCD, midNow=m.id;
-      vi.cdReadyP=demuxMP4(m.path).then(dd=>{ if(_vinst.get(c.id)!==vi||vi.mid!==midNow){ try{dd.close();}catch(e){} return; } vi.cd=makeClipDecoder(dd,exNow); }).catch(e=>{ m._cdFail=true; }).finally(()=>{ if(vi.mid===midNow)vi.cdPending=false; }); } // [R108-rev M1] compare IDENTITY not has(): a recycled vi (LRU dispose + re-add mid-demux) would orphan a zombie decoder (fd + VideoFrame leak + spinning pump) · [R330] + `mid`: un demux en vuelo del medio ANTERIOR no puede pisar al del nuevo
+      const exNow=_exCD, midNow=m.id, genNow=(vi.gen=(vi.gen||0)+1); /* [R336] `gen` identifica ESTE intento: con `mid` a secas, rotar A->B->A dejaba pasar el demux de la primera A y el segundo lo pisaba sin cerrarlo */
+      vi.cdReadyP=demuxMP4(m.path).then(dd=>{ if(_vinst.get(c.id)!==vi||vi.mid!==midNow||vi.gen!==genNow){ try{dd.close();}catch(e){} return; } vi.cd=makeClipDecoder(dd,exNow); }).catch(e=>{ m._cdFail=true; }).finally(()=>{ if(vi.mid===midNow&&vi.gen===genNow)vi.cdPending=false; }); } // [R108-rev M1] compare IDENTITY not has(): a recycled vi (LRU dispose + re-add mid-demux) would orphan a zombie decoder (fd + VideoFrame leak + spinning pump) · [R330] + `mid`: un demux en vuelo del medio ANTERIOR no puede pisar al del nuevo
   } else {
     if(vi.cd){ try{vi.cd.close();}catch(e){} vi.cd=null; }                                  // fell back to <video> (proxy became ready / export)
     bindVideoSrc(vi,url);
@@ -8940,7 +8975,7 @@ let _nv12=null;
 /* ¿Cabe el FBO que hace falta? A 4096² son 1024×6144. Aquí sobra, pero se sondea: si una GPU no lo admite, el
    export tiene que poder caer al camino RGBA en vez de fallar. */
 function nv12Cabe(W,H){ try{
-  const need=Math.max((W+3)>>2, H+(H>>1)); // [R331] el empaquetado redondea hacia arriba: la sonda tiene que medir lo mismo que se reserva
+  const need=Math.max((W+3)>>2, H+Math.ceil(H/2)); // [R331] el empaquetado redondea hacia arriba: la sonda tiene que medir lo mismo que se reserva
   return need<=Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE)||0, gl.getParameter(gl.MAX_RENDERBUFFER_SIZE)||0);
 }catch(e){ return false; } }
 let _nv12Prog=null,_nv12Vacia=null; // [R331] lo reutilizable, guardado FUERA del descriptor: ver abajo
@@ -8957,7 +8992,7 @@ function nv12Prep(W,H){
      miden en píxeles a mano, así que es de lo más normal— cada fila del empaquetado perdía las últimas 1-3
      columnas Y quedaba más corta que la fila NV12 que espera el codificador: la imagen entera salia sesgada en
      diagonal, no sólo recortada. Se empaqueta redondeando hacia ARRIBA y `nv12Read` compacta las filas. */
-  const oW=(W+3)>>2, oH=H+(H>>1);
+  const oW=(W+3)>>2, oH=H+Math.ceil(H/2); /* [R336] `H>>1` redondeaba el plano de croma HACIA ABAJO: con altura impar el bufer quedaba una fila corto de lo que FFmpeg lee (`W*H + W*ceil(H/2)`) y el flujo se desplazaba un poco mas en cada fotograma. Con altura par —el caso normal— es exactamente el mismo numero; el shader ya clampa la fila fuente, asi que la fila extra repite el croma de la ultima */
   const tex=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,tex);
   gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,oW,oH,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);
@@ -10813,7 +10848,7 @@ function deleteSequenceMedia(id,sinPreguntar){ const m=mediaById(id); if(!isSeqM
     /* [R334] …y el PADRE que la contenía mide otra cosa: `m.dur` de una secuencia es un dato GUARDADO (lo usan
        el clip anidado y el panel), y quitarle su clip más largo lo dejaba con la duración vieja — un clip del
        abuelo podía seguir estirado sobre contenido que ya no existe. Se recalcula en los que pierden clips. */
-    for(const s of state.media)if(isSeqMedia(s)&&s.nestClips){ const antes=s.nestClips.length; s.nestClips=s.nestClips.filter(c=>c.mediaId!==id); if(s.nestClips.length!==antes)s.dur=seqDur(s); } // remove orphan nest clips that referenced the deleted sequence
+    for(const s of state.media)if(isSeqMedia(s)&&s.nestClips){ const antes=s.nestClips.length; s.nestClips=s.nestClips.filter(c=>c.mediaId!==id); if(s.nestClips.length!==antes){ s.dur=seqDur(s); clampNestInstances(s.id); } } /* [R336] + `clampNestInstances`, la companyera con la que `saveActiveSeq` siempre empareja `seqDur`: sin ella el clip del ABUELO seguia estirado sobre contenido que ya no existe, que es justo lo que R334 decia cerrar */ // remove orphan nest clips that referenced the deleted sequence
     { const as=activeSeq(); if(as)as.nestClips=state.clips; } // re-heal the state.clips ⇄ activeSeq().nestClips alias broken by the filters above
     if(!state.openSeqs.length)state.openSeqs=[state.media.filter(isSeqMedia)[0].id];
     if(wasActive){ state.activeSeqId=state.openSeqs[state.openSeqs.length-1]; loadSeqIntoState(activeSeq()); }
@@ -11919,7 +11954,7 @@ async function replaceMedia(m,ruta){ if(!IS_ELEC)return;
   let sz=0; try{ const st=await DSP.stat(p); sz=(st&&st.size)||0; }catch(e){}
   bumpMeta(true); /* [R253d] reparar un medio ausente no es una edicion deshacible, pero si marca version: una foto anterior no puede devolverle el nombre del archivo perdido */
   m.path=p; m.fsize=sz; m.name=DSP.basename(p); m.missing=false; delete m._plazo;
-  m.proxyReady=false; m.proxyPct=0; m.proxyUrl=null; m.proxyEl=null; m._proxyForce=false; m.bands=null; m._bandsBusy=false; m._bandsFail=false; // [R334] el material cambia: el fallo recordado ya no vale m.thumb=null; m._texW=null; m._texH=null; m.peaks=null; m.rms=null; m.buffer=null;
+  m.proxyReady=false; m.proxyPct=0; m.proxyUrl=null; m.proxyEl=null; m._proxyForce=false; m.bands=null; m._bandsBusy=false; m._bandsFail=false; /* [R334] el material cambia: el fallo recordado ya no vale — [R336] con comentario de BLOQUE: la version de linea se comio las seis asignaciones siguientes y el buffer viejo seguia sonando en la mezcla y en el export */ m.thumb=null; m._texW=null; m._texH=null; m.peaks=null; m.rms=null; m.buffer=null;
   /* [R322] El ESPECTRO también, que se quedaba fuera. `m.bands` (las cuatro bandas con nombre) sí se recalculaba,
      pero `m.spec` no, y `armMediaSpectrum` se niega a recomputar mientras `m.spec` esté puesto: al cambiar el
      archivo de audio de un clip reactivo, los moduladores de RANGO A MEDIDA seguían animando al ritmo de la
@@ -12609,11 +12644,18 @@ function _soltarRecursosClips(ids){
      .clip` es el objeto, no un id, así que seguía vivo y todos sus consumidores (`bandLevelAt`, `fxTrigEnv`,
      `specColAt`…) leían el `start`/`dur` de un clip que ya no está en la línea de tiempo: los efectos seguían
      reaccionando a una canción borrada. `arRecompute` no encuentra fuente y deja la caché en null. */
-  if(_arCache&&_arCache.clip&&set.has(_arCache.clip.id)){ _arCache=null; try{arRecompute();}catch(e){} } }
+  if(_arCache&&_arCache.clip&&set.has(_arCache.clip.id))_arReataPend=true; }
+/* [R336] …y la reconstruccion va DESPUES de que los clips salgan de verdad. Poniendola aqui dentro, `arRecompute`
+   corria mientras `state.clips` todavia los contenia (los dos llamadores filtran en la linea siguiente), asi que
+   `reactiveSourceClip()` encontraba el clip condenado y volvia a atar `_arCache` a el: el arreglo de R332 era
+   inerte en el camino principal, y su red pasaba porque nunca puso `srcClipId` apuntando al clip. */
+let _arReataPend=false;
+function _reataReactivo(){ if(!_arReataPend)return; _arReataPend=false; _arCache=null; try{arRecompute();}catch(e){} }
 function _quitarClips(ids){
   if(!ids||!ids.length)return;
   _soltarRecursosClips(ids);
-  state.clips=state.clips.filter(x=>!ids.includes(x.id)); }
+  state.clips=state.clips.filter(x=>!ids.includes(x.id));
+  _reataReactivo(); }
 function deleteSel(){ const ids=(state.selIds&&state.selIds.length)?state.selIds.slice():(state.selId!=null?[state.selId]:[]); if(!ids.length)return; diag('info','clip','delete',{n:ids.length}); pushUndo();
   _quitarClips(ids);
   state.selId=null; state.selIds=[]; renderTimeline();renderInspector();render();updStatus(); reschedAudio(); }
@@ -14907,7 +14949,13 @@ async function computeBands(ab){ if(typeof OfflineAudioContext==='undefined'||!a
 /* [R334] `_bandsFail`: si el analisis falla, `m.bands` se queda en null y la guarda de arriba deja pasar la
    siguiente llamada — y esto se llama desde cada repintado del panel reactivo, asi que un audio que no se
    puede analizar relanzaba la FFT entera una y otra vez, con su aviso de «Analizando bandas…» parpadeando.
-   Se recuerda el fallo. Reimportar el medio o regenerar su proxy lo limpia (ver donde se resetea `m.bands`). */
+   Se recuerda el fallo.
+   [R336] …y se OLVIDA cuando el material cambia de verdad, que era el resto del trabajo: el pestillo solo se
+   limpiaba en `replaceMedia`, asi que un fallo transitorio —un OfflineAudioContext que no arranca porque un
+   export esta ocupando el audio— dejaba ese medio sin bandas para el resto de la sesion, con el panel reactivo
+   mudo y todos sus efectos a cero en el export. Se limpia allá donde se (re)decodifica el audio (`m.buffer`),
+   que es lo unico que puede cambiar el resultado. El flag no se serializa (`serMedia` es lista blanca), asi que
+   una sesion nueva siempre vuelve a intentarlo. */
 function armMediaBands(m,ab){ if(!m||m.bands||m._bandsBusy||m._bandsFail)return; if(!ab)ab=m.buffer; if(!ab)return; m._bandsBusy=true;
   try{ flashStatus(T('Analyzing audio bands…','Analizando bandas de audio…')); }catch(e){}
   computeBands(ab).then(bd=>{ m._bandsBusy=false; if(!bd){ m._bandsFail=true; return; } m.bands=bd; if(reactiveSourceMedia()===m){ arRecompute(); raInvalidate(); try{render();}catch(e){} if(state.inspTab==='react')renderReactivePanel(); } try{ flashStatus(T('Audio bands ready','Bandas de audio listas')); }catch(e){}
@@ -14986,7 +15034,12 @@ function fxLfoVal(fx,t){ const cfg=ensureReactive(); const bpm=(cfg.bpm>0?cfg.bp
     default: return 0.5-0.5*Math.cos(ph*6.283185307179586); } }
 function fxModLevel(fx){ const t=_arTime; let v;
   if(fx.mode==='lfo') v=fxLfoVal(fx,t);
-  else if(fx.mode==='trigger') v=fxTrigEnv(fx,t);
+  else if(fx.mode==='trigger'){ /* [R336] mismo trato que la rama de bandas: `fxTrigEnv` devuelve un 0 pelado en
+      CINCO caminos de «no hay datos» (sin cache, fuera del clip fuente, sin onsets, sin onset anterior, d<0) y
+      pasarlo por `fxShape` con INV lo convierte en 1 — el efecto de disparo invertido se quedaba al 100 % antes y
+      despues de la cancion, y durante un export entero sin bandas. R335 arreglo una rama y dejo la gemela. */
+    const c0=_arCache&&_arCache.clip; if(!c0||t<c0.start||t>c0.start+c0.dur)return 0;
+    v=fxTrigEnv(fx,t); }
   else { if(!fx.band||fx.band==='none')return 0; // no source → static effect (int only), invert intentionally not applied
     /* [R335] …y los OTROS tres «sin fuente» merecían el mismo trato, que era el gemelo olvidado: sin caché de
        bandas, fuera del clip que suena, o sin envolvente, se caía a `v=0` y seguía hasta `fxShape`, que con INV
