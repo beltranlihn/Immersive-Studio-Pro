@@ -1,5 +1,25 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 337 — El churn de VRAM, y un inventario que ya no decía la verdad
+
+- **El ping-pong de FX se reasignaba cuatro veces por fotograma.** Hay DOS cadenas con tamaños distintos
+  corriendo en el mismo fotograma — la de un clip a `fxChainSize()` (1280 en previsualización) y la de una capa
+  de ajuste al tamaño del composite (2048 en domo)— y los dos destinos del ping-pong eran **una pareja única**.
+  Alternar entre ambas hacía cuatro `texImage2D` de reasignación por fotograma, dos de ellas de 2048² RGBA
+  (16 MB cada una), sólo para dejarlo como estaba. Ahora hay un destino por tamaño. Medido contando las
+  reservas de verdad, no el tiempo: **4 la primera vez y 0 en los veinte fotogramas siguientes**.
+- **Y el inventario dejó de decir la verdad.** Al verificar los «20 pendientes» en el código antes de tocar
+  nada, **dos de cada tres ya estaban cerrados** por rondas anteriores: la estimación HAP ×16 (R319), la
+  limpieza del bucle FFmpeg (R310·A4), `repararRuta` con homónimos y `detectFps` con clips cortos (R327)…
+  Una lista de pendientes copiada de un informe envejece igual que un comentario. §12bis del informe queda
+  reescrita con lo verificado, lo que falta por verificar y los dos que de verdad quedan.
+
+**Lo que queda abierto de verdad:** los dos del decodificador (`edts/elst` y el salto atrás con vecino ≤2
+fotogramas). **No se tocan a ciegas**: piden un MP4 con edit list y otro de GOP largo para medir antes y después.
+
+**Verificación:** `scratchpad/r337-verif.mjs`. **Diecisiete redes en verde** y `npm test` 6/6.
+
+
 ## ROUND 336 — Las quince de la revisión (cuatro eran regresiones propias)
 
 Revisión a máximo esfuerzo sobre R328-R335. **Cuatro hallazgos eran regresiones que introduje al arreglar**, y

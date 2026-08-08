@@ -449,31 +449,35 @@ canónica y regla escrita; el **patrón 6** (diálogos apilables) está resuelto
 SU caso. Ocho de las trece regresiones fueron «arreglar la copia y dejar el original». **Antes de cerrar un
 arreglo: `grep` del patrón en todo el fichero; si sale más de uno, van todos o no va ninguno.**
 
-**Queda pendiente (a R335).** Cerradas ya casi todas las de §9 y buena parte de §10. **Ojo: parte del inventario
-original ya estaba cerrado por rondas anteriores** — se comprobó en el código antes de tocar nada: `flatPlace`
-con Scale=0, el rombo `hasKf` del Mix, `_modAudioCache`, los scopes durante el arrastre, `CSS.escape`, los
-object URLs, el punto en vivo de Spout, el ✕ de la barra, el `largesize` del `.mov`, la guarda de reentrada de
-`runExport`, `M/I/O/X/D` con modificadores, `Rebarajar` y la coerción de `kind` a 'grid'.
+**Queda pendiente (a R337).** El inventario se ha ido verificando EN EL CODIGO antes de tocar nada, y la
+conclusion importante es que **la mayor parte de lo que la lista daba por abierto ya estaba cerrado** por rondas
+anteriores. Comprobados uno a uno y CERRADOS ya: `flatPlace` con Scale=0, el rombo `hasKf` del Mix,
+`_modAudioCache`, los scopes durante el arrastre, `CSS.escape`, los object URLs, el punto en vivo de Spout, el
+✕ de la barra, el `largesize` del `.mov`, la guarda de reentrada de `runExport`, `M/I/O/X/D` con modificadores,
+`Rebarajar`, la coercion de `kind` a 'grid', la estimacion HAP ×16 (R319), la limpieza del bucle FFmpeg en
+excepcion (R310·A4), `repararRuta` con homonimos (R327) y `detectFps` con clips cortos (R327).
 
-Lo que sigue ABIERTO, por orden de valor:
+**La leccion:** una lista de pendientes copiada de un informe envejece igual que un comentario. Antes de abrir
+una ronda hay que releer el codigo, no la lista — en este barrido, dos de cada tres «pendientes» ya no existian.
 
-- **Decodificador (los dos más caros de investigar):** el demuxador ignora `edts/elst` → fuentes con edit list
-  real muestran fotogramas corridos entre previsualización y export (7403) · salto atrás con un vecino ≤2
-  fotogramas en caché: ni reinicio ni la rama de atasco de R256 disparan → 10 s muertos y `_cdFail` degrada
-  todo el medio (7472).
-- **Export:** el horneado de caché de nest pasa por `chapaLienzo` y en domo recorta las esquinas del cuadrado
-  (8783) · la estimación de tamaño HAP multiplica ×16 de más (9553) · en excepción del bucle FFmpeg se saltan
-  la limpieza del WAV temporal y las texturas de la chapa (8646).
-- **Medios y salidas:** dos entradas Spout comparten conexión (2114) · dedup de import por nombre+tamaño
-  descarta archivos distintos (2596) · `detectFps` espera el plazo entero con clips cortos (2851) ·
-  `attachLinkedAudio` aborta sin reintento (3343) · `repararRuta` elige el primer homónimo en silencio (10936).
-- **Render/UI:** máscara pen sobre nido arranca invisible (1173) · muro de ancho 0 → NaN (1092) · la vista
-  previa de Cuadrícula/Aleatorio en domo dibuja el esquema PLANO (12879) · Escape del compose cierra también el
-  monitor (13072) · el monitor puede abrir con marcas invertidas (13400) · rótulo «6 elementos» del tejido
-  (13137) · el ping-pong de FX se realoja 1280↔2048 cada fotograma con capa de ajuste (14117) · undo muerto en
-  la herramienta T sin arrastre (4938).
-- **Decisión de producto:** el panel de modulación sigue sin puerta (`openModPanel`, 0 llamadores). El motor
-  está vivo y desde R333 el dibujo lo respeta en TODOS los parámetros: o se le da entrada, o se retira con ADR.
+Lo que sigue REALMENTE abierto, verificado a R337:
+
+- **Decodificador (los dos mas caros, y los unicos que piden material de prueba real):** el demuxador ignora
+  `edts/elst` — no hay una sola aparicion de esas cajas en `app.js`—, asi que una fuente con edit list real
+  muestra fotogramas corridos entre la previsualizacion (`<video>`, que si la respeta) y el export (WebCodecs,
+  que no) · salto atras con un vecino ≤2 fotogramas en cache: ni el reinicio ni la rama de atasco de R256
+  disparan, y el export se come 10 s muertos antes de marcar `_cdFail` y degradar el medio entero.
+  **No se tocan a ciegas:** hacen falta un MP4 con edit list y otro de GOP largo para medir antes y despues.
+- **Sin verificar todavia** (la lista los da por abiertos pero no se ha leido su codigo): el horneado de cache de
+  nest y las esquinas del cuadrado en domo (8783) · dos entradas Spout compartiendo conexion (2114) · dedup de
+  import por nombre+tamanyo (2596, solo afecta al camino de navegador: en Electron la clave es la ruta absoluta)
+  · `attachLinkedAudio` sin reintento (3343) · mascara pen sobre nido invisible (1173) · muro de ancho 0 (1092)
+  · vista previa de compose en domo con esquema plano (12879) · Escape del compose y el monitor (13072) ·
+  monitor con marcas invertidas (13400) · rotulo «6 elementos» del tejido (13137) · undo muerto de la
+  herramienta T (4938).
+- **Decision de producto:** el panel de modulacion sigue sin puerta (`openModPanel`, 0 llamadores). El motor esta
+  vivo y desde R333 el dibujo lo respeta en TODOS los parametros, y desde R336 su selector de espectro se
+  deshace como el resto: o se le da entrada, o se retira con un ADR.
 
 ## 12 · Plan actualizado (sustituye al P0/P1 de la Parte 1 en lo que toca a bugs)
 

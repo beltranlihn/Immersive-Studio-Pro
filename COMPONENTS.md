@@ -476,7 +476,7 @@ Constants (L3): `PI`, `HALF_PI=PI/2`, `D2R`, `R2D`, `COMP=2048` (dome composite 
 - **Roadmap:** [color-grade-r116] (other map)
 
 ## Post-process program factory (VSPP / ppCompile / _ppVAO)
-- **Purpose:** Shared full-screen-quad vertex shader + compile helper + VAO for the ping-pong FBO post/FX chain. Note: the FX/post fragment shaders themselves (fisheye pre-warp, keyer, bloom, FXTYPES, mix, DXT-for-HAP) belong to other subsystems; listed here only as the GL infra they share.
+- **Purpose:** Shared full-screen-quad vertex shader + compile helper + VAO for the ping-pong FBO post/FX chain. **[R337]** los dos destinos del ping-pong (`_ppRT`) se guardan **por TAMAÑO**: hay dos cadenas con tamaños distintos en el MISMO fotograma — la de un clip a `fxChainSize()` (1280 en previsualización) y la de una capa de ajuste al tamaño del composite (2048 en domo)— y con una pareja única cada fotograma hacía cuatro `texImage2D` de reasignación, dos de ellas de 2048² RGBA. `freeFxResources` vacía el mapa entero. Note: the FX/post fragment shaders themselves (fisheye pre-warp, keyer, bloom, FXTYPES, mix, DXT-for-HAP) belong to other subsystems; listed here only as the GL infra they share.
 - **Location:** app.js · `VSPP` (~L6534), `ppCompile(fs)` (~L6536), `_ppVAO` (~L6537). Consumers: `_FISH` (~L6547), `_KEY` (~L6565), `FXTYPES` compile loop (~L6704), `_BLOOM_BP/_BL/_MX` (~L6706-6714), `PMIX`/`LMIX` (~L6773-6776), DXT progs via `ppCompile` (~L4624).
 - **Key symbols:** `VSPP`, `ppCompile` (binds attrib 0 = `a_p`), `_ppVAO`
 - **Invariants / gotchas:** `ppCompile` uses `bindAttribLocation(p,0,'a_p')` before link (fixed attrib slot 0) — different from the main programs that read locations back. Fragment-math (fisheye k, keyer, bloom, HAP DXT) owned elsewhere.
