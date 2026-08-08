@@ -1,0 +1,112 @@
+/* [R319] Tanda de MEDIA de la auditoría — los que se notan en uso normal.
+     1 · el rombo del Mix se pintaba SIEMPRE (usaba `hasKf`, la FUNCIÓN global, siempre truthy)
+     2 · la estimación de tamaño de HAP se iba ×16 (bpb son bytes por BLOQUE, no por píxel)
+     3 · los dos códecs por FFmpeg se ofrecían sin comprobar que el binario exista
+     4 · el punto «en vivo» de una entrada Spout leía la bandera de NDI
+     5 · cambiar la resolución de NDI/Spout con la salida viva duplicaba el contador de powerSave
+     6 · una escala de 0 se convertía en 100: el clip reaparecía a tamaño completo
+     7 · abrir un `.isp` dañado por el menú dejaba `currentPath` apuntando al archivo nuevo
+     8 · «Rebarajar» + Cancelar dejaba la bandera pegada y rebarajaba en la siguiente recomposición
+   Uso:  npx electron . --remote-debugging-port=9222   y luego   node scratchpad/r319-verif.mjs
+*/
+import http from 'http';
+const targets = await new Promise((res,rej)=>{ http.get({host:'127.0.0.1',port:9222,path:'/json/list'},r=>{
+  let b=''; r.on('data',c=>b+=c); r.on('end',()=>res(JSON.parse(b))); }).on('error',rej); });
+const pg = targets.find(x=>x.type==='page'&&x.webSocketDebuggerUrl&&/index\.html/.test(x.url));
+if(!pg){ console.log('*** la aplicacion no esta abierta con --remote-debugging-port=9222'); process.exit(1); }
+const ws = new WebSocket(pg.webSocketDebuggerUrl); await new Promise(r=>ws.onopen=r);
+let _id=0; const pend=new Map();
+ws.onmessage = e => { const m=JSON.parse(e.data); if(m.id&&pend.has(m.id)){ pend.get(m.id)(m); pend.delete(m.id); } };
+const ev = expr => new Promise((res,rej)=>{ const i=++_id; pend.set(i,r=>{
+    if(r.error) return rej(new Error(JSON.stringify(r.error)));
+    if(r.result.exceptionDetails) return rej(new Error(r.result.exceptionDetails.exception?.description||'excepcion'));
+    res(r.result.result.value); });
+  ws.send(JSON.stringify({id:i,method:'Runtime.evaluate',params:{expression:expr,awaitPromise:true,returnByValue:true,timeout:120000}})); });
+
+let fallos=0; const mal=m=>{ console.log('   *** '+m); fallos++; };
+const bien=m=>console.log('   ✓ '+m);
+
+/* Varios de estos viven en el FUENTE (plantillas, listas de códecs), donde mirar el texto es la comprobación
+   honesta. Se limpian los comentarios antes — la lección de R315/R318: analizar fuente sin limpiar es analizar
+   también lo que se dice DE él. */
+console.log('\n── comprobaciones sobre el fuente ──');
+const f = await ev(`(async()=>{ try{
+  const bruto=await (await fetch('app.js')).text();
+  const t=bruto.replace(/\\/\\*[\\s\\S]*?\\*\\//g,' ').replace(/\\/\\/[^\\n]*/g,' ');
+  return {
+    rombo   : /\\$\\{wetPct\\}%\\$\\{hasWK\\?/.test(t) && !/\\$\\{wetPct\\}%\\$\\{hasKf\\?/.test(t),
+    hap     : /Math\\.ceil\\(p\\.w\\/4\\)\\*Math\\.ceil\\(p\\.h\\/4\\)\\*F\\.bpb\\*n\\*0\\.85/.test(t),
+    ffProbe : /if\\(c\\.ff\\)\\{ filas\\.push\\(\\{c,cabe:await ffDisponible\\(\\)/.test(t),
+    spLive  : /m\\.kind==='spout'\\)\\?m\\._spLive:m\\._ndiLive/.test(t),
+    psNdi   : /function startNDI\\(res\\)\\{ if\\(_ndiOn\\)stopNDI\\(\\)/.test(t),
+    psSpout : /function startSpout\\(res\\)\\{ if\\(_spoutOn\\)stopSpout\\(\\)/.test(t),
+    openTry : /const _rutaPrev=currentPath; currentPath=p; hideLanding\\(\\);\\s*try\\{ loadProject/.test(t),
+  };
+}catch(e){ return {err:String(e&&e.message||e)}; } })()`);
+if(f.err) mal('no se pudo leer el fuente: '+f.err);
+else{
+  const casos=[['rombo','el rombo del Mix usa la local hasWK, no la funcion global'],
+               ['hap','la estimacion HAP ya no multiplica por 16'],
+               ['ffProbe','el panel sondea FFmpeg antes de ofrecer sus codecs'],
+               ['spLive','el punto en vivo distingue Spout de NDI'],
+               ['psNdi','startNDI para la salida anterior antes de relanzar'],
+               ['psSpout','startSpout hace lo mismo'],
+               ['openTry','abrir por el menu captura y conserva la ruta anterior']];
+  for(const [k,txt] of casos){ if(f[k])bien(txt); else mal('NO aplicado: '+txt); }
+}
+
+/* ── 6 ── La escala 0, medida sobre el render real. */
+console.log('\n── una escala de 0 no reaparece a tamaño completo ──');
+const e6 = await ev(`(async()=>{ try{
+  await newProject('flat',1920,1080,30,180,true); if(typeof hideLanding==='function')hideLanding();
+  const LV=state.lanes.findIndex(l=>l.kind!=='audio');
+  _demoAddShape('rect','#FFFFFF',LV,0,4,{x:0,y:0,scale:100});
+  const c=state.clips[state.clips.length-1]; state.selId=c.id;
+  state.playhead=1;
+  c.props.scale=100; render();
+  const grande=(()=>{ const px=new Uint8Array(4); gl.readPixels(Math.floor(glc.width/2),Math.floor(glc.height/2),1,1,gl.RGBA,gl.UNSIGNED_BYTE,px); return px[0]; })();
+  c.props.scale=0; render();
+  const cero=(()=>{ const px=new Uint8Array(4); gl.readPixels(Math.floor(glc.width/2),Math.floor(glc.height/2),1,1,gl.RGBA,gl.UNSIGNED_BYTE,px); return px[0]; })();
+  return {grande,cero};
+}catch(e){ return {err:String(e&&e.message||e)}; } })()`);
+if(e6.err) mal('no se pudo evaluar: '+e6.err);
+else{
+  console.log('   pixel central: '+e6.grande+' con escala 100 → '+e6.cero+' con escala 0');
+  if(e6.grande<80) mal('la forma no se veia ni con escala 100: la prueba no mide nada');
+  else if(e6.cero>=80) mal('con escala 0 el clip SIGUE a tamaño completo ('+e6.cero+')');
+  else bien('con escala 0 el clip desaparece, como debe');
+}
+
+/* ── 8 ── Rebarajar y cancelar no deja la bandera pegada. */
+console.log('\n── «Rebarajar» + Cancelar no deja la bandera puesta ──');
+const e8 = await ev(`(async()=>{ try{
+  await newProject('dome',1024,1024,30,180,true); if(typeof hideLanding==='function')hideLanding();
+  _demoAddShape('rect','#888',0,0,2,{az:0,el:45,size:40});
+  _demoAddShape('rect','#444',0,2,2,{az:90,el:45,size:40});
+  const ids=state.media.filter(m=>m.kind==='shape').map(m=>m.id);
+  state.selMediaIds=ids.slice(); state.selMediaId=ids[0];
+  openCompose(); await new Promise(z=>setTimeout(z,300));
+  const go=document.querySelector('#cGo'); if(go)go.click();      // crear la composicion
+  await new Promise(z=>setTimeout(z,400));
+  const nest=state.media.filter(m=>m.kind==='nest'&&m.comp).pop();
+  if(!nest) return {err:'no se creo la composicion'};
+  const antes=!!nest.comp._orderR;
+  openCompose(null,nest.comp,nest); await new Promise(z=>setTimeout(z,300));
+  const crs=document.querySelector('#cReshuffle'); if(!crs) return {err:'no hay boton Rebarajar'};
+  crs.click(); await new Promise(z=>setTimeout(z,150));
+  const durante=!!nest.comp._orderR;
+  if(_cerrarComp)_cerrarComp();                                    // CANCELAR (cerrar sin Aplicar)
+  await new Promise(z=>setTimeout(z,200));
+  const despues=!!nest.comp._orderR;
+  return {antes,durante,despues};
+}catch(e){ return {err:String(e&&e.message||e)}; } })()`);
+if(e8.err) mal('no se pudo evaluar: '+e8.err);
+else{
+  console.log('   _orderR: '+e8.antes+' al entrar → '+e8.durante+' tras pulsar Rebarajar → '+e8.despues+' tras Cancelar');
+  if(!e8.durante) mal('pulsar Rebarajar no marco nada: la vista previa no mostraria el reparto nuevo');
+  else if(e8.despues!==e8.antes) mal('Cancelar dejo la bandera pegada: la siguiente recomposicion rebarajaria sola');
+  else bien('Cancelar devuelve la bandera a como estaba');
+}
+
+console.log('\n'+(fallos?'*** '+fallos+' FALLOS':'la tanda de MEDIA queda verificada'));
+ws.close(); process.exit(fallos?1:0);

@@ -1,5 +1,46 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 319 — Ocho MEDIA de los que se notan usando el programa
+
+Primera tanda del inventario de MEDIA de la auditoría, elegida por lo que aparece en un día normal de trabajo.
+
+- **El rombo del Mix se pintaba siempre.** `${wetPct}%${hasKf?' ◆':''}` usaba `hasKf`, que es la FUNCIÓN
+  global y por tanto siempre truthy; la local se llama `hasWK`. Resto del refactor de R224, que la renombró en
+  las dos líneas de al lado y olvidó la interpolación.
+- **La estimación de tamaño de HAP se iba ×16.** `bpb` son bytes por BLOQUE de 4×4 (8 en DXT1, 16 en DXT5), no
+  por píxel. Un HAP de 4096² a 60 fps de un minuto se anunciaba en **~390 GB** cuando el archivo real ronda los
+  **24** — bastante para descartar el formato, o para salir a comprar disco.
+- **Los dos códecs por FFmpeg se ofrecían sin comprobar que el binario exista.** En una máquina sin FFmpeg el
+  desplegable los listaba igual, Exportar quedaba pulsable y el trabajo moría en marcha. Ahora se sondea una vez
+  por sesión (`ffProbe` lanza el binario, así que se cachea) y, si no está, salen marcados como el resto de lo
+  que no cabe aquí.
+- **El punto «en vivo» de una entrada Spout leía la bandera de NDI** (`_ndiLive` en vez de `_spLive`): se
+  quedaba apagado para siempre aunque estuviera recibiendo. El texto de al lado ya distinguía los dos desde
+  [V3]; el punto se quedó atrás.
+- **Cambiar la resolución de NDI o Spout con la salida viva dejaba el equipo sin dormir.** El menú llama a
+  `startNDI(otraRes)` sin parar la anterior, así que `powerSave(true)` se contaba dos veces mientras `stopNDI`
+  descuenta una: el contador de `main.js` se quedaba en 1 **para siempre** y el bloqueo de suspensión no se
+  liberaba hasta cerrar la app. Ahora se para antes de relanzar.
+- **Una escala de 0 se convertía en 100.** `evalR(c,'scale',t)||100` trataba el 0 como «sin valor», y el rango
+  declarado de Scale es 0..1000: el clip **reaparecía a tamaño completo justo en el fotograma en que debía ser
+  invisible**. Medido en la sonda sobre el píxel central: 255 con escala 100, 16 con escala 0.
+- **Abrir un `.isp` dañado por el menú dejaba el proyecto en peligro.** `loadProject` no captura, y el menú
+  Abrir tampoco: un archivo que parsea como JSON pero con la estructura rota revienta a mitad — medios del
+  proyecto anterior ya liberados, historial borrado y **`currentPath` apuntando al archivo nuevo**, de modo que
+  un Ctrl+S posterior escribía ese estado a medias encima del bueno. El doble clic sí capturaba. Ahora también
+  el menú, y se conserva la ruta anterior.
+- **«Rebarajar» + Cancelar dejaba la bandera pegada.** `_orderR` se escribe en el comp REAL para que la vista
+  previa muestre el reparto nuevo, pero cerrar sin Aplicar no lo revertía: viajaba al `.isp` y la siguiente
+  recomposición por cualquier vía rebarajaba las fuentes sin que nadie lo pidiera.
+
+*Nota de método, y van dos: el primer intento del último arreglo no funcionaba porque usé `undefined` como
+centinela de «no se tocó» siendo también un valor LEGÍTIMO de `_orderR` — la restauración no se disparaba
+nunca. Lo cazo la sonda, no la lectura. Centinela y valor, separados.*
+
+Verificación en `scratchpad/r319-verif.mjs`: lo que vive en el fuente se comprueba sobre el texto (con los
+comentarios limpiados antes, la lección de R315/R318), y lo que se puede medir se mide — la escala 0 por
+píxeles del render real, y el rebarajado abriendo el diálogo, pulsando y cancelando de verdad.
+
 ## ROUND 318 — Las cachés que enseñaban algo viejo, y una «optimización» que no ahorraba nada
 
 El patrón 3 de la auditoría (§11): cinco cachés del mismo molde, todas SILENCIOSAS — nada falla, simplemente se

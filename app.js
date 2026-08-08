@@ -1073,7 +1073,10 @@ function flatLikeMode(md){ return md==='flat'||md==='room'; } // "rectangular, n
 function flatPlace(c,m,t,aOv){ const A=(aOv!=null?aOv:(_compAspect||1)); const s=Math.min(2/A,2), Fx=s*A/2, Fy=s/2; // frame half-extents in square NDC (Fx=min(1,A), Fy=min(1,1/A)) · [360-viewer] aOv = coloca en el marco de una SUPERFICIE (muros/piso) en vez del lienzo entero
   const ca=Math.max(0.01,(m.w||16)/(m.h||9));
   let wW,wH; if(ca>=A){ wW=A; wH=A/ca; } else { wH=1; wW=ca; } // contain the clip's aspect inside the A×1 frame
-  const scale=Math.max(0.001,(evalR(c,'scale',t)||100)/100); const sxm=(c.props.scaleX==null?1:Math.max(0.001,c.props.scaleX)), sym=(c.props.scaleY==null?1:Math.max(0.001,c.props.scaleY)); const hw=wW/2*scale*sxm, hh=wH/2*scale*sym; // scaleX/scaleY = per-axis multipliers (Photoshop-style corner/edge resize); default 1 → uniform, flat clips unaffected
+  /* [R319] `||100` trataba el 0 como «sin valor». El rango declarado de Scale es 0..1000, asi que una escala
+     de 0 —puesta a mano o alcanzada por un keyframe— se convertia en 100 y el clip reaparecia a tamano
+     COMPLETO justo en el fotograma en que debia ser invisible. */
+  const _sv=evalR(c,'scale',t); const scale=Math.max(0.001,((_sv==null||_sv!==_sv)?100:_sv)/100); const sxm=(c.props.scaleX==null?1:Math.max(0.001,c.props.scaleX)), sym=(c.props.scaleY==null?1:Math.max(0.001,c.props.scaleY)); const hw=wW/2*scale*sxm, hh=wH/2*scale*sym; // scaleX/scaleY = per-axis multipliers (Photoshop-style corner/edge resize); default 1 → uniform, flat clips unaffected
   const rot=(evalR(c,'rot',t)||0)*D2R, cs=Math.cos(rot), sn=Math.sin(rot);
   const x=(evalR(c,'x',t)||0)/100, y=(evalR(c,'y',t)||0)/100; // x/y are % of the frame half-extent (−100..100)
   return { fc:[x*Fx, y*Fy], fx:[s*hw*cs, s*hw*sn], fy:[s*hh*(-sn), s*hh*cs], hw, hh, Fx, Fy }; }
@@ -2030,7 +2033,11 @@ function ndiTick(){ if(!_ndiOn||!DSP.ndi)return;
     }
     DSP.ndi.send(_ndiBuf,_ndiRes,_ndiRes,true); _ndiFrames++; // flipY: bottom-up WebGL → top-down NDI (negative stride, zero copy)
   }catch(e){} }
-function startNDI(res){ if(!ndiAvailable()){ appAlert(T('The NDI runtime is not installed. Download the free NDI Tools / runtime from ndi.video and try again.','El runtime de NDI no está instalado. Descarga las NDI Tools / runtime gratuitas desde ndi.video e inténtalo de nuevo.')); return; }
+/* [R319] Si ya hay salida, se PARA antes de relanzar. El menu llama a `startNDI(otraRes)` con la salida viva,
+   y `DSP.powerSave(true)` se contaba una segunda vez mientras `stopNDI` solo descuenta una: el contador de
+   `main.js` se quedaba en 1 para siempre y el bloqueo de suspension no se liberaba hasta cerrar la app. */
+function startNDI(res){ if(_ndiOn)stopNDI();
+  if(!ndiAvailable()){ appAlert(T('The NDI runtime is not installed. Download the free NDI Tools / runtime from ndi.video and try again.','El runtime de NDI no está instalado. Descarga las NDI Tools / runtime gratuitas desde ndi.video e inténtalo de nuevo.')); return; }
   _ndiRes=res; _ndiFps=(res>=4096)?30:Math.max(1,Math.min(60,Math.round(state.fps||30)));
   if(!DSP.ndi.start('Immersive Studio Pro — Master', _ndiFps*1000, 1000)){ flashStatus(T('NDI output failed to start','No se pudo iniciar la salida NDI'),'err'); return; } // [R94-UT3·U-21]
   _ndiOn=true; ensureNdiFBO(res); clearInterval(_ndiTimer); _ndiTimer=setInterval(ndiTick,Math.max(8,Math.round(1000/_ndiFps)));
@@ -2073,7 +2080,7 @@ function spoutTick(){ if(!_spoutOn||!DSP.spout)return;
     }
     DSP.spout.send(_spoutBuf,_spoutRes,_spoutRes,true); // flipY: bottom-up WebGL → top-down Spout (flip done in the addon)
   }catch(e){} }
-function startSpout(res){ if(!spoutAvailable()){ appAlert(T('Spout output is not available on this system.','La salida Spout no está disponible en este sistema.')); return; }
+function startSpout(res){ if(_spoutOn)stopSpout();   /* [R319] mismo motivo que en startNDI: el contador de powerSave */ if(!spoutAvailable()){ appAlert(T('Spout output is not available on this system.','La salida Spout no está disponible en este sistema.')); return; }
   _spoutRes=res; _spoutFps=(res>=4096)?30:Math.max(1,Math.min(60,Math.round(state.fps||30)));
   if(!DSP.spout.start('Immersive Studio Pro — Master')){ flashStatus(T('Spout output failed to start','No se pudo iniciar la salida Spout'),'err'); return; }
   _spoutOn=true; ensureSpoutFBO(res); clearInterval(_spoutTimer); _spoutTimer=setInterval(spoutTick,Math.max(8,Math.round(1000/_spoutFps)));
@@ -3224,7 +3231,9 @@ function makeMediaItem(m){
       <div style="flex:1;min-width:0;"><div class="mname">${esc(m.name)}${m.kind==='video'?` <span class="mprx" style="color:var(--ink-dim);font-weight:400;font-size:10px;">${m.proxyReady?T('proxy','proxy'):T('original','original')}</span>`:''}</div>
       <div class="mmeta" style="${reallyMissing?'color:#E06A6A':''}">${meta}${_rg?' · <span class="mrange" title="'+T('Drags in trimmed: ','Entra recortado: ')+fmtTime(_rg.inP)+' → '+fmtTime(_rg.inP+_rg.dur)+'">['+fmtDur(_rg.dur)+']</span>':''}</div></div>
       ${m.kind==='video'?`<span class="pdot" data-mid="${m.id}" title="${m.proxyReady?T('Proxy ready','Proxy listo'):T('No proxy yet','Sin proxy aún')}" style="width:8px;height:8px;border-radius:50%;flex-shrink:0;background:${m.proxyReady?'#8A9199':'#5E646C'}"></span>`:''}
-      ${isNdi?`<span class="pdot ndilive${m._ndiLive?' on':''}" title="${T('Live NDI','NDI en vivo')}" style="width:8px;height:8px;border-radius:50%;flex-shrink:0;background:${m._ndiLive?'#E8EAED':'#5E646C'}"></span>`:''}
+      ${isNdi?(()=>{ /* [R319] Spout marca `_spLive`, no `_ndiLive`: su punto se quedaba apagado para siempre aunque estuviera recibiendo. El texto de al lado ya distinguia los dos desde [V3]; el punto se quedo atras. */
+        const vivo=(m.kind==='spout')?m._spLive:m._ndiLive, ttl=(m.kind==='spout')?T('Live Spout','Spout en vivo'):T('Live NDI','NDI en vivo');
+        return `<span class="pdot ndilive${vivo?' on':''}" title="${ttl}" style="width:8px;height:8px;border-radius:50%;flex-shrink:0;background:${vivo?'#E8EAED':'#5E646C'}"></span>`; })():''}
       <span class="mdot" style="background:${m.color}"></span>`;
     d.addEventListener('dblclick',()=>{ if(_composeDrop){ _composeDrop([m.id]); return; } /* [R248] con la composición abierta el doble clic la alimenta a ELLA */ if(seq)openSeq(m.id); else openSourceMonitor(m); }); // [R249] modelo Premiere: el doble clic ABRE el material en el monitor de origen, no lo suelta en la línea de tiempo (para eso se arrastra)
     d.addEventListener('pointerdown',e=>{ if(e.button===0){ const multi=e.shiftKey||e.ctrlKey||e.metaKey; if(multi||!selectedMediaIds().includes(m.id))selectMedia(m.id,e); if(!multi)startMediaDrag(e,m); } }); // plain press on an ALREADY-selected item keeps the multi-selection → you can drag the whole selection to a folder (R88 audit)
@@ -6598,7 +6607,7 @@ function buildAnimList(c){ const host=$('#animList'); if(!host)return; host.inne
         <button class="awetkf" title="${T('Keyframe the mix at the playhead — define when it ramps in','Fotograma del mix en el cabezal — define cuándo entra')}" style="width:16px;height:16px;border:none;background:none;cursor:pointer;color:${hasWK?(kfHere?'#FFFFFF':'#C9CDD3'):'#5A6069'};font-size:11px;line-height:1;flex-shrink:0;">◆</button>
         <span style="font-size:11px;color:var(--ink-3);width:22px;">${T('Mix','Mix')}</span>
         <input class="awet" type="range" min="0" max="100" value="${wetPct}" title="${T('Dry/wet 0–100% (multiplier)','Dry/wet 0–100% (multiplicador)')}" style="flex:1;height:15px;">
-        <span class="awetv" style="font-size:11px;color:var(--ink-2);width:36px;text-align:right;">${wetPct}%${hasKf?' ◆':''}</span></div>`;
+        <span class="awetv" style="font-size:11px;color:var(--ink-2);width:36px;text-align:right;">${wetPct}%${hasWK?' ◆':''}</span></div>`;
     item.querySelectorAll('.anum').forEach(el=>{ el.style.background='#24272C'; el.style.border='.5px solid rgba(255,255,255,0.12)'; el.style.borderRadius='2px'; el.style.color='#E8EAED'; el.style.fontSize='11px'; }); // [U-17] .asel now styled by the shared select rule (inline background here would wipe its chevron)
     item.querySelector('.animon').onclick=()=>{ a.on=!a.on; buildAnimList(selClip()); render(); renderTimeline(); startMotionPreview(); markDirty(); };
     item.querySelector('.aparam').onchange=e=>{ pushUndo(); a.param=e.target.value; render(); startMotionPreview(); markDirty(); };
@@ -9861,7 +9870,11 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
   function exEstBytes(){ const p=exPx(S), n=exFrames(), c=S.codec;
     if(c==='still')return p.w*p.h*1.2;
     if(c==='png')return p.w*p.h*1.2*n;
-    if(c==='hap'||c==='hapq'){ const F=HAP_FMT[c]; return Math.ceil(p.w/4)*Math.ceil(p.h/4)*F.bpb*16*n*0.85; }
+    /* [R319] `bpb` son bytes por BLOQUE de 4x4 (8 en DXT1, 16 en DXT5), no por pixel: el `*16` de mas
+       multiplicaba la estimacion por dieciseis. Un HAP de 4096² a 60 fps de un minuto se anunciaba en ~390 GB
+       cuando el archivo real ronda los 24 — bastante para descartar el formato o salir a buscar disco. Es el
+       mismo calculo que hace `hapFrame`. */
+    if(c==='hap'||c==='hapq'){ const F=HAP_FMT[c]; return Math.ceil(p.w/4)*Math.ceil(p.h/4)*F.bpb*n*0.85; }
     return S.br*1e6/8*exSecs(); }
   function exAutoBr(){ const p=exPx(S); return Math.max(24,Math.min(800,Math.round(p.w*p.h*S.fps*0.11/1e6))); }
 
@@ -9893,14 +9906,21 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
     /* [R291] Los dos que rompen el techo de Chromium. Van DELANTE del mp4 por WebCodecs porque a partir de
        3072 aquel no puede y estos si; el de WebCodecs se queda para tamanos pequenos, donde no hace falta
        depender de un binario externo. */
-    {v:'ffh264',kind:null,  lbl:()=>T('MP4 H.264 · GPU, up to 4096','MP4 H.264 · GPU, hasta 4096')},
-    {v:'ffhevc',kind:null,  lbl:()=>T('MP4 H.265 · GPU, up to 8192, 10-bit','MP4 H.265 · GPU, hasta 8192, 10 bits')},   /* [R279] ya no dice «alfa»: el alfa es ahora una eleccion de la fila Fondo */
+    {v:'ffh264',kind:null, ff:true, lbl:()=>T('MP4 H.264 · GPU, up to 4096','MP4 H.264 · GPU, hasta 4096')},
+    {v:'ffhevc',kind:null, ff:true, lbl:()=>T('MP4 H.265 · GPU, up to 8192, 10-bit','MP4 H.265 · GPU, hasta 8192, 10 bits')},   /* [R279] ya no dice «alfa»: el alfa es ahora una eleccion de la fila Fondo */
     {v:'mp4',  kind:'h264', lbl:()=>'MP4 · H.264'},
     {v:'hevc', kind:'hevc', lbl:()=>'MP4 · H.265 / HEVC'},
     {v:'hap',  kind:null,   lbl:()=>'MOV · HAP'},
     {v:'hapq', kind:null,   lbl:()=>'MOV · HAP Q'},
     {v:'still',kind:null,   lbl:()=>T('Still frame · PNG','Fotograma · PNG')},
   ];
+  /* [R319] Sonda de FFmpeg, UNA vez por sesion: `dsp:ffProbe` lanza el binario con `-encoders` y eso cuesta,
+     asi que repetirlo en cada repintado del desplegable (que ocurre al cambiar tamano, fps o formato) seria
+     caro. `null` = todavia sin preguntar. */
+  let _ffHay=null;
+  async function ffDisponible(){ if(_ffHay!=null)return _ffHay;
+    try{ _ffHay=!!(IS_ELEC&&DSP.ffProbe&&await DSP.ffProbe()); }catch(e){ _ffHay=false; }
+    return _ffHay; }
   let _cdTok=0;
   async function exCodecList(){ const tok=++_cdTok, sel=$$('#exCodec'); if(!sel)return;
     /* [R194] Lo que hay que sondear es lo que se va a CODIFICAR, no lo que se ve en el panel. En la sala por
@@ -9915,6 +9935,11 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
     { const selC=EX_CODECS.find(c=>c.v===S.codec); if(selC&&selC.kind){ S.codecOk=false; exGoGate(); } }
     const ar=p.w/Math.max(1,p.h), filas=[];
     for(const c of EX_CODECS){
+      /* [R319] Los dos codecs por FFmpeg dependen de que EXISTA el binario, y no se comprobaba: en una maquina
+         sin FFmpeg el desplegable los ofrecia igual, Exportar quedaba pulsable, y el trabajo moria en marcha con
+         «FFmpeg no esta disponible». Ahora se sondea una vez y, si no esta, salen marcados como el resto de lo
+         que no cabe aqui. */
+      if(c.ff){ filas.push({c,cabe:await ffDisponible(),tope:null}); continue; }
       if(!c.kind){ filas.push({c,cabe:true,tope:null}); continue; }   // PNG/HAP sólo dependen de MAX_TEXTURE_SIZE
       if(!HAS_WC){ filas.push({c,cabe:false,tope:null}); continue; }
       const cabe=await exCabeCodec(c.kind,p.w,p.h,S.fps);
@@ -10917,7 +10942,15 @@ async function newProjectViaLanding(){
   if(state.playing)pause();
   _lchVolver=true; showLanding(); }
 async function openProject(skipConfirm){ if(!(await confirmDiscard(skipConfirm)))return;
-  if(IS_ELEC){ const p=await DSP.openDialog(); if(!p)return; const txt=await DSP.readText(p); if(txt==null){appAlert(T('Could not read the file.','No se pudo leer el archivo.'));return;} let obj; try{obj=JSON.parse(stripBom(txt));}catch(e){appAlert(T('Invalid project','Proyecto no válido'));return;} currentPath=p; hideLanding(); loadProject(await maybeOfferAutosave(p,obj)); } // hide the landing FIRST so the recovery prompt (if any) shows on a clean screen, not buried behind the start screen
+  if(IS_ELEC){ const p=await DSP.openDialog(); if(!p)return; const txt=await DSP.readText(p); if(txt==null){appAlert(T('Could not read the file.','No se pudo leer el archivo.'));return;} let obj; try{obj=JSON.parse(stripBom(txt));}catch(e){appAlert(T('Invalid project','Proyecto no válido'));return;} /* [R319] `loadProject` no captura, y el menu Abrir tampoco lo hacia: un `.isp` que parsea como JSON pero con
+       la estructura rota (p. ej. `lanes` truthy que no es array) revienta a mitad, con los medios del proyecto
+       anterior ya liberados, el historial borrado y `currentPath` APUNTANDO AL ARCHIVO NUEVO — de modo que un
+       Ctrl+S posterior escribia ese estado a medias encima del bueno. `openProjectPath` (el doble clic) si
+       capturaba; este camino se quedo fuera. Se conserva la ruta anterior si la carga falla. */
+      const _rutaPrev=currentPath; currentPath=p; hideLanding();
+      try{ loadProject(await maybeOfferAutosave(p,obj)); }
+      catch(err){ console.error('loadProject',err); currentPath=_rutaPrev;
+        appAlert(T('That project could not be opened — the file looks damaged. Nothing was changed on disk.','Ese proyecto no se pudo abrir — el archivo parece dañado. No se ha modificado nada en el disco.')); } } // hide the landing FIRST so the recovery prompt (if any) shows on a clean screen, not buried behind the start screen
   else { $('#projInput').click(); } }
 /* [R175] Cada salida de aquí tiene que soltar el splash. Si el archivo no se puede leer, no es JSON válido o el
    usuario cancela, `_bootEsperandoProyecto` se quedaría en true y el editor NO aparecería nunca: el splash se
@@ -13436,7 +13469,10 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
   /* Antes se cerraba pinchando el velo. Con el velo transparente al ratón eso ya no puede ocurrir —el clic va al
      panel de debajo—, así que la salida rápida pasa a ser Escape, que además es lo que espera cualquiera. */
   const esc=e=>{ if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); cerrarComp(); } };
-  const cerrarComp=()=>{ _composeDrop=null; _cerrarComp=null; document.body.classList.remove('composing'); window.removeEventListener('keydown',esc,true); ov.remove(); };
+  const cerrarComp=()=>{ _composeDrop=null; _cerrarComp=null;
+    /* [R319] cerrar SIN aplicar deja el comp como estaba: la bandera de rebarajado no se queda pegada */
+    if(_orderRTocado&&pre){ if(_orderR0===undefined)delete pre._orderR; else pre._orderR=_orderR0; _orderRTocado=false; }
+    document.body.classList.remove('composing'); window.removeEventListener('keydown',esc,true); ov.remove(); };
   _cerrarComp=cerrarComp; // [R253b] queda a mano para que otra apertura pueda cerrar ESTE cuadro entero, escuchador incluido
   window.addEventListener('keydown',esc,true);
   $('#cCancel').onclick=cerrarComp;
@@ -13486,6 +13522,11 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
       fadeIn:(($('#cTFadeIn')&&$('#cTFadeIn').checked)?((+($('#cTFadeInA')?$('#cTFadeInA').value:50)||0)/100):0),
       fadeOut:(($('#cTFadeOut')&&$('#cTFadeOut').checked)?((+($('#cTFadeOutA')?$('#cTFadeOutA').value:50)||0)/100):0) }; };
   let reshuf=false; // "reshuffle" clicked → force a fresh media order on Create/Apply
+  /* [R319] Valor de `_orderR` al entrar, para reponerlo si se cierra sin Aplicar. Hace falta la bandera
+     APARTE: `undefined` es un valor legitimo de `_orderR` (una composicion que nunca se rebarajo no lleva la
+     propiedad), asi que usarlo tambien como centinela de «no se toco» hacia que la restauracion no se
+     disparara nunca — que es como el primer intento de este arreglo se quedo sin efecto. */
+  let _orderR0, _orderRTocado=false;
   { // R88: Randomize row (jitter positions in ANY mode) — injected above the footer
     const jr=document.createElement('div'); jr.className='frow'; jr.style.marginTop='2px';
     jr.innerHTML=`<label>${T('Randomize','Aleatorizar')}</label><button class="mbtn" id="cRandomize" type="button" style="height:24px;padding:0 10px;font-size:11px;">${T('Shuffle positions','Mezclar posiciones')} ↻</button><input type="range" id="cJit" min="0" max="100" value="${_jit}" style="flex:1;height:20px;"><span class="tnum" id="cJitV" style="width:34px;text-align:right;color:var(--ink-2);">${_jit}%</span>`;
@@ -13581,7 +13622,12 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
     const wi=$('#cWInter'); if(wi)wi.onchange=preview;
   }
   { const ci=$('#cInfinite'); if(ci){ ci.checked=_infinite; ci.onchange=()=>{ _infinite=ci.checked; preview(); }; } }
-  { const cs=$('#cShuffle'); if(cs)cs.onchange=()=>{ reshuf=true; preview(); }; const crs=$('#cReshuffle'); if(crs)crs.onclick=()=>{ reshuf=true; if(pre)pre._orderR=true; if($('#cShuffle'))$('#cShuffle').checked=true; flashStatus(T('Order reshuffled — Apply to see it','Orden rebarajado — Aplica para verlo')); }; }
+  { const cs=$('#cShuffle'); if(cs)cs.onchange=()=>{ reshuf=true; preview(); }; const crs=$('#cReshuffle'); if(crs)crs.onclick=()=>{ reshuf=true;
+    /* [R319] `_orderR` se escribe en el comp REAL para que la vista previa muestre el nuevo reparto, pero
+       Cancelar no lo revertia: la bandera se quedaba pegada, viajaba al `.isp`, y la SIGUIENTE recomposicion
+       por cualquier via —un campo rapido del inspector— rebarajaba las fuentes sin que nadie lo pidiera. Se
+       guarda el valor de entrada y `cerrarComp` lo repone si el cuadro se cierra sin Aplicar. */
+    if(pre){ if(!_orderRTocado){ _orderR0=pre._orderR; _orderRTocado=true; } pre._orderR=true; } if($('#cShuffle'))$('#cShuffle').checked=true; flashStatus(T('Order reshuffled — Apply to see it','Orden rebarajado — Aplica para verlo')); }; }
   if(pre){ $('#cKind').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x.dataset.k===kind));
     const preIds=(pre.mediaIds&&pre.mediaIds.length)?pre.mediaIds:(pre.mediaId!=null?[pre.mediaId]:[]);
     _pick=preIds.slice(); // [R248] EN SU ORDEN GUARDADO: es literalmente g.mediaIds. Antes las casillas devolvian el orden del PANEL, asi que reaplicar una composicion vieja podia rebarajar que fuente iba a cada tira; la cesta la deja tal cual estaba.
@@ -13684,6 +13730,7 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
     opts.scroll=$('#cScroll')?$('#cScroll').checked:false;
     opts.scrollSpeed=+($('#cScrollSpd')?$('#cScrollSpd').value:20)||0;
     opts.name=(pre&&pre.name)?pre.name:((first?first.name:'')+(ids.length>1?' +'+(ids.length-1):'')+' · '+kindES(kind));
+    _orderRTocado=false;   /* [R319] Aplicar consolida: cerrarComp ya no debe revertir la bandera */
     if(nestMedia){ pushUndo(); nestMedia.comp=Object.assign(nestMedia.comp||{id:uid(),spin:0,shuffle:false,rand:[]},opts); if(reshuf)nestMedia.comp._orderR=true; regenComposeNest(nestMedia); renderMedia(); renderTimeline(); renderInspector(); scrubRender(); updStatus(); markDirty(); flashStatus(T('Composition updated','Composición actualizada')); }
     else if(editGroup){ pushUndo(); Object.assign(editGroup,opts,{mediaId:ids[0]}); regenComp(editGroup); state.selGroupId=editGroup.id; state.selId=null; renderTimeline(); renderInspector(); render(); updStatus(); flashStatus(T('Composition updated','Composición actualizada')); }
     else { if(scopeClip)opts._scope={inP:scopeClip.inP||0, dur:scopeClip.dur, start:scopeClip.start, speed:scopeClip.speed||1}; createComposition(opts); }
