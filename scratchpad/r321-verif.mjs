@@ -105,6 +105,27 @@ else{
   else bien('cierra el hueco en las dos pistas de la pareja y deja las ajenas donde estaban');
 }
 
+/* ── 2c ── [R324] Y el TOPE: el suelo va por clip, no recortando el desplazamiento comun. R323 acotaba el
+   desplazamiento por el clip mas a la izquierda de TODOS los que mueve, asi que uno suelto cerca del origen
+   colapsaba el gesto entero: medido, borrar un video de 10 s cerraba 1 s y dejaba un hueco de 11. */
+console.log('\n── 2c · un clip suelto cerca del origen no colapsa el gesto ──');
+const e2c = await ev(`(async()=>{ try{ ${MONTA}
+  state.clips.length=0;                                                  // monta propio, mas claro
+  mk(960401,LV,MV.id,0,10,'J','video'); mk(960402,LA,MA.id,0,0.5,'J','audio');  // J-cut con colita de audio de 0,5 s
+  mk(960403,LA,MA.id,1,2,null,null);                                     // suelto, cerca del origen
+  mk(960404,LV,MV.id,12,4,null,null);                                    // lo que debe cerrar el hueco de 10 s
+  state.selId=960401; state.selIds=[960401]; rippleDelete();
+  const g=i=>{const c=state.clips.find(x=>x.id===i);return c?+c.start.toFixed(2):null;};
+  return {desplazamiento:+(12-g(960404)).toFixed(2), bloque:10, suelto:g(960403), negativos:state.clips.filter(x=>x.start<0).length};
+}catch(e){ return {err:String(e&&e.message||e)}; } })()`);
+if(e2c.err) mal('no se pudo evaluar: '+e2c.err);
+else{
+  console.log('   bloque de '+e2c.bloque+' s → se desplaza '+e2c.desplazamiento+' s  ·  el suelto queda en '+e2c.suelto+'  ·  negativos: '+e2c.negativos);
+  if(e2c.negativos) mal('algun clip quedo en start negativo: el motor no sabe dibujarlo');
+  else if(e2c.desplazamiento<e2c.bloque-0.01) mal('el gesto se colapso: cerro '+e2c.desplazamiento+' s de los '+e2c.bloque+' del bloque, dejando el hueco casi entero');
+  else bien('el bloque se cierra entero y el clip suelto se recorta contra 0 por su cuenta');
+}
+
 /* ── 3 ── El slide no deja crecer al vecino izquierdo mas alla de su fuente. */
 console.log('\n── 3 · el slide acota el crecimiento del vecino izquierdo a su fuente ──');
 const e3 = await ev(`(async()=>{ try{

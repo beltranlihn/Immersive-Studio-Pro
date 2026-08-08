@@ -5110,16 +5110,23 @@ $('#tracks').addEventListener('pointerdown',e=>{
          El solape sí existe y no se puede evitar acotando el gesto sin romperlo, así que se AVISA y se deja al
          usuario decidir — que es lo que la app hace con los solapes en general (se pintan, se oyen los dos, y
          apartar uno lo resuelve). Sólo se mira la pista del partner: la del clip agarrado no puede solaparse. */
+      /* [R324] Se cuentan CLIPS PISADOS, no parejas solapadas: con dos clips movidos cayendo sobre uno quieto,
+         el recuento por parejas decía «2» habiendo un solo clip afectado. Y se recorre movidos contra quietos en
+         vez de todos contra todos: la versión anterior hacía dos bucles anidados sobre la pista entera —90 000
+         iteraciones en una pista de 300 clips— en el instante en que se suelta el ratón, sólo para decidir si
+         mostrar un aviso. */
       if(base.after&&base.after.size){
-        const pc=linkPartner(c); const otras=new Set(); if(pc)otras.add(pc.lane);
-        for(const id of base.after.keys()){ const o=clipById(id); if(o&&o.lane!==c.lane)otras.add(o.lane); }
-        let choques=0;
+        const pc=linkPartner(c); const movidos=new Set(base.after.keys()); if(pc)movidos.add(pc.id);
+        const otras=new Set();
+        for(const id of movidos){ const o=clipById(id); if(o&&o.lane!==c.lane)otras.add(o.lane); }
+        const pisados=new Set();
         for(const li of otras){ const enPista=state.clips.filter(x=>x.lane===li);
-          for(const a of enPista)for(const b of enPista){ if(a===b)continue;
-            if(!base.after.has(a.id)&&a.id!==(pc&&pc.id))continue;           // `a` = algo que movió este gesto
-            if(base.after.has(b.id)||b.id===(pc&&pc.id))continue;            // `b` = algo que estaba quieto
-            if(Math.min(a.start+a.dur,b.start+b.dur)>Math.max(a.start,b.start)+1e-4)choques++; } }
-        if(choques)flashStatus(T('The linked half now overlaps '+choques+' clip(s) on its track','La mitad enlazada solapa ahora con '+choques+' clip(s) de su pista'),'err');
+          const mov=enPista.filter(x=>movidos.has(x.id)), quietos=enPista.filter(x=>!movidos.has(x.id));
+          for(const a of mov)for(const b of quietos)
+            if(Math.min(a.start+a.dur,b.start+b.dur)>Math.max(a.start,b.start)+1e-4)pisados.add(b.id); }
+        if(pisados.size){ const n=pisados.size;
+          flashStatus(T('The linked half now overlaps '+n+(n===1?' clip':' clips')+' on its track',
+                        'La mitad enlazada solapa ahora con '+n+(n===1?' clip':' clips')+' de su pista'),'err'); }
       }
       renderTimeline(); renderInspector(); render(); reschedAudio(); markDirty(); };
     window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); return; }
@@ -6747,29 +6754,25 @@ function buildAnimList(c){ const host=$('#animList'); if(!host)return; host.inne
       for(const l of state.lanes){ if(l._autoP&&isMotKey(l._autoP)&&!laneMotParams(state.lanes.indexOf(l)).includes(l._autoP.split(':')[1]))delete l._autoP; }
       buildAnimList(selClip()); render(); renderTimeline(); markDirty(); if(!anyAnim())stopMotionPreview(); };
     const wetR=item.querySelector('.awet'), wetV=item.querySelector('.awetv');
-    /* [R320 → R322] El fader del Mix era el otro hueco de esta fila: ni `oninput` ni `onchange` empujaban deshacer,
-       así que llevar el Mix de 100 a 0 no se podía revertir con Ctrl+Z. R320 lo cerró con un pestillo que se
-       rearmaba en `onchange`, y eso tenía dos fallos que el repaso midió:
-         · `change` NO dispara si el fader se suelta en el valor de partida, así que tras un arrastre de ida y
-           vuelta el pestillo se quedaba puesto y el arrastre SIGUIENTE no empujaba nada — Ctrl+Z se saltaba la
-           edición de verdad;
-         · y el arrastre repintaba sin invalidar la generación del fotograma salvo en el primer píxel (la que
-           llega por `pushUndo`→`markDirty`), así que scopes, NDI y Spout se quedaban clavados ahí. Medido: 31
-           eventos `input` avanzaban `_raGen` UNA vez, frente a 31 del hermano `#maskScaleR`.
-       Se adopta el patrón de ese hermano, que no tiene ninguno de los dos: la foto se empuja en el `pointerdown`
-       —una por gesto, sin pestillo que rearmar— y el repintado invalida como cualquier otra mutación. */
-    /* [R322 → R323] Tercer intento, y el que cubre los tres caminos. R320 empujaba la foto en el primer `input`
-       con un pestillo que se rearmaba en `change`, y `change` no dispara si el fader se suelta en el valor de
-       partida: el arrastre siguiente se quedaba sin deshacer. R322 la movió al `pointerdown`, y eso rompió el
-       TECLADO —las flechas disparan `input` sin ningún evento de puntero, medido: 0 fotos y Ctrl+Z no restaura—
-       y además apilaba una foto en cada clic aunque no se moviera nada (medido: 1).
-       Lo que funciona: la foto va en el primer `input` del gesto —que existe en los tres caminos— y el pestillo
-       se REARMA en todo lo que termina un gesto, no sólo en `change`. */
+    /* [R320 · R322 · R323 → R324] El fader del Mix, y las CUATRO cosas que hay que cumplir a la vez. Ha costado
+       cuatro intentos porque cada uno cerraba unas y abría otra, así que quedan escritas como lista:
+         1. una edición del Mix se deshace con UN Ctrl+Z (R320 lo cerró: antes no se deshacía en absoluto);
+         2. **una sola foto por gesto** — no una por píxel ni una por tecla, o el historial se llena;
+         3. vale para los TRES caminos: arrastre con ratón, clic en la pista del fader, y TECLADO (flechas tras
+            enfocar, que disparan `input` sin ningún evento de puntero);
+         4. un gesto que no cambia nada no consume historial.
+       El reparto que las cumple: la foto va en el primer `input` —el único evento que existe en los tres
+       caminos— y el pestillo se rearma en `pointerup` y `blur`, que es lo que cierra un gesto de verdad.
+       **NO se rearma en `change`**, y ahí estuvo el fallo de R323: un `input[type=range]` dispara `change` en
+       CADA pulsación de flecha, así que rearmar ahí apilaba una foto por tecla — medido, mantener la flecha
+       tres segundos llenaba la pila hasta el tope de 80 y expulsaba la edición real, que ya no se podía
+       recuperar. (R322 probó a empujar en el `pointerdown`: eso deja el teclado sin deshacer ninguno, porque
+       nunca hay puntero, y además apila una foto en cada clic que no mueve nada.) */
     let wetPushed=false; const wetArmar=()=>{ wetPushed=false; };
     wetR.addEventListener('pointerdown',()=>{ wetArmar(); focusAutoParam(c,motKeyFor(a)); }); // [R224 · ítem 4] tocar el Mix pone SU curva a la vista
     wetR.addEventListener('pointerup',wetArmar); wetR.addEventListener('blur',wetArmar);      // soltar o salir del control cierra el gesto aunque el valor no haya cambiado
     wetR.oninput=()=>{ if(!wetPushed){ pushUndo(); wetPushed=true; } animSetWet(a,c,(+wetR.value)/100); wetV.textContent=(+wetR.value)+'%'+(animHasWetKf(a,c)?' ◆':''); raInvalidate(); render(); startMotionPreview(); };
-    wetR.onchange=()=>{ wetArmar(); markDirty(); };
+    wetR.onchange=()=>markDirty();   // sin rearmar: ver el punto 2 de arriba
     item.querySelector('.awetkf').onclick=()=>{ pushUndo(); animToggleWetKf(a,c); focusAutoParam(c,motKeyFor(a)); buildAnimList(selClip()); render(); renderTimeline(); startMotionPreview(); markDirty(); };
     host.appendChild(item); });
   /* [R278b] Esta lista se reconstruye desde sus propios manejadores (anadir, on/off, cambiar modo, borrar),
@@ -12777,10 +12780,14 @@ function pasteClip(){ const cb=state.clipboard; if(!cb)return;
    un J-cut (las mitades recortadas por separado, p. ej. vídeo de 10 s y audio de 8) los dos huecos difieren, así
    que una misma pista recibía dos desplazamientos distintos y el montaje quedaba descuadrado — medido: dos clips
    de la pista de audio que estaban a 1 s acabaron a 3.
-   El modelo correcto es el que el gesto significa: **se quita un BLOQUE DE TIEMPO de la secuencia**. El bloque es
-   el que ocupan las dos mitades juntas, y todo lo que empieza en su final o después se corre ese mismo tanto, en
-   todas las pistas. Un solo desplazamiento no puede desincronizar nada, y como lo que se mueve arranca en
-   `fin` y se corre `fin-ini`, tampoco puede dar un `start` negativo: no hace falta suelo. */
+   R322 lo rehízo como «se quita un BLOQUE DE TIEMPO», y eso trajo el fallo contrario: sin filtro de pista, borrar
+   un clip movía material de TODO el proyecto (medido: un clip de audio sin relación saltaba de 10 a 5).
+   Lo que hace HOY, que es lo que manda —el modelo de bloque de aquel comentario ya no rige—:
+     · **alcance**: lo que desplazaría un ripple por el borde derecho de cada mitad borrada, es decir
+       `_rippleAfter`, la misma función que usa la herramienta de recorte. Su pista y la del partner, más las
+       mitades enlazadas de lo que arrastra. Nunca todo el proyecto.
+     · **cantidad**: UN solo desplazamiento para todos, que es lo único que no desincroniza un par A/V.
+     · **suelo**: sí hace falta, y va por clip (`Math.max(0,…)`), no recortando el desplazamiento común. */
 function rippleDelete(){ const c=selClip(); if(!c)return; pushUndo();
   const p=linkPartner(c);
   /* [R323] QUÉ se desplaza: lo mismo que desplazaría un ripple por el borde derecho de cada mitad borrada, es
@@ -12792,14 +12799,18 @@ function rippleDelete(){ const c=selClip(); if(!c)return; pushUndo();
   if(p)for(const [id,st] of _rippleAfter(p,'rippleR'))if(!mover.has(id))mover.set(id,st);
   mover.delete(c.id); if(p)mover.delete(p.id);
   /* CUÁNTO: un solo desplazamiento para todos, que es lo único que no puede desincronizar un par A/V (R321 usó
-     uno por pista y con un J-cut descuadraba la pista de audio). Se parte del bloque que ocupan las dos mitades
-     juntas y se acota por el clip MÁS A LA IZQUIERDA de los que se mueven: sin ese tope, algo que estuviera
-     dentro del bloque —posible en un J-cut, donde el hueco de vídeo y el de audio no coinciden— acababa en
-     negativo o pisado. Es el mismo criterio que el tope del ripple de recorte. */
+     uno por pista y con un J-cut descuadraba la pista de audio). Es el bloque que ocupan las dos mitades juntas.
+     [R324] Y el SUELO va por clip, no recortando el desplazamiento común. R323 acotaba `gap` por el clip más a
+     la izquierda de TODOS los que mueve, y eso deja que uno cualquiera cerca del origen colapse el gesto entero:
+     medido, con una colita de audio enlazada de 0,5 s y un clip suelto en t=1, borrar un vídeo de 10 s cerraba
+     sólo 1 s y dejaba un hueco de 11 donde había un clip de 10 — sin avisar de nada.
+     Un clip SUELTO puede recortarse contra 0 por su cuenta: no hay nada con lo que desincronizarse. El
+     desplazamiento común sólo tiene que respetar a los que van EN PAREJA dentro del conjunto, que son los
+     únicos que deben moverse lo mismo. */
   let gap=(p?Math.max(c.start+c.dur,p.start+p.dur):c.start+c.dur)-(p?Math.min(c.start,p.start):c.start);
-  for(const st0 of mover.values())gap=Math.min(gap,st0);
+  for(const [id,st0] of mover){ const o=clipById(id), po=o&&linkPartner(o); if(po&&mover.has(po.id))gap=Math.min(gap,st0); }
   _quitarClips(p?[c.id,p.id]:[c.id]);
-  if(gap>0)for(const [id,st0] of mover){ const o=clipById(id); if(o)o.start=st0-gap; }
+  for(const [id,st0] of mover){ const o=clipById(id); if(o)o.start=Math.max(0,st0-gap); }
   state.selId=null; state.selIds=[]; renderTimeline();renderInspector();render();updStatus(); reschedAudio(); }
 
 /* ===================== CONTEXT MENUS ===================== */

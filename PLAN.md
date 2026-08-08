@@ -1,5 +1,45 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 324 — El fader del Mix, cuarto intento, y un tope que colapsaba el gesto
+
+Los siete del repaso de R323. **Los dos graves eran míos, de R323**, y los dos por la misma causa: una guarda
+puesta demasiado ancha.
+
+- **El fader del Mix, por teclado, vaciaba el historial de deshacer.** Un `input[type=range]` dispara `change` en
+  CADA pulsación de flecha, y mi pestillo se rearmaba justo ahí: una foto por tecla. Medido: 10 pulsaciones, 10
+  fotos; y manteniendo la flecha tres segundos (~90 repeticiones) la pila llegaba al tope de 80 y expulsaba las
+  primeras. El arreglo es no rearmar en `change` —sólo en `pointerup` y `blur`, que es lo que cierra un gesto de
+  verdad—. Medido después: 10 pulsaciones, 1 foto; arrastre con ratón, 1 foto.
+  **Van cuatro intentos con este control**, así que las cuatro condiciones que tiene que cumplir a la vez quedan
+  escritas como lista en el propio código, en vez de contar otra vez la historia de qué rompió cada ronda.
+- **Y el tope de `rippleDelete` podía dejar el gesto en nada.** Acotaba el desplazamiento común por el clip más a
+  la izquierda de TODOS los que mueve, incluidos los que no van en pareja con nadie. Medido: con una colita de
+  audio enlazada de 0,5 s y un clip suelto en t=1, borrar un vídeo de 10 s cerraba **1 s** y dejaba un hueco de 11
+  donde había un clip de 10, sin avisar. El suelo va ahora **por clip**: un clip suelto se recorta contra 0 por su
+  cuenta —no hay con qué desincronizarse— y el desplazamiento común sólo respeta a los que van en pareja dentro
+  del conjunto. Medido: el bloque de 10 s cierra 10.
+
+**Los otros cinco**
+- Dos comentarios obsoletos que **contradecían al código**: la cabecera de `rippleDelete` seguía diciendo «en todas
+  las pistas» y «no hace falta suelo» (las dos cosas que R323 cambió), y encima del fader convivían dos
+  comentarios seguidos con diseños opuestos. Es la regla escrita en memoria: un comentario falso es peor que
+  ninguno, porque el siguiente que lo lea no volverá a comprobarlo.
+- El aviso de solape contaba PAREJAS y no clips (dos movidos sobre uno quieto decían «2»), y lo hacía con dos
+  bucles anidados sobre la pista entera —90 000 iteraciones en una pista de 300— en el instante de soltar el
+  ratón. Ahora recorre movidos contra quietos y cuenta clips distintos.
+- Y la guarda `if(gap>0)`, resto del `if(gap<=0)return;` de R322, que ya no protegía de nada.
+
+**Sobre el método, y con franqueza.** Son cuatro rondas seguidas en las que arreglar los hallazgos genera
+hallazgos nuevos en el mismo sitio, y este control lleva cuatro diseños en cuatro rondas. La causa común no es
+descuido puntual: es que hasta este repaso **nunca había medido qué eventos dispara realmente un
+`input[type=range]` y en qué orden**. Iterar sobre suposiciones del navegador sale caro; medir el evento cuesta
+un minuto. Lo mismo con el tope del ripple: puse una guarda «por si acaso» sin comprobar sobre qué conjunto debía
+actuar.
+
+**Verificación:** las cinco redes en verde, con un caso nuevo para el tope que colapsaba el gesto; `npm test`
+3/3; y las seis medidas del repaso repetidas tras el arreglo.
+
+
 ## ROUND 323 — Cinco de los ocho eran míos, de la ronda anterior
 
 Un `/code-review` sobre R322 —la ronda que arreglaba el repaso anterior— sacó ocho hallazgos. **Cinco los
