@@ -23,6 +23,7 @@ const REDES = [
   ['r321-verif.mjs',   'un gesto mueve el clip Y su mitad enlazada; un gesto de grupo conserva los desfases'],
   ['r325-verif.mjs',   'los cuatro que, si vuelven, cuestan material'],
   ['r327-verif.mjs',   'los arreglos inertes, medidos contra su caso original'],
+  ['r328-verif.mjs',   'deshacer muerto y Shape Box huerfana'],
 ];
 
 /* Sin app levantada no se distingue «rojo» de «no medido», y esa confusión es justo la que hace inútil una red. */

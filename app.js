@@ -5792,8 +5792,13 @@ $('#ruler').addEventListener('pointerdown',e=>{ if(e.button!==0)return;
   const t0=Math.max(0,xAt(e)/state.tl.pxPerSec); const tol=8/state.tl.pxPerSec;
   const mk=state.markers.find(m=>Math.abs(m.time-t0)<tol);
   if(mk){ // select & drag locator
-    state.selMarkerId=mk.id; state.selId=null; state.selIds=[]; state.selGroupId=null; state.selLane=null; pushUndo(); renderTimeline(); // [R223] el locator pasa a ser la selección "más reciente" (bug Ctrl+R)
-    const move=ev=>{ let nt=Math.max(0,xAt(ev)/state.tl.pxPerSec); const sn=applySnap(nt,mk.id); mk.time=sn.val; showSnap(sn.snap); scheduleTimeline(); };
+    /* [R328] La foto de deshacer se empuja en el PRIMER movimiento, no al seleccionar. Seleccionar un locator
+       no cambia el proyecto, así que apilaba una entrada muerta: después de hacer clic en uno, el siguiente
+       Ctrl+Z parecía «no hacer nada» y el usuario lo pulsaba otra vez, perdiendo la edición anterior de verdad.
+       Es el mismo patrón que ya usan el arrastre de clip y el de recorte. */
+    state.selMarkerId=mk.id; state.selId=null; state.selIds=[]; state.selGroupId=null; state.selLane=null; renderTimeline(); // [R223] el locator pasa a ser la selección "más reciente" (bug Ctrl+R)
+    let _mkUndo=false;
+    const move=ev=>{ if(!_mkUndo){ pushUndo(); _mkUndo=true; } let nt=Math.max(0,xAt(ev)/state.tl.pxPerSec); const sn=applySnap(nt,mk.id); mk.time=sn.val; showSnap(sn.snap); scheduleTimeline(); };
     const up=()=>{ window.removeEventListener('pointermove',move); window.removeEventListener('pointerup',up); showSnap(null); state.markers.sort((a,b)=>a.time-b.time); renderTimeline(); };
     window.addEventListener('pointermove',move); window.addEventListener('pointerup',up); return; }
   if(state.selMarkerId!=null){ state.selMarkerId=null; renderTimeline(); }
@@ -7161,12 +7166,24 @@ function shapeBoxOpen(){ const a=state.autoSel; const c=a&&clipById(a.cid); cons
     base:live.map(k=>({k,t:k.t,v:k.v}))};
   renderTimeline(); flashStatus(T('Shape Box — corners scale · Alt mirrors · top corners skew · inside moves · Esc closes','Shape Box — esquinas escalan · Alt refleja · esquinas superiores sesgan · dentro mueve · Esc cierra')); }
 function shapeBoxClose(){ if(!state.shapeBox)return; state.shapeBox=null; renderTimeline(); }
+/* [R328] La caja guarda REFERENCIAS VIVAS a los keyframes (`base:[{k,t,v}]`), así que cualquier camino que los
+   borre o los reemplace la deja apuntando a objetos huérfanos: arrastrar sus tiradores entonces muta cosas que
+   ya no están en el proyecto, sin efecto visible y sin error. Son CINCO los caminos que lo hacen —Supr,
+   «Eliminar seleccionados», «Limpiar automatización», `simplifyAuto` y `pasteAutoAt`— y añadir un
+   `shapeBoxClose()` en cada uno es pedir que el sexto se olvide, que es el error que esta sesión ha repetido
+   ocho veces. En vez de eso la caja se COMPRUEBA antes de usarse: si sus claves ya no están en la curva del
+   clip, se cierra sola. Da igual quién las quitara ni si se acordó de avisar. */
+function shapeBoxVivo(){ const b=state.shapeBox; if(!b)return false;
+  const c=clipById(b.cid); const arr=c&&c.kf&&c.kf[b.p];
+  if(!Array.isArray(arr)||!arr.length){ shapeBoxClose(); return false; }
+  for(const o of b.base)if(arr.indexOf(o.k)<0){ shapeBoxClose(); return false; }
+  return true; }
 function shapeBoxToggle(){ state.shapeBox?shapeBoxClose():shapeBoxOpen(); }
 /* re-read the box extents from the live points (after a drag) so the handles follow */
-function shapeBoxSync(){ const b=state.shapeBox; if(!b)return; const ts=b.base.map(x=>x.k.t), vs=b.base.map(x=>x.k.v);
+function shapeBoxSync(){ if(!shapeBoxVivo())return; const b=state.shapeBox; const ts=b.base.map(x=>x.k.t), vs=b.base.map(x=>x.k.v);
   b.t0=Math.min(...ts); b.t1=Math.max(...ts); b.v0=Math.min(...vs); b.v1=Math.max(...vs); }
 /* apply the box transform: sx/sy = scale about the anchor · skew = shear in time proportional to normalised value */
-function shapeBoxApply(sx,sy,ax,ay,skew,dt,dv,mn,mx,dur){ const b=state.shapeBox; if(!b)return;
+function shapeBoxApply(sx,sy,ax,ay,skew,dt,dv,mn,mx,dur){ if(!shapeBoxVivo())return; const b=state.shapeBox;
   const spanV=(b.v1-b.v0)||1;
   for(const o of b.base){ let t=ax+(o.t-ax)*sx+dt, v=ay+(o.v-ay)*sy+dv;
     if(skew){ const nv=((o.v-b.v0)/spanV)-0.5; t+=skew*nv; } // shear: the further from the box's mid-value, the more it slides in time
@@ -7338,13 +7355,16 @@ function openModPanel(c,p,anchor){ closeModPanel(); if(!c)return; c.mod=c.mod||{
           <span class="mplab">${T('to','a')}</span><input class="mpto tnum" type="number" step="5" value="${m.to}">
           <label class="mpsync"><input type="checkbox" class="mpinv"${m.inv?' checked':''}> ${T('inv','inv')}</label>`; }
       const upd=()=>{ renderTimeline(); render(); markDirty(); refreshModFormula(); };
-      row.querySelector('.mpon').onclick=()=>{ m.on=(m.on===false); rebuild(); upd(); };
-      row.querySelector('.mpsrc').onchange=e=>{ const nm=modDefaults(e.target.value); nm.id=m.id; nm.blend=m.blend; nm.depth=m.depth; st[i]=nm; rebuild(); upd(); };
-      row.querySelector('.mpbl').onchange=e=>{ m.blend=e.target.value; rebuild(); upd(); };
-      row.querySelector('.mpdep').onchange=e=>{ m.depth=+e.target.value||0; upd(); };
-      row.querySelector('.mpup').onclick=()=>{ if(i>0){ st.splice(i-1,0,st.splice(i,1)[0]); rebuild(); upd(); } };
+      /* [R328] Cada edición de capa empuja deshacer. Sólo lo hacían borrar una capa y añadirla, así que apagar
+         una capa, cambiar su mezcla, su profundidad o su orden no se podía revertir — y lo peor era cambiar la
+         FUENTE, que reemplaza el objeto entero (`st[i]=nm`) y se lleva por delante toda su configuración. */
+      row.querySelector('.mpon').onclick=()=>{ pushUndo(); m.on=(m.on===false); rebuild(); upd(); };
+      row.querySelector('.mpsrc').onchange=e=>{ pushUndo(); const nm=modDefaults(e.target.value); nm.id=m.id; nm.blend=m.blend; nm.depth=m.depth; st[i]=nm; rebuild(); upd(); };
+      row.querySelector('.mpbl').onchange=e=>{ pushUndo(); m.blend=e.target.value; rebuild(); upd(); };
+      row.querySelector('.mpdep').onchange=e=>{ pushUndo(); m.depth=+e.target.value||0; upd(); };
+      row.querySelector('.mpup').onclick=()=>{ if(i>0){ pushUndo(); st.splice(i-1,0,st.splice(i,1)[0]); rebuild(); upd(); } };
       row.querySelector('.mpdel').onclick=()=>{ pushUndo(); st.splice(i,1); if(!st.length)delete c.mod[p]; rebuild(); upd(); };
-      const bind=(sel,f)=>{ const el=row.querySelector(sel); if(el)el.onchange=e=>{ f(e.target); upd(); }; };
+      const bind=(sel,f)=>{ const el=row.querySelector(sel); if(el)el.onchange=e=>{ pushUndo(); f(e.target); upd(); }; };   // [R328] las filas propias de cada fuente (banda, ataque, caida, eje…) tampoco empujaban
       bind('.mpshape',t2=>m.shape=t2.value); bind('.mpbpm',t2=>{m.bpmSync=t2.checked;rebuild();}); bind('.mphz',t2=>m.hz=+t2.value||0.5); bind('.mpdiv',t2=>m.div=+t2.value||1); bind('.mpph',t2=>m.phase=+t2.value||0);
       bind('.mpband',t2=>{ if(t2.value==='custom'){ if(!m.f0||!m.f1){ m.f0=60; m.f1=250; } } else { m.band=t2.value; m.f0=0; m.f1=0; } rebuild(); }); bind('.mpatk',t2=>m.atk=+t2.value||0); bind('.mprel',t2=>m.rel=+t2.value||0); bind('.mpinv',t2=>m.inv=t2.checked);
       bind('.mpaxis',t2=>{m.axis=t2.value; m.from=0; m.to=(t2.value==='az')?360:90; rebuild();}); bind('.mpfrom',t2=>m.from=+t2.value||0); bind('.mpto',t2=>m.to=+t2.value||0);

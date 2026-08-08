@@ -1,5 +1,27 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 328 — Deshacer muerto, Shape Box huérfana y el panel de modulación
+
+Lote de cuatro, con su medición antes de pasar al siguiente — el ritmo que sale de R327.
+
+- **La Shape Box apuntaba a keyframes que ya no existían.** Guarda REFERENCIAS VIVAS (`base:[{k,t,v}]`), y hay
+  cinco caminos que borran o reemplazan esas claves sin avisarle (Supr, «Eliminar seleccionados», «Limpiar
+  automatización», `simplifyAuto`, `pasteAutoAt`): arrastrar sus tiradores mutaba objetos huérfanos, sin efecto
+  visible y sin error. **No se ha añadido un `shapeBoxClose()` en cada uno**: eso es pedir que el sexto se olvide,
+  que es el error que esta sesión ha repetido ocho veces. La caja se COMPRUEBA antes de usarse (`shapeBoxVivo`) y
+  se cierra sola si sus claves ya no están en la curva. Da igual quién las quitara.
+  Con control positivo: con las claves intactas NO se cierra — si no, «cerrarla siempre» pasaría la prueba.
+- **Ninguna edición de capa del panel de modulación empujaba deshacer** salvo añadir y borrar. Apagar una capa,
+  cambiar su mezcla, su profundidad, su orden o las filas propias de cada fuente no se podía revertir — y lo peor
+  era cambiar la FUENTE, que reemplaza el objeto entero (`st[i]=nm`) y se llevaba toda su configuración. Medido:
+  ahora una foto por edición y Ctrl+Z devuelve la fuente anterior.
+- **Seleccionar un locator apilaba una foto de deshacer** aunque no se moviera. Es la otra mitad de la familia que
+  vigila la red de R317: el siguiente Ctrl+Z parecía «no hacer nada» y el usuario lo pulsaba otra vez, perdiendo
+  la edición de verdad. La foto va ahora en el primer movimiento, como el arrastre de clip y el de recorte.
+
+**Verificación:** `scratchpad/r328-verif.mjs`, ya en el lanzador — **ocho redes en verde** y `npm test` 3/3.
+
+
 ## ROUND 327 — Los arreglos que no arreglaban
 
 Un repaso midió R325 y R326 contra el caso del hallazgo ORIGINAL, y **tres de aquellos cierres eran inertes**: el
