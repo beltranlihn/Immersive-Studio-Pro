@@ -2183,10 +2183,11 @@ function addSpoutInput(){ if(!IS_ELEC||!DSP.spout||!DSP.spout.inList){ appAlert(
   const have=new Set(spoutMediaList().map(m=>m.spoutSource));
   const items=srcs.map(s=>({ label:s+(have.has(s)?'  ✓':''), ico:'ndi', fn:()=>{
     if(have.has(s)){ flashStatus(T('That Spout sender is already added','Ese emisor Spout ya está añadido')); return; }
-    const yaHabia=spoutMediaList().length;
-    makeSpoutMedia(s);
-    flashStatus(yaHabia?T('Spout source added — only one can receive at a time','Fuente Spout añadida — solo una puede recibir a la vez')
-                       :T('Spout source added — drag it to the timeline','Fuente Spout añadida — arrástrala a la línea de tiempo')); } }));
+    /* [R327] Se mira el RETORNO. `makeSpoutMedia` devuelve null cuando rechaza una segunda fuente, y este aviso
+       saltaba igual: el usuario cerraba una alerta que decía «sólo se admite una» y la barra le decía a
+       continuación «Fuente Spout añadida». Dos mensajes contradictorios sobre algo que no ocurrió. */
+    if(!makeSpoutMedia(s))return;
+    flashStatus(T('Spout source added — drag it to the timeline','Fuente Spout añadida — arrástrala a la línea de tiempo')); } }));
   const r=$('#mediaList').getBoundingClientRect(); openMenu(r.left+20, Math.min(innerHeight-60, r.top+40), items); }
 function ndiMediaList(){ return state.media.filter(m=>m.kind==='ndi'); }
 function ndiClipOnScreen(){ const t=state.playhead; return state.clips.some(c=>{ const mm=mediaById(c.mediaId); return mm&&mm.kind==='ndi'&&t>=c.start&&t<c.start+c.dur; }); }
@@ -2806,7 +2807,8 @@ function ACTX(){ if(!actx){ actx=new (window.AudioContext||window.webkitAudioCon
    no tenía qué revocar y el blob quedaba retenido por el documento durante toda la sesión: importar una carpeta
    de música dejaba clavados en memoria todos los archivos, enteros. */
 function addAudio(file,path){ const url=URL.createObjectURL(file); const folder=_importFolder;
-  fetch(url).then(r=>r.arrayBuffer()).then(b=>{ try{URL.revokeObjectURL(url);}catch(_){} return ACTX().decodeAudioData(b); }).then(async ab=>{
+  const _revocar=()=>{ try{URL.revokeObjectURL(url);}catch(_){} };   /* [R327] pase lo que pase: R326 lo revocaba solo en el encadenado del exito, asi que un audio corrupto —o un `decodeAudioData` que reviente— dejaba el blob retenido, que es justo la fuga que el cambio venia a cerrar */
+  fetch(url).then(r=>r.arrayBuffer()).then(b=>{ _revocar(); return ACTX().decodeAudioData(b); }).then(async ab=>{
     const wv=await computeWave(ab); const m={id:uid(),name:file.name,kind:'audio',buffer:ab,peaks:wv.peak,rms:wv.rms,dur:ab.duration,w:1,h:1,color:clipColorFor('audio'),thumb:waveThumb(wv.peak,108,64),path:path||null,fsize:file.size||0,folder:folder||null};
     state.media.push(m); adopt(m); renderMedia(); markDirty(); if(state.playing)startAudio(); }).catch(e=>{console.error('audio decode',e);appAlert(T('Could not decode audio.','No se pudo decodificar el audio.'));}); } // reschedule if the buffer finished decoding after Play started. [R92-T3] armMediaBands moved to on-demand (Reactive panel / source change / first reactive FX): 3 OfflineAudioContext renders per import were ~700MB of churn nobody asked for
 function computePeaks(ab,n){ const ch=ab.getChannelData(0); const block=Math.max(1,Math.floor(ch.length/n)); const out=new Float32Array(n);
@@ -2908,6 +2910,14 @@ function adviseHeavyMedia(m){ const mpx=(m.w||0)*(m.h||0), mbps=(m.fsize&&m.dur)
     flashStatus(n===1?T('Heavy clip imported — right-click it → Generate proxy to scrub smoothly','Clip pesado importado — clic derecho → Generar proxy para un scrub fluido')
       :(n+T(' heavy clips imported — right-click → Generate proxy to scrub smoothly',' clips pesados importados — clic derecho → Generar proxy para un scrub fluido'))); },900); }
 function addVideo(file,path){ const url=URL.createObjectURL(file); const folder=_importFolder; const v=document.createElement('video'); v.src=url;v.muted=true;v.playsInline=true;v.preload='auto';
+  /* [R327] Un vídeo que Chromium NO sabe decodificar avisa. No había ningún oyente de `error`, así que un ProRes
+     o un DNxHD dentro de un `.mov` —que llegan con `f.type` de vídeo y por eso no los caza el aviso de formato de
+     `importFiles`— se quedaba en nada: el `loadedmetadata` no llegaba nunca, no se creaba medio y no se decía
+     nada. Arrastrar una carpeta con material mezclado importaba unos sí y otros no, sin pista de cuáles.
+     Se revoca también el URL, que si no quedaba retenido por el documento con el archivo entero detrás. */
+  v.addEventListener('error',()=>{ try{URL.revokeObjectURL(url);}catch(_){}
+    diag('warn','import','video no decodificable',{nombre:file.name});
+    flashStatus(T('Could not decode "'+file.name+'" — the codec is not supported (try ProRes → H.264)','No se pudo decodificar "'+file.name+'" — el códec no está admitido (prueba ProRes → H.264)'),'err'); },{once:true});
   v.addEventListener('loadedmetadata',()=>{ const m={id:uid(),name:file.name,kind:'video',el:v,originalEl:v,srcUrl:url,tex:newTex(),w:v.videoWidth,h:v.videoHeight,dur:v.duration,fps:30,thumb:null,color:clipColorFor('video'),proxyReady:false,proxyPct:0,path:path||null,fsize:file.size||0,folder:folder||null};
     state.media.push(m); adopt(m); renderMedia(); markDirty();
     /* [R225·11] Al IMPORTAR (diálogo o arrastre) se busca si el archivo ya tiene un proxy hecho junto a él y se
@@ -2933,7 +2943,8 @@ function detectFps(v,m,done){let fin=false;
   const canon=f=>{ for(const cc of[24,25,30,48,50,60,120])if(Math.abs(f-cc)<=1.2)return cc; return f; };
   const calc=arr=>{ if(arr.length<3)return 0; const e=arr.slice().sort((a,b)=>a-b); const md=e[Math.floor(e.length/2)]||0;
     return md>0?canon(Math.round(1/md)):0; };
-  let _to=null; const fn=f=>{if(fin)return;fin=true;if(_to)clearTimeout(_to);if(f>0)m.fps=f;if(done)done();};
+  let _to=null,_onEnd=null;   /* [R327] el oyente se RETIRA al terminar. Con `{once:true}` solo se autodesregistra si llega a dispararse, y en el camino normal la medida acaba en el fotograma 10: quedaba colgado del `<video>` del medio —que es de larga vida— y cada reproduccion posterior que llegara al final ejecutaba un `v.pause()` inesperado sobre un elemento que puede estar sirviendo al visor. */
+  const fn=f=>{if(fin)return;fin=true;if(_to)clearTimeout(_to);if(_onEnd){try{v.removeEventListener('ended',_onEnd);}catch(_){}_onEnd=null;}if(f>0)m.fps=f;if(done)done();};
   if(!v.requestVideoFrameCallback){fn(0);return;} let last=null,d=[],n=0;
   const onf=(now,meta)=>{if(last!=null&&meta.mediaTime>last)d.push(meta.mediaTime-last);last=meta.mediaTime;n++;
    if(n<10)v.requestVideoFrameCallback(onf);else{v.pause();v.currentTime=0;fn(calc(d));}};
@@ -2944,7 +2955,7 @@ function detectFps(v,m,done){let fin=false;
      medio segundo; y en los normales el `v.pause()` del vencimiento caía hasta 8 s después, sobre un elemento que
      para entonces podía estar reproduciéndose en el visor. */
   _to=setTimeout(()=>{ try{v.pause();}catch(_){ } fn(calc(d)); },plazo); // al vencer, se usa lo medido hasta ahora
-  v.addEventListener('ended',()=>{ try{v.pause();}catch(_){ } fn(calc(d)); },{once:true});
+  _onEnd=()=>{ try{v.pause();}catch(_){ } fn(calc(d)); }; v.addEventListener('ended',_onEnd);
   v.muted=true; v.play().then(()=>v.requestVideoFrameCallback(onf)).catch(()=>fn(0)); }
 /* proxies — persistent DISK cache (R78): the proxy MP4 streams to userData/proxies while encoding
    (RAM stays flat regardless of clip length — the old in-memory target held ~12Mbps × duration, multi-GB
@@ -3003,7 +3014,9 @@ async function bindProxyFile(m,cachePath){ const purl=DSP.toFileURL(cachePath); 
    completas del mismo archivo: la segunda pisa el `.part` de la primera y tira otros tantos minutos de máquina.
    `m._pxGen` marca el que se está generando ahora mismo; la cola se mira aparte. */
 function enqProxy(m){ if(!m||m._pxGen||proxyQ.includes(m))return; proxyQ.push(m); pumpProxy(); }
-async function pumpProxy(){if(proxyBusy||!proxyQ.length)return;proxyBusy=true;const m=proxyQ.shift();try{await makeProxy(m);}catch(e){console.error('proxy',e);m.proxyPct=-1;
+async function pumpProxy(){if(proxyBusy||!proxyQ.length)return;proxyBusy=true;const m=proxyQ.shift();
+  m._pxGen=true;   /* [R327] La marca se PONE aqui. R326 escribio la guarda de `enqProxy` sobre `_pxGen` sin darse cuenta de que esa propiedad solo se escribia a `false` en el `finally` de abajo: nunca a true. Medido, el medio se reencolaba mientras se generaba y el doble clic seguia lanzando dos codificaciones. */
+  try{await makeProxy(m);}catch(e){console.error('proxy',e);m.proxyPct=-1;
   /* [R311·A6] La tabla de fotogramas EN RAM (`m.frames`) se va llenando MIENTRAS se codifica, y `seekMedia` la
      prefiere al archivo original. Si la generacion muere a mitad —escritura a disco fallida, publicacion
      fallida, un `.part` que luego no se deja enlazar— esa tabla queda PARCIAL con `m.decConfig` puesto: a
@@ -3014,7 +3027,9 @@ async function pumpProxy(){if(proxyBusy||!proxyQ.length)return;proxyBusy=true;co
   /* [R326] Aquí NO se cierra el descriptor: lo cierra el `finally` de abajo, que corre siempre. Cerrarlo en los
      dos sitios era un cierre doble sobre el mismo `fid` — y entre uno y otro `makeProxy` puede haber abierto ya
      otro archivo, así que el segundo cierre puede caer sobre un descriptor reutilizado. */
-  renderMedia();updProxyUI(m); if(e&&e.userMsg)try{appAlert(e.userMsg);}catch(_){}}finally{ if(m._ppart){ try{ if(m._pfid!=null)await DSP.fileClose(m._pfid); }catch(_){} try{ await DSP.deleteFile(m._ppart); }catch(_){} m._ppart=null; } m._pfid=null; m._pxGen=false; renderMedia(); }proxyBusy=false;pumpProxy();}
+  renderMedia();updProxyUI(m); if(e&&e.userMsg)try{appAlert(e.userMsg);}catch(_){}}finally{ /* [R327] El cierre va FUERA del `if(m._ppart)`. R326 quito el cierre del `catch` —era doble— pero el que quedaba estaba dentro de esa condicion, asi que un fallo posterior a publicar el proxy (con `_ppart` ya a null) perdia el descriptor: `m._pfid=null` olvidaba el identificador y el `FileHandle` seguia vivo en el mapa del proceso principal hasta cerrar la aplicacion. */
+  try{ if(m._pfid!=null)await DSP.fileClose(m._pfid); }catch(_){}
+  if(m._ppart){ try{ await DSP.deleteFile(m._ppart); }catch(_){} m._ppart=null; } m._pfid=null; m._pxGen=false; renderMedia(); }proxyBusy=false;pumpProxy();}
 function seekRaw(v,t){return new Promise(r=>{t=Math.max(0,Math.min((v.duration||0)-1e-3,t));if(Math.abs(v.currentTime-t)<1e-3&&v.readyState>=2){requestAnimationFrame(()=>r());return;}const on=()=>{v.removeEventListener('seeked',on);r();};v.addEventListener('seeked',on);v.currentTime=t;});}
 async function makeProxy(m){
   if(/\.dsp-proxy-\w+\.mp4$/i.test(m.path||'')){ m.proxyUrl=m.srcUrl; m.proxyEl=m.el; m.proxyReady=true; m.proxyPct=100; renderMedia(); updProxyUI(m); return; } // the imported file IS a proxy — it is its own proxy (no proxy-of-proxy)
@@ -3205,13 +3220,17 @@ function renderMedia(){
     if(so==='name')items.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
     else if(so==='type')items.sort((a,b)=>((a.kind||'')+'~'+(a.name||'')).localeCompare((b.kind||'')+'~'+(b.name||'')));
     else if(so==='date')items.sort((a,b)=>(b.id||0)-(a.id||0)); }
-  /* [R326] La zona de arrastre sólo sustituye al panel si TAMPOCO hay carpetas. Mirando sólo `state.media`, un
-     proyecto recién creado en el que se pulsa «Nueva carpeta» la creaba de verdad —entraba en `state.folders` y se
-     guardaba en el `.isp`— pero el panel seguía enseñando la zona de arrastre: la carpeta existía y era invisible,
-     así que al importar después aparecía una carpeta «de la nada», o se creaban dos con el mismo nombre. */
-  if(!state.media.length&&!(state.folders&&state.folders.length)){ list.innerHTML='<div class="drop" id="dropZone">'+T('Drag <b>videos / images / audio</b><br>or click to import','Arrastra <b>vídeos / imágenes / audio</b><br>o haz clic para importar')+'</div>';
+  /* [R326 → R327] Esta condición vuelve a ser la de siempre. R326 le añadió «y tampoco hay carpetas» para que
+     éstas se pintaran con el panel vacío, y era inútil: `state.media` NUNCA está vacío porque la secuencia activa
+     vive ahí (medido: 1 medio de tipo `nest` tras `newProject`), así que esta rama no se alcanza en un proyecto
+     real y el añadido no protegía nada. Donde el panel SÍ se queda sin carpetas es tres líneas más abajo, cuando
+     el FILTRO o la búsqueda dejan `items` vacío — ahí va ahora la guarda. */
+  if(!state.media.length){ list.innerHTML='<div class="drop" id="dropZone">'+T('Drag <b>videos / images / audio</b><br>or click to import','Arrastra <b>vídeos / imágenes / audio</b><br>o haz clic para importar')+'</div>';
     $('#dropZone').onclick=()=>pickMedia(false); wireDrop($('#dropZone')); return; } // [R245b] la zona vacía importa medios sueltos
-  if(!items.length){ list.innerHTML='<div style="padding:34px 16px;color:var(--ink-dim);text-align:center;font-size:11px;">'+T('No matching media.','No hay medios coincidentes.')+'</div>'; return; }
+  /* [R327] Con carpetas, el árbol se pinta aunque el filtro no deje ningún medio: si no, poner el filtro en
+     «Vídeo» en un proyecto que sólo tiene audio hacía desaparecer las carpetas enteras —y con ellas la navegación—
+     hasta quitar el filtro, sin nada que dijera que seguían ahí. */
+  if(!items.length&&!(state.folders&&state.folders.length)){ list.innerHTML='<div style="padding:34px 16px;color:var(--ink-dim);text-align:center;font-size:11px;">'+T('No matching media.','No hay medios coincidentes.')+'</div>'; return; }
   if(state.mediaView==='grid'){ // square-tile view with NESTED folder navigation (double-click a folder to enter, ← to go back; drag onto a folder to file into it)
     const grid=document.createElement('div'); grid.className='mediagrid'; list.appendChild(grid);
     const cur=(state.mediaFolder&&folderExists(state.mediaFolder))?state.mediaFolder:null; state.mediaFolder=cur;
@@ -9845,9 +9864,14 @@ class Zip{constructor(){this.p=[];this.c=[];this.o=0;this.e=new TextEncoder();}
      útil. (ZIP64 lo resolvería, pero el camino bueno para una secuencia larga es exportar a una CARPETA, que es
      lo que hace la app cuando corre en Electron; este ZIP es el respaldo del navegador.) */
   add(n,d){
+    const nb=this.e.encode(n);
     if(this.c.length/2>=65535)throw new Error(T('Too many frames for a ZIP (65535 max) — export to a folder instead','Demasiados fotogramas para un ZIP (máximo 65535) — exporta a una carpeta'));
-    if(this.o+30+d.length>0xFFFFFFFF)throw new Error(T('The ZIP would exceed 4 GB — export to a folder instead','El ZIP pasaría de 4 GB — exporta a una carpeta'));
-    const nb=this.e.encode(n),crc=crc32(d),sz=d.length;const lh=new DataView(new ArrayBuffer(30));lh.setUint32(0,0x04034b50,true);lh.setUint16(4,20,true);lh.setUint32(14,crc,true);lh.setUint32(18,sz,true);lh.setUint32(22,sz,true);lh.setUint16(26,nb.length,true);this.p.push(new Uint8Array(lh.buffer),nb,d);
+    /* [R327] Con el NOMBRE contado, que es lo que avanza de verdad (`this.o+=30+nb.length+sz`). Sin él, con
+       nombres de fotograma de ~30 bytes y decenas de miles de entradas la diferencia acumulada llega al mega, y
+       un ZIP que acabe a un pelo de los 4 GB pasaba la comprobación para escribir después un desplazamiento
+       truncado: la corrupción silenciosa que la guarda venía a impedir. */
+    if(this.o+30+nb.length+d.length>0xFFFFFFFF)throw new Error(T('The ZIP would exceed 4 GB — export to a folder instead','El ZIP pasaría de 4 GB — exporta a una carpeta'));
+    const crc=crc32(d),sz=d.length;const lh=new DataView(new ArrayBuffer(30));lh.setUint32(0,0x04034b50,true);lh.setUint16(4,20,true);lh.setUint32(14,crc,true);lh.setUint32(18,sz,true);lh.setUint32(22,sz,true);lh.setUint16(26,nb.length,true);this.p.push(new Uint8Array(lh.buffer),nb,d);
    const cd=new DataView(new ArrayBuffer(46));cd.setUint32(0,0x02014b50,true);cd.setUint16(4,20,true);cd.setUint16(6,20,true);cd.setUint32(16,crc,true);cd.setUint32(20,sz,true);cd.setUint32(24,sz,true);cd.setUint16(28,nb.length,true);cd.setUint32(42,this.o,true);this.c.push(new Uint8Array(cd.buffer),nb);this.o+=30+nb.length+sz;}
   finish(){let cs=0;for(const x of this.c)cs+=x.length;const n=this.c.length/2;const eo=new DataView(new ArrayBuffer(22));eo.setUint32(0,0x06054b50,true);eo.setUint16(8,n,true);eo.setUint16(10,n,true);eo.setUint32(12,cs,true);eo.setUint32(16,this.o,true);return new Blob([...this.p,...this.c,new Uint8Array(eo.buffer)],{type:'application/zip'});}}
 
@@ -11394,11 +11418,16 @@ function migrateRoomFloor(wseq){
        dentro de otro nido— se quedaba con un `mediaId` que ya no existe: `mediaById` devuelve `undefined` y ese
        clip pasa a ser un hueco mudo que no se dibuja, no se puede seleccionar bien y viaja así al `.isp`.
        Se mira en la línea activa y en los `nestClips` de todas las secuencias, que es donde puede haber clips. */
-    { const fid=fseq.id; let quitados=0;
-      const limpiar=arr=>{ if(!Array.isArray(arr))return arr; const n=arr.filter(c=>c.mediaId!==fid); quitados+=arr.length-n.length; return n; };
-      state.clips=limpiar(state.clips);
-      for(const sm of state.media)if(isSeqMedia(sm)&&Array.isArray(sm.nestClips))sm.nestClips=limpiar(sm.nestClips);
-      if(quitados)diag('info','room','clips del piso retirados con su secuencia',{n:quitados}); }
+    /* [R327] Con `_soltarRecursosClips`, la misma liberación que usa `deleteSel`. R325 filtraba los arrays a mano
+       y se dejaba las texturas de máscara y los búferes de FX de esos clips — y de paso creaba una segunda forma
+       de «quitar clips» que habría que mantener en paralelo, que es justo lo que esa ronda extrajo para evitar. */
+    { const fid=fseq.id; const idsFuera=[];
+      const recoger=arr=>{ if(Array.isArray(arr))for(const c of arr)if(c.mediaId===fid)idsFuera.push(c.id); };
+      recoger(state.clips); for(const sm of state.media)if(isSeqMedia(sm))recoger(sm.nestClips);
+      if(idsFuera.length){ _soltarRecursosClips(idsFuera); const fuera=new Set(idsFuera);
+        state.clips=state.clips.filter(c=>!fuera.has(c.id));
+        for(const sm of state.media)if(isSeqMedia(sm)&&Array.isArray(sm.nestClips))sm.nestClips=sm.nestClips.filter(c=>!fuera.has(c.id));
+        diag('info','room','clips del piso retirados con su secuencia',{n:idsFuera.length}); } }
     state.media=state.media.filter(x=>x.id!==fseq.id); // its content now lives in wseq.nestClips — the standalone sequence is gone
   }
   room.floorSeqId=null;
@@ -11623,7 +11652,7 @@ async function relinkIndex(){
 /* [R325] `fsize` = el tamaño que el `.isp` recuerda de ese medio; sirve para desempatar homónimos. Si hay
    varios candidatos y ninguno coincide en tamaño, se prefiere NO reenlazar: el medio se queda «ausente» y el
    usuario lo reenlaza a mano, que es reversible. Adivinar no lo es — el proyecto se guarda con la ruta elegida. */
-async function repararRuta(p,fsize){
+async function repararRuta(p,fsize,silencio){
   if(!p)return null;
   try{ if(await DSP.exists(p))return p; }catch(e){}
   const idx=await relinkIndex(); if(!idx)return null;
@@ -11632,8 +11661,11 @@ async function repararRuta(p,fsize){
   if(cands.length===1)alt=cands[0].p;
   else { const exactos=fsize?cands.filter(c=>c.size===fsize):[];
     if(exactos.length===1)alt=exactos[0].p;
-    else { diag('warn','relink','homónimos sin desempate',{nombre:pbase(p),n:cands.length,fsize:fsize||0});
-      flashStatus(T('Several files named "'+pbase(p)+'" — relink it by hand','Hay varios archivos llamados "'+pbase(p)+'" — reenlázalo a mano'),'err');
+    else { /* [R327] `silencio` para el bucle de secuencias de imágenes, que llama una vez por FOTOGRAMA: sin él,
+         una secuencia de 500 fotogramas junto a otra homónima soltaba 500 avisos en cascada al abrir el proyecto.
+         Quien pasa `silencio` avisa una sola vez por medio, que es la unidad que el usuario entiende. */
+      diag('warn','relink','homónimos sin desempate',{nombre:pbase(p),n:cands.length,fsize:fsize||0});
+      if(!silencio)flashStatus(T('Several files named "'+pbase(p)+'" — relink it by hand','Hay varios archivos llamados "'+pbase(p)+'" — reenlázalo a mano'),'err');
       return null; } }
   if(alt&&alt!==p){ _relCount++; relinkReport(); return alt; }
   return null;
@@ -11642,7 +11674,10 @@ async function reloadMedia(m){
   if(m.kind==='adjust'){ m.missing=false; m._loading=false; return; } // adjustment layer template — no file
   if(m.kind==='ndi'||m.kind==='spout'){ m.missing=false; m._loading=false; return; } // entrada en vivo (NDI/Spout) — no hay archivo que reenlazar
   if(m.kind==='sequence'){ if(!m.framePaths||!m.framePaths.length){ m.missing=true; m._loading=false; renderMedia(); updRelink(); return; }
-    { const rep=[]; for(const fp of m.framePaths)rep.push(await repararRuta(fp)); if(rep.some((r,i)=>r&&r!==m.framePaths[i]))m.framePaths=rep.map((r,i)=>r||m.framePaths[i]); } // [R204] una secuencia de imágenes también se reenlaza
+    { const rep=[]; for(const fp of m.framePaths)rep.push(await repararRuta(fp,0,true)); if(rep.some((r,i)=>r&&r!==m.framePaths[i]))m.framePaths=rep.map((r,i)=>r||m.framePaths[i]);
+      /* [R327] Un aviso por SECUENCIA, no por fotograma. */
+      { const perdidos=rep.filter((r,i)=>!r&&m.framePaths[i]).length;
+        if(perdidos)flashStatus(perdidos+T(' frame(s) of "'+(m.name||'')+'" could not be relinked — several files share their name',' fotograma(s) de "'+(m.name||'')+'" sin reenlazar — varios archivos comparten su nombre'),'err'); } } // [R204] una secuencia de imágenes también se reenlaza
     const total=m.framePaths.length, frames=new Array(total); m.tex=m.tex||newTex(); m._curFrame=-1; let loaded=0;
     m.framePaths.forEach((fp,i)=>{ if(!fp){ if(++loaded===total){ m._loading=false; renderMedia(); } return; } const img=new Image(); img.onload=()=>{ const fit=fitImage(img); frames[i]=fit.src; if(i===0){ m.w=fit.w; m.h=fit.h; upTex(m.tex,fit.src); m._curFrame=0; m.thumb=DSP.toFileURL(fp); m.missing=false; } if(++loaded===total){ m.missing=false; m._loading=false; renderMedia(); render(); } }; img.onerror=()=>{ if(++loaded===total){ m._loading=false; renderMedia(); } }; img.src=DSP.toFileURL(fp); });
     m.frames=frames; return; }
@@ -11902,17 +11937,29 @@ function restore(s){ const o=JSON.parse(s);
   /* [R253d] ¿es segura la parte global de esta foto? Ver el comentario de `bumpMeta`. */
   const _segura=(o.metaVer!=null) && (_metaOwner===(state.activeSeqId!=null?state.activeSeqId:"_"))
                 && (o.metaVer>=_metaFree) && Math.abs(_metaVer-o.metaVer)<=1;
-  /* [R325] Un medio que la foto NO tenía vuelve a la papelera. Sin esto, deshacer y REHACER un borrado de medio
-     se quedaba a medias: al rehacer, los clips volvían a irse pero el medio seguía en `state.media` — huérfano
-     en el panel, sin ningún clip que lo use, y guardándose así en el `.isp`. El bloque de arriba sólo sabe
-     REVIVIR de la papelera; le faltaba el camino de vuelta, y `mmeta` (la lista de medios que había en la foto)
-     es exactamente el dato que hace falta. Se exige `_segura` como el resto del bloque global: si la foto es de
-     otra secuencia, sus medios no dicen nada de ésta. */
-  if(_segura&&Array.isArray(o.mmeta)){
+  /* [R325 → R327] Un medio que la foto NO tenía vuelve a la papelera. Sin esto, deshacer y REHACER un borrado de
+     medio se quedaba a medias: al rehacer, los clips volvían a irse pero el medio seguía en `state.media` —
+     huérfano en el panel, sin ningún clip que lo use, y guardándose así en el `.isp`. El bloque de arriba sólo
+     sabe REVIVIR de la papelera; le faltaba el camino de vuelta, y `mmeta` es el dato que hace falta.
+     **FUERA de `_segura`**, y ahí estuvo el fallo de R325: esa guarda protege los datos GLOBALES editables
+     (nombres, carpetas, marcas) de una foto de otra secuencia o anterior a un `bumpMeta(true)`, y para eso exige
+     `metaVer` casi consecutivos — condición que el par deshacer/rehacer NO cumple, así que el arreglo no llegaba
+     a ejecutarse ni una vez. Medido: tras rehacer, el medio seguía en el panel. La PERTENENCIA de un medio no es
+     un dato editable con esa ambigüedad: `mmeta` lista siempre todos los medios del proyecto, valga la foto para
+     la secuencia que valga.
+     Y se limita a los `trashIds` de la propia foto —los medios que ESA acción enterró— en vez de a todo lo que
+     falte en `mmeta`: importar no empuja deshacer, así que un medio recién traído no está en ninguna foto y el
+     criterio amplio se lo llevaba por delante al primer Ctrl+Z (medido). Más dos guardas: nunca se toca un medio
+     que un clip restaurado USE —eso rompería el clip— ni una secuencia, que no vive en la papelera. Va DESPUÉS
+     del bloque que revive, para no re-enterrar lo que ese acaba de sacar. */
+  if(Array.isArray(o.trashIds)&&o.trashIds.length&&Array.isArray(o.mmeta)){
     const habia=new Set(o.mmeta.map(e=>e[0]));
-    for(let i=state.media.length-1;i>=0;i--){ const mm=state.media[i];
-      if(habia.has(mm.id)||isSeqMedia(mm))continue;              // las secuencias no viven en la papelera
-      state.mediaTrash=state.mediaTrash||{}; mm._trashed=true; state.mediaTrash[mm.id]=mm; state.media.splice(i,1); }
+    const usados=new Set(); for(const c of state.clips)usados.add(c.mediaId);
+    for(const sm of state.media)if(isSeqMedia(sm)&&Array.isArray(sm.nestClips))for(const c of sm.nestClips)usados.add(c.mediaId);
+    for(const id of o.trashIds){
+      if(habia.has(id)||usados.has(id))continue;      // la foto SI lo tenia, o un clip restaurado lo usa
+      const i=state.media.findIndex(x=>x.id===id); if(i<0||isSeqMedia(state.media[i]))continue;
+      const mm=state.media[i]; state.mediaTrash=state.mediaTrash||{}; mm._trashed=true; state.mediaTrash[mm.id]=mm; state.media.splice(i,1); }
   }
   if(_segura&&Array.isArray(o.mmeta)){ for(const e of o.mmeta){ const mm=mediaById(e[0]); if(!mm)continue;
       if(e[1]!=null)mm.name=e[1];
@@ -11929,7 +11976,14 @@ function restore(s){ const o=JSON.parse(s);
   if(_segura&&(Array.isArray(o.mmeta)||Array.isArray(o.folders))){ renderMedia(); try{ if(typeof renderSeqBar==='function')renderSeqBar(); }catch(e){} } // el nombre de un nido titula tambien su pestana de secuencia
   saveActiveSeq(); markDirty(); // re-heal the state.clips ⇄ activeSeq().nestClips alias (stale nestClips broke seqDur/seqReaches after undo) + an undone edit IS an unsaved change
   renderTimeline();renderInspector();render();updStatus(); reschedAudio(); }
-function undo(){ const st=_ustk(); if(!st.u.length)return; st.r.push(snapshot()); const s=st.u.pop(); st.bytes-=s.length; restore(s); }
+/* [R327] La foto de REHACER hereda los `trashIds` de la que se está deshaciendo. Son los medios que aquella
+   accion mando a la papelera, asi que son exactamente los que rehacerla tiene que volver a enterrar — y ningun
+   otro. Sin este hilo, `restore` solo podia deducirlo comparando `mmeta`, y eso se llevaba por delante tambien
+   los medios IMPORTADOS despues de la foto (importar no empuja deshacer, asi que no aparecen en ninguna): medido,
+   un Ctrl+Z tras importar hacia desaparecer el archivo recien traído del panel. */
+function undo(){ const st=_ustk(); if(!st.u.length)return; const s=st.u.pop(); st.bytes-=s.length;
+  let tids=null; try{ tids=JSON.parse(s).trashIds||null; }catch(e){}
+  st.r.push(snapshot(tids)); restore(s); }
 function redo(){ const st=_ustk(); if(!st.r.length)return; const s=snapshot(); st.u.push(s); st.bytes+=s.length; restore(st.r.pop()); }
 /* [R214→R215] state.mediaTrash never shrank on its own — a media deleted from the panel stayed in the trash (full
    decoded buffers/textures held via disposeMedia's own bookkeeping, not the tiny stub) for the rest of the
@@ -12007,7 +12061,12 @@ let _emergT=0; function emergencySave(){
      escritura desgarrada dejaba las DOS ranuras inservibles, que es justo lo que el sistema de dos ranuras
      existe para impedir. */
   try{ const base=IS_ELEC?autosaveBase():null; if(base){ const j=JSON.stringify(serProject()); const dir=projAutosaveDir(); const ruta=base+(_asFlip?'.autosave2':'.autosave1');
-      const w=()=>{ const r=DSP.writeText(ruta,j); _asFlip=!_asFlip; return r; }; if(dir&&DSP.ensureDir)DSP.ensureDir(dir).then(w).catch(w); else w(); } }catch(e){} }
+      /* [R327] La alternancia SOLO si la escritura sale bien, como el autoguardado normal (`if(ok!==false)`).
+         R325 la aplicaba siempre y sin esperar el resultado: con el disco lleno, la primera emergencia fallaba
+         sobre `.autosave1` y dejaba la marca apuntando a `.autosave2`, asi que la siguiente escribia encima de la
+         unica copia que quedaba buena — justo lo contrario de lo que las dos ranuras existen para dar. */
+      const w=()=>Promise.resolve(DSP.writeText(ruta,j)).then(ok=>{ if(ok!==false)_asFlip=!_asFlip; return ok; }).catch(()=>false);
+      if(dir&&DSP.ensureDir)DSP.ensureDir(dir).then(w).catch(w); else w(); } }catch(e){} }
 window.addEventListener('error',e=>{ try{diag('error','uncaught',String(e.message||'').slice(0,300));}catch(_){} emergencySave(); });
 window.addEventListener('unhandledrejection',e=>{ try{diag('error','unhandledrejection',String(e.reason&&e.reason.message||e.reason||'').slice(0,300));}catch(_){} emergencySave(); });
 let _asFlip=false, _asBusy=false;
@@ -12358,11 +12417,18 @@ $('#curvesBtn').onclick=toggleCurves; // [R93] single Automation button — the 
    arrastre filtraba la textura de máscara y los búferes de realimentación de FX de los clips borrados, y podía
    dejar `state.autoSel` apuntando a un clip que ya no existe. R321 dobló la fuga al añadir la mitad enlazada al
    conjunto de borrado sin añadirla a ninguna limpieza. Con una sola función no puede volver a desparejarse. */
+/* [R327] La LIBERACIÓN, aparte del filtrado, para que la puedan usar también los caminos que quitan clips de un
+   nido (`migrateRoomFloor`) y no sólo el que los quita de la línea activa. Barre las dos listas al buscar la
+   textura de máscara: un clip a borrar puede estar en cualquiera de ellas. */
+function _soltarRecursosClips(ids){
+  if(!ids||!ids.length)return; const set=new Set(ids);
+  if(state.autoSel&&set.has(state.autoSel.cid))state.autoSel=null;
+  for(const _id of ids){ try{freeFxHistFor(_id);}catch(e){} }              // búferes de realimentación de FX, por clip
+  const barrer=arr=>{ if(Array.isArray(arr))for(const c of arr)if(set.has(c.id)&&c.maskTex){try{gl.deleteTexture(c.maskTex);}catch(e){}} };
+  barrer(state.clips); for(const sm of state.media)if(isSeqMedia(sm))barrer(sm.nestClips); }
 function _quitarClips(ids){
   if(!ids||!ids.length)return;
-  if(state.autoSel&&ids.includes(state.autoSel.cid))state.autoSel=null;
-  for(const _id of ids){ try{freeFxHistFor(_id);}catch(e){} }              // búferes de realimentación de FX, por clip
-  for(const c of state.clips)if(ids.includes(c.id)&&c.maskTex){try{gl.deleteTexture(c.maskTex);}catch(e){}}
+  _soltarRecursosClips(ids);
   state.clips=state.clips.filter(x=>!ids.includes(x.id)); }
 function deleteSel(){ const ids=(state.selIds&&state.selIds.length)?state.selIds.slice():(state.selId!=null?[state.selId]:[]); if(!ids.length)return; diag('info','clip','delete',{n:ids.length}); pushUndo();
   _quitarClips(ids);

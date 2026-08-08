@@ -1,5 +1,48 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 327 — Los arreglos que no arreglaban
+
+Un repaso midió R325 y R326 contra el caso del hallazgo ORIGINAL, y **tres de aquellos cierres eran inertes**: el
+código estaba puesto, pero no se ejecutaba nunca o protegía una rama inalcanzable. Doce hallazgos en total, ocho
+de ellos medidos.
+
+**Los tres inertes**
+- **El retorno a la papelera de `restore` vivía dentro de `_segura`**, guarda que el par deshacer/rehacer no
+  cumple (exige `metaVer` casi consecutivos). Medido: tras rehacer un borrado, el medio seguía en el panel —
+  exactamente el síntoma que R325 dio por cerrado. Ahora `false/true/false`.
+  Y al sacarlo de esa guarda apareció el peligro que el repaso ya avisaba: con el criterio amplio «todo lo que
+  falte en `mmeta`», un Ctrl+Z se llevaba también un medio recién IMPORTADO (importar no empuja deshacer, así que
+  no está en ninguna foto). Se acota a los `trashIds` de la propia foto, que `undo` pasa ahora hacia la pila de
+  rehacer. Medido las dos cosas.
+- **La guarda de `enqProxy` se apoyaba en `_pxGen`, que no se ponía a `true` en ninguna parte** — sólo se escribía
+  a `false` en el `finally`. El doble clic seguía lanzando dos codificaciones. La marca se pone ya en `pumpProxy`,
+  antes del primer `await`; medido de forma síncrona.
+- **La condición de las carpetas invisibles protegía una rama inalcanzable**: `state.media` nunca está vacío
+  porque la secuencia activa vive ahí. Se revierte, y se arregla donde el problema SÍ ocurre — con un filtro
+  activo que deja la lista vacía, que hacía desaparecer el árbol de carpetas entero.
+
+**Y un fallo nuevo de R326**: al quitar el `fileClose` doble del `catch` de `pumpProxy`, el único cierre que
+quedaba estaba dentro de `if(m._ppart)`, así que un fallo posterior a publicar el proxy perdía el descriptor y el
+`FileHandle` seguía vivo en el proceso principal hasta cerrar la aplicación.
+
+**Los demás**: el aviso de import ahora alcanza también a los `.mov` que Chromium no decodifica (ProRes, DNxHD),
+que no tienen oyente de `error` y desaparecían en silencio; el aviso de homónimos ya no sale una vez por FOTOGRAMA
+de una secuencia de imágenes (500 avisos en cascada al abrir) sino una por secuencia; `emergencySave` sólo alterna
+de ranura si la escritura sale bien; el URL del import de audio se revoca pase lo que pase; el oyente `ended` de
+`detectFps` se retira al terminar por cualquier vía; `migrateRoomFloor` usa la liberación compartida
+(`_soltarRecursosClips`, extraída de `_quitarClips`) en vez de filtrar a mano y filtrar texturas; el llamador de
+Spout mira el retorno y ya no dice «Fuente añadida» después de una alerta que dice lo contrario; y la guarda de
+4 GB del ZIP cuenta también el nombre de la entrada, que es lo que avanza de verdad.
+
+**Sobre el método, que es la lección de esta ronda.** En R325 y R326 cerré veinte hallazgos en dos rondas
+comprobando al final y en bloque; tres arreglos resultaron inertes y una de mis propias sondas dio uno por bueno
+**por el motivo equivocado** (medía con la secuencia presente, no con el panel vacío). La regla que sale:
+**medir cada arreglo contra el caso del hallazgo, no contra uno que se le parezca**, y hacerlo antes de pasar al
+siguiente. La red `scratchpad/r327-verif.mjs` guarda justo esos cuatro casos.
+
+**Verificación:** siete redes en verde y `npm test` 3/3.
+
+
 ## ROUND 326 — Del inventario: importación, medios y proxies
 
 Segunda tanda. Nada de esto rompe el programa; todo hace perder tiempo o material sin decirlo.
