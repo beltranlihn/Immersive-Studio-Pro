@@ -1,5 +1,43 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 318 — Las cachés que enseñaban algo viejo, y una «optimización» que no ahorraba nada
+
+El patrón 3 de la auditoría (§11): cinco cachés del mismo molde, todas SILENCIOSAS — nada falla, simplemente se
+sigue mostrando algo que ya no es. Tres de las cinco tenían la misma raíz, y no era la que parecía.
+
+**`_raGen` no es sólo del caché de render-ahead.** Es el contador de GENERACIÓN del fotograma compuesto, y
+forma parte de la clave de otras tres cosas: los scopes (histograma y vectorscopio), la salida NDI y la salida
+Spout. Pero **36 llamadores escribían `if(_raOn)raInvalidate()`** — una «optimización» que no ahorra nada,
+porque el cuerpo de la función es un `++`, y que rompía las otras tres. Con render-ahead apagado, que es **el
+valor por defecto**:
+- arrastrar una rueda de color dejaba el histograma **congelado en el fotograma previo al gesto** — justo el
+  momento para el que esos medidores existen;
+- y en pausa, editar un clip repintaba el visor mientras **NDI y Spout seguían emitiendo el fotograma anterior
+  a la edición**: el caso «proyectar en el domo mientras se ajusta», que es como se usa esto en producción.
+
+Los 36 pasan a llamar sin condición, y el contrato queda escrito donde vive el contador: si algún día hace
+falta separar los dos conceptos, se separan los contadores; no se condiciona éste.
+
+**Y las dos cachés con la clave incompleta:**
+- **`_modAudioCache`** (envolventes de banda ya moldeadas para los moduladores) se DERIVA de `_arCache`, pero no
+  moría con ella: se limpiaba `_fxEnvCache` y a su hermana no la tocaba nadie. Como la clave no menciona de
+  qué medio sale, un modulador con la misma banda y los mismos tiempos recuperaba la envolvente de **la
+  canción anterior** — al cambiar el clip de origen y también al abrir otro proyecto. El parámetro seguía
+  moviéndose, al ritmo de una música que ya no suena. Ahora se vacían juntas en los seis puntos de invalidación.
+- **`_specRaw`** hornea la ganancia y la puerta DENTRO del resultado, pero la clave era sólo el rango de
+  frecuencias: mover Gain o Gate actualizaba las cuatro bandas nombradas y dejaba los rangos a medida con la
+  ganancia vieja. Se amplía la CLAVE en vez de vaciar la caché en `arRecompute` — el fader la llama en cada
+  píxel del arrastre, y recomputar el espectro de una pista de 75 minutos en cada tic sería inasumible; así,
+  ir y volver con el fader reutiliza lo ya calculado.
+
+**Red: `scratchpad/r318-caches.mjs`.** Comprueba la regla de la familia — *si cambia algo de lo que el resultado
+depende, la caché tiene que fallar* — y añade una comprobación ESTRUCTURAL sobre el fuente para que la
+condición no vuelva: ningún llamador puede escribir `if(_raOn)raInvalidate()`. Validada por reversión.
+
+*Y una lección repetida, que ya conviene tratar como regla: la comprobación estática daba un falso fallo porque
+el comentario que explica este arreglo CITA el patrón prohibido. Analizar fuente sin limpiar comentarios es
+analizar también lo que se dice DE él — es exactamente lo que endureció el test de paridad en R315.*
+
 ## ROUND 317 — La familia «pushUndo ausente», cerrada con una red en vez de con parches
 
 El patrón 1 de la auditoría (§11): ~10 miembros vivos, todos detectables por la misma señal — **asimetría con

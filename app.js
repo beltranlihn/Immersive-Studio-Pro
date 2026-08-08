@@ -349,7 +349,7 @@ async function loadLUT(path){ if(!path)return null;
 function resetLutReg(){ for(const rec of _lutReg.values()){ try{ gl.deleteTexture(rec.tex); }catch(e){} } _lutReg.clear(); } // [R213] libera las texturas 3D de LUT del proyecto anterior — llamar donde se resetea el resto del estado GL
 const _lutLoading=new Set(); // [R213] evita relanzar DSP.readText en cada frame mientras una LUT expulsada se recarga
 function bindClipLUT(c,L){ L=L||LW; const lutPath=c&&c.props&&c.props.lut; const rec=lutPath?_lutReg.get(lutPath):null; // set the LUT uniforms + bind on unit 2 (identity when none, so the sampler stays valid). L = target program's uniform struct (LW warp / LFD fulldome / LEQ equirect) → same grade chain on every dome path
-  if(lutPath&&!rec&&!_lutLoading.has(lutPath)){ _lutLoading.add(lutPath); loadLUT(lutPath).then(()=>{ _lutLoading.delete(lutPath); if(_raOn)raInvalidate(); try{render();}catch(e){} }).catch(()=>{ _lutLoading.delete(lutPath); }); } // [R213] LUT expulsada del caché pero aún asignada a un clip visible → recarga perezosa en segundo plano (mientras tanto degrada a identidad)
+  if(lutPath&&!rec&&!_lutLoading.has(lutPath)){ _lutLoading.add(lutPath); loadLUT(lutPath).then(()=>{ _lutLoading.delete(lutPath); raInvalidate(); try{render();}catch(e){} }).catch(()=>{ _lutLoading.delete(lutPath); }); } // [R213] LUT expulsada del caché pero aún asignada a un clip visible → recarga perezosa en segundo plano (mientras tanto degrada a identidad)
   gl.uniform1f(L.hasLut, rec?1:0); gl.uniform1f(L.lutMix, rec?Math.max(0,Math.min(1,(c.props.lutMix==null?100:c.props.lutMix)/100)):0);
   gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_3D, rec?rec.tex:_lutIdentity); gl.uniform1i(L.lut,2); gl.activeTexture(gl.TEXTURE0);
   bindClipGrade(c,L); } // R130: lift/gamma/gain wheels share the color-set call
@@ -398,7 +398,7 @@ function bindClipCurve(c,L){ L=L||LW; const tex=clipCurveTex(c); gl.uniform1f(L.
 function preloadLUTs(){ const paths=new Set(); const scan=cs=>{ for(const c of (cs||[]))if(c&&c.props&&c.props.lut)paths.add(c.props.lut); }; // re-load LUTs referenced by a just-opened project so the look appears without a manual reload
   scan(state.clips); for(const m of state.media)if(isSeqMedia(m))scan(m.nestClips);
   // [archivado 20260725] ya no hay LUT máster que precargar (ni de `state.seqGrade` ni de `m.grade`): sólo LUTs por clip
-  if(!paths.size)return; Promise.all([...paths].map(p=>loadLUT(p))).then(()=>{ try{ if(_raOn)raInvalidate(); render(); }catch(e){} }); }
+  if(!paths.size)return; Promise.all([...paths].map(p=>loadLUT(p))).then(()=>{ try{ raInvalidate(); render(); }catch(e){} }); }
 const N=120, meshVAO=gl.createVertexArray(); gl.bindVertexArray(meshVAO); let meshCount=0;
 (()=>{const vv=[],ix=[];for(let j=0;j<=N;j++)for(let i=0;i<=N;i++)vv.push((i/N)*2-1,(j/N)*2-1,i/N,j/N);
  const W=N+1;for(let j=0;j<N;j++)for(let i=0;i<N;i++){const a=j*W+i,b=a+1,c=a+W,d=c+1;ix.push(a,b,c,b,d,c);}
@@ -967,7 +967,12 @@ function modSignal(c,m,t){
     const f=(m.from||0)/((ax==='az')?360:90), to=(m.to!=null?m.to:(ax==='az'?360:90))/((ax==='az')?360:90);
     const sp=(to-f)||1e-6; v=Math.max(0,Math.min(1,(v-f)/sp)); if(m.inv)v=1-v; return v; }
   return 0; }
-let _modAudioCache=new Map(); // shaped band envelopes for modulators, keyed by band+attack+release (mirrors the Reactive-FX cache)
+/* [R318] Envolventes de banda ya moldeadas para los moduladores, por banda+ataque+caida. Se DERIVAN de
+   `_arCache.raw`, así que su vida es la de `_arCache`: se limpia en los MISMOS sitios que `_fxEnvCache`, su
+   hermana. No lo hacía, y como la clave no menciona de qué medio salen, un modulador con la misma banda y los
+   mismos tiempos recuperaba la envolvente de la canción ANTERIOR — al cambiar el clip de origen y también al
+   abrir otro proyecto. Silencioso: el parámetro seguía moviéndose, al ritmo de una música que ya no suena. */
+let _modAudioCache=new Map();
 function modAudioEnv(m){ if(!_arCache)return null;
   const raw=(m.f0&&m.f1)?specRangeRaw(m.f0,m.f1):(_arCache.raw&&_arCache.raw[m.band||'bass']); if(!raw)return null; // [R95·C2] a custom f0..f1 range reads the real spectrum; named bands keep the filter-bank path
   const atk=m.atk!=null?m.atk:8, rel=m.rel!=null?m.rel:130; const key=((m.f0&&m.f1)?('f'+Math.round(m.f0)+'-'+Math.round(m.f1)):(m.band||'bass'))+'|'+atk+'|'+rel;
@@ -1011,7 +1016,7 @@ function motionTick(){ _prevRaf=0; if(state.playing||exporting||state.motionPrev
   const now=performance.now(); const dt=_prevLast?Math.min(0.05,(now-_prevLast)/1000):0; _prevLast=now; _previewClock+=dt;
   // keep on-screen VIDEO clips PLAYING during the live motion preview (looping, muted) so the content isn't a frozen frame while the motion animates — the 3D room showed "moving but not playing"
   try{ const drawn=collectDrawnVideoClips(state.clips,state.lanes,state.playhead,0,[]); for(const {c,m} of drawn){ const vi=vinstEnsure(c,m); if(!vi||!vi.vel)continue; vi.vel.muted=true; try{vi.vel.loop=true;}catch(_){} (vi.loadP||Promise.resolve()).then(()=>{ if(vi.vel&&vi.vel.paused)vi.vel.play().catch(()=>{}); }); if(HAS_RVFC){ if(!vi.vf)pumpVFClip(vi); } else { try{upTex(vi.vtex,vi.vel);}catch(_){} vi.ready=true; } } }catch(e){}
-  if(_raOn)raInvalidate(); render();
+  raInvalidate(); render();
   _prevRaf=requestAnimationFrame(motionTick); }
 function startMotionPreview(){ if(_prevRaf||state.playing||state.motionPreview===false)return; _prevLast=performance.now(); _prevRaf=requestAnimationFrame(motionTick); }
 function stopMotionPreview(){ if(_prevRaf){cancelAnimationFrame(_prevRaf);_prevRaf=0;} if(!state.playing){ for(const [,vi] of _vinst){ try{ if(vi.vel){vi.vel.loop=false; vi.vel.pause();} }catch(e){} stopVFClip(vi); } } } // stop the preview video playback (don't fight real transport)
@@ -1544,6 +1549,17 @@ function raSyncDims(){ const k=RA_SIZE/Math.max(1,compW,compH);
   if(w===_raW&&h===_raH)return; _raW=w; _raH=h; raReset(); }
 function raMakeTex(){ const t=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,t); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,_raW,_raH,0,gl.RGBA,gl.UNSIGNED_BYTE,null); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE); return t; }
 function raReset(){ for(const [,v] of _ra){try{gl.deleteTexture(v.tex);}catch(e){}} _ra.clear(); while(_raPool.length){try{gl.deleteTexture(_raPool.pop());}catch(e){}} }
+/* [R318] `_raGen` NO es sólo del caché de render-ahead: es el contador de GENERACIÓN del fotograma compuesto, y
+   forma parte de la clave de otras tres cachés — los scopes (histograma/vectorscopio), la salida NDI y la
+   salida Spout. Por eso `raInvalidate()` tiene que llamarse SIEMPRE que el fotograma deje de ser válido, no
+   sólo con render-ahead encendido.
+   Lo que había: 36 llamadores escribían `if(_raOn)raInvalidate()`, una «optimización» que no ahorra nada
+   —el cuerpo es un `++`— y que rompía las otras tres. Con render-ahead apagado (el valor POR DEFECTO):
+     · arrastrar una rueda de color dejaba el histograma congelado en el fotograma previo al gesto, que es
+       justo el momento para el que existe;
+     · y en pausa, editar un clip repintaba el visor mientras NDI/Spout seguían emitiendo el fotograma
+       ANTERIOR a la edición — el caso «proyectar en el domo mientras se ajusta».
+   Si algún día hace falta separar los dos conceptos, sepárense los contadores; no se condicione éste. */
 function raInvalidate(){ _raGen++; }
 function _raFrame(t){ return Math.round(t*(state.fps||30)); }
 function raGet(t){ if(!_raOn)return null; const e=_ra.get(_raFrame(t)); if(e&&e.gen===_raGen){ e.last=++_raClock; return e.tex; } return null; }
@@ -6136,7 +6152,7 @@ function _renderInspectorMain(){
       $('#sourceRows').appendChild(r); return r; };
     const swBind=(row,id,apply)=>{ const b=row.querySelector('#'+id);
       b.onclick=()=>{ const cc=selClip(); if(!cc)return; pushUndo(); apply(cc,!b.classList.contains('on'));
-        if(_raOn)raInvalidate(); render(); markDirty(); renderInspector(); }; };
+        raInvalidate(); render(); markDirty(); renderInspector(); }; };
 
     /* [R225·2] Un NEST es SIEMPRE máster de domo. El conmutador Dome master / Patch de [R216] se archivó
        (`_backup/deprecated/20260730-nest-dome-placement-toggle.js`, ADR-0007): una composición es el lienzo
@@ -6160,7 +6176,7 @@ function _renderInspectorMain(){
       eprow.innerHTML=`<span class="kf" style="cursor:default;visibility:hidden;"></span><span class="lab" style="font-size:11px;color:var(--ink-2);">${T('Tilt','Inclinación')}</span>
         <input type="range" id="eqPitch" min="-90" max="90" value="${Math.round(c.props.eqPitch||0)}" style="flex:1;height:20px;"><span class="tnum" id="eqPitchV" style="width:40px;text-align:right;color:var(--ink-dim);">${Math.round(c.props.eqPitch||0)}°</span>`;
       $('#sourceRows').appendChild(eprow); // [Rev1] Source section
-      const pr=eprow.querySelector('#eqPitch'); pr.onpointerdown=()=>pushUndo(); pr.oninput=e=>{ const cc=selClip(); if(!cc)return; cc.props.eqPitch=+e.target.value; eprow.querySelector('#eqPitchV').textContent=(+e.target.value)+'°'; if(_raOn)raInvalidate(); render(); }; pr.onchange=()=>markDirty(); }
+      const pr=eprow.querySelector('#eqPitch'); pr.onpointerdown=()=>pushUndo(); pr.oninput=e=>{ const cc=selClip(); if(!cc)return; cc.props.eqPitch=+e.target.value; eprow.querySelector('#eqPitchV').textContent=(+e.target.value)+'°'; raInvalidate(); render(); }; pr.onchange=()=>markDirty(); }
     // Fisheye pre-warp (R83) — for FLAT clips that lack the fisheye curvature a dome master needs
     /* [R225·3] El ojo de pez SÓLO tiene sentido con la fuente fulldome activa: es la pre-deformación que le da a
        un plano la curvatura que un máster de domo necesita. Sin fulldome el clip ya entra por el camino gnomónico
@@ -6179,7 +6195,7 @@ function _renderInspectorMain(){
       farow.innerHTML=`<span class="kf" style="cursor:default;visibility:hidden;"></span><span class="lab" style="font-size:11px;color:var(--ink-2);">${T('Amount','Cantidad')}</span>
         <input type="range" id="fhAmt" min="0" max="100" value="${amt}" style="flex:1;height:20px;"><span class="tnum" id="fhAmtV" style="width:40px;text-align:right;color:var(--ink-dim);">${amt}</span>`;
       $('#sourceRows').appendChild(farow);
-      const fa=farow.querySelector('#fhAmt'); fa.onpointerdown=()=>pushUndo(); fa.oninput=e=>{ const cc=selClip(); if(!cc)return; cc.props.fisheyeAmt=Math.max(0,Math.min(100,+e.target.value||0)); farow.querySelector('#fhAmtV').textContent=cc.props.fisheyeAmt; if(_raOn)raInvalidate(); render(); }; fa.onchange=()=>markDirty(); } }
+      const fa=farow.querySelector('#fhAmt'); fa.onpointerdown=()=>pushUndo(); fa.oninput=e=>{ const cc=selClip(); if(!cc)return; cc.props.fisheyeAmt=Math.max(0,Math.min(100,+e.target.value||0)); farow.querySelector('#fhAmtV').textContent=cc.props.fisheyeAmt; raInvalidate(); render(); }; fa.onchange=()=>markDirty(); } }
   // R130 · lift/gamma/gain color wheels (primary grade) — any visual clip. Drag the handle = color balance; slider = luminance master; double-click = reset.
   if(m && m.kind!=='audio'){ const wrow=document.createElement('div'); wrow.className='prow'; wrow.style.alignItems='flex-start';
     const specs=[['cgLift','Lift'],['cgGamma','Gamma'],['cgGain','Gain']];
@@ -6194,13 +6210,13 @@ function _renderInspectorMain(){
       const place=()=>{ const [x,y,mm]=cur(); hnd.style.left=(50+x*46)+'%'; hnd.style.top=(50-y*46)+'%'; master.value=Math.round(mm*100); };
       place();
       let drag=false;
-      const setXY=(px,py)=>{ const r=wheel.getBoundingClientRect(); let x=(px-r.left)/r.width*2-1, y=-((py-r.top)/r.height*2-1); const d=Math.hypot(x,y); if(d>1){x/=d;y/=d;} const cc=selClip(); if(!cc)return; const a=cur(); cc.props[k]=[x,y,a[2]]; place(); if(_raOn)raInvalidate(); render(); };
+      const setXY=(px,py)=>{ const r=wheel.getBoundingClientRect(); let x=(px-r.left)/r.width*2-1, y=-((py-r.top)/r.height*2-1); const d=Math.hypot(x,y); if(d>1){x/=d;y/=d;} const cc=selClip(); if(!cc)return; const a=cur(); cc.props[k]=[x,y,a[2]]; place(); raInvalidate(); render(); };
       wheel.onpointerdown=e=>{ e.preventDefault(); const cc=selClip(); if(!cc)return; pushUndo(); drag=true; try{wheel.setPointerCapture(e.pointerId);}catch(_){} setXY(e.clientX,e.clientY); };
       wheel.onpointermove=e=>{ if(drag)setXY(e.clientX,e.clientY); };
       wheel.onpointerup=()=>{ if(drag){ drag=false; markDirty(); } };
-      wheel.ondblclick=()=>{ const cc=selClip(); if(!cc)return; pushUndo(); cc.props[k]=[0,0,0]; place(); if(_raOn)raInvalidate(); render(); markDirty(); };
+      wheel.ondblclick=()=>{ const cc=selClip(); if(!cc)return; pushUndo(); cc.props[k]=[0,0,0]; place(); raInvalidate(); render(); markDirty(); };
       master.onpointerdown=()=>pushUndo();
-      master.oninput=e=>{ const cc=selClip(); if(!cc)return; const a=cur(); cc.props[k]=[a[0],a[1],(+e.target.value)/100]; if(_raOn)raInvalidate(); render(); };
+      master.oninput=e=>{ const cc=selClip(); if(!cc)return; const a=cur(); cc.props[k]=[a[0],a[1],(+e.target.value)/100]; raInvalidate(); render(); };
       master.onchange=()=>markDirty(); }); }
   // R132 · tone curves (luma + R/G/B) — 256-entry 1D LUT built from draggable control points. Any visual clip.
   if(m && m.kind!=='audio'){ const crow=document.createElement('div'); crow.className='prow'; crow.style.alignItems='flex-start';
@@ -6228,15 +6244,15 @@ function _renderInspectorMain(){
     let drag=-1;
     const applyDrag=ev=>{ const cc=selClip(); if(!cc||drag<0)return; const P=pts(); let [nx,ny]=toCurve(ev);
       if(drag===0)nx=0; else if(drag===P.length-1)nx=1; else nx=Math.max(P[drag-1][0]+0.001,Math.min(P[drag+1][0]-0.001,nx));
-      P[drag]=[nx,ny]; markCurveDirty(cc); if(_raOn)raInvalidate(); render(); draw(); };
+      P[drag]=[nx,ny]; markCurveDirty(cc); raInvalidate(); render(); draw(); };
     cvv.onpointerdown=ev=>{ ev.preventDefault(); const cc=ensure(); if(!cc)return; const P=pts(); let i=hitPoint(ev); pushUndo();
       if(i<0){ const [nx,ny]=toCurve(ev); const np=[nx,ny]; P.push(np); P.sort((a,b)=>a[0]-b[0]); i=P.indexOf(np); }
       drag=i; try{cvv.setPointerCapture(ev.pointerId);}catch(_){} applyDrag(ev); };
     cvv.onpointermove=ev=>{ if(drag>=0)applyDrag(ev); };
     cvv.onpointerup=()=>{ if(drag>=0){ drag=-1; markDirty(); } };
-    cvv.ondblclick=ev=>{ const cc=selClip(); if(!cc)return; const P=pts(), i=hitPoint(ev); if(i>0&&i<P.length-1){ pushUndo(); P.splice(i,1); markCurveDirty(cc); if(_raOn)raInvalidate(); render(); draw(); markDirty(); } };
+    cvv.ondblclick=ev=>{ const cc=selClip(); if(!cc)return; const P=pts(), i=hitPoint(ev); if(i>0&&i<P.length-1){ pushUndo(); P.splice(i,1); markCurveDirty(cc); raInvalidate(); render(); draw(); markDirty(); } };
     crow.querySelectorAll('.ctab').forEach(b=>b.onclick=()=>{ ch=b.dataset.ch; crow.querySelectorAll('.ctab').forEach(z=>z.classList.toggle('on',z===b)); draw(); });
-    crow.querySelector('#curveReset').onclick=()=>{ const cc=ensure(); if(!cc)return; pushUndo(); cc.props.curves[ch]=[[0,0],[1,1]]; markCurveDirty(cc); if(_raOn)raInvalidate(); render(); draw(); markDirty(); };
+    crow.querySelector('#curveReset').onclick=()=>{ const cc=ensure(); if(!cc)return; pushUndo(); cc.props.curves[ch]=[[0,0],[1,1]]; markCurveDirty(cc); raInvalidate(); render(); draw(); markDirty(); };
     requestAnimationFrame(draw); }
   // R116 · creative LUT (.cube) — load a 3D LUT and blend it in as the final look (any visual clip)
   if(m && m.kind!=='audio'){ const rec=(c.props.lut)?_lutReg.get(c.props.lut):null; const lrow=document.createElement('div'); lrow.className='prow';
@@ -6249,10 +6265,10 @@ function _renderInspectorMain(){
     lrow.querySelector('#lutLoad').onclick=async()=>{ if(!(IS_ELEC&&DSP.pickFile)){ flashStatus(T('LUT loading needs the desktop app','Cargar LUT necesita la app de escritorio'),'err'); return; }
       const p=await DSP.pickFile({name:'Cube LUT',extensions:['cube'],title:T('Load LUT (.cube)','Cargar LUT (.cube)')}); if(!p)return;
       const r2=await loadLUT(p); if(!r2){ flashStatus(T('Not a valid 3D .cube LUT','No es una LUT .cube 3D válida'),'err'); return; }
-      const cc=selClip(); if(!cc)return; pushUndo(); cc.props.lut=p; if(cc.props.lutMix==null)cc.props.lutMix=100; if(_raOn)raInvalidate(); render(); refreshInspector(); markDirty(); flashStatus('LUT: '+r2.name); };
+      const cc=selClip(); if(!cc)return; pushUndo(); cc.props.lut=p; if(cc.props.lutMix==null)cc.props.lutMix=100; raInvalidate(); render(); refreshInspector(); markDirty(); flashStatus('LUT: '+r2.name); };
     const mix=lrow.querySelector('#lutMix'); if(mix){ mix.onpointerdown=()=>pushUndo();
-      mix.oninput=e=>{ const cc=selClip(); if(!cc)return; cc.props.lutMix=+e.target.value; const v=lrow.querySelector('#lutMixV'); if(v)v.textContent=cc.props.lutMix+'%'; if(_raOn)raInvalidate(); render(); markDirty(); }; }
-    const clr=lrow.querySelector('#lutClear'); if(clr)clr.onclick=()=>{ const cc=selClip(); if(!cc)return; pushUndo(); cc.props.lut=null; if(_raOn)raInvalidate(); render(); refreshInspector(); markDirty(); }; }
+      mix.oninput=e=>{ const cc=selClip(); if(!cc)return; cc.props.lutMix=+e.target.value; const v=lrow.querySelector('#lutMixV'); if(v)v.textContent=cc.props.lutMix+'%'; raInvalidate(); render(); markDirty(); }; }
+    const clr=lrow.querySelector('#lutClear'); if(clr)clr.onclick=()=>{ const cc=selClip(); if(!cc)return; pushUndo(); cc.props.lut=null; raInvalidate(); render(); refreshInspector(); markDirty(); }; }
   // Loopable toggle — video / audio / sequence clips only: the source repeats, and the right edge can be dragged out forever (R81)
   if(m && (m.kind==='video'||m.kind==='audio'||isSeqMedia(m))){
     /* [AUDITORÍA Rev1 · §4] Playback también con TOGGLE en vez de checkbox (misma forma de fila que Source) */
@@ -6307,7 +6323,7 @@ function _renderInspectorMain(){
       const mv=ev=>{ let paso=(SP_MAX-SP_MIN)/300; if(ev.shiftKey)paso/=5; if(ev.altKey)paso*=4;
         nv=Math.max(SP_MIN,Math.min(SP_MAX,Math.round(v0+(ev.clientX-x0)*paso)));
         if(bar)bar.style.width=pctBarra(nv)+'%'; if(num)num.textContent=nv;
-        cc.speed=nv/100; if(_raOn)raInvalidate(); render(); };                 // vista previa en vivo, sin tocar la extensión
+        cc.speed=nv/100; raInvalidate(); render(); };                 // vista previa en vivo, sin tocar la extensión
       const up=()=>{ window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up);
         cc.speed=(Math.abs(v0-100)<1e-4)?undefined:(v0/100); if(cc.speed===undefined)delete cc.speed; // se restaura el valor de partida…
         if(nv!==v0)setClipSpeed(cc,nv); else renderInspector(); };             // …y el cambio se aplica una sola vez, de v0 a nv
@@ -6325,9 +6341,9 @@ function _renderInspectorMain(){
       <input type="number" id="bkThr" value="${c.props.blackKeyAmt!=null?c.props.blackKeyAmt:15}" min="0" max="100" title="${T('Threshold — raise to key darker grays','Umbral — súbelo para recortar grises oscuros')}" style="width:46px;height:18px;background:var(--s2);border:.5px solid rgba(255,255,255,0.12);border-radius:2px;color:var(--ink);text-align:center;">
       <input type="number" id="bkSoft" value="${c.props.blackKeySoft!=null?c.props.blackKeySoft:30}" min="0" max="100" title="${T('Softness — edge feather','Suavidad — difuminado del borde')}" style="width:46px;height:18px;background:var(--s2);border:.5px solid rgba(255,255,255,0.12);border-radius:2px;color:var(--ink);text-align:center;">`;
     $('#fxRows').appendChild(bk2);
-    ioswBind(kr,'bkToggle').onchange=e=>{const cc=selClip();if(cc){pushUndo();cc.props.blackKey=e.target.checked;bk2.style.display=e.target.checked?'':'none';if(_raOn)raInvalidate();render();}};
-    bk2.querySelector('#bkThr').onchange=e=>{const cc=selClip();if(cc){pushUndo();cc.props.blackKeyAmt=Math.max(0,Math.min(100,+e.target.value||0));if(_raOn)raInvalidate();render();}};
-    bk2.querySelector('#bkSoft').onchange=e=>{const cc=selClip();if(cc){pushUndo();cc.props.blackKeySoft=Math.max(0,Math.min(100,+e.target.value||0));if(_raOn)raInvalidate();render();}}; }
+    ioswBind(kr,'bkToggle').onchange=e=>{const cc=selClip();if(cc){pushUndo();cc.props.blackKey=e.target.checked;bk2.style.display=e.target.checked?'':'none';raInvalidate();render();}};
+    bk2.querySelector('#bkThr').onchange=e=>{const cc=selClip();if(cc){pushUndo();cc.props.blackKeyAmt=Math.max(0,Math.min(100,+e.target.value||0));raInvalidate();render();}};
+    bk2.querySelector('#bkSoft').onchange=e=>{const cc=selClip();if(cc){pushUndo();cc.props.blackKeySoft=Math.max(0,Math.min(100,+e.target.value||0));raInvalidate();render();}}; }
   // Text editor (only for text clips) — [U8] a useful paragraph tool: font · weight · italic · size · alignment · line height · colour · outline · load custom font
   if(m && m.kind==='text'){
     const FONTS=['Inter','Geist','Arial','Helvetica','Georgia','Times New Roman','Courier New','Verdana','Trebuchet MS','Tahoma','Impact'].concat(_customFonts.filter(f=>!['Inter','Geist'].includes(f)));
@@ -10803,11 +10819,11 @@ function openSeqSettings(){ const as=activeSeq(); if(!as)return; const isDome=(a
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;"><button class="mbtn pri" id="ssDone">${T('Done','Listo')}</button></div></div></div>`;
   document.body.appendChild(ov); const close=()=>ov.remove(); ov.querySelector('#ssDone').onclick=close; ov.addEventListener('pointerdown',e=>{if(e.target===ov)close();});
   // [F1] resolution is editable and re-adapts live (output/export size; clips are placed proportionally so nothing needs rebuilding)
-  const applyRes=(w,h)=>{ w=Math.max(128,Math.min(8192,Math.round(w||as.w))); h=Math.max(128,Math.min(8192,Math.round(h||as.h))); as.w=w; as.h=h; if(as.id===state.activeSeqId){ state.seqW=w; state.seqH=h; } markDirty(); if(_raOn)raInvalidate(); render(); updFmtChip(); };
+  const applyRes=(w,h)=>{ w=Math.max(128,Math.min(8192,Math.round(w||as.w))); h=Math.max(128,Math.min(8192,Math.round(h||as.h))); as.w=w; as.h=h; if(as.id===state.activeSeqId){ state.seqW=w; state.seqH=h; } markDirty(); raInvalidate(); render(); updFmtChip(); };
   { const rs=ov.querySelector('#ssRes'); if(rs)rs.onchange=e=>{ const v=+e.target.value||4096; applyRes(v,v); flashStatus(T('Resolution','Resolución')+': '+v+'²'); };
     const sw=ov.querySelector('#ssW'), sh=ov.querySelector('#ssH'); if(sw&&sh){ const fh=()=>{ applyRes(+sw.value,+sh.value); flashStatus(T('Resolution','Resolución')+': '+as.w+'×'+as.h); }; sw.onchange=fh; sh.onchange=fh; } }
   if(isDome){ const viz=()=>{ try{ drawSeqViz(ov.querySelector('#ssViz'),'dome',{cov:+ov.querySelector('#ssCov').value||180}); }catch(e){} }; viz();
-    ov.querySelector('#ssCov').onchange=e=>{ const cov=+e.target.value||180; as.cov=cov; if(as.id===state.activeSeqId)state.seqCov=cov; viz(); markDirty(); if(_raOn)raInvalidate(); render(); updFmtChip(); flashStatus(T('Coverage','Cobertura')+': '+cov+'°'); }; } }
+    ov.querySelector('#ssCov').onchange=e=>{ const cov=+e.target.value||180; as.cov=cov; if(as.id===state.activeSeqId)state.seqCov=cov; viz(); markDirty(); raInvalidate(); render(); updFmtChip(); flashStatus(T('Coverage','Cobertura')+': '+cov+'°'); }; } }
 function serSeqRef(){ return { openSeqs:(state.openSeqs||[]).slice(), activeSeqId:state.activeSeqId }; }
 /* timeline-header sequence tabs (open sequences, Premiere-style; switch / close / new) */
 let _seqDragged=false; // [R3] set on a real tab drag so the trailing click doesn't ALSO switch sequences
@@ -10918,7 +10934,7 @@ async function newProject(mode,w,h,fps,cov,skipConfirm){ if(!(await confirmDisca
   for(const c of state.clips){ try{ if(c.maskTex)gl.deleteTexture(c.maskTex); }catch(e){} }
   try{ closeAllNdi(); }catch(e){} for(const m of state.media) disposeMedia(m); for(const id in (state.mediaTrash||{})) disposeMedia(state.mediaTrash[id]); state.mediaTrash={}; clearFrameCache(); resetLutReg();
   state.media=[]; state.clips=[]; state.groups=[]; state.markers=[]; state.selId=null; state.selGroupId=null; state.selMarkerId=null; state.playhead=0; state.workIn=null; state.workOut=null; state.folders=[]; state.folderColors={}; state.selFolder=null; state.mediaFolder=null; state.selIds=[];
-  state.reactive=null; _arCache=null; _fxEnvCache.clear(); try{freeFxResources();}catch(e){}
+  state.reactive=null; _arCache=null; _fxEnvCache.clear(); _modAudioCache.clear(); try{freeFxResources();}catch(e){}
   state.lanes=defLanes();
   resetProjDefaults(); // [R242·Aud-2.3] un proyecto nuevo tampoco hereda el encuadre del visor ni el tempo del anterior (el modo/cov se fijan justo debajo)
   const _fl=(mode==='flat'); state.seqMode=_fl?'flat':'dome'; const _dres=Math.max(512,Math.round(w||4096)); state.seqW=_fl?(w||1920):_dres; state.seqH=_fl?(h||1080):_dres; state.seqCov=_fl?180:(cov||180); if(fps)state.fps=fps; // [R228] el domo respeta la resolución elegida en el launcher (antes forzaba 4096 y el selector Resolution no hacía nada); cuadrado siempre
@@ -10989,7 +11005,7 @@ async function newRoomProject(cfg,skipConfirm){ if(!(await confirmDiscard(skipCo
   for(const c of state.clips){ try{ if(c.maskTex)gl.deleteTexture(c.maskTex); }catch(e){} }
   try{ closeAllNdi(); }catch(e){} for(const m of state.media) disposeMedia(m); for(const id in (state.mediaTrash||{})) disposeMedia(state.mediaTrash[id]); state.mediaTrash={}; clearFrameCache(); resetLutReg();
   state.media=[]; state.clips=[]; state.groups=[]; state.markers=[]; state.selId=null; state.selGroupId=null; state.selMarkerId=null; state.playhead=0; state.workIn=null; state.workOut=null; state.folders=[]; state.folderColors={}; state.selFolder=null; state.mediaFolder=null; state.selIds=[];
-  state.reactive=null; _arCache=null; _fxEnvCache.clear(); try{freeFxResources();}catch(e){}
+  state.reactive=null; _arCache=null; _fxEnvCache.clear(); _modAudioCache.clear(); try{freeFxResources();}catch(e){}
   state.lanes=defLanes(); if(cfg.fps)state.fps=cfg.fps;
   resetProjDefaults(); // [R242·Aud-2.3] mismos defaults de fábrica que newProject/loadProject (el modo y la cámara de sala se fijan justo debajo)
   const wseq=createRoomSequences(cfg), room=wseq.room, walls=room.walls, stripW=wseq.w, stripH=wseq.h; // [R217] wall/floor media creation now lives in createRoomSequences (shared with newSequenceDialog's Room type) — same locals as before so the framing code below is untouched
@@ -11186,7 +11202,7 @@ function loadProject(obj){ relinkReset(); // [R204] el índice de reenlace es de
   state.selId=null; state.dirty=false;
   state.autoItems=(obj.autoItems&&typeof obj.autoItems==='object')?obj.autoItems:{}; // [R95·D2]
   state.workIn=(obj.workIn!=null?obj.workIn:null); state.workOut=(obj.workOut!=null?obj.workOut:null); state.folders=Array.isArray(obj.folders)?obj.folders:[]; state.folderColors=(obj.folderColors&&typeof obj.folderColors==='object')?obj.folderColors:{}; state.exportPresets=Array.isArray(obj.exportPresets)?obj.exportPresets:[];
-  state.reactive=obj.reactive||null; _arCache=null; _fxEnvCache.clear(); // Reactive FX config (source clip + sensitivity) — bands re-analyzed lazily when the panel opens
+  state.reactive=obj.reactive||null; _arCache=null; _fxEnvCache.clear(); _modAudioCache.clear(); // Reactive FX config (source clip + sensitivity) — bands re-analyzed lazily when the panel opens
   /* [R240] El zoom del `.isp` se ACOTA como cualquier otro camino. Los ocho gestos que lo tocan (rueda, ±, los dos
      botones, la barra de zoom, Fit, Zoom-to-clip) pasan por `TL_PPS_MIN/MAX`; abrir un proyecto era el único que
      no, así que un valor corrupto en el archivo entraba tal cual. Medido con un `.isp` de `pxPerSec:1e7`: la
@@ -11529,7 +11545,7 @@ function restore(s){ const o=JSON.parse(s);
       for(const c of m.nestClips){ const v=porId.get(c.id); if(!v)continue;
         if(v[1]==null)delete c.inP; else c.inP=v[1];
         if(v[2]==null)delete c.loopLen; else c.loopLen=v[2]; } } }
-  state.clips=o.clips.map(c=>({...c,maskTex:null})); state.lanes=o.lanes; state.autoSel=null; state.hoverAuto=null; state.shapeBox=null; /* [R95·B1] the box holds live keyframe refs — undo/sequence switch replaces those objects, so it must go with them */ state.selId=o.selId; state.selIds=Array.isArray(o.selIds)?o.selIds:(o.selId!=null?[o.selId]:[]); state.selLane=o.selLane??null; if(o.markers)state.markers=o.markers; state.selMarkerId=o.selMarkerId??null; state.groups=o.groups||[]; state.selGroupId=o.selGroupId??null; if(o.reactive!==undefined){state.reactive=o.reactive;} if(o.autoItems!==undefined)state.autoItems=o.autoItems; /* [R95·D2] */ _arCache=null; _fxEnvCache.clear(); for(const c of state.clips)if(c.maskData||(c.penMasks&&c.penMasks.length))rebuildMaskTex(c);
+  state.clips=o.clips.map(c=>({...c,maskTex:null})); state.lanes=o.lanes; state.autoSel=null; state.hoverAuto=null; state.shapeBox=null; /* [R95·B1] the box holds live keyframe refs — undo/sequence switch replaces those objects, so it must go with them */ state.selId=o.selId; state.selIds=Array.isArray(o.selIds)?o.selIds:(o.selId!=null?[o.selId]:[]); state.selLane=o.selLane??null; if(o.markers)state.markers=o.markers; state.selMarkerId=o.selMarkerId??null; state.groups=o.groups||[]; state.selGroupId=o.selGroupId??null; if(o.reactive!==undefined){state.reactive=o.reactive;} if(o.autoItems!==undefined)state.autoItems=o.autoItems; /* [R95·D2] */ _arCache=null; _fxEnvCache.clear(); _modAudioCache.clear(); for(const c of state.clips)if(c.maskData||(c.penMasks&&c.penMasks.length))rebuildMaskTex(c);
   if(state.mediaTrash){ const need=new Set(); for(const s of state.media)if(isSeqMedia(s)){ const arr=(s.id===state.activeSeqId?state.clips:s.nestClips)||[]; for(const c of arr)need.add(c.mediaId); } for(const c of state.clips)need.add(c.mediaId); if(Array.isArray(o.trashIds))for(const id of o.trashIds)need.add(id); /* [R212] media deleted from the panel with no clip using it — revive it anyway, undo means undo */ for(const id in state.mediaTrash){ if(need.has(+id)){ if(!mediaById(+id)){ const tm=state.mediaTrash[id]; state.media.push(tm); if(tm._trashed){ delete tm._trashed; tm.missing=false; tm._loading=true; try{ reloadMedia(tm); }catch(e){} } } delete state.mediaTrash[id]; } } renderMedia(); }
   /* [R253c] Devuelve nombre, carpeta y marcas de cada medio, y el arbol de carpetas. Los snapshots que no traen
      la clave (los de antes de esta ronda, dentro de la misma sesion) se saltan solos. */
@@ -14107,9 +14123,16 @@ async function computeSpectrum(ab){ if(!ab)return null;
   return {data:out,frames:n,bins:SPEC_BINS,fps:AR_FPS,f0:SPEC_F0,f1:SPEC_F1}; }
 /* the raw envelope of an arbitrary f0..f1 window, built on demand from the spectrum and cached on the media */
 function specRangeRaw(f0,f1){ const m=_arCache&&_arCache.clip&&mediaById(_arCache.clip.mediaId); const sp=m&&m.spec; if(!sp)return null;
-  const key='r'+Math.round(f0)+'-'+Math.round(f1); m._specRaw=m._specRaw||{}; if(m._specRaw[key])return m._specRaw[key];
+  /* [R318] La ganancia y la puerta van HORNEADAS en el resultado (ver el bucle de abajo), así que forman parte
+     de la identidad de lo cacheado y tienen que estar en la clave. No estaban: mover Gain o Gate actualizaba
+     las cuatro bandas nombradas pero los moduladores de rango de frecuencia a medida seguían con la ganancia
+     vieja hasta acumular 24 entradas o recargar el proyecto. Se prefiere ampliar la clave a vaciar la caché en
+     `arRecompute`: arrastrar el fader la llama en cada píxel, y recomputar el espectro de una pista de 75
+     minutos en cada tic sería inasumible; así, ir y volver con el fader reutiliza lo ya calculado. */
+  const cfg=ensureReactive();
+  const key='r'+Math.round(f0)+'-'+Math.round(f1)+'|g'+cfg.gain+'|q'+cfg.gate; m._specRaw=m._specRaw||{}; if(m._specRaw[key])return m._specRaw[key];
   const edges=specBandEdges(); const lo=Math.min(f0,f1), hi=Math.max(f0,f1);
-  const out=new Float32Array(sp.frames); const cfg=ensureReactive(); const g=Math.max(0,cfg.gain/100), gate=Math.max(0,Math.min(0.95,cfg.gate/100)), gs=1/Math.max(0.05,1-gate);
+  const out=new Float32Array(sp.frames); const g=Math.max(0,cfg.gain/100), gate=Math.max(0,Math.min(0.95,cfg.gate/100)), gs=1/Math.max(0.05,1-gate);
   for(let f=0;f<sp.frames;f++){ let acc=0,cnt=0;
     for(let b=0;b<sp.bins;b++){ const c0=edges[b],c1=edges[b+1]; if(c1<lo||c0>hi)continue; acc+=sp.data[f*sp.bins+b]; cnt++; }
     let x=cnt?acc/cnt:0; x=(x-gate)*gs; if(x<0)x=0; x*=g; out[f]=x>1?1:x; }
@@ -14160,7 +14183,7 @@ async function computeBands(ab){ if(typeof OfflineAudioContext==='undefined'||!a
   return {v:2,fps:AR_FPS,dur,bass:eB,mid:eM,treble:eT,bright,onsets,beats,bpm:Math.round(bpm*10)/10,beat0}; }
 function armMediaBands(m,ab){ if(!m||m.bands||m._bandsBusy)return; if(!ab)ab=m.buffer; if(!ab)return; m._bandsBusy=true;
   try{ flashStatus(T('Analyzing audio bands…','Analizando bandas de audio…')); }catch(e){}
-  computeBands(ab).then(bd=>{ m._bandsBusy=false; if(!bd)return; m.bands=bd; if(reactiveSourceMedia()===m){ arRecompute(); if(_raOn)raInvalidate(); try{render();}catch(e){} if(state.inspTab==='react')renderReactivePanel(); } try{ flashStatus(T('Audio bands ready','Bandas de audio listas')); }catch(e){}
+  computeBands(ab).then(bd=>{ m._bandsBusy=false; if(!bd)return; m.bands=bd; if(reactiveSourceMedia()===m){ arRecompute(); raInvalidate(); try{render();}catch(e){} if(state.inspTab==='react')renderReactivePanel(); } try{ flashStatus(T('Audio bands ready','Bandas de audio listas')); }catch(e){}
     armMediaSpectrum(m,ab); }) // [R95·C2] the spectrum rides along after the bands (lower priority): it powers the frequency picker + custom ranges
   .catch(e=>{ m._bandsBusy=false; }); }
 
@@ -14171,7 +14194,7 @@ function reactiveSourceClip(){ const id=ensureReactive().srcClipId; if(id==null)
   for(const m of state.media)if(isSeqMedia(m)&&m.id!==state.activeSeqId&&m.nestClips){ const n=m.nestClips.find(x=>x.id===id); if(n)return n; } return null; } // [R92-T1 C5] resolve the source even when it lives inside a nest (or another open sequence) — band timing is exact when the nest sits at t=0 (the usual full-track nest)
 function reactiveSourceMedia(){ const c=reactiveSourceClip(); return c?mediaById(c.mediaId):null; }
 function arRecompute(){ const cfg=ensureReactive(), clip=reactiveSourceClip(), m=clip&&mediaById(clip.mediaId);
-  _fxEnvCache.clear();
+  _fxEnvCache.clear(); _modAudioCache.clear();
   if(!m||!m.bands){ _arCache=null; return; }
   const bd=m.bands, dt=1/(bd.fps||AR_FPS), g=Math.max(0,cfg.gain/100), gate=Math.max(0,Math.min(0.95,cfg.gate/100)), gs=1/Math.max(0.05,1-gate);
   const gg=(arr)=>{ const out=new Float32Array(arr.length); for(let i=0;i<arr.length;i++){ let x=(arr[i]-gate)*gs; if(x<0)x=0; x*=g; out[i]=x>1?1:x; } return out; }; // gate+gain only — per-effect smoothing happens in fxEnvFor
@@ -14206,7 +14229,7 @@ function fxEnvFor(fx){ if(!_arCache)return null; const cfg=ensureReactive();
   if(spr>0){ const k=30+(spr/100)*(spr/100)*900, zeta=0.28, cd=2*Math.sqrt(k)*zeta, h=dt/2; // 2 substeps → stable Euler at 90fps
     let p=0,v=0; const out=new Float32Array(arr.length);
     for(let i=0;i<arr.length;i++){ for(let s2=0;s2<2;s2++){ const acc=k*(arr[i]-p)-cd*v; v+=acc*h; p+=v*h; } out[i]=p<0?0:p; } arr=out; }
-  if(_fxEnvCache.size>128)_fxEnvCache.clear(); // bounded: fader drags create one entry per step; cap + full reset keeps memory flat (arrays rebuild lazily)
+  if(_fxEnvCache.size>128)_fxEnvCache.clear(); _modAudioCache.clear(); // bounded: fader drags create one entry per step; cap + full reset keeps memory flat (arrays rebuild lazily)
   _fxEnvCache.set(key,arr); return arr; }
 /* response shaping: curve 0..100 → exponent 0.25..4 (50 = linear), then optional invert */
 function fxShape(fx,v){ v=Math.min(1.25,Math.max(0,v)); const cu=fx.curve!=null?fx.curve:50;
@@ -14581,9 +14604,9 @@ function fxParamVal(fx,k){ if(FX_META[k]){ const cfg=ensureReactive(); return fx
   return (k==='int')?(fx.int!=null?fx.int:0):(k==='amt')?(fx.amt!=null?fx.amt:100):((fx.params&&fx.params[k]!=null)?fx.params[k]:0); }
 /* app-styled fader — reuses the inspector .field/.track/.box; drag to scrub (shift=fine, alt=coarse), dbl-click to type */
 function startFxFader(e,host,fx,k,mn,mx){ e.preventDefault(); const field=e.currentTarget; const x0=e.clientX, v0=fxParamVal(fx,k), span=(mx-mn)||1; let pushed=false; const bar=field.querySelector('.track>i'), num=field.querySelector('.num');
-  const mv=ev=>{ let sp=span/300; if(ev.shiftKey)sp/=5; if(ev.altKey)sp*=4; let nv=Math.max(mn,Math.min(mx,v0+(ev.clientX-x0)*sp)); nv=Math.round(nv*100)/100; if(!pushed){pushUndo();pushed=true;} setFxParam(host,fx,k,nv); if(bar)bar.style.width=((nv-mn)/span*100)+'%'; if(num)num.textContent=Math.round(nv*10)/10; if(_raOn)raInvalidate(); render(); };
+  const mv=ev=>{ let sp=span/300; if(ev.shiftKey)sp/=5; if(ev.altKey)sp*=4; let nv=Math.max(mn,Math.min(mx,v0+(ev.clientX-x0)*sp)); nv=Math.round(nv*100)/100; if(!pushed){pushUndo();pushed=true;} setFxParam(host,fx,k,nv); if(bar)bar.style.width=((nv-mn)/span*100)+'%'; if(num)num.textContent=Math.round(nv*10)/10; raInvalidate(); render(); };
   const up=()=>{ pushed=false; markDirty(); window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up); }; window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); }
-function fxEditVal(host,fx,k,field,reRender){ const mn=+field.dataset.mn,mx=+field.dataset.mx; appPrompt(field.dataset.lbl||T('Value','Valor'),String(fxParamVal(fx,k)),v=>{ if(v==null)return; const nv=parseFloat(String(v).replace(',','.')); if(isNaN(nv))return; pushUndo(); setFxParam(host,fx,k,Math.max(mn,Math.min(mx,nv))); markDirty(); if(_raOn)raInvalidate(); (reRender||renderInspector)(); render(); }); } // reRender = the host panel's scoped rebuild (renderReactivePanel or renderMotionFx)
+function fxEditVal(host,fx,k,field,reRender){ const mn=+field.dataset.mn,mx=+field.dataset.mx; appPrompt(field.dataset.lbl||T('Value','Valor'),String(fxParamVal(fx,k)),v=>{ if(v==null)return; const nv=parseFloat(String(v).replace(',','.')); if(isNaN(nv))return; pushUndo(); setFxParam(host,fx,k,Math.max(mn,Math.min(mx,nv))); markDirty(); raInvalidate(); (reRender||renderInspector)(); render(); }); } // reRender = the host panel's scoped rebuild (renderReactivePanel or renderMotionFx)
 /* [R270] La fila de un parámetro de efecto es AHORA la misma fila del inspector, no una parecida. Antes traía su
    propia separación en línea (`gap:6px` frente a los 8 del resto), otro icono de keyframe (`kfEmpty`/`kfFull` en
    vez del rombo) y —lo que más molestaba— NINGÚN color: `--pc` es lo que tiñe el relleno del fader y el rombo en
@@ -14680,14 +14703,14 @@ function renderReactivePanel(){ const host=$('#insReactive'); if(!host)return; c
     <div id="arChain">${chainHtml}</div>
     <div style="padding:6px 12px 4px;"><button class="mbtn" id="arAddFx" ${c?'':'disabled style="opacity:.5;"'} style="width:100%;justify-content:center;gap:6px;height:24px;font-size:11px;border-radius:2px;">${ICO('plus',12)} ${T('Add Effect','Añadir efecto')}</button></div>
     <div style="padding:0 12px 14px;"><button class="mbtn" id="arAddAdj" title="${T('A layer whose effects affect everything below it','Una capa cuyos efectos afectan todo lo de debajo')}" style="width:100%;justify-content:center;gap:6px;height:24px;font-size:11px;border-radius:2px;">${ICO('layers',12)} ${T('Add Adjustment Layer','Añadir capa de ajuste')}</button></div>`;
-  $('#arSrc').onchange=e=>{ pushUndo(); cfg.srcClipId=e.target.value?(+e.target.value):null; const m=reactiveSourceMedia(); if(m&&!m.bands&&!m._bandsBusy)armMediaBands(m,m.buffer); arRecompute(); if(_raOn)raInvalidate(); render(); markDirty(); renderReactivePanel(); };
-  { const bb=$('#arBpmBox'); if(bb)bb.onclick=()=>{ appPrompt(T('BPM (0 = auto)','BPM (0 = auto)'),String(cfg.bpm||0),v=>{ if(v==null)return; const nv=parseFloat(String(v).replace(',','.')); if(isNaN(nv))return; pushUndo(); cfg.bpm=Math.max(0,Math.min(300,nv)); if(_raOn)raInvalidate(); markDirty(); renderReactivePanel(); render(); }); }; }
+  $('#arSrc').onchange=e=>{ pushUndo(); cfg.srcClipId=e.target.value?(+e.target.value):null; const m=reactiveSourceMedia(); if(m&&!m.bands&&!m._bandsBusy)armMediaBands(m,m.buffer); arRecompute(); raInvalidate(); render(); markDirty(); renderReactivePanel(); };
+  { const bb=$('#arBpmBox'); if(bb)bb.onclick=()=>{ appPrompt(T('BPM (0 = auto)','BPM (0 = auto)'),String(cfg.bpm||0),v=>{ if(v==null)return; const nv=parseFloat(String(v).replace(',','.')); if(isNaN(nv))return; pushUndo(); cfg.bpm=Math.max(0,Math.min(300,nv)); raInvalidate(); markDirty(); renderReactivePanel(); render(); }); }; }
   // audio-engine faders (app-styled .field, drag + dbl-click to type)
   $$('#insReactive .arfld').forEach(field=>{ const prop=field.dataset.prop, mn=+field.dataset.mn, mx=+field.dataset.mx;
     field.addEventListener('pointerdown',e=>{ if(e.button!==0)return; e.preventDefault(); const x0=e.clientX, v0=cfg[prop], span=(mx-mn)||1; let pushed=false; const bar=field.querySelector('.track>i'), num=field.querySelector('.num');
-      const mv=ev=>{ let sp=span/300; if(ev.shiftKey)sp/=5; if(ev.altKey)sp*=4; let nv=Math.max(mn,Math.min(mx,v0+(ev.clientX-x0)*sp)); nv=Math.round(nv); if(!pushed){pushUndo();pushed=true;} cfg[prop]=nv; if(bar)bar.style.width=((nv-mn)/span*100)+'%'; if(num)num.textContent=nv; arRecompute(); if(_raOn)raInvalidate(); render(); };
+      const mv=ev=>{ let sp=span/300; if(ev.shiftKey)sp/=5; if(ev.altKey)sp*=4; let nv=Math.max(mn,Math.min(mx,v0+(ev.clientX-x0)*sp)); nv=Math.round(nv); if(!pushed){pushUndo();pushed=true;} cfg[prop]=nv; if(bar)bar.style.width=((nv-mn)/span*100)+'%'; if(num)num.textContent=nv; arRecompute(); raInvalidate(); render(); };
       const up=()=>{ pushed=false; markDirty(); window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up); }; window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); });
-    field.addEventListener('dblclick',()=>{ appPrompt(field.dataset.lbl||prop,String(cfg[prop]),v=>{ if(v==null)return; const nv=parseFloat(String(v).replace(',','.')); if(isNaN(nv))return; pushUndo(); cfg[prop]=Math.max(mn,Math.min(mx,nv)); arRecompute(); if(_raOn)raInvalidate(); markDirty(); renderReactivePanel(); render(); }); });
+    field.addEventListener('dblclick',()=>{ appPrompt(field.dataset.lbl||prop,String(cfg[prop]),v=>{ if(v==null)return; const nv=parseFloat(String(v).replace(',','.')); if(isNaN(nv))return; pushUndo(); cfg[prop]=Math.max(mn,Math.min(mx,nv)); arRecompute(); raInvalidate(); markDirty(); renderReactivePanel(); render(); }); });
   });
   const addb=$('#arAddFx'); if(addb&&c)addb.onclick=(e)=>openFxMenu(e);
   const adjb=$('#arAddAdj'); if(adjb)adjb.onclick=()=>addAdjustmentLayer();
@@ -14714,10 +14737,10 @@ function renderMotionFx(c){ const host=$('#motionFx'); if(!host||!c)return;
    Reactive-only controls (band/mode/inv/shape/div) are absent from Motion cards, so their `if(el)` guards simply no-op.
    Collapse state is namespaced per view (`m:` for Motion) so a card's collapse in one panel doesn't move it in the other. */
 function wireFxCards(c,sel,reRender){ if(!c)return; const cp=(sel==='#motionFx')?'m:':''; $$(sel+' .fxcard').forEach(card=>{ const id=+card.dataset.fx; const f=(c.fx||[]).find(x=>x.id===id); if(!f)return;
-  const tog=card.querySelector('.fxtog'); if(tog)tog.onclick=()=>{ pushUndo(); f.on=(f.on===false); if(_raOn)raInvalidate(); render(); markDirty(); reRender(); };
+  const tog=card.querySelector('.fxtog'); if(tog)tog.onclick=()=>{ pushUndo(); f.on=(f.on===false); raInvalidate(); render(); markDirty(); reRender(); };
   { const hdr=card.querySelector('.fxhdr'); if(hdr)hdr.oncontextmenu=ev=>{ ev.preventDefault(); ev.stopPropagation(); openMenu(ev.clientX,ev.clientY,[ // [A3] right-click the effect → Show Automation (reveals its curve on the track)
     {label:T('Show Automation','Mostrar automatización'),ico:'curves',fn:()=>fxShowAutomation(c,f)},
-    {label:(f.on===false)?T('Enable effect','Activar efecto'):T('Bypass effect','Omitir efecto'),fn:()=>{ pushUndo(); f.on=(f.on===false); if(_raOn)raInvalidate(); render(); markDirty(); reRender(); }},
+    {label:(f.on===false)?T('Enable effect','Activar efecto'):T('Bypass effect','Omitir efecto'),fn:()=>{ pushUndo(); f.on=(f.on===false); raInvalidate(); render(); markDirty(); reRender(); }},
     'sep',
     {label:T('Remove','Quitar'),danger:true,fn:()=>{ const del=card.querySelector('.fxdel'); if(del)del.onclick&&del.onclick(); }}
   ]); }; }
@@ -14729,11 +14752,11 @@ function wireFxCards(c,sel,reRender){ if(!c)return; const cp=(sel==='#motionFx')
     for(const l of state.lanes){ if(l._autoP&&isFxtKey(l._autoP)&&!laneFxTypes(state.lanes.indexOf(l)).includes(l._autoP.split(':')[1]))delete l._autoP; } // [R93] si el TIPO de fx dejó la pista, quita su superposición · [R143] el filtro de lane._auto (sub-carriles) se archivó
     reRender(); renderTimeline(); render(); markDirty(); };
   const drag=card.querySelector('.fxdrag'); if(drag)drag.addEventListener('pointerdown',e=>fxDragHandle(e,c,id,sel,reRender));
-  const bs=card.querySelector('.fxband'); if(bs)bs.onchange=e=>{ pushUndo(); f.band=e.target.value; if(_raOn)raInvalidate(); render(); markDirty(); };
-  const ms=card.querySelector('.fxmode'); if(ms)ms.onchange=e=>{ pushUndo(); f.mode=e.target.value; if(_raOn)raInvalidate(); render(); markDirty(); reRender(); }; // re-render: the body swaps LFO/shaping rows per mode
-  const iv=card.querySelector('.fxinv'); if(iv)iv.onclick=()=>{ pushUndo(); f.inv=!f.inv; if(_raOn)raInvalidate(); render(); markDirty(); reRender(); };
-  const shp=card.querySelector('.fxshape'); if(shp)shp.onchange=e=>{ pushUndo(); f.lfoShape=e.target.value; if(_raOn)raInvalidate(); render(); markDirty(); };
-  const dv=card.querySelector('.fxdiv'); if(dv)dv.onchange=e=>{ pushUndo(); f.lfoDiv=e.target.value; if(_raOn)raInvalidate(); render(); markDirty(); };
+  const bs=card.querySelector('.fxband'); if(bs)bs.onchange=e=>{ pushUndo(); f.band=e.target.value; raInvalidate(); render(); markDirty(); };
+  const ms=card.querySelector('.fxmode'); if(ms)ms.onchange=e=>{ pushUndo(); f.mode=e.target.value; raInvalidate(); render(); markDirty(); reRender(); }; // re-render: the body swaps LFO/shaping rows per mode
+  const iv=card.querySelector('.fxinv'); if(iv)iv.onclick=()=>{ pushUndo(); f.inv=!f.inv; raInvalidate(); render(); markDirty(); reRender(); };
+  const shp=card.querySelector('.fxshape'); if(shp)shp.onchange=e=>{ pushUndo(); f.lfoShape=e.target.value; raInvalidate(); render(); markDirty(); };
+  const dv=card.querySelector('.fxdiv'); if(dv)dv.onchange=e=>{ pushUndo(); f.lfoDiv=e.target.value; raInvalidate(); render(); markDirty(); };
   card.querySelectorAll('.fxrow').forEach(row=>{ const k=row.dataset.k, field=row.querySelector('.field');
     const kf=row.querySelector('.kf[data-kf]');
     /* [R224 · ítem 4] Igual que las filas de Transform/Clip/Color: tocar el parámetro de un efecto pone SU curva a la
@@ -14761,7 +14784,7 @@ function fxDragHandle(e,host,fxId,sel,reRender){ sel=sel||'#arChain'; reRender=r
   const ind=document.createElement('div'); ind.style.cssText='position:absolute;left:12px;right:12px;height:2px;background:var(--ink-2);border-radius:2px;pointer-events:none;z-index:9;'; chain.appendChild(ind);
   let target=host.fx.findIndex(f=>f.id===fxId);
   const move=ev=>{ const cs=[...chain.querySelectorAll('.fxcard')]; target=cs.length; for(let i=0;i<cs.length;i++){ const r=cs[i].getBoundingClientRect(); if(ev.clientY < r.top + r.height/2){ target=i; break; } } const cr=chain.getBoundingClientRect(); let y; if(target<cs.length){ y=cs[target].getBoundingClientRect().top-cr.top; } else { const last=cs[cs.length-1].getBoundingClientRect(); y=last.bottom-cr.top; } ind.style.top=(y-1)+'px'; };
-  const up=()=>{ window.removeEventListener('pointermove',move); window.removeEventListener('pointerup',up); ind.remove(); const from=host.fx.findIndex(f=>f.id===fxId); let to=target; if(to>from)to--; if(to!==from && to>=0){ pushUndo(); const [it]=host.fx.splice(from,1); host.fx.splice(Math.max(0,Math.min(host.fx.length,to)),0,it); markDirty(); if(_raOn)raInvalidate(); render(); } reRender(); };
+  const up=()=>{ window.removeEventListener('pointermove',move); window.removeEventListener('pointerup',up); ind.remove(); const from=host.fx.findIndex(f=>f.id===fxId); let to=target; if(to>from)to--; if(to!==from && to>=0){ pushUndo(); const [it]=host.fx.splice(from,1); host.fx.splice(Math.max(0,Math.min(host.fx.length,to)),0,it); markDirty(); raInvalidate(); render(); } reRender(); };
   window.addEventListener('pointermove',move); window.addEventListener('pointerup',up); }
 let _arMeterRaf=0;
 function arMeterStart(){ if(_arMeterRaf)return; const tick=()=>{ _arMeterRaf=0; if(state.inspTab!=='react'||!$('#arMeter'))return; arDrawMeter(); arDrawSigs(); _arMeterRaf=requestAnimationFrame(tick); }; _arMeterRaf=requestAnimationFrame(tick); }
