@@ -1,5 +1,49 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 311 — Tres de una línea, y una familia de fallos cerrada con un test
+
+Segunda tanda de la auditoría exhaustiva. Los tres primeros son arreglos diminutos con consecuencias grandes, y
+el cuarto convierte en regla lo que llevaba cuatro rondas arreglándose caso por caso.
+
+- **[A11] Un `else if` que se comió un comentario.** La rama `else if(mm==='count')` del diálogo de composición
+  iba en la MISMA LÍNEA FÍSICA que el comentario `[R265]` de la anterior, detrás del `//`. Resultado: no se
+  ejecutaba nunca, `count` caía al `else show=false` del final y **la fila «Cantidad» no aparecía jamás en una
+  secuencia de domo** — toda composición nueva (anillo, espiral, girasol, onda, esparcido, línea, túnel,
+  aleatorio) salía con los 6 elementos por defecto, sin forma de cambiarlo desde el diálogo. El camino plano no
+  lo sufría porque tiene su propia rama. Se arregla con un salto de línea.
+- **[A12] El arreglo de R301c llevaba desde entonces sin funcionar.** La firma del tejido barajado buscaba el
+  diente de sierra por `x.k` y `x.p`, dos propiedades que **no existen**: el esquema de un modificador es
+  `{param,mode,speed,amp,phase,curve,on}` — como usa correctamente el mismo buscador nueve líneas más abajo.
+  `find` devolvía siempre `undefined`, la velocidad no entraba en la firma y mover el fader dejaba el período
+  viejo, así que el intercambio de imágenes que R300 quitó podía reaparecer. Se firma también `on`, que es lo
+  que mira el consumidor.
+- **[A6] Un proxy que falla a mitad dejaba el clip congelado, en silencio.** La tabla de fotogramas en RAM
+  (`m.frames`) se llena MIENTRAS se codifica, y `seekMedia` la prefiere al archivo original. Si la generación
+  moría a mitad —escritura fallida, publicación fallida, un `.part` que luego no se deja enlazar— esa tabla
+  quedaba PARCIAL con `m.decConfig` puesto: a partir del último fotograma codificado el scrub clampa y el clip
+  se ve congelado sin que nada delate por qué. Sólo el camino de «frozen decode» la limpiaba. Ahora se limpia en
+  el `catch` de `pumpProxy`, el único sitio por el que pasan todos los fallos.
+- **[A13] La familia «heredar del proyecto anterior», cerrada de verdad.** `autoItems`, `exportPresets` y
+  `tl.pxPerSec` los escribe `serProject` y no los reseteaba nadie: **File→New los heredaba del proyecto abierto
+  y los fijaba en el `.isp` nuevo**. Es la CUARTA aparición (R242 seqMode/seqCov, R242b inlineCurves, R240b
+  zoom, y ésta). De paso, el rebase de `_id` al cargar tampoco escaneaba los ids de la biblioteca de
+  automatización: un item puede sobrevivir a los clips que lo usaban, y si esos clips llevaban los ids altos el
+  siguiente `uid()` podía repetir el suyo → `ensureItems()` lo sobrescribe y los clips con `kfLink` a ese id
+  pasan a seguir una curva ajena.
+
+**Y esta vez se arregla la FAMILIA, no el miembro: `tests/paridad-serializacion.test.mjs`.** Lee `app.js` como
+texto (no se puede importar: es un script clásico que toca `document` y WebGL en su primera línea), extrae las
+claves que escribe `serProject` y las asignaciones de `resetProjDefaults`/`newProject`/`newRoomProject`, y falla
+si alguna se serializa sin tener valor de fábrica, nombrándola. Corre con `node --test "tests/*.test.mjs"` en
+60 ms, sin navegador y sin dependencias — **el primer test del repositorio que no necesita la app levantada**.
+Verificado por reversión: quitando el arreglo, nombra `autoItems, exportPresets`.
+
+Verificación de los tres arreglos sobre la app viva en `scratchpad/r311-verif.mjs` (A12 llamando a `wvPrep` con
+un nido sintético, que es determinista; A11 pulsando el segmentado de tipos y midiendo el DOM; A13 con un
+File→New de verdad). *Nota para la próxima sonda: el primer intento dio dos falsos fallos porque `#cKind` no es
+un `<select>` sino un segmentado de botones, y asignarle `.value` no hace nada — el patrón «dos tipos pasan y
+dos fallan» era la pista de que el control nunca cambiaba.*
+
 ## ROUND 310 — El export por FFmpeg no escribía la película (y decía que sí)
 
 Primera tanda de la auditoría exhaustiva de `app.js` (informe en `docs/AUDITORIA-2026-08c-REVISION-GENERAL.md`,

@@ -1239,7 +1239,14 @@ function wvPrep(m){
      · El REPARTO DE FUENTES. `_orderR` ya lo ha devuelto `ensureCompOrder` a false antes de que esto lo vea, asi
        que rebarajar daba firma identica y `ord` conservaba el orden ANTERIOR; y quitar una fuente dejaba ids
        muertos, con los que `drawClip` sale por `if(!m)return` y el elemento DESAPARECE. Se firma el orden real. */
-  const _vel=(function(){ try{ const a=(cl[0]&&cl[0].anim)||[]; const sw=a.find(x=>x&&x.k==='saw'&&(x.p==='x'||x.p==='y'));
+  /* [R310·A12] …y ese arreglo de la VELOCIDAD llevaba desde R301c sin funcionar: buscaba el diente de sierra por
+     `x.k`/`x.p`, dos propiedades que NO EXISTEN — el esquema de un modificador es `{param,mode,speed,amp,phase,
+     curve,on}`, como usa correctamente el mismo buscador nueve lineas mas abajo. `find` devolvia siempre
+     `undefined`, `_vel` quedaba en cadena vacia y la velocidad seguia fuera de la firma: mover el fader dejaba
+     `per` con el periodo viejo y el intercambio de imagenes que R300 quito podia reaparecer. Se firma tambien
+     `on`, que es lo que mira el consumidor: apagar el modificador cambia el reparto igual que cambiar su valor. */
+  const _vel=(function(){ try{ const a=(cl[0]&&cl[0].anim)||[];
+    const sw=a.find(x=>x&&x.mode==='saw'&&(x.param==='x'||x.param==='y')&&x.on!==false);
     return sw?(sw.speed||0)+':'+(sw.phase||0):''; }catch(_){ return ''; } })();
   const _ord=(function(){ try{ return (g.order||[]).join(',')+'#'+cl.map(c=>c.mediaId).join(','); }catch(_){ return ''; } })();
   const firma=cl.length+'|'+(g.bands||0)+'|'+(g.count||0)+'|'+(g.motion||'')+'|'+(g._orderR?1:0)+'|'+_vel+'|'+_ord;
@@ -2912,7 +2919,15 @@ async function bindProxyFile(m,cachePath){ const purl=DSP.toFileURL(cachePath); 
   if(m.dur>0 && pv.duration>0 && Math.abs(pv.duration-m.dur)>Math.max(1,m.dur*0.03)){ try{pv.removeAttribute('src');pv.load();}catch(_){} throw new Error('proxy duration mismatch — stale cut'); } // a proxy found by basename (moved/rehashed source) must be of THIS cut, not an older one
   m.proxyEl=pv; m.el=pv; m.pw=pv.videoWidth; m.ph=pv.videoHeight; m.proxyUrl=purl; m.proxyPath=cachePath; m.proxyReady=true; m.proxyPct=100; m._proxyForce=false; renderMedia(); updProxyUI(m); scrubRender(); }
 function enqProxy(m){proxyQ.push(m);pumpProxy();}
-async function pumpProxy(){if(proxyBusy||!proxyQ.length)return;proxyBusy=true;const m=proxyQ.shift();try{await makeProxy(m);}catch(e){console.error('proxy',e);m.proxyPct=-1;renderMedia();updProxyUI(m);try{if(m._pfid!=null){DSP.fileClose(m._pfid);}}catch(_){} if(e&&e.userMsg)try{appAlert(e.userMsg);}catch(_){}}finally{ if(m._ppart){ try{ if(m._pfid!=null)await DSP.fileClose(m._pfid); }catch(_){} try{ await DSP.deleteFile(m._ppart); }catch(_){} m._ppart=null; } m._pfid=null; m._pxGen=false; renderMedia(); }proxyBusy=false;pumpProxy();}
+async function pumpProxy(){if(proxyBusy||!proxyQ.length)return;proxyBusy=true;const m=proxyQ.shift();try{await makeProxy(m);}catch(e){console.error('proxy',e);m.proxyPct=-1;
+  /* [R310·A6] La tabla de fotogramas EN RAM (`m.frames`) se va llenando MIENTRAS se codifica, y `seekMedia` la
+     prefiere al archivo original. Si la generacion muere a mitad —escritura a disco fallida, publicacion
+     fallida, un `.part` que luego no se deja enlazar— esa tabla queda PARCIAL con `m.decConfig` puesto: a
+     partir del ultimo fotograma codificado el scrub clampa y el clip se ve CONGELADO, en silencio y sin que
+     nada delate por que. Solo el camino de «frozen decode» la limpiaba (linea ~3003); los otros tres fallos
+     lanzaban sin tocarla. Se limpia aqui, que es el unico sitio por el que pasan todos. */
+  m.frames=null; m.decConfig=null;
+  renderMedia();updProxyUI(m);try{if(m._pfid!=null){DSP.fileClose(m._pfid);}}catch(_){} if(e&&e.userMsg)try{appAlert(e.userMsg);}catch(_){}}finally{ if(m._ppart){ try{ if(m._pfid!=null)await DSP.fileClose(m._pfid); }catch(_){} try{ await DSP.deleteFile(m._ppart); }catch(_){} m._ppart=null; } m._pfid=null; m._pxGen=false; renderMedia(); }proxyBusy=false;pumpProxy();}
 function seekRaw(v,t){return new Promise(r=>{t=Math.max(0,Math.min((v.duration||0)-1e-3,t));if(Math.abs(v.currentTime-t)<1e-3&&v.readyState>=2){requestAnimationFrame(()=>r());return;}const on=()=>{v.removeEventListener('seeked',on);r();};v.addEventListener('seeked',on);v.currentTime=t;});}
 async function makeProxy(m){
   if(/\.dsp-proxy-\w+\.mp4$/i.test(m.path||'')){ m.proxyUrl=m.srcUrl; m.proxyEl=m.el; m.proxyReady=true; m.proxyPct=100; renderMedia(); updProxyUI(m); return; } // the imported file IS a proxy — it is its own proxy (no proxy-of-proxy)
@@ -10885,6 +10900,15 @@ function resetProjDefaults(){ state.seqMode='dome'; state.seqCov=180;
      archivos que se importan, y con una carpeta del mismo nombre en el proyecto nuevo, Delete borraba la suya
      con sus medios sin que el usuario la hubiera seleccionado nunca. */
   state.selFolder=null; state.mediaFolder=null;
+  /* [R310·A13] Y la CUARTA aparicion de la misma familia, que la auditoria exhaustiva encontro viva: la
+     biblioteca de automatizacion, los preajustes de export y el zoom de la linea de tiempo. Los tres los
+     ESCRIBE `serProject`, asi que File→New heredaba los del proyecto abierto y los fijaba en el `.isp` nuevo.
+     (El camino de CARGA no lo sufria: `loadProject` los asigna explicitamente leyendo el archivo. El hueco
+     estaba solo en `newProject`/`newRoomProject`, que llaman aqui.) Los items huerfanos ademas podian colisionar
+     por id con los del proyecto nuevo — ver el rebase de `_id` en `loadProject`.
+     La regla, escrita para que no haya una quinta: TODO campo que `serProject` escriba tiene que resetearse
+     aqui. Lo comprueba `tests/paridad-serializacion.test.mjs`, que compara las dos listas. */
+  state.autoItems={}; state.exportPresets=[]; state.tl.pxPerSec=TL_PPS_DEF;
   resetProjView(); }
 function loadProject(obj){ relinkReset(); // [R204] el índice de reenlace es de ESTE proyecto: se tira al cargar otro
   resetProjDefaults(); // [R242·Aud-2.1] fábrica ANTES de leer `obj`: lo que el archivo no diga, no se hereda
@@ -10915,7 +10939,14 @@ function loadProject(obj){ relinkReset(); // [R204] el índice de reenlace es de
     for(const c of m.nestClips){ if(c.maskData||(c.penMasks&&c.penMasks.length))rebuildMaskTex(c); else if(c.props&&(c.props.mask==='custom'||c.props.mask==='pen'))c.props.mask='none'; } m.nestLanes=(m.nestLanes&&m.nestLanes.length)?m.nestLanes:defLanes(); m.nestMarkers=m.nestMarkers||[]; m.nestGroups=m.nestGroups||[]; m.fbo=null; m.tex=null; m.w=m.w||4096; m.h=m.h||4096; m.fps=m.fps||obj.fps||60; m.missing=false; m.ncReady=false; m.ncUrl=null; m.ncStale=false; } }
   for(const m of state.media) if(m.kind==='nest'&&m.ncPath) ncReattach(m); // [R180] los cachés de nest se re-enganchan al reabrir; la firma decide si siguen valiendo (va después del bucle: nestSig desciende a otros medios) // text/shape re-render from params; nest = a sequence (keeps its own w/h/fps)
   for(const m of state.media)if(m.missing===false)m._loading=false; // text/shape/ndi/nest are ready synchronously → not loading
-  let mx=0; const fxMx=c=>{ if(c&&c.fx)for(const f of c.fx)mx=Math.max(mx,f.id||0); }; for(const c of state.clips){mx=Math.max(mx,c.id);fxMx(c);} for(const l of state.lanes)mx=Math.max(mx,l.id); for(const m of state.media){ mx=Math.max(mx,m.id); if(m.nestClips)for(const c of m.nestClips){mx=Math.max(mx,c.id);fxMx(c);} if(m.nestLanes)for(const l of m.nestLanes)mx=Math.max(mx,l.id); if(m.nestMarkers)for(const k of m.nestMarkers)mx=Math.max(mx,k.id); if(m.nestGroups)for(const g of m.nestGroups)mx=Math.max(mx,g.id); if(m.comp&&m.comp.id)mx=Math.max(mx,m.comp.id); } for(const g of (state.groups||[]))mx=Math.max(mx,g.id); for(const k of state.markers)mx=Math.max(mx,k.id); _id=mx+1;
+  let mx=0; const fxMx=c=>{ if(c&&c.fx)for(const f of c.fx)mx=Math.max(mx,f.id||0); }; for(const c of state.clips){mx=Math.max(mx,c.id);fxMx(c);} for(const l of state.lanes)mx=Math.max(mx,l.id); for(const m of state.media){ mx=Math.max(mx,m.id); if(m.nestClips)for(const c of m.nestClips){mx=Math.max(mx,c.id);fxMx(c);} if(m.nestLanes)for(const l of m.nestLanes)mx=Math.max(mx,l.id); if(m.nestMarkers)for(const k of m.nestMarkers)mx=Math.max(mx,k.id); if(m.nestGroups)for(const g of m.nestGroups)mx=Math.max(mx,g.id); if(m.comp&&m.comp.id)mx=Math.max(mx,m.comp.id); } for(const g of (state.groups||[]))mx=Math.max(mx,g.id); for(const k of state.markers)mx=Math.max(mx,k.id);
+  /* [R310·A13] Los ids de la biblioteca de automatizacion tambien cuentan. No estaban: se crean con `uid()`
+     igual que todo lo demas, pero un item puede SOBREVIVIR a los clips que lo usaban (se borran los clips, el
+     item se queda en la biblioteca). Si esos clips llevaban los ids altos, `_id` quedaba por debajo del id del
+     item y el siguiente `uid()` podia repetirlo: `ensureItems()[it.id]=it` lo sobrescribe y todos los clips con
+     `kfLink` a ese id pasan a seguir una curva ajena via `poolPropagate`. */
+  for(const k in (state.autoItems||{})){ const it=state.autoItems[k]; if(it&&it.id)mx=Math.max(mx,it.id); }
+  _id=mx+1;
   /* [R221] room canvas migration — AFTER _id is set (migrateRoomFloor calls uid() for new clips/lanes; doing it
      before the scan above would collide with ids the scan hasn't accounted for yet). Every pre-R221 room gets
      room.stripH backfilled here too (old .isp files never had that field — wseq.h WAS the walls-only height). */
@@ -13229,7 +13260,15 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
       preview(); return; }
     ov.querySelectorAll('[data-only]').forEach(el=>{ const mm=el.dataset.only; let show;
       if(mm==='ring')show=(kind==='ring'); else if(mm==='grid')show=(kind==='grid'); else if(mm==='spiralwave')show=(kind==='spiral'||kind==='wave'); else if(mm==='line')show=(kind==='line');
-      else if(mm==='domegrid')show=(kind==='domegrid'); else if(mm==='shuffle')show=(kind==='domegrid'||kind==='weave'); // [R265] el tejido tambien baraja que fuente va a cada tira else if(mm==='count')show=(kind!=='domegrid'&&kind!=='weave'); // [R247] el tejido deriva su conteo de tiras × clips × familias
+      else if(mm==='domegrid')show=(kind==='domegrid');
+      else if(mm==='shuffle')show=(kind==='domegrid'||kind==='weave'); // [R265] el tejido tambien baraja que fuente va a cada tira
+      /* [R310·A11] Esta linea estaba TRAGADA por el comentario de la de arriba: iba en la misma linea fisica,
+         despues del `//`, asi que no se ejecutaba. Consecuencia: `mm==='count'` caia al `else show=false` del
+         final y la fila «Cantidad» no aparecia NUNCA en una secuencia de domo — toda composicion nueva (anillo,
+         espiral, girasol, onda, esparcido, linea, tunel, aleatorio) salia con los 6 elementos por defecto y no
+         habia forma de cambiarlo desde el dialogo. El camino plano no lo sufria porque tiene su propia rama.
+         Se arregla con un salto de linea. */
+      else if(mm==='count')show=(kind!=='domegrid'&&kind!=='weave'); // [R247] el tejido deriva su conteo de tiras × clips × familias
       else if(mm==='tile')show=(kind==='ring'||kind==='grid'); else if(mm==='tileband')show=(kind==='ring'&&tile);
       else if(mm==='tunnel')show=(kind==='tunnel'); // [R246]
       else if(mm==='weave')show=(kind==='weave');   // [R247]
