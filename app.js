@@ -14795,7 +14795,14 @@ const AR_SR=16000, AR_FPS=90;
    computeBands is a 3-filter bank — it can never answer "give me 220–480 Hz". So: ONE extra pass with our own radix-2 FFT
    over the decimated mono signal → SPEC_BINS log-spaced bands per frame. One pass (not N offline renders, which would be
    ~288 MB each on a 75-min track), ~17 MB for a feature film, and it leaves m.bands untouched so Reactive FX can't break. */
-const SPEC_BINS=32, SPEC_F0=40, SPEC_F1=12000, SPEC_SR=16000, SPEC_FFT=1024; // decimate to 16 kHz first → bin = 15.6 Hz regardless of the source rate (at 44.1 kHz a 512-pt FFT gives 86 Hz bins: bass was unusable and a 100 Hz tone landed two bands off)
+/* [R335] `SPEC_F1` era 12000 con `SPEC_SR` 16000, es decir POR ENCIMA DE NYQUIST (8 kHz): las bandas del
+   tramo alto no enseñaban energía de 12 kHz, enseñaban la de ~4 kHz REPLEGADA. El pico se veía donde no
+   estaba, y un rango a medida por encima de 8 kHz modulaba con contenido espejo — el usuario elige el charles
+   y le reacciona a la caja. El techo baja a Nyquist. Subirlo de verdad pide subir `SPEC_SR`, y eso empeora la
+   resolución de graves, que es justo lo que la decimación a 16 kHz vino a arreglar (ver la nota de abajo):
+   con 1024 puntos a 16 kHz el bin mide 15,6 Hz; a 32 kHz mediría 31,2 y el bombo volvería a caer dos bandas
+   fuera. La decisión es conservar los graves y decir la verdad arriba. */
+const SPEC_BINS=32, SPEC_F0=40, SPEC_SR=16000, SPEC_FFT=1024, SPEC_F1=SPEC_SR/2; // decimate to 16 kHz first → bin = 15.6 Hz regardless of the source rate (at 44.1 kHz a 512-pt FFT gives 86 Hz bins: bass was unusable and a 100 Hz tone landed two bands off)
 function _fftRadix2(re,im){ const n=re.length; for(let i=1,j=0;i<n;i++){ let bit=n>>1; for(;j&bit;bit>>=1)j^=bit; j^=bit; if(i<j){ const tr=re[i];re[i]=re[j];re[j]=tr; const ti=im[i];im[i]=im[j];im[j]=ti; } }
   for(let len=2;len<=n;len<<=1){ const ang=-2*Math.PI/len, wr=Math.cos(ang), wi=Math.sin(ang);
     for(let i=0;i<n;i+=len){ let cr=1,ci=0;
@@ -14870,7 +14877,7 @@ async function computeBands(ab){ if(typeof OfflineAudioContext==='undefined'||!a
   const ping=(i)=>{ try{ if(dur>120)flashStatus(T('Analyzing audio bands… ','Analizando bandas de audio… ')+i+'/3'); }catch(e){} }; // progress only for long tracks
   ping(1); const eB=await env(await renderBand(oc=>[lp(oc,160),lp(oc,160)]));
   ping(2); const eM=await env(await renderBand(oc=>[hp(oc,300),lp(oc,2600)]));
-  ping(3); const eT=await env(await renderBand(oc=>[hp(oc,3500)]));
+  ping(3); const eT=await env(await renderBand(oc=>[hp(oc,3500)])); // [R335] 3,5 kHz → Nyquist (8 kHz): la banda existe entera dentro del análisis, al contrario que el techo de 12 kHz que enseñaba el selector
   const bright=new Float32Array(n); for(let i=0;i<n;i++){ const tot=eB[i]+eM[i]+eT[i]; bright[i]=tot>1e-5?eT[i]/tot:0; } // spectral-brightness proxy: treble share of total energy (before normalization)
   norm(eB); norm(eM); norm(eT); norm(bright);
   // spectral flux = rectified envelope derivative; adaptive-threshold peak-picking (prefix sums → O(N))
@@ -14981,8 +14988,14 @@ function fxModLevel(fx){ const t=_arTime; let v;
   if(fx.mode==='lfo') v=fxLfoVal(fx,t);
   else if(fx.mode==='trigger') v=fxTrigEnv(fx,t);
   else { if(!fx.band||fx.band==='none')return 0; // no source → static effect (int only), invert intentionally not applied
-    const c=_arCache&&_arCache.clip; if(!c||t<c.start||t>c.start+c.dur)v=0;
-    else { const arr=fxEnvFor(fx); v=arr?_arSamp(arr,_arCache.fps,srcT(c,t)):0; } }
+    /* [R335] …y los OTROS tres «sin fuente» merecían el mismo trato, que era el gemelo olvidado: sin caché de
+       bandas, fuera del clip que suena, o sin envolvente, se caía a `v=0` y seguía hasta `fxShape`, que con INV
+       puesto convierte el 0 en 1. Un efecto invertido se disparaba al 100 % justo donde NO hay información —
+       antes y después de la canción, y durante un export entero si las bandas no llegaron a analizarse—. Cero
+       información no es «silencio absoluto»: es que no se modula. */
+    const c=_arCache&&_arCache.clip; if(!c||t<c.start||t>c.start+c.dur)return 0;
+    const arr=fxEnvFor(fx); if(!arr)return 0;
+    v=_arSamp(arr,_arCache.fps,srcT(c,t)); }
   return fxShape(fx,v); }
 function clamp01(v){ return v<0?0:v>1?1:v; }
 function evalKf(ks,base,lt){ if(!ks||!ks.length)return base; if(lt<=ks[0].t)return ks[0].v; const last=ks[ks.length-1]; if(lt>=last.t)return last.v;

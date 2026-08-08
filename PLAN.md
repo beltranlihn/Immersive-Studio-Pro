@@ -1,5 +1,22 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 335 — El espectro mentía arriba y el INV se disparaba sin señal
+
+- **El selector de frecuencia llegaba a 12 kHz sobre un análisis a 16 kHz**, es decir **por encima de Nyquist**
+  (8 kHz). El tramo alto no enseñaba energía de 12 kHz: enseñaba la de ~4 kHz **replegada**. Elegir el charles
+  daba una señal que reacciona a la caja, y el pico se veía donde no estaba. El techo baja a Nyquist. Subirlo de
+  verdad pide subir `SPEC_SR`, y eso empeora la resolución de graves (15,6 → 31,2 Hz por bin) — que es justo lo
+  que la decimación a 16 kHz vino a arreglar. La decisión, y su precio, quedan escritos en el código.
+- **Un efecto reactivo con INV se disparaba al 100 % donde no hay señal.** El código ya sabía la regla — «sin
+  fuente → 0, sin pasar por la inversión» — pero sólo la aplicaba a un caso (banda sin elegir). Los otros tres
+  (sin caché de bandas, fuera del clip que suena, sin envolvente) caían a `v=0` y seguían hasta `fxShape`, que
+  con INV convierte el 0 en 1: el efecto invertido se disparaba **antes y después de la canción**, y durante un
+  export entero si las bandas no llegaron a analizarse. Cero información no es silencio absoluto: es que no se
+  modula. Con su control: dentro del clip, el INV sigue invirtiendo (señal → 0, silencio → 1).
+
+**Verificación:** `scratchpad/r335-verif.mjs`. **Quince redes en verde.**
+
+
 ## ROUND 334 — Pestañas, duración del padre y un análisis que se reintentaba solo
 
 - **`toggleDisable` sobre un rango sin clips apilaba una foto de deshacer** y luego salía por la puerta: el
