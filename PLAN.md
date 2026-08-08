@@ -1,5 +1,49 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 315 — Un test que no podía fallar, y el barrido de escapes terminado
+
+Lo que quedaba del repaso de código. Lo más importante no es un fallo del programa sino de su red de seguridad.
+
+**El test de paridad podía dar FALSOS APROBADOS por tres vías, y una estaba viva.** Se escribió en R311 para
+cerrar por REGLA la familia «heredar del proyecto anterior», y resultó que:
+1. `cuerpoDe` contaba llaves sobre el fuente CRUDO y limpiaba los comentarios DESPUÉS. Una llave desbalanceada
+   dentro de un comentario —y el estilo de la casa comenta citando esquemas— hacía que el cuerpo se
+   sobre-leyera hasta la función siguiente y arrastrase SUS asignaciones: el conjunto «reseteado» crecía y el
+   test aprobaba **aunque `resetProjDefaults` estuviera vacío**. Las guardas de tamaño mínimo sólo detectaban
+   la sub-lectura.
+2. El patrón de reseteo aceptaba asignaciones CONDICIONALES y hasta comparaciones.
+3. Sólo leía las claves de PRIMER nivel, así que el bloque `tl` quedaba sin comprobar — justo donde vive
+   `inlineCurves`, que la cabecera del propio test cita como motivo de existir.
+
+**Y la vía 2 estaba ocultando un bug real: `fps`.** Se serializa, pero sus únicas asignaciones son
+condicionales, así que con un fps ausente o falsy un proyecto nuevo heredó siempre el del anterior y lo fijó
+en su `.isp` — el QUINTO miembro de la familia, y el único que no encontró este test sino un repaso de código.
+Ahora el analizador limpia comentarios y cadenas antes de contar, exige que la asignación sea incondicional,
+baja un nivel a los objetos anidados, y lleva **tres aserciones que se delatan a sí mismas** si alguna de esas
+tres piezas se rompe. Verificado por reversión: quitando `state.fps=60` el test ahora falla nombrándolo; antes
+aprobaba.
+
+**El barrido de escapes, terminado.** R312 declaró la regla y dejó siete sumideros vivos. Cerrados: los dos
+fantasmas de arrastre (clip y panel de medios), el chip de grupo, la ficha de composición del inspector, la
+cabecera del panel de Reactive FX, los preajustes de sala —que aún llevaban un escape a mano, la cuarta
+implementación que R312 decía haber eliminado— y `appPrompt`, el tercer diálogo, que no recibió el escape en
+el sumidero que sí recibieron `_dialogBase` y `appAlert`.
+*Nota de proceso: cuatro de esos escapes se escribieron y no llegaron a aplicarse — el script que los ponía
+abortó en una aserción ANTES de escribir el fichero, y el `node --check` posterior dio verde sobre el fichero
+sin tocar. Lo cazaron los dos últimos sumideros al seguir inyectando en la sonda. Un guion que aplica parches
+debe escribir lo que consiguió y REPORTAR lo que no, no abortar en silencio.*
+
+**Y dos más del repaso:**
+- **`ffWrite` devuelve un booleano y se estaba tirando.** Es la única señal de que el fotograma se escribió y de
+  que el proceso sigue vivo: con FFmpeg caído en el fotograma 3 de 100 000, el bucle seguía renderizando horas
+  contra una tubería muerta, con la barra avanzando, hasta enterarse en `ffEnd`.
+- **Borrar un lote con una secuencia dentro dejaba al resto sin deshacer.** `deleteSequenceMedia` llama a
+  `clearAllUndo()` —y tiene que hacerlo—, así que con el orden natural de la selección se llevaba por delante
+  los `pushUndo` ya apilados en el mismo bucle. Ahora las secuencias van primero: se vacía el historial ANTES,
+  lo que se borra después sigue siendo deshacible, y el aviso del cuadro pasa a ser cierto.
+
+De paso, `npm test` existe. El comando que la cabecera documentaba, `node --test tests/`, no funciona en Node 25.
+
 ## ROUND 314 — El repaso de código de mis propias rondas: cinco regresiones
 
 Un `/code-review` a máximo esfuerzo sobre R310-R313 (diez ángulos en paralelo + lectura propia) encontró que

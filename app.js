@@ -3318,7 +3318,14 @@ async function deleteMediaMany(ids){
         '¿Eliminar '+ms.length+' elementos? Incluye '+trozos.join(' y ')+'. Deshacer solo restaura la secuencia actual.'),
       res,{ok:T('Delete','Eliminar'),danger:true}));
     if(!ok)return; }
-  for(const m of ms) deleteMedia(m,true); }
+  /* [R315] Las SECUENCIAS se borran primero. `deleteSequenceMedia` llama a `clearAllUndo()` —tiene que hacerlo:
+     los historiales de otras secuencias referencian el id que desaparece—, así que con el orden natural de la
+     selección se llevaba por delante los `pushUndo` que los medios normales ya habían apilado en este mismo
+     bucle: Ctrl+Z no recuperaba nada, y el resultado dependía de en qué puesto de la selección estuviera la
+     secuencia. Vaciando el historial ANTES, lo que se borra después sigue siendo deshacible y el aviso de
+     arriba («Deshacer solo restaura la secuencia actual») pasa a ser cierto. */
+  for(const m of ms) if(isSeqMedia(m)) deleteMedia(m,true);
+  for(const m of ms) if(!isSeqMedia(m)) deleteMedia(m,true); }
 function paintMediaSel(){ const set=new Set(selectedMediaIds()); $$('#mediaList .mitem,#mediaList .mtile').forEach(x=>x.classList.toggle('sel',set.has(+x.dataset.id))); }
 function orderedMediaIds(){ return [...$$('#mediaList .mitem,#mediaList .mtile')].map(x=>+x.dataset.id).filter(id=>!isNaN(id)); } // media ids in on-screen order (respects folders/collapse/filter)
 function selectMedia(id,e){
@@ -3804,7 +3811,7 @@ function removeLane(li){ const lane=state.lanes[li]; if(!lane)return; const has=
 function appPrompt(message,def,cb){ try{closeMenu();}catch(e){}
 
   const ov=document.createElement('div'); ov.className='overlay'; ov.style.alignItems='flex-start'; ov.id='promptOv';
-  ov.innerHTML='<div class="modal" style="width:360px;margin-top:120px;padding:14px 16px;"><div style="font-size:13px;color:var(--ink-2);margin-bottom:9px;">'+message+'</div><input id="apIn" type="text" spellcheck="false" style="width:100%;height:30px;box-sizing:border-box;background:var(--s0);border:.5px solid rgba(255,255,255,0.14);border-radius:2px;color:var(--ink);font-family:inherit;font-size:13px;padding:0 9px;outline:none;"><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:13px;"><button id="apCancel" class="togbtn2">'+T('Cancel','Cancelar')+'</button><button id="apOk" class="togbtn2 on">'+T('OK','Aceptar')+'</button></div></div>';
+  ov.innerHTML='<div class="modal" style="width:360px;margin-top:120px;padding:14px 16px;"><div style="font-size:13px;color:var(--ink-2);margin-bottom:9px;">'+esc(message)+'</div><input id="apIn" type="text" spellcheck="false" style="width:100%;height:30px;box-sizing:border-box;background:var(--s0);border:.5px solid rgba(255,255,255,0.14);border-radius:2px;color:var(--ink);font-family:inherit;font-size:13px;padding:0 9px;outline:none;"><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:13px;"><button id="apCancel" class="togbtn2">'+T('Cancel','Cancelar')+'</button><button id="apOk" class="togbtn2 on">'+T('OK','Aceptar')+'</button></div></div>';
   document.body.appendChild(ov); const inp=ov.querySelector('#apIn'); inp.value=(def!=null?def:''); setTimeout(()=>{try{inp.focus();inp.select();}catch(e){}},10);
   let done=false; const fin=v=>{ if(done)return; done=true; ov.remove(); if(cb)cb(v); };
   ov.querySelector('#apOk').onclick=()=>fin(inp.value); ov.querySelector('#apCancel').onclick=()=>fin(null);
@@ -5265,7 +5272,7 @@ function showMoveGhosts(d,applied,targetLane,copy){ clearMoveGhosts(); const pps
     g.style.cssText='position:absolute;pointer-events:none;z-index:30;border:1px solid '+(copy?'#C9CDD3':'rgba(255,255,255,0.7)')+';background:'+oc.color+';opacity:.42;border-radius:2px;box-shadow:0 2px 8px rgba(0,0,0,0.4);overflow:hidden;';
     const _gp=rowEl.offsetParent||tracks; // [R92-T9] audio rows live inside the sticky #audioZone (its own offsetParent) → append the ghost there so offsetTop lines up
     g.style.left=(ns*pps)+'px'; g.style.top=(rowEl.offsetTop+4)+'px'; g.style.width=Math.max(14,oc.dur*pps)+'px'; g.style.height=(rowEl.offsetHeight-8)+'px';
-    g.innerHTML='<div style="position:absolute;left:0;top:0;right:0;height:15px;line-height:15px;font:600 10px Geist;padding:0 5px;color:'+textOn(oc.color)+';background:'+oc.color+';white-space:nowrap;overflow:hidden;">'+(copy?'＋ ':'')+oc.name+'</div>';
+    g.innerHTML='<div style="position:absolute;left:0;top:0;right:0;height:15px;line-height:15px;font:600 10px Geist;padding:0 5px;color:'+textOn(oc.color)+';background:'+oc.color+';white-space:nowrap;overflow:hidden;">'+(copy?'＋ ':'')+esc(oc.name)+'</div>';
     _gp.appendChild(g); } }
 function duplicateClipAt(c,start,lane){ const n=Object.assign({},c,{link:undefined,avRole:undefined,/* [R170] la copia nace SUELTA: dos pares con el mismo link romperían linkPartner */id:uid(),start:Math.max(0,start),lane:(lane!=null?lane:c.lane),maskTex:null,_penCv:null,penMasks:c.penMasks?JSON.parse(JSON.stringify(c.penMasks)):undefined,props:Object.assign({},c.props),kf:JSON.parse(JSON.stringify(c.kf||{})),fx:JSON.parse(JSON.stringify(c.fx||[]))});
   sepAuto(n,c);
@@ -5664,7 +5671,7 @@ function startMediaDrag(e,m,rango){ const ghost=e.currentTarget.cloneNode(true);
     if(L){ if(!tlg){ tlg=document.createElement('div'); tracks.appendChild(tlg); } tlg.className='moveghost';
       tlg.style.cssText='position:absolute;pointer-events:none;z-index:30;border:1px solid rgba(255,255,255,0.7);background:'+m.color+';opacity:.42;border-radius:2px;box-shadow:0 2px 8px rgba(0,0,0,0.4);overflow:hidden;';
       tlg.style.left=(L.start*state.tl.pxPerSec)+'px'; tlg.style.top=(L.laneEl.offsetTop+4)+'px'; tlg.style.width=Math.max(14,dur*state.tl.pxPerSec)+'px'; tlg.style.height=(L.laneEl.offsetHeight-8)+'px';
-      tlg.innerHTML='<div style="position:absolute;left:0;top:0;right:0;height:15px;line-height:15px;font:600 10px Geist;padding:0 5px;color:'+textOn(m.color)+';background:'+m.color+';white-space:nowrap;overflow:hidden;">'+m.name+'</div>';
+      tlg.innerHTML='<div style="position:absolute;left:0;top:0;right:0;height:15px;line-height:15px;font:600 10px Geist;padding:0 5px;color:'+textOn(m.color)+';background:'+m.color+';white-space:nowrap;overflow:hidden;">'+esc(m.name)+'</div>';
       ghost.style.opacity='.35'; showSnap(L.snap); clearFH(); }
     else { if(tlg){tlg.remove();tlg=null;} ghost.style.opacity='.85'; showSnap(null); // highlight the folder / back tile / grid background under the cursor (R88 drop target)
       _clearDropFX(); const t=_dropTargetAt(ev); if(t)t.el.classList.add('dragover'); } };
@@ -5951,7 +5958,7 @@ function _renderInspectorMain(){
   { const cb=$('#selColorBar'); if(cb){ cb.style.background=clipTint(c,mediaById(c.mediaId)); cb.title=T('Click to set the clip color','Clic para elegir el color del clip'); cb.onclick=e=>openClipColorPopup(e.clientX,e.clientY); } } // the selected clip's OWN colour (click = per-clip colour picker)
   // group membership chip
   const chost=$('#grpChipHost'); if(chost){ const gg=c.groupId!=null?groupById(c.groupId):null;
-    chost.innerHTML = gg ? `<div class="grpchip" id="grpChip"><span class="gc">${ICO('ring',13)}</span><span style="flex:1;">${T('Part of','Parte de')} <b>${gg.name}</b></span><span style="color:var(--ink-3);">${T('Edit group','Editar grupo')} ›</span></div>` : '';
+    chost.innerHTML = gg ? `<div class="grpchip" id="grpChip"><span class="gc">${ICO('ring',13)}</span><span style="flex:1;">${T('Part of','Parte de')} <b>${esc(gg.name)}</b></span><span style="color:var(--ink-3);">${T('Edit group','Editar grupo')} ›</span></div>` : '';
     if(gg) $('#grpChip').onclick=()=>selectGroup(gg.id); }
   /* [R225·1] CONTRATO de la capa de ajuste: es UN SOLO clip fulldome a pantalla completa que actúa sobre todo lo
      de debajo (modelo Premiere). No tiene fuente ni Transform —cubre siempre el cuadro entero, que es exactamente
@@ -6660,7 +6667,7 @@ function editNumberBox(box,p,mn,mx){ const c=selClip(); if(!c)return; const cur=
 function renderGroupInspector(g){ const host=$('#insGroup'); const n=groupMembers(g).length; const MASKS=['none','circle','rounded','diamond','vignette'];
   host.innerHTML=`
     <div class="selhead"><div class="selthumb" style="display:grid;place-items:center;color:var(--ink-2);">${ICO('ring',18)}</div>
-      <div style="flex:1;min-width:0;"><div class="selname">${g.name}</div><div class="selmeta">${T(kindES(g.kind)+' composition','Composición '+kindES(g.kind))} · ${n} ${T('items','elementos')}</div></div></div>
+      <div style="flex:1;min-width:0;"><div class="selname">${esc(g.name)}</div><div class="selmeta">${T(kindES(g.kind)+' composition','Composición '+kindES(g.kind))} · ${n} ${T('items','elementos')}</div></div></div>
     <button class="sechead"><span style="color:var(--ink-dim);display:flex;">${ICO('chevDown')}</span><span class="t">${T('Group · Transform all','Grupo · Transformar todo')}</span><span class="ln"></span></button>
     <div class="prow"><span class="kf" style="cursor:default;"></span><span class="lab">${T('Count','Cantidad')}</span><input type="number" class="tnum" id="gCount" value="${g.count}" min="2" max="32" style="width:64px;height:18px;background:var(--s2);border:.5px solid rgba(255,255,255,0.12);border-radius:2px;color:var(--ink);text-align:center;"></div>
     <div class="prow"><span class="kf" style="cursor:default;"></span><span class="lab">${T('Spin','Giro')}</span><input type="range" class="grprng" id="gSpin" min="0" max="360" value="${Math.round(g.spin)}"><span class="num" id="gSpinV" style="width:42px;text-align:right;">${Math.round(g.spin)}°</span></div>
@@ -8874,7 +8881,11 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
             chapa.cont=chapa.subir(c.cv,chapa.cont); chapa.x=c.x; chapa.y=c.y; chapa.w=c.w; chapa.h=c.h; }
           const buf=nv12Read(exLienzoATex(eW,eH),eW,eH,esDome,chapa);   /* [R310·A2] el LIENZO recien dibujado, no `compTex` — ver exLienzoATex */
           if(!buf)throw new Error('nv12Read');
-          await DSP.ffWrite(st.id,buf);           /* esperar: contrapresión */
+          /* [R315] Se MIRA el valor de retorno. `dsp:ffWrite` devuelve false en cuanto el proceso ha muerto
+             (main.js: `if(!st||st.code!==null)return false`), y descartarlo significaba que un FFmpeg caido en
+             el fotograma 3 de 100 000 dejaba el bucle renderizando y componiendo a la GPU durante horas contra
+             una tuberia muerta, con la barra avanzando, hasta enterarse en `ffEnd`. */
+          if(await DSP.ffWrite(st.id,buf)===false){ diag('error','export','ffWrite rechazado',{i}); break; }   /* esperar: contrapresión */
           if(job.frame)job.frame(i,total); job.prog(i+1,total);
           await exWaitPause();                    /* [R310] Pausar vale tambien aqui: era el unico bucle de export que no lo miraba, asi que el boton no hacia nada en esta ruta */
         }
@@ -10742,7 +10753,7 @@ function roomSetupDialog(cb,partirDe){ const ov=document.createElement('div'); o
   ov.querySelectorAll('#rsN button').forEach(b=>b.onclick=()=>setN(+b.dataset.n));
   $('#rsFloor').onchange=e=>{ floor=e.target.checked; drawFloor(); refreshIso(); };
   // room presets (localStorage, reusable across projects) — save/load the whole wall+floor+fps config by name
-  const fillPresets=()=>{ const ps=getRoomPresets(); $('#rsPreset').innerHTML='<option value="">—</option>'+ps.map((p,i)=>`<option value="${i}">${(p.name||'Preset').replace(/</g,'')}</option>`).join(''); };
+  const fillPresets=()=>{ const ps=getRoomPresets(); $('#rsPreset').innerHTML='<option value="">—</option>'+ps.map((p,i)=>`<option value="${i}">${esc(p.name||'Preset')}</option>`).join(''); };
   fillPresets();
   $('#rsPreset').onchange=()=>{ const p=getRoomPresets()[+$('#rsPreset').value]; if(!p)return; floor=!!p.floor; walls=(p.walls||[]).map(w=>({...w})); n=walls.length; ov.querySelectorAll('#rsN button').forEach(b=>b.classList.toggle('on',+b.dataset.n===n)); $('#rsFloor').checked=floor;
     /* [R230b] Un preajuste SIN `floorCfg` reemplaza los muros enteros: su piso vuelve a seguirlos. Sólo el que
@@ -11102,6 +11113,13 @@ function resetProjDefaults(){ state.seqMode='dome'; state.seqCov=180;
      La regla, escrita para que no haya una quinta: TODO campo que `serProject` escriba tiene que resetearse
      aqui. Lo comprueba `tests/paridad-serializacion.test.mjs`, que compara las dos listas. */
   state.autoItems={}; state.exportPresets=[]; state.tl.pxPerSec=TL_PPS_DEF;
+  /* [R315] Y `fps`, que era el QUINTO miembro de la familia — y el que demuestra por qué el test de paridad
+     tenía que endurecerse: se serializa, pero sus únicas asignaciones son CONDICIONALES (`if(fps)state.fps=fps`
+     en newProject, `if(cfg.fps)` en newRoomProject), así que con un fps ausente o falsy el proyecto nuevo
+     heredaba el del anterior y lo fijaba en su `.isp`. El test lo daba por cubierto porque su patrón contaba
+     cualquier `state.X=`, condicional incluida. Los dos creadores siguen pisando este valor con el suyo justo
+     después; esto sólo garantiza el suelo. */
+  state.fps=60;
   resetProjView(); }
 function loadProject(obj){ relinkReset(); // [R204] el índice de reenlace es de ESTE proyecto: se tira al cargar otro
   resetProjDefaults(); // [R242·Aud-2.1] fábrica ANTES de leer `obj`: lo que el archivo no diga, no se hereda
@@ -14622,7 +14640,7 @@ function renderReactivePanel(){ const host=$('#insReactive'); if(!host)return; c
     : `<div style="padding:18px 14px;color:var(--ink-dim);font-size:11px;line-height:1.5;">${T('Select a clip in the timeline to build its reactive effect chain.','Selecciona un clip en la línea de tiempo para construir su cadena de efectos reactiva.')}</div>`;
   host.innerHTML=`
     <div class="selhead"><div class="selthumb" style="display:grid;place-items:center;color:var(--ink-2);">${ICO('curves',18)}</div>
-      <div style="flex:1;min-width:0;"><div class="selname">${T('Reactive FX','FX Reactivos')}</div><div class="selmeta">${c?c.name:T('Audio-reactive effect chain','Cadena reactiva al audio')}</div></div></div>
+      <div style="flex:1;min-width:0;"><div class="selname">${T('Reactive FX','FX Reactivos')}</div><div class="selmeta">${c?esc(c.name):T('Audio-reactive effect chain','Cadena reactiva al audio')}</div></div></div>
     <button class="sechead"><span style="color:var(--ink-dim);display:flex;">${ICO('chevDown')}</span><span class="t">${T('Audio Engine','Motor de audio')}</span><span class="ln"></span></button>
     <div style="padding:1px 12px 6px;display:flex;flex-direction:column;gap:2px;">
       <div class="prow" style="gap:6px;"><span class="kf" style="cursor:default;visibility:hidden;"></span><span class="lab">${T('Source','Fuente')}</span><select class="selsel" id="arSrc" style="flex:1;height:18px;">${srcOpts}</select></div>
