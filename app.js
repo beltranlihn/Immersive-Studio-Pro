@@ -5083,9 +5083,8 @@ $('#tracks').addEventListener('pointerdown',e=>{
       const pa=linkPartner(z.a); if(pa)base.aLinkBase={start:pa.start,dur:pa.dur,inP:pa.inP||0}; // [R223] link A/V: recorte junto
       const pb=linkPartner(z.b); if(pb)base.bLinkBase={start:pb.start,dur:pb.dur,inP:pb.inP||0}; }
     else { const pc=linkPartner(c); if(pc)base.linkBase={start:pc.start,dur:pc.dur,inP:pc.inP||0}; } // [R223] rippleL/rippleR/slip/slide: mismo espejo
-    if(z.kind==='rippleL'||z.kind==='rippleR'){ base.after=new Map(); const edge=c.start+(z.kind==='rippleL'?0:c.dur);
-      for(const o of state.clips)if(o.lane===c.lane&&o!==c&&o.start>=edge-0.002)base.after.set(o.id,o.start); }
-    if(z.kind==='slide'){ if(z.prev)base.pDur=z.prev.dur; if(z.next){ base.nStart=z.next.start; base.nDur=z.next.dur; base.nInP=z.next.inP||0; } }
+    if(z.kind==='rippleL'||z.kind==='rippleR')base.after=_rippleAfter(c,z.kind);
+    if(z.kind==='slide'){ if(z.prev){ base.pDur=z.prev.dur; base.pInP=z.prev.inP||0; } if(z.next){ base.nStart=z.next.start; base.nDur=z.next.dur; base.nInP=z.next.inP||0; } }
     state.selIds=[c.id]; state.selId=c.id; laneDesel(); $$('.clip').forEach(x=>x.classList.toggle('sel',+x.dataset.clip===c.id));
     const x0=e.clientX; let pushed=false;
     const mv=ev=>{ if(!pushed){ pushUndo(); pushed=true; } const fps=state.fps||30; let dt=(ev.clientX-x0)/state.tl.pxPerSec;
@@ -5195,6 +5194,23 @@ function trimZone(c,px,w,isTitle){ const EDGE=12; const nb=laneNeighbours(c);
   if(isTitle) return {kind:'slide',c};
   return {kind:'slip',c}; }
 const TRIM_LABEL={roll:['Roll — move the cut','Roll — mover el corte'],rippleL:['Ripple in','Ripple de entrada'],rippleR:['Ripple out','Ripple de salida'],slide:['Slide — move clip, neighbours absorb','Slide — mover clip, los vecinos absorben'],slip:['Slip — change the media inside','Slip — cambiar el material interior']};
+/* [R321] Lo que un ripple arrastra: los clips de la pista que empiezan en el borde o después, **y las mitades
+   enlazadas de esos clips**, que viven en OTRA pista. Ese segundo grupo faltaba: el bucle filtraba por
+   `o.lane===c.lane`, así que un ripple de 2 s corría los vídeos aguas abajo y dejaba sus audios donde estaban —
+   TODOS los pares posteriores quedaban desfasados justo los 2 s del recorte, y en silencio.
+   Se guardan por id (no por pista) porque el conjunto ya no es de una sola pista, y se captura al pointerdown
+   porque el arrastre es absoluto. El partner del propio clip agarrado se excluye: de ése se ocupa
+   `_mirrorLinkTrim`, y moverlo dos veces lo dejaría al doble de distancia.
+   Vive en una función porque hay DOS sitios que arman esta lista —el arrastre y `trimNudge`, el mismo ripple con
+   el teclado— y en R313 uno de ellos ya se quedó atrás respecto del otro. */
+function _rippleAfter(c,kind){
+  const after=new Map(), edge=c.start+(kind==='rippleL'?0:c.dur), pc=linkPartner(c);
+  for(const o of state.clips){
+    if(o.lane!==c.lane||o===c||o.start<edge-0.002)continue;
+    after.set(o.id,o.start);
+    const po=linkPartner(o); if(po&&po!==c&&po!==pc)after.set(po.id,po.start);
+  }
+  return after; }
 /* [R223] Link A/V: el trim (de cualquier tipo) arrastra al partner enlazado con el MISMO delta absoluto que
    acaba de aplicarse al clip principal respecto de su propio `base` — el partner tiene su propia base congelada
    (`base.linkBase`/`aLinkBase`/`bLinkBase`, capturada al pointerdown) así que no importa si sus valores de
@@ -5279,12 +5295,12 @@ function applyTrim(z,dt,base){
     const d=clamp(dt,lo,hi);
     c.dur=base.dur-d; c.inP=base.inP+d*(c.speed||1); // the clip's START stays put; everything after slides to close/open the gap
     { const sc=snap(c); rebaseAutoPorMaterial(c,sc.kf,sc.an,d); }     /* [R313·A10] el material entra recortado: la curva se corre con él */
-    for(const o of state.clips)if(o.lane===c.lane&&o!==c&&base.after.has(o.id))o.start=base.after.get(o.id)-d;
+    for(const [oid,st0] of base.after){ const o=clipById(oid); if(o&&o!==c)o.start=st0-d; }   /* [R321] por id: la lista incluye ya las mitades enlazadas, que estan en OTRA pista */
     _mirrorLinkTrim(c,base,base.linkBase,snap); return d; }
   if(z.kind==='rippleR'){ const c=z.c, s=clipSrc(c);
     let lo=-(base.dur-0.05), hi=s.lim?Math.max(0,(s.sd-base.inP)/(c.speed||1)-base.dur):1e6;
     const d=clamp(dt,lo,hi); c.dur=base.dur+d;
-    for(const o of state.clips)if(o.lane===c.lane&&o!==c&&base.after.has(o.id))o.start=base.after.get(o.id)+d;
+    for(const [oid,st0] of base.after){ const o=clipById(oid); if(o&&o!==c)o.start=st0+d; }   /* [R321] idem */
     _mirrorLinkTrim(c,base,base.linkBase,snap); return d; }
   if(z.kind==='slip'){ const c=z.c, s=clipSrc(c); if(!s.lim)return 0; // nothing to slip inside a generator/still
     const lo=-base.inP/(c.speed||1), hi=Math.max(0,(s.sd-base.inP)/(c.speed||1)-base.dur);
@@ -5298,7 +5314,11 @@ function applyTrim(z,dt,base){
     _mirrorLinkTrim(c,base,base.linkBase,snap); return d; } // drag right → reveal EARLIER material (film under the window)
   if(z.kind==='slide'){ const c=z.c; const P=z.prev,N=z.next;
     let lo=-1e6,hi=1e6;
-    if(P){ lo=Math.max(lo,-(base.pDur-0.05)); } else lo=Math.max(lo,-base.start);
+    /* [R321] El vecino de la IZQUIERDA crece cuando `d>0` (`P.dur=base.pDur+d`) y nadie acotaba ese crecimiento
+       a su fuente: pasado su final el clip repetía el último fotograma, congelado y sin aviso. El vecino de la
+       derecha sí estaba acotado (la línea de abajo), que es lo que delataba la asimetría. */
+    if(P){ lo=Math.max(lo,-(base.pDur-0.05)); const sp=clipSrc(P); if(sp.lim)hi=Math.min(hi,Math.max(0,(sp.sd-base.pInP)/(P.speed||1)-base.pDur)); }
+    else lo=Math.max(lo,-base.start);
     if(N){ const sn=clipSrc(N); hi=Math.min(hi,base.nDur-0.05); if(sn.lim)lo=Math.max(lo,-base.nInP/(N.speed||1)); }
     const d=clamp(dt,lo,hi); c.start=base.start+d;
     _mirrorLinkTrim(c,base,base.linkBase,snap);   /* [R320] con instantánea, como los otros cuatro modos: era el único que la omitía */
@@ -5318,8 +5338,7 @@ function trimNudge(dir,frames){ const c=selClip(); if(!c)return; const dt=dir*fr
   if(z.kind==='roll'){ base.aDur=z.a.dur; base.aInP=z.a.inP||0; base.bStart=z.b.start; base.bDur=z.b.dur; base.bInP=z.b.inP||0;
     const pa=linkPartner(z.a); if(pa)base.aLinkBase={start:pa.start,dur:pa.dur,inP:pa.inP||0}; // [R223]
     const pb=linkPartner(z.b); if(pb)base.bLinkBase={start:pb.start,dur:pb.dur,inP:pb.inP||0}; }
-  else { base.after=new Map(); const edge=c.start+(z.kind==='rippleL'?0:c.dur);
-    for(const o of state.clips)if(o.lane===c.lane&&o!==c&&o.start>=edge-0.002)base.after.set(o.id,o.start);
+  else { base.after=_rippleAfter(c,z.kind);   /* [R321] el MISMO conjunto que el arrastre: en R313 estos dos ya divergieron */
     const pc=linkPartner(c); if(pc)base.linkBase={start:pc.start,dur:pc.dur,inP:pc.inP||0}; } // [R223]
   pushUndo(); const d=applyTrim(z,dt,base); renderTimeline(); renderInspector(); render(); reschedAudio(); markDirty();
   flashStatus(T(TRIM_LABEL[z.kind][0],TRIM_LABEL[z.kind][1])+'  '+(d>=0?'+':'')+Math.round(d*(state.fps||30))+'f'); }
@@ -5347,7 +5366,13 @@ function onTLMove(e){ if(!drag)return; const c=clipById(drag.id);if(!c)return; c
     const snE=applySnap(ns+durMv,c.id); // Premiere-style: the clip's END edge snaps to other clips/playhead/markers too — pick whichever edge is closer
     if(snE.snap!=null&&(sn.snap==null||Math.abs(snE.val-(ns+durMv))<Math.abs(sn.val-ns))){ ns=Math.max(0,snE.val-durMv); snap=snE.snap; }
     else { ns=Math.max(0,sn.val); snap=sn.snap; }
-    const applied=ns-drag.start0;
+    /* [R321] El suelo del arrastre es del BLOQUE, no de cada clip. Al aplicarse, cada uno se recortaba por su
+       cuenta con `Math.max(0,…)`, así que arrastrando una selección más allá del origen los que llegaban a 0 se
+       amontonaban ahí mientras los demás conservaban su distancia: los desfases relativos de la selección se
+       destruían en silencio. Ahora el bloque entero se para cuando el clip MÁS a la izquierda toca el origen.
+       (Los `Math.max(0,…)` de abajo se quedan como red: con esto puesto ya no llegan a actuar.) */
+    if(drag._minStart0==null)drag._minStart0=drag.items.reduce((m,it)=>Math.min(m,it.start0),Infinity);
+    const applied=Math.max(ns-drag.start0, -drag._minStart0);
     let targetLane=null;
     const primaryCount=drag.primaryIds?drag.primaryIds.size:(drag.items?drag.items.length:1); // [R223] "single/multi" se decide por la SELECCIÓN real, no por drag.items (que ahora también trae al partner enlazado)
     if(primaryCount<=1){ // single: pick the lane under the cursor (same kind)
@@ -5362,7 +5387,11 @@ function onTLMove(e){ if(!drag)return; const c=clipById(drag.id);if(!c)return; c
     drag._applied=applied; drag._lane=(targetLane!=null?targetLane:c.lane); drag._copy=!!e.altKey; // [R94e] Alt-drag duplicates (Premiere); Ctrl is free again
     showSnap(snap); showMoveGhosts(drag,applied,targetLane,drag._copy); return; // original stays; ghost shows destination, applied on pointerup
   } else if(drag.mode==='trimL'){
-    let ns=drag.start0+dt; const maxS=drag.start0+drag.dur0-0.05; const minS=srcLim?Math.max(0,drag.start0-drag.inP0):0; // inP can't go < 0
+    /* [R321] `inP0` esta en segundos de FUENTE: el margen en la LINEA DE TIEMPO es `inP0/speed`. Sin dividir,
+       un clip a 0,5x paraba el arrastre a mitad del material que realmente tiene detras — imposible recuperarlo
+       por el tirador— y a 2x dejaba arrastrar el doble de lo que hay (ahi lo salvaba el clamp propio de
+       `trimItem`, que si divide; este es el gemelo que se quedó sin arreglar). */
+    let ns=drag.start0+dt; const maxS=drag.start0+drag.dur0-0.05; const minS=srcLim?Math.max(0,drag.start0-drag.inP0/(c.speed||1)):0; // inP can't go < 0
     ns=Math.max(minS,Math.min(ns,maxS)); const sn=applySnap(ns,c.id); ns=Math.max(minS,Math.min(sn.val,maxS)); snap=(sn.val===ns)?sn.snap:null;
     const delta=ns-drag.start0; if(delta!==0&&!drag._undone){pushUndo();drag._undone=true;} for(const it of drag.items) trimItem(it,'L',delta); // applies to all selected clips
   } else if(drag.mode==='trimR'){
@@ -5415,8 +5444,11 @@ function cutOverlapsOnDrop(movedIds){
   if(!movedIds||!movedIds.length)return; const moved=new Set(movedIds); let n=0;
   const lanes=new Set(); for(const id of movedIds){ const c=clipById(id); if(c)lanes.add(c.lane); }
   for(const li of lanes){
-    const laneClips=state.clips.filter(x=>x.lane===li);
     for(const mid of movedIds){ const mc=clipById(mid); if(!mc||mc.lane!==li)continue;
+      /* [R321] La lista se rehace por cada clip soltado. Estaba fuera del bucle, calculada UNA vez por pista, y
+         los RESTOS que `razorCore` crea al partir un clip en dos no entraban en ella: soltando dos clips a la vez
+         sobre el mismo vecino, el segundo no ve el resto que dejó el primero y el solape sobrevive al gesto. */
+      const laneClips=state.clips.filter(x=>x.lane===li);
       for(const oc of laneClips){ if(oc===mc||moved.has(oc.id)||!state.clips.includes(oc))continue; // `includes`: un oc ya eliminado por un mc anterior del mismo gesto
         const mS=mc.start, mE=mc.start+mc.dur, oS=oc.start, oE=oc.start+oc.dur;
         if(Math.min(mE,oE)<=Math.max(mS,oS)+1e-4)continue; // sin solape real
@@ -5502,10 +5534,12 @@ function startFadeDrag(e,c,which){ e.preventDefault(); e.stopPropagation(); cons
   /* al crecer/encoger por la IZQUIERDA el borde se come contenido: los keyframes son clip-locales, así que hay que
      rebasarlos desde la copia congelada (`kfBase`) — si no, la automatización se descuelga del material. Se
      recalcula desde la base en cada frame, de modo que volver atrás en el mismo arrastre restaura lo filtrado. */
-  const rebaseKf=cc=>{ const sh=xf.startBase-cc.start; const nk={};
-    for(const p in xf.kfBase){ const a=xf.kfBase[p].map(k=>({...k,t:k.t+sh,hOut:k.hOut?{...k.hOut}:undefined,hIn:k.hIn?{...k.hIn}:undefined})).filter(k=>k.t>=-1e-6); if(a.length)nk[p]=a; }
-    cc.kf=nk;
-    if(xf.animBase)cc.anim=xf.animBase.map(aa=>({...aa,wetKf:Array.isArray(aa.wetKf)?aa.wetKf.map(k=>({...k,t:k.t+sh})).filter(k=>k.t>=-1e-6):aa.wetKf})); };
+  /* [R321] Delegado en `rebaseAutoPorMaterial`. Era la TERCERA copia de este rebase —la de `trimItem` se
+     unificó en R320— y le faltaban las dos mismas cosas: el keyframe de FRONTERA de [R92-T4 F7], sin el cual una
+     rampa que arrancaba en el material consumido se perdía entera y el parámetro saltaba al valor viejo de
+     `props`, y el salto de las entradas vacías. `d` es el desplazamiento del MATERIAL en la línea de tiempo, que
+     es el opuesto del corrimiento de las claves: las claves iban `t+sh` con `sh=startBase-cc.start`. */
+  const rebaseKf=cc=>rebaseAutoPorMaterial(cc,xf.kfBase,xf.animBase,cc.start-xf.startBase);
   /* [R320] Con instantánea. El crossfade es el SEXTO llamador de `_mirrorLinkTrim` —el que desmiente el «punto
      único por el que pasan los cinco modos» que R314 escribió allí— y llamaba sin ella: el clip agarrado rebasaba
      su curva (`rebaseKf`, justo arriba) y su mitad enlazada no, así que un crossfade sobre un par A/V descolgaba
@@ -12635,8 +12669,31 @@ function pasteClip(){ const cb=state.clipboard; if(!cb)return;
   renderTimeline(); renderInspector(); render(); reschedAudio(); markDirty();
   if(sinMedio||bucle) flashStatus(nuevos.length+T(' pasted · ',' pegados · ')+((sinMedio?sinMedio+T(' without media',' sin medio'):'')+(sinMedio&&bucle?' · ':'')+(bucle?bucle+T(' would loop',' harían bucle'):'')),'err');
   else if(nuevos.length>1) flashStatus(nuevos.length+T(' clips pasted',' clips pegados')); }
-function rippleDelete(){ const c=selClip(); if(!c)return; pushUndo(); const lane=c.lane,end=c.start+c.dur,gap=c.dur; state.clips=state.clips.filter(x=>x.id!==c.id);
-  for(const x of state.clips) if(x.lane===lane&&x.start>=end) x.start-=gap; state.selId=null; state.selIds=[]; renderTimeline();renderInspector();render();updStatus(); reschedAudio(); }
+/* [R321] Eliminación con arrastre — el gemelo del ripple de la herramienta T, y con los mismos dos agujeros.
+   1) Borraba SÓLO la mitad seleccionada de un par A/V: la otra sobrevivía con su `link` colgando, así que
+      `linkPartner` de cualquier resto elegía al azar y quedaba un trozo de audio suelto en la línea de tiempo.
+   2) Cerraba el hueco mirando una sola pista, así que los vídeos de después se corrían y sus audios no: todos
+      los pares aguas abajo desfasados justo la duración del clip borrado, y en silencio.
+   Cada mitad cierra el hueco en SU pista con su propio final y su propia duración (pueden diferir si se
+   recortaron por separado), y quien se mueve arrastra a su partner. `movidos` evita el doble desplazamiento
+   cuando una pista es a la vez la del cierre y la del partner de otra. */
+function rippleDelete(){ const c=selClip(); if(!c)return; pushUndo();
+  const p=linkPartner(c);
+  const fuera=new Set([c.id]); if(p)fuera.add(p.id);
+  const cierres=[{lane:c.lane,end:c.start+c.dur,gap:c.dur}];
+  if(p)cierres.push({lane:p.lane,end:p.start+p.dur,gap:p.dur});
+  state.clips=state.clips.filter(x=>!fuera.has(x.id));
+  const movidos=new Set();
+  for(const {lane,end,gap} of cierres)
+    for(const x of state.clips){
+      if(x.lane!==lane||x.start<end-0.002||movidos.has(x.id))continue;
+      x.start=Math.max(0,x.start-gap); movidos.add(x.id);
+      /* El suelo de 0 no debería alcanzarse nunca con enlaces bien formados —el partner de un clip posterior
+         está a su misma altura—, pero un `.isp` viejo con un enlace torcido no debe poder dejar un start
+         negativo, que el motor no sabe dibujar. */
+      const px=linkPartner(x); if(px&&!movidos.has(px.id)){ px.start=Math.max(0,px.start-gap); movidos.add(px.id); }
+    }
+  state.selId=null; state.selIds=[]; renderTimeline();renderInspector();render();updStatus(); reschedAudio(); }
 
 /* ===================== CONTEXT MENUS ===================== */
 let _menu=null;

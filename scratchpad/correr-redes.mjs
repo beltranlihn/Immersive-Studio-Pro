@@ -19,6 +19,7 @@ const REDES = [
   ['r318-caches.mjs',  'si cambia algo de lo que el resultado depende, la caché falla'],
   ['r319-verif.mjs',   'los ocho de la tanda de MEDIA siguen arreglados'],
   ['r320-verif.mjs',   'los gemelos: nada quedó arreglado a medias'],
+  ['r321-verif.mjs',   'un gesto mueve el clip Y su mitad enlazada; un gesto de grupo conserva los desfases'],
 ];
 
 /* Sin app levantada no se distingue «rojo» de «no medido», y esa confusión es justo la que hace inútil una red. */

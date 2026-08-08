@@ -421,8 +421,27 @@ cerrado *por un test*, no por otro parche; el **patrón 4** (sondas que no miran
 sonda de píxeles; el **patrón 5** (`innerHTML` sin `esc()`) tiene ya función canónica y regla escrita; y el
 **patrón 6** (diálogos apilables) está resuelto por los dos lados.
 
-**Queda pendiente:** los ~35 MEDIA y ~25 BAJA de §9 y §10 (cada uno con su línea exacta, no hace falta
-re-investigar), los patrones 1 y 3, y las decisiones de producto de §12-P2.
+| **R314** `dfe0598` | Las 5 regresiones del primer repaso + 3 arreglos que habían quedado a medias | `scratchpad/r314-verif.mjs`, 10 comprobaciones. |
+| **R315** `1559261` | El barrido de escapes terminado + el test de paridad endurecido | `npm test`. |
+| **R317** `…` | **Patrón 1** cerrado como FAMILIA: `scratchpad/r317-undo.mjs` comprueba la REGLA «un gesto que cambia el proyecto se deshace con un Ctrl+Z», no cada parche. |
+| **R318** `a3cbb53` | **Patrón 3** cerrado como familia: `scratchpad/r318-caches.mjs` comprueba «si cambia algo de lo que el resultado depende, la caché falla». Incluye los 36 `if(_raOn)raInvalidate()`. |
+| **R319** `0ecb122` | Primera tanda de MEDIA (8), elegida por lo que aparece en un día normal | `scratchpad/r319-verif.mjs`. |
+| **R321** | Los seis MEDIA de §9 «Gestos del timeline» + el gemelo que salió al barrer (`rippleDelete` borraba media pareja). Leídos juntos son una familia: **un gesto mueve un clip y se olvida de su mitad enlazada.** | `scratchpad/r321-verif.mjs`, con control positivo en la guarda nueva del slide. |
+| **R320** `1cc8de9` | **Las 13 regresiones del segundo repaso** — ocho de ellas el mismo error: arreglar la copia y dejar el original | `scratchpad/r320-verif.mjs` + `npm run redes` (lanza las cuatro redes de golpe). |
+
+Además, de los patrones transversales de §11: el **patrón 2** (familia «heredar del proyecto anterior») queda
+cerrado *por un test*, rehecho en R320 para que compare FUENTES DE DATOS y no nombres de clave — por nombre, todo
+el bloque `tl` salía gratis, incluido el `inlineCurves` que motivó el test; el **patrón 4** (sondas que no miran
+contenido) estrena su primera sonda de píxeles; el **patrón 5** (`innerHTML` sin `esc()`) tiene ya función
+canónica y regla escrita; el **patrón 6** (diálogos apilables) está resuelto por los dos lados; y los **patrones
+1 y 3** quedan cerrados con red propia.
+
+**La lección de R320, que vale más que sus arreglos:** verificar por reversión sólo prueba que el arreglo arregla
+SU caso. Ocho de las trece regresiones fueron «arreglar la copia y dejar el original». **Antes de cerrar un
+arreglo: `grep` del patrón en todo el fichero; si sale más de uno, van todos o no va ninguno.**
+
+**Queda pendiente:** los MEDIA de §9 que no cerraron R311/R313/R317/R318/R319/R320/R321 —unos 19— y los ~25 BAJA de
+§10 (cada uno con su línea exacta, no hace falta re-investigar), más las decisiones de producto de §12-P2.
 
 ## 12 · Plan actualizado (sustituye al P0/P1 de la Parte 1 en lo que toca a bugs)
 

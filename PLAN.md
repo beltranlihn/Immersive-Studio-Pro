@@ -1,5 +1,51 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 321 — Los gestos que mueven una mitad y dejan la otra
+
+Los MEDIA de §9 «Gestos del timeline» que seguían abiertos. Leídos juntos son **una sola familia**: un gesto
+mueve un clip y se olvida de su mitad enlazada, o mueve un grupo y lo recorta clip a clip. La regla, dicha en una
+línea y comprobada por `scratchpad/r321-verif.mjs`: **un gesto que mueve un clip mueve su mitad enlazada, y un
+gesto de grupo conserva los desfases.**
+
+- **El ripple desfasaba TODOS los pares de aguas abajo.** El bucle que corre los clips posteriores filtraba por
+  `o.lane===c.lane`, así que un ripple de 2 s movía los vídeos y dejaba sus audios donde estaban. En una línea de
+  tiempo con audio enlazado —que es cómo se monta— eso **desincroniza toda la película a partir del corte**, en
+  silencio y sin nada que lo delate hasta que se escucha. Lo que arrastra un ripple vive ahora en
+  `_rippleAfter(c,kind)`, y por ahí pasan **los dos caminos** —el arrastre y `trimNudge`, el mismo gesto con el
+  teclado—, que en R313 ya se habían quedado desparejados.
+- **Y el gemelo que apareció al barrer: `rippleDelete` (⇧⌫) borraba MEDIA pareja.** Se llevaba sólo la mitad
+  seleccionada; la otra sobrevivía con su `link` colgando —un trozo de audio suelto, y `linkPartner` eligiendo al
+  azar entre los restos— y además cerraba el hueco en una sola pista, con el mismo desfase de aguas abajo. Ahora
+  cada mitad cierra el hueco en SU pista y quien se mueve arrastra a su partner.
+- **El slide no acotaba el crecimiento del vecino izquierdo a su fuente**, así que pasado su final el clip
+  repetía el último fotograma, congelado. El vecino de la derecha SÍ estaba acotado, en la línea de al lado: la
+  asimetría era la pista.
+- **El clamp del tirador izquierdo no dividía `inP` por la velocidad.** `inP` está en segundos de FUENTE y el
+  margen en la línea de tiempo es `inP/speed`: a 0,5× el arrastre paraba a **mitad** del material que el clip
+  tiene detrás, sin forma de recuperarlo por el tirador. `trimItem` sí divide —otro gemelo con el original bien y
+  la copia mal, esta vez al revés—.
+- **Soltar dos clips a la vez dejaba un solape vivo.** La lista de la pista se calculaba una vez, antes del bucle,
+  y los RESTOS que `razorCore` crea al partir un clip en dos no entraban en ella: el segundo clip soltado no veía
+  el resto que dejó el primero.
+- **El move multi-selección destruía los desfases.** Cada clip se recortaba por su cuenta contra 0, así que
+  arrastrando una selección más allá del origen los que llegaban a 0 se amontonaban ahí y los demás conservaban su
+  sitio. El suelo es ahora del bloque: se para cuando el clip más a la izquierda toca el origen.
+- **Y el rebase del crossfade era la TERCERA copia** del mismo código (la de `trimItem` se unificó en R320). Le
+  faltaba el keyframe de FRONTERA de [R92-T4 F7]: al encoger, una rampa que arrancaba en el material consumido se
+  perdía entera y el parámetro saltaba al valor viejo de `props`. Delega, y ya no queda copia.
+
+**Sobre el método, que es lo que está cambiando.** De los siete arreglos, **uno lo encontró el barrido de gemelos
+y no la auditoría**: `rippleDelete` no estaba en la lista, apareció al buscar quién más mueve vecinos por pista.
+Y un fallo que iba a reportar —que borrar un clip no marca el proyecto como modificado— resultó ser **lectura mía
+equivocada**: la sonda demostró que sí lo marca. Medir antes de afirmar sigue saliendo a cuenta.
+Al caso del slide se le añadió un **control positivo** (con material de sobra el gesto tiene que moverse los 3 s
+pedidos) porque una guarda nueva siempre pasa la prueba de «se para» si lo que hace es no moverse nunca.
+*Y por sexta vez: un acento grave dentro de la plantilla que se manda por CDP rompe la sonda — esta vez dentro de
+un comentario, que es donde no se piensa en ello.*
+
+**Verificación:** las **cinco** redes en verde (`npm run redes`) y `npm test` 3/3.
+
+
 ## ROUND 320 — Los gemelos: trece regresiones de arreglar trece hallazgos
 
 Un segundo repaso de código independiente sobre las rondas R310–R319 encontró **trece regresiones introducidas
