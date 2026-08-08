@@ -1,5 +1,33 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 330 — El contexto de la secuencia que se compone
+
+Los cuatro del grupo render/compositor comparten causa: **datos que describen «qué secuencia estoy componiendo»
+puestos a mano en cada sitio que llama a `composite()`**, y cada sitio recordando un subconjunto distinto.
+
+- **`_zsortSize` sólo lo ponía `prepNests`.** El túnel se dibuja de lejos a cerca porque los elementos ciclan y el
+  orden de pistas no puede expresar el ranking por cercanía. Pero esa bandera se ponía **al entrar en un nido**, y
+  los tres sitios que componen el máster de arriba (render, los dos caminos de export) no la ponían: un túnel
+  **abierto en su propia pestaña** se componía en orden de pista. El mismo túnel se veía de una forma
+  editándolo y de otra dentro de su padre. Ahora hay un `ctxCompMaster()` con los cuatro juntos.
+- **La cobertura del domo no entraba en el nido.** `prepNests` cambia clips, pistas, modo plano, aspecto, envoltura
+  y orden… y dejaba `state.seqCov`, que es de donde `curCovDeg()` saca la deformación. Un nido de 200 o 220°
+  compuesto dentro de un padre de 180° deformaba sus clips **con la del padre**.
+- **El decodificador no seguía a la rotación del tejido.** El tejido barajado rota el medio efectivo de cada
+  elemento (`mediaEfId`) para que, al volver el diente de sierra, el vecino no enseñe la misma imagen. El
+  compositor dibujaba el rotado, pero `collectDrawnVideoClips` pilotaba el decodificador del **original**: en
+  vídeo la rotación **no hacía nada** — se dibujaba el medio rotado (su tamaño, su aspecto, su LUT) con los
+  fotogramas del otro — y en imágenes sí funcionaba, así que el fallo sólo aparecía con tejidos de vídeo.
+  Medido antes de tocar nada: `mediaEfId` decía 880002 y el piloto pedía 880001. Arreglado por los dos lados:
+  el piloto pide el medio efectivo **con el mismo reloj que usa `prepNests`**, y `vinstEnsure` detecta el cambio
+  de fuente (`vi.mid`), tira el decodificador viejo y cierra la carrera de un demux en vuelo del medio anterior.
+- **`collectActiveVideos` estaba muerta**: sólo se llamaba a sí misma. La sustituyó `collectDrawnVideoClips`.
+
+**Verificación:** `scratchpad/r330-verif.mjs` (cinco casos, dos de ellos controles — uno comprueba que una
+secuencia normal NO ordena por tamaño, y el otro que sin tejido el medio efectivo no cambia nunca, que es lo que
+evitaría reconstruir el decodificador en cada fotograma). **Diez redes en verde.**
+
+
 ## ROUND 329 — Copias sueltas, Mix huérfano y las TRES listas de «qué se ve»
 
 - **Alt+arrastrar un par A/V producía dos copias sueltas.** `duplicateClipAt` nace sin `link` a propósito (dos

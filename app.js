@@ -1076,6 +1076,15 @@ function setBlend(mode){ gl.blendEquation(gl.FUNC_ADD); switch(mode){
   default:         NORMAL_BLEND();
 } }
 let _drawFlat=false, _compAspect=1, _roomWrap=false; // the sequence currently being composited: flat mode + aspect (w/h) + (room strip → wrap clips across the seam). Nests may differ from the top sequence, so these are set before each composite() call.
+/* [R330] El contexto de la secuencia que se compone — modo plano, envoltura de sala, aspecto y orden por
+   tamaño— lo montaban TRES sitios distintos para el máster de arriba (render, los dos caminos de export) y
+   `prepNests` para cada nido, y cada uno recordaba un subconjunto distinto: ninguno de los tres de arriba
+   ponía `_zsortSize`, así que un túnel ABIERTO EN SU PROPIA PESTAÑA se dibujaba en orden de pista en vez de
+   de lejos a cerca — el mismo túnel se veía distinto según si lo estabas editando o mirando desde su padre.
+   Aquí van los cuatro juntos, para que añadir un quinto no vuelva a dejarse tres sitios por revisar. */
+function ctxCompMaster(){ const m=activeSeq();
+  _drawFlat=isFlat(); _roomWrap=isRoom(); _compAspect=(state.seqW||1)/(state.seqH||1);
+  _zsortSize=!!(m&&m.comp&&m.comp.kind==='tunnel'); }
 /* Dome coverage (fisheye FOV). 180° = full hemisphere (fulldome standard). The content radius on the master is
    rho = zenithAngle / covHalf, so a wider coverage pulls the horizon inward. Single source of truth: state.seqCov. */
 function curCovDeg(){ return (state.seqCov||180)/2; } // HALF-angle in degrees (90 = 180° fulldome)
@@ -1496,7 +1505,7 @@ function prepNests(clips,t,depth){ if(!depth)_nestN=0; if((depth||0)>5||!clips)r
       continue; }
     try{ wvPrep(m); }catch(e){}   /* [R300] deriva la rotacion del tejido; se cachea por firma, no cuesta por fotograma */
     prepNests(m.nestClips,lt,(depth||0)+1);
-    const e=nestSlot(); const oc=state.clips,ol=state.lanes,odf=_drawFlat,oca=_compAspect,orw=_roomWrap,ozs=_zsortSize,oan=_animNido;
+    const e=nestSlot(); const oc=state.clips,ol=state.lanes,odf=_drawFlat,oca=_compAspect,orw=_roomWrap,ozs=_zsortSize,oan=_animNido,ocv=state.seqCov;
     /* [R273] el reloj de los modificadores del interior no envuelve: se le suma lo que el bucle le quita */
     /* [R298] Instrumento de diagnostico. La compensacion es TRANSITORIA -se aplica al entrar en el nido y se
        restaura al salir-, asi que leerla desde fuera siempre da cero y no hay forma de comprobarla. Apagado
@@ -1509,14 +1518,8 @@ function prepNests(clips,t,depth){ if(!depth)_nestN=0; if((depth||0)>5||!clips)r
          hacia parecer que el reloj se disparaba a 6,05 en el segundo 3,05. Un instrumento mal etiquetado
          inventa averias. */
       reloj:+(lt+_animNido+(((c.inP||0)+(t-c.start)*(c.speed||1))-lt)).toFixed(3)});
-    _animNido += (((c.inP||0)+(t-c.start)*(c.speed||1)) - lt); state.clips=m.nestClips||[]; state.lanes=(m.nestLanes&&m.nestLanes.length?m.nestLanes:ol); _drawFlat=flatLikeMode(m.mode); _roomWrap=false; _compAspect=(m.w||1)/(m.h||1); _zsortSize=!!(m.comp&&m.comp.kind==='tunnel'); /* [R246] el túnel se dibuja de lejos a cerca (ver composite) */ gl.bindFramebuffer(gl.FRAMEBUFFER,e.fbo); composite(lt,nestSize,false); gl.bindFramebuffer(gl.FRAMEBUFFER,null); state.clips=oc; state.lanes=ol; _drawFlat=odf; _roomWrap=orw; _compAspect=oca; _zsortSize=ozs; _animNido=oan; c._ntex=e.tex; } }
-/* active video media at time t, descending into active nests (local-time-adjusted), deduped by media — so playback/scrub drive videos INSIDE nests, not just top-level clips. */
-function collectActiveVideos(clips,lanes,t,depth,out,seen){ out=out||[]; seen=seen||new Set(); if((depth||0)>5||!clips||!lanes)return out;
-  for(let li=0;li<lanes.length;li++){ let best=null; for(const c of clips){ if(c.lane===li && t>=c.start && t<c.start+c.dur && !isNestAudioClip(c)) best=c; } if(!best)continue; // [R225·9] el derivado no aporta imagen: no hace falta pilotar los vídeos de dentro por él (su mitad de vídeo ya lo hace)
-    const m=mediaById(best.mediaId); if(!m)continue; const lt=(best.inP||0)+(t-best.start);
-    if(m.kind==='video'){ if(!seen.has(m.id)){ seen.add(m.id); out.push({m,local:lt}); } }
-    else if(m.kind==='nest'&&m.nestClips){ collectActiveVideos(m.nestClips,m.nestLanes||lanes,lt,(depth||0)+1,out,seen); } }
-  return out; }
+    _animNido += (((c.inP||0)+(t-c.start)*(c.speed||1)) - lt); state.clips=m.nestClips||[]; state.lanes=(m.nestLanes&&m.nestLanes.length?m.nestLanes:ol); _drawFlat=flatLikeMode(m.mode); _roomWrap=false; _compAspect=(m.w||1)/(m.h||1); _zsortSize=!!(m.comp&&m.comp.kind==='tunnel'); /* [R246] el túnel se dibuja de lejos a cerca (ver composite) */ if(m.mode==='dome')state.seqCov=m.cov||180; /* [R330] la COBERTURA es de cada secuencia (`m.cov`), y este era el único dato del contexto que no se cambiaba al entrar en el nido: un nido de 200° compuesto dentro de un padre de 180° deformaba sus clips con la del PADRE (curCovDeg lee state.seqCov), así que la misma secuencia se veía de una forma abierta en su pestaña y de otra dentro del padre */ gl.bindFramebuffer(gl.FRAMEBUFFER,e.fbo); composite(lt,nestSize,false); gl.bindFramebuffer(gl.FRAMEBUFFER,null); state.clips=oc; state.lanes=ol; _drawFlat=odf; _roomWrap=orw; _compAspect=oca; _zsortSize=ozs; _animNido=oan; state.seqCov=ocv; c._ntex=e.tex; } }
+/* [R330] Aquí vivía `collectActiveVideos`, MUERTA: sólo se llamaba a sí misma. La sustituyó `collectDrawnVideoClips`, que compone ganancia y velocidad hacia dentro y no reimplementa «qué se ve» (usa `compositeClips`). Se queda la referencia porque un comentario de `collectAudioEvents` dice «mirrors collectActiveVideos»: el espejo es hoy `collectDrawnVideoClips`. */
 function nestSelection(){ const ids=(state.selIds&&state.selIds.length)?state.selIds.slice():(state.selId!=null?[state.selId]:[]); let clips=ids.map(clipById).filter(Boolean); if(!clips.length){flashStatus(T('Select clips to nest','Selecciona clips para anidar'));return;}
   pushUndo();
   /* [R225·8] DECISIÓN de Beltrán (2026-07-29): al componer desde clips con audio ENLAZADO, ese audio SE ELIMINA.
@@ -1763,7 +1766,7 @@ function render(){ const _r=_renderNucleo.apply(this,arguments);
 function _renderNucleo(){ if(glLost)return;
   if(exporting)return;
   try{ syncCompSize(); }catch(_){} // [R237] el máster lleva la FORMA de lo que se va a dibujar (ver syncCompSize)
-  const _flat=isFlat(); _drawFlat=_flat; _roomWrap=isRoom(); _compAspect=(state.seqW||1)/(state.seqH||1); _arTime=state.playhead;
+  const _flat=isFlat(); ctxCompMaster(); _arTime=state.playhead;
   let _srcTex=compTex;
   /* [R226·V1] `_reuseComp`: la ventana solo-visor repinta por este MISMO render(), sólo con otro modo de vista y
      otro tamaño de lienzo. El composite del máster no depende de la vista — sólo del cabezal —, así que
@@ -2834,7 +2837,7 @@ async function computeWave(ab){ const ch=ab.getChannelData(0); const dur=ab.dura
   return {peak,rms}; }
 function waveThumb(peaks,W,H){ const c=document.createElement('canvas');c.width=W;c.height=H;const x=c.getContext('2d');x.fillStyle='#1C2024';x.fillRect(0,0,W,H);x.strokeStyle=UI.ink2;x.lineWidth=1;x.beginPath();
   for(let i=0;i<W;i++){const p=peaks[Math.floor(i/W*peaks.length)]||0;x.moveTo(i+.5,H/2-p*(H/2-2));x.lineTo(i+.5,H/2+p*(H/2-2));}x.stroke();return c.toDataURL(); }
-/* flatten audible audio into absolute-timeline events, DESCENDING into nested sequences (mirrors collectActiveVideos) so nested audio plays + exports. Honors per-level mute/solo and clips nested audio to the nest clip's visible window.
+/* flatten audible audio into absolute-timeline events, DESCENDING into nested sequences (mirrors collectDrawnVideoClips) so nested audio plays + exports. Honors per-level mute/solo and clips nested audio to the nest clip's visible window.
    [R92-T2] clip times/windows are LOCAL to the current sequence level; `S` maps local seconds → TOP seconds (top = tlOffset + local*S), so a nest clip's SPEED scales its inner audio (rate & positions), its LOOP repeats the inner pass per cycle, and its volume/fades compose down (pVol / pFiEnd / pFoStart, in TOP time). Video media contribute when m._exAudio is set (export decode) — preview video audio goes through the per-clip <audio> elements instead. */
 function collectAudioEvents(clips,lanes,tlOffset,winA,winB,depth,out,S,pVol,pFiEnd,pFoStart){ out=out||[]; if((depth||0)>6||!clips||!lanes)return out; S=S||1; pVol=(pVol==null)?1:pVol;
   const anySolo=lanes.some(l=>l&&l.kind==='audio'&&l.solo);
@@ -8148,12 +8151,20 @@ function _useCD(m){ if(!(_exCD||state.view.wcDecode))return false; // [R108] eng
   const usingProxy=(state.view.useProxy!==false && m.proxyReady && m.proxyUrl); return !usingProxy; }
 function vinstEnsure(c,m){ if(!m||(m.kind!=='video' && !(m.kind==='nest'&&ncUsable(m))))return null; const url=_vinstUrl(m); if(!url)return null; // [R180] nests cacheados incluidos (_useCD exige kind==='video', así que van por <video>, que es lo correcto para un archivo ligero)
   let vi=_vinst.get(c.id);
-  if(!vi){ vi={vel:document.createElement('video'),vtex:newTex(),vsrc:null,ready:false,vf:0,last:0,loadP:null,cd:null,cdPending:false,cdReadyP:null}; vi.vel.muted=true; vi.vel.playsInline=true; vi.vel.preload='auto'; _vinst.set(c.id,vi); }
+  if(!vi){ vi={vel:document.createElement('video'),vtex:newTex(),vsrc:null,ready:false,vf:0,last:0,loadP:null,cd:null,cdPending:false,cdReadyP:null,mid:null}; vi.vel.muted=true; vi.vel.playsInline=true; vi.vel.preload='auto'; _vinst.set(c.id,vi); }
   vi.last=++_vinstClock;
+  /* [R330] La FUENTE de un clip puede cambiar sin que cambie el clip: el tejido barajado rota el medio efectivo
+     (`mediaEfId`) para que, al volver el diente de sierra, el vecino no enseñe la misma imagen. Como la instancia
+     se guarda por `c.id`, sin esto seguía decodificando el archivo de antes: en vídeo la rotación no hacía
+     NADA — se dibujaba el medio rotado (su tamaño, su aspecto, su LUT) con los fotogramas del original — y en
+     imágenes sí funcionaba, así que el fallo sólo aparecía con tejidos de vídeo. Cambiar de medio tira el
+     decodificador viejo y desata el `<video>`; `mid` también cierra la carrera del demux en vuelo. */
+  if(vi.mid!=null && vi.mid!==m.id){ if(vi.cd){ try{vi.cd.close();}catch(e){} vi.cd=null; } vi.cdPending=false; vi.cdReadyP=null; vi.vsrc=null; vi.ready=false; vi.vf=0; }
+  vi.mid=m.id;
   if(_useCD(m)){ // WebCodecs path: kick off the demux once; the <video> stays unbound (no second decoder competing)
     if(!vi.cd && !vi.cdPending){ vi.cdPending=true;
-      const exNow=_exCD;
-      vi.cdReadyP=demuxMP4(m.path).then(dd=>{ if(_vinst.get(c.id)!==vi){ try{dd.close();}catch(e){} return; } vi.cd=makeClipDecoder(dd,exNow); }).catch(e=>{ m._cdFail=true; }).finally(()=>{ vi.cdPending=false; }); } // [R108-rev M1] compare IDENTITY not has(): a recycled vi (LRU dispose + re-add mid-demux) would orphan a zombie decoder (fd + VideoFrame leak + spinning pump)
+      const exNow=_exCD, midNow=m.id;
+      vi.cdReadyP=demuxMP4(m.path).then(dd=>{ if(_vinst.get(c.id)!==vi||vi.mid!==midNow){ try{dd.close();}catch(e){} return; } vi.cd=makeClipDecoder(dd,exNow); }).catch(e=>{ m._cdFail=true; }).finally(()=>{ if(vi.mid===midNow)vi.cdPending=false; }); } // [R108-rev M1] compare IDENTITY not has(): a recycled vi (LRU dispose + re-add mid-demux) would orphan a zombie decoder (fd + VideoFrame leak + spinning pump) · [R330] + `mid`: un demux en vuelo del medio ANTERIOR no puede pisar al del nuevo
   } else {
     if(vi.cd){ try{vi.cd.close();}catch(e){} vi.cd=null; }                                  // fell back to <video> (proxy became ready / export)
     bindVideoSrc(vi,url);
@@ -8255,7 +8266,10 @@ function driveCD(vi,c,m,local){ if(!vi)return false;
    used to play at the inner clip's own speed and get seek-corrected every ~200ms inside a sped-up nest (visible judder). */
 function collectDrawnVideoClips(clips,lanes,t,depth,out,pGain,pRate){ out=out||[]; if((depth||0)>6||!clips||!lanes)return out; const pg=(pGain==null)?1:pGain, pr=(pRate==null)?1:pRate;
   const sc=state.clips, sl=state.lanes; state.clips=clips; state.lanes=lanes; let drawn; try{ drawn=compositeClips(t); }finally{ state.clips=sc; state.lanes=sl; }
-  for(const x of drawn){ const c=x.c, m=mediaById(c.mediaId); if(!m)continue; const lt=srcT(c,t);
+  /* [R330] el medio EFECTIVO, no `c.mediaId`: con un tejido barajado el compositor dibuja el rotado
+     (`mediaEfId`) mientras esto pilotaba el decodificador del original — los dos tenían razón por separado y
+     la imagen salía mal. */
+  for(const x of drawn){ const c=x.c, m=mediaById(mediaEfId(c,t)); if(!m)continue; const lt=srcT(c,t);
     const lane=lanes[c.lane]; let g=pg*((lane&&lane.mute)?0:1)*fadeFactor(c,t)*((c.props&&c.props.volume!=null)?Math.max(0,c.props.volume/100):1); const rr=pr*(c.speed||1);
     /* [R225·9] REGLA DE ORO, tercera vía cerrada: DENTRO de un nest (depth>0) el `<audio>` de previsualización de un
        clip de vídeo se silencia. Ese camino sacaba sonido de una pista de VÍDEO de una secuencia que ni siquiera está
@@ -8267,7 +8281,8 @@ function collectDrawnVideoClips(clips,lanes,t,depth,out,pGain,pRate){ out=out||[
     if((depth||0)>0) g=0;
     if(m.kind==='video') out.push({c,m,local:lt,gain:g,rate:rr});
     else if(m.kind==='nest'&&ncUsable(m)) out.push({c,m,local:lt,gain:0,rate:rr}); // [R180] el caché entra como un vídeo y NO se desciende · [R225·9] su audio horneado NO suena aquí (vinstAudio devuelve null para nests): la mezcla va por el clip derivado
-    else if(m.kind==='nest'&&m.nestClips) collectDrawnVideoClips(m.nestClips,(m.nestLanes&&m.nestLanes.length?m.nestLanes:lanes),lt,(depth||0)+1,out,g,rr); }
+    else if(m.kind==='nest'&&m.nestClips){ const oan=_animNido; _animNido += (((c.inP||0)+(t-c.start)*(c.speed||1)) - lt); /* [R330] el MISMO reloj que usa prepNests al componer el nido (R273: el reloj de los modificadores del interior no envuelve). Sin la compensación, `mediaEfId` de dentro rotaba en un instante distinto del que dibuja el compositor en cuanto el clip del nido tiene bucle */
+      try{ collectDrawnVideoClips(m.nestClips,(m.nestLanes&&m.nestLanes.length?m.nestLanes:lanes),lt,(depth||0)+1,out,g,rr); } finally { _animNido=oan; } } }
   return out; }
 let playRaf=0,lastT=0,_phLast=null,_audioBase=0,_audioHead=0;
 let _enBucle=false;   /* [R279] esta reproduccion envuelve? Se decide al arrancar, mirando si el cabezal cae DENTRO del tramo */
@@ -8390,7 +8405,7 @@ function freeExportFBO(){ if(_exTex){gl.deleteTexture(_exTex);_exTex=null;} if(_
 function exportSS(res){ const glMax=gl.getParameter(gl.MAX_TEXTURE_SIZE)||4096; return (res*2<=Math.min(glMax,8192))?2:1; }
 /* render one export frame into glc at `res`, supersampled ×ss (opaque black bg for MP4). gl.finish() before read. */
 let _ncSquare=false; // [R180] activo sólo mientras se hornea el caché de un nest (ver renderExportFrame)
-function renderExportFrame(t,res,ss,wall){ const flat=isFlat(); _drawFlat=flat; _roomWrap=isRoom(); _compAspect=(state.seqW||1)/(state.seqH||1); _arTime=t; const SR=res*ss; ensureExportFBO(SR); // FBO→PB blit; dome clips to the disc, flat extracts the rect region into glc (w×h)
+function renderExportFrame(t,res,ss,wall){ const flat=isFlat(); ctxCompMaster(); _arTime=t; const SR=res*ss; ensureExportFBO(SR); // FBO→PB blit; dome clips to the disc, flat extracts the rect region into glc (w×h)
   gl.bindFramebuffer(gl.FRAMEBUFFER,_exFBO); composite(t,SR,true);
   gl.bindFramebuffer(gl.FRAMEBUFFER,null); gl.viewport(0,0,glc.width,glc.height); gl.disable(gl.DEPTH_TEST); gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT);
   gl.useProgram(PB); gl.bindVertexArray(quadVAO); gl.uniform2f(LB.pan,0,0); gl.uniform1f(LB.zoom,1); gl.uniform2f(LB.aspect,1,1);
@@ -9052,7 +9067,7 @@ async function runExport(opt){
      decodificador nuevo. */
   _exCD=(IS_ELEC && HAS_WEBCODECS && opt.wcDecode!==false); if(_exCD)disposeAllVinst();
   try{ if($('#renderMask'))$('#renderMask').classList.add('on'); }catch(_){} // [R2] mask the viewport while glc is resized to export dims (else it shows a stretched stale frame)
-  _drawFlat=flat; _roomWrap=isRoom(); _compAspect=(state.seqW||1)/(state.seqH||1); glc.width=eW;glc.height=eH; try{fxResetHistory();}catch(e){} // fresh feedback buffers → export is byte-deterministic regardless of prior scrub state
+  ctxCompMaster(); glc.width=eW;glc.height=eH; try{fxResetHistory();}catch(e){} // fresh feedback buffers → export is byte-deterministic regardless of prior scrub state
   /* Los nests se componen a la resolución del export (×SSAA, con tope del límite de la GPU) para que los
      rellenos de domo y las retículas no queden capados a 2048 y luego ampliados.
      [R187] El SSAA se decide UNA vez y se usa para las dos cosas — el tamaño de los nests Y el render del
