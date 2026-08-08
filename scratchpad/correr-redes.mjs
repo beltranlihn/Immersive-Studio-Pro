@@ -91,10 +91,15 @@ const PLAZO = 180000;
       if (abre) dentro = true;
       if (cierra) dentro = false;
     } }
+  /* [R323] AVISA, no aborta. La maquina de estados exige que la plantilla cierre con el patron exacto
+     `})()`+"`);"+`, asi que una sonda escrita de otra forma deja `dentro` puesto para el resto del fichero y todo
+     lo que venga despues se marca. Con `exit(2)` un solo falso positivo dejaba las CINCO redes sin medir —y ya
+     dio uno en su primera pasada, por no contar los acentos escapados—. El sintoma real (la sonda muere con un
+     SyntaxError) se ve igual en su linea de salida; esto solo lo explica antes. */
   if (malas.length) {
-    console.log('*** acento grave suelto DENTRO de la plantilla de una sonda (la cierra y la rompe):');
-    for (const m of malas) console.log('    ' + m);
-    process.exit(2);
+    console.log('    aviso: posible acento grave suelto dentro de la plantilla de una sonda');
+    for (const m of malas) console.log('           ' + m + '  (si esa red sale ROJA con un SyntaxError, es esto)');
+    console.log('');
   } }
 const correr = f => new Promise(r => {
   const p = spawn(process.execPath, [path.join(AQUI, f)], { stdio: ['ignore', 'pipe', 'pipe'] });

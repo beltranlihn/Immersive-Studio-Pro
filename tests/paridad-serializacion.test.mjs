@@ -73,12 +73,14 @@ const SRC = fs.readFileSync(path.join(RAIZ, 'app.js'), 'utf8');
 /* Campos de `state` que se serializan y que NO deben resetearse, cada uno con su motivo.
    Vivir aquí es una decisión consciente, no un descuido: si añades uno, escribe por qué. */
 const EXENTOS = new Map([
-  ['clips',   'los vacia `newProject` por su cuenta antes de llamar a resetProjDefaults'],
-  ['media',   'idem: el ciclo de vida de los medios (texturas, decodificadores) se libera aparte'],
+  ['media',   'el ciclo de vida de los medios (texturas, decodificadores) se libera aparte, en `newProject`'],
   ['lanes',   'se reconstruyen con defLanes(), que es su valor de fabrica'],
-  ['markers', 'lo vacia `newProject`'],
-  ['groups',  'lo vacia `newProject`'],
 ]);
+/* [R323] Se fueron `clips`, `markers` y `groups`: desde que existe la regla del valor literal, `serProject` los
+   escribe como `[]` y pasan por `esLiteral` sin llegar a consultar esta lista. Una exencion que no se consulta
+   documenta una excepcion que no existe, que es justo lo que esta lista —con su motivo por entrada— quiere
+   evitar. Comprobado ejecutando los ayudantes: los cinco campos sin fuente exigida son `app`, `v`, `markers`,
+   `groups` y `clips`, y `esLiteral` devuelve true para los cinco. */
 
 /* ── Léxico ────────────────────────────────────────────────────────────────────────────────────────────────
    Quitar comentarios, CADENAS y EXPRESIONES REGULARES antes de tocar nada. Los tres importan por lo mismo: un

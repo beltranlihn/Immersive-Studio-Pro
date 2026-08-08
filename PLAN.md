@@ -1,5 +1,52 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 323 — Cinco de los ocho eran míos, de la ronda anterior
+
+Un `/code-review` sobre R322 —la ronda que arreglaba el repaso anterior— sacó ocho hallazgos. **Cinco los
+introduje en R322.** Los agentes del repaso se cortaron por límite de sesión a mitad, así que hice los ángulos yo,
+en secuencia, y salió mejor: me obligó a **medir sobre la app** en vez de razonar sobre el diff, y seis de los
+ocho quedaron confirmados con números.
+
+**Los tres graves, todos del `rippleDelete` y su vecindario**
+- **Desplazaba TODAS las pistas del proyecto.** Al reescribirlo en R322 con un modelo de «quitar un bloque de
+  tiempo» se me fue el filtro de pista. Medido: borrar un clip de 5 s de la pista de vídeo movía un clip de audio
+  sin relación de 10 a 5, y uno de una tercera pista de 20 a 15. Y el gesto hermano NO hace eso —lo medí para
+  comparar—, así que los dos rieles del mismo concepto discrepaban.
+- **Y ese modelo dejaba solapes**: desplazaba lo que empieza tras el bloque y dejaba lo de dentro, con lo que
+  acababan pisándose. Medido: un clip en [3,5] quieto y otro que bajaba a [0,4].
+- Los dos se cierran del mismo modo: `rippleDelete` **usa ya `_rippleAfter`**, la misma función que el ripple de la
+  herramienta T. Un solo desplazamiento (nunca desincroniza), acotado por el clip más a la izquierda de los que
+  mueve (nunca negativo), y sólo en las pistas de las dos mitades.
+- **El `cutOverlapsOnDrop` que añadí al soltar un ripple BORRABA clips.** Medido: 4 clips pasaban a 3 y un ambiente
+  de 2 s sin enlazar desaparecía de la pista de audio. Se retira: esa función no es sólo un recorte, su rama de
+  cobertura total llama a `_dropClip`. Vine a resolver un solape y lo convertí en pérdida de material. Ahora el
+  gesto **avisa** del solape y deja decidir, que es lo que la app hace con los solapes en general.
+
+**El fader de Mix, tercer intento y el que cubre los tres caminos**
+R320 empujaba la foto en el primer `input` con un pestillo que sólo se rearmaba en `change` —y `change` no dispara
+si se suelta en el valor de partida—. R322 la movió al `pointerdown`, y eso **rompió el teclado** (medido: 0 fotos,
+Ctrl+Z no restaura) y apilaba una foto en cada clic aunque no se moviera nada (medido: 1). Ahora la foto va en el
+primer `input` —que existe en los tres caminos— y el pestillo se rearma en `pointerup`, `blur` y `change`.
+Medido: teclado 1 foto y se deshace; clic sin mover, 0.
+
+**Lo demás**
+- El guardián de acentos graves **avisa en vez de abortar**: con `exit(2)`, un solo falso positivo dejaba las cinco
+  redes sin medir — y ya dio uno en su primera pasada.
+- Tres entradas de `EXENTOS` del test de paridad estaban muertas desde que existe la regla del valor literal.
+- Y las filas de `COMPONENTS.md` de `rippleDelete` y `modAudioEnv`, que R322 no tocó pese a reescribir una y
+  reordenar la otra. Era la segunda ronda seguida incumpliendo la regla anti-pudrición.
+
+**Sobre el método**
+- La red nueva del alcance por pista **cazó un error de la propia sonda** antes que del código: daba por fallo que
+  se moviera un clip de la pista del PARTNER, donde el hueco sí hay que cerrar. La medición anterior no lo vio
+  porque usé un clip sin enlazar. Dos pruebas del mismo hecho desde ángulos distintos valen más que una.
+- Y una sonda desechable que corrompía el estado a propósito —era lo que probaba— contaminó todo lo que corrió
+  después en esa instancia y simuló cuatro regresiones inexistentes. Una sonda destructiva va la última, o restaura.
+
+**Verificación:** las cinco redes en verde (con un caso nuevo para el alcance por pista), `npm test` 3/3, y las
+seis medidas del repaso repetidas después del arreglo.
+
+
 ## ROUND 322 — Los quince del repaso, y la primera vez que una mutación desmiente al test
 
 Un `/code-review` sobre R320 y R321 sacó quince hallazgos confirmados. **Tres eran fallos introducidos en esas

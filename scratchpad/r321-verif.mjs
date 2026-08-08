@@ -81,6 +81,30 @@ else{
   else bien('se lleva la pareja entera y cierra el hueco en las dos pistas ('+e2.v2+')');
 }
 
+/* ── 2b ── [R323] Y el ALCANCE: un ripple es de su pista (mas las mitades enlazadas de lo que arrastra), nunca
+   de todo el proyecto. R322 reescribio `rippleDelete` con un modelo de bloque y se dejo el filtro de pista: medido,
+   borrar un clip de video movia clips sin relacion de la pista de audio y de una tercera pista. */
+console.log('\n── 2b · la eliminacion con arrastre no toca pistas ajenas ──');
+const e2b = await ev(`(async()=>{ try{
+  ${MONTA}
+  const otraV=state.lanes.findIndex((l,i)=>l.kind!=='audio'&&i!==LV);
+  /* En la pista del PARTNER tambien hay un hueco, asi que lo de despues SI debe correrse aunque no este
+     enlazado — el primer intento de esta sonda lo daba por fallo, y el equivocado era el intento. */
+  mk(960301,LA,MA.id,20,4,null,null);                                   // pista del partner: DEBE moverse
+  if(otraV>=0)mk(960302,otraV,MV.id,24,4,null,null);                    // pista AJENA: no debe moverse
+  state.selId=V1.id; state.selIds=[V1.id]; rippleDelete();
+  const g=i=>{const c=state.clips.find(x=>x.id===i);return c?+c.start.toFixed(2):null;};
+  return {enPistaDelPartner:g(960301), ajeno:g(960302), hayOtraV:otraV>=0, v2:g(960103)};
+}catch(e){ return {err:String(e&&e.message||e)}; } })()`);
+if(e2b.err) mal('no se pudo evaluar: '+e2b.err);
+else{
+  console.log('   par 2 en '+e2b.v2+'  ·  pista del partner: 20 → '+e2b.enPistaDelPartner+'  ·  pista ajena: 24 → '+e2b.ajeno);
+  if(e2b.v2===8) mal('no movio ni su propia pista: la prueba no mide nada');
+  else if(e2b.enPistaDelPartner===20) mal('no cerro el hueco en la pista del partner: ahi tambien se borro material');
+  else if(e2b.hayOtraV&&e2b.ajeno!==24) mal('movio un clip de una pista AJENA (24 -> '+e2b.ajeno+'): un ripple es de su pista, no de todo el proyecto');
+  else bien('cierra el hueco en las dos pistas de la pareja y deja las ajenas donde estaban');
+}
+
 /* ── 3 ── El slide no deja crecer al vecino izquierdo mas alla de su fuente. */
 console.log('\n── 3 · el slide acota el crecimiento del vecino izquierdo a su fuente ──');
 const e3 = await ev(`(async()=>{ try{
