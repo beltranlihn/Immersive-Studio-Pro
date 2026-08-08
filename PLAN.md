@@ -1,5 +1,86 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 320 — Los gemelos: trece regresiones de arreglar trece hallazgos
+
+Un segundo repaso de código independiente sobre las rondas R310–R319 encontró **trece regresiones introducidas
+arreglando trece hallazgos**, tres de ellas peores que el fallo que curaban. Ocho eran **el mismo error: arreglar
+la copia y dejar el original.** Esta ronda las cierra y, donde ha podido, quita la copia.
+
+**Lo que tenía riesgo de perder trabajo**
+- **`openProject` podía pisar el proyecto bueno.** R319 capturó el fallo de carga pero **repónía la ruta
+  anterior**; como `saveProject` sólo abre diálogo cuando NO hay ruta, un Ctrl+S después de abrir un `.isp`
+  dañado escribía el estado a medias **encima del proyecto que estaba bien, sin preguntar**. Ahora queda
+  `currentPath=null`: cualquier guardado pide nombre nuevo. Y el aviso dice la verdad —el editor quedó a medias—
+  en vez de sugerir que no ha pasado nada.
+- **Y si `loadProject` revienta, ahora lo cubre un `try/finally`** (`loadProject` → `_loadProjectCore`), no un
+  `catch` en un solo llamador: los SIETE caminos sueltan el splash y lo dejan anotado en el diagnóstico.
+
+**La familia del trim, cerrada de verdad**
+- R314 escribió que `_mirrorLinkTrim` era «el punto único por el que pasan los cinco modos». **Son siete puntos
+  de llamada** —el roll llama dos veces y el crossfade del tirador de fundido es el séptimo— y **dos llamaban sin
+  instantánea**, es decir sin rebasar nada.
+- **`slip` no rebasaba la curva del clip agarrado.** Es EL caso de la familia —la ventana quieta y el material
+  resbalando— y además dejaba una incoherencia visible: la mitad de audio de un par A/V SÍ se rebasaba, así que
+  vídeo y audio quedaban con la automatización desalineada.
+- **`slide` no rebasaba a su vecino de la derecha**, que es quien mueve su `inP` (igual que `B` en el roll, que
+  sí lo hacía).
+- **`trimItem` conservaba la guarda `src.length>1`** que R314 había quitado de su copia: una curva de UN punto que
+  se salía del borde se perdía entera y sin congelar su valor. Ya no hay dos implementaciones: `trimItem` delega
+  en `rebaseAutoPorMaterial`.
+
+**Cachés: el remedio de R318 era peor que la enfermedad**
+- Meter Gain y Gate en la clave de `_specRaw` era correcto y **costaba, según la medida del repaso, 24,7 ms por píxel de arrastre** del fader
+  (que recorre 0..300 de uno en uno), vaciando la caché doce veces por gesto. Ahora se cachea **la media cruda de
+  los bins, que no depende de ninguno de los dos mandos**, y puerta y ganancia se aplican en una pasada lineal
+  sobre un búfer reutilizado: **0,83 ms en esa misma medida, treinta veces menos**, y sigue siendo correcto. Lo que
+  sí se ha comprobado aquí, y es lo que vigila la sonda, es la consecuencia estructural: un arrastre de treinta
+  valores deja **una sola entrada** en la caché, no treinta.
+- El arreglo de `_modAudioCache` se hizo con un **reemplazo masivo de cadenas** y uno de los seis sitios era un
+  `if` SIN LLAVES: la segunda sentencia quedó fuera y la caché recién arreglada se vaciaba en cada fotograma.
+- **Diez mutaciones repintaban sin invalidar la generación del fotograma** (mute/solo de pista, máscaras,
+  `mirror`, los cuatro `group*`): scopes, NDI, Spout y `_warmCache` se quedaban con el anterior. El barrido queda
+  a cero.
+
+**Los demás gemelos**
+- El **fader de Mix** y el **botón de encendido** de un modificador de Motion eran los dos únicos de su fila sin
+  `pushUndo`.
+- `beginFlatResize` conservaba el `||100` que R319 arregló en `flatPlace`: agarrar el tirador de escala en un clip
+  a escala 0 lo devolvía a tamaño completo antes de mover el ratón.
+- La **hoja de export cedía mal el Escape**: con un cuadro encima cerraba la hoja de debajo —y con un render vivo,
+  lo cancelaba—. Le faltaba el `ovTop` que R312 puso a los demás.
+- El `_arTime` de R314 entró sólo en el bucle de FFmpeg; **los dos de secuencia PNG seguían exportando el domo con
+  los FX reactivos congelados**. Tercera vez que se olvida lo mismo, así que en lugar de un tercer parche va un
+  punto único: `pintarFotograma(t,resDome)`.
+- En **cuadrícula**, una entrada Spout se rotulaba `NDI` (la lista ya los distinguía).
+- El panel ofrecía **H.265 por FFmpeg sin comprobar que ese FFmpeg traiga el codificador** —`dsp:ffProbe` ya
+  devolvía la lista y sólo se miraba que el objeto existiera—, y al avisar de que no cabía decía «H.264».
+- Y **cuatro afirmaciones falsas en comentarios**, que es peor que no tenerlos: «el punto único por el que pasan
+  los cinco modos» (eran siete), «otras tres cachés» de `_raGen` (son cuatro), «135k fotogramas» (son 405k: el
+  ritmo del análisis es 90, no 30), y cinco marcas `[R310·A…]` que apuntaban a la ronda equivocada.
+
+**El test de paridad, rehecho.** Sus dos «endurecimientos» de R315 eran ilusorios: el filtro de condicionales no
+veía un `if` **con llaves** —que es como se escribe casi siempre—, y la comparación por NOMBRE de clave daba por
+cubierto **todo el bloque `tl`**, incluido `inlineCurves`, que la cabecera cita como su motivo de existir. Ahora se
+comparan **fuentes de datos**: para cada campo del `.isp` se exige que el `state.X` de su VALOR tenga valor de
+fábrica. Verificado quitando `state.inlineCurves=false`: el test léxico lo nombra (`tl.inlineCurves ←
+state.inlineCurves`), cosa que antes no hacía.
+Y el analizador léxico tenía un agujero real: **no entendía plantillas anidadas** (`${cond?‹a›:‹b›}`, el pan de cada
+día de los constructores de HTML), así que cerraba la plantilla en la primera comilla invertida interior y leía el
+resto del texto como código. Lo delató la aserción nueva de que las llaves de `app.js` cuadren tras limpiar
+—descuadraban—. También ignoraba las expresiones regulares.
+
+**Verificación:** `scratchpad/r320-verif.mjs` (13 comprobaciones: el trim medido sobre `applyTrim` con un par A/V
+sintético, deshacer por el DOM real, el Escape con un cuadro encima, y las estructurales sobre el fuente) más las
+redes de R317/R318/R319, todas en verde sobre el `.exe`. `npm test`: 3/3.
+*Nota para la próxima sonda: dos falsos fallos, los dos de la sonda y no del código — el Mix no se guarda en
+`a.wet` sino en `c.props[motKeyFor(a)]` (pasa por `manualEdit`), y `const f=(` no casa con el patrón de llamada
+`f\(`. Y por tercera vez: nada de acentos graves dentro de la plantilla que se manda por CDP.*
+
+**La lección, escrita para que no se repita:** verificar por reversión sólo prueba que el arreglo arregla SU caso.
+No detecta el gemelo olvidado, ni que el comentario miente, ni que el reemplazo cayó en un sitio equivocado.
+**Antes de cerrar un arreglo: `grep` del patrón en todo el fichero. Si sale más de uno, van todos o no va ninguno.**
+
+
 ## ROUND 319 — Ocho MEDIA de los que se notan usando el programa
 
 Primera tanda del inventario de MEDIA de la auditoría, elegida por lo que aparece en un día normal de trabajo.

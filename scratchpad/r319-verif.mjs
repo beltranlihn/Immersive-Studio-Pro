@@ -36,11 +36,17 @@ const f = await ev(`(async()=>{ try{
   return {
     rombo   : /\\$\\{wetPct\\}%\\$\\{hasWK\\?/.test(t) && !/\\$\\{wetPct\\}%\\$\\{hasKf\\?/.test(t),
     hap     : /Math\\.ceil\\(p\\.w\\/4\\)\\*Math\\.ceil\\(p\\.h\\/4\\)\\*F\\.bpb\\*n\\*0\\.85/.test(t),
-    ffProbe : /if\\(c\\.ff\\)\\{ filas\\.push\\(\\{c,cabe:await ffDisponible\\(\\)/.test(t),
+    /* [R320] Ahora se sondea POR FILA: ffh264 y ffhevc no dependen del mismo codificador, y comprobar solo
+       que el binario exista ofrecia H.265 en un FFmpeg compilado sin libx265.
+       (Sin acentos graves aqui dentro: cierran la plantilla de la sonda.) */
+    ffProbe : /if\\(c\\.ff\\)\\{ filas\\.push\\(\\{c,cabe:await ffDisponible\\(c\\.v\\)/.test(t),
     spLive  : /m\\.kind==='spout'\\)\\?m\\._spLive:m\\._ndiLive/.test(t),
     psNdi   : /function startNDI\\(res\\)\\{ if\\(_ndiOn\\)stopNDI\\(\\)/.test(t),
     psSpout : /function startSpout\\(res\\)\\{ if\\(_spoutOn\\)stopSpout\\(\\)/.test(t),
-    openTry : /const _rutaPrev=currentPath; currentPath=p; hideLanding\\(\\);\\s*try\\{ loadProject/.test(t),
+    /* [R320] R319 capturaba el fallo pero REPONIA la ruta del proyecto anterior, que estaba bien: como
+       saveProject solo abre dialogo cuando no hay ruta, un Ctrl+S posterior escribia el estado a medias
+       encima del proyecto bueno y sin preguntar. Ahora se deja SIN ruta. */
+    openTry : /currentPath=p; hideLanding\\(\\);\\s*try\\{ loadProject/.test(t) && /catch\\(err\\)\\{[\\s\\S]{0,200}?currentPath=null;/.test(t),
   };
 }catch(e){ return {err:String(e&&e.message||e)}; } })()`);
 if(f.err) mal('no se pudo leer el fuente: '+f.err);
@@ -51,7 +57,7 @@ else{
                ['spLive','el punto en vivo distingue Spout de NDI'],
                ['psNdi','startNDI para la salida anterior antes de relanzar'],
                ['psSpout','startSpout hace lo mismo'],
-               ['openTry','abrir por el menu captura y conserva la ruta anterior']];
+               ['openTry','abrir por el menu captura el fallo y se queda SIN ruta (R320: reponer la anterior permitia pisarla con Ctrl+S)']];
   for(const [k,txt] of casos){ if(f[k])bien(txt); else mal('NO aplicado: '+txt); }
 }
 

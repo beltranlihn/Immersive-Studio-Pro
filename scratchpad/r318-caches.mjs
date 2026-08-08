@@ -11,7 +11,9 @@
      3 · salida Spout — idem.
      4 · `_modAudioCache` — derivada de `_arCache`, no se limpiaba con ella: un modulador con la misma banda
          recuperaba la envolvente de la canción anterior.
-     5 · `_specRaw` — la ganancia y la puerta van horneadas en el resultado y no estaban en la clave.
+     5 · `_specRaw` — la ganancia y la puerta van horneadas en el resultado. R318 las metió en la CLAVE, lo que
+         reintegraba el espectro entero en cada píxel del fader; R320 cachea la media cruda de los bins —que no
+         depende de ninguno de los dos mandos— y aplica puerta y ganancia en una pasada aparte.
 
    Uso:  npx electron . --remote-debugging-port=9222   y luego   node scratchpad/r318-caches.mjs
 */
@@ -82,17 +84,66 @@ if(mc.err) mal('no se pudo evaluar: '+mc.err);
 else if(mc.tras) mal('la cache sobrevivio ('+mc.tras+' entradas)');
 else bien('se vacia junto a su hermana (_fxEnvCache), en los 6 puntos de invalidacion');
 
-/* ── 5 ── La clave del espectro cambia si cambian ganancia o puerta, que van horneadas en el resultado. */
-console.log('\n── 5 · la clave del espectro incluye ganancia y puerta ──');
+/* Y la comprobación ESTRUCTURAL de la misma pareja: las dos cachés se limpian SIEMPRE juntas. El arreglo de
+   R318 se hizo con un reemplazo masivo de cadenas y uno de los seis sitios era un `if` SIN LLAVES, así que la
+   segunda sentencia quedó fuera del `if` y vaciaba la caché en cada fotograma. Contar aquí las dos ocurrencias
+   no basta —salían iguales— así que lo que se comprueba es que ningún `if` de una línea las separe. */
+console.log('\n── las dos caches hermanas se limpian juntas y dentro del mismo bloque ──');
+const par = await ev(`(async()=>{ try{
+  const bruto=await (await fetch('app.js')).text();
+  const t=bruto.replace(/\\/\\*[\\s\\S]*?\\*\\//g,' ').replace(/\\/\\/[^\\n]*/g,' ');
+  const fx=(t.match(/_fxEnvCache\\.clear\\(\\)/g)||[]).length;
+  const mo=(t.match(/_modAudioCache\\.clear\\(\\)/g)||[]).length;
+  /* un \`if(...)\` sin llaves seguido de las dos: la segunda queda SIEMPRE fuera del if */
+  const suelto=(t.match(/if\\([^)\\n]*\\)\\s*_fxEnvCache\\.clear\\(\\);\\s*_modAudioCache\\.clear\\(\\)/g)||[]).length;
+  return {fx,mo,suelto};
+}catch(e){ return {err:String(e&&e.message||e)}; } })()`);
+if(par.err) mal('no se pudo leer el fuente: '+par.err);
+else{
+  console.log('   _fxEnvCache.clear() x'+par.fx+'   _modAudioCache.clear() x'+par.mo);
+  if(par.fx!==par.mo) mal('las dos no van siempre juntas ('+par.fx+' vs '+par.mo+'): queda un punto de invalidacion a medias');
+  else if(par.suelto) mal(par.suelto+' sitio(s) con un `if` sin llaves delante: la segunda clear() se ejecuta SIEMPRE');
+  else bien('las '+par.fx+' parejas van juntas, ninguna colgando de un `if` sin llaves');
+}
+
+/* ── 5 ── El espectro por rango de frecuencia. La ganancia y la puerta van HORNEADAS en el resultado, así que
+   el resultado no puede cachearse ignorándolas. R318 lo arregló metiéndolas en la CLAVE, y el remedio salió
+   peor que la enfermedad: el fader de Gain recorre 0..300 de uno en uno, así que cada píxel del arrastre era
+   una clave nueva — una integración completa del espectro (frames × bins) y su propio búfer reservado.
+   R320 cachea lo que NO depende de esos dos mandos (la media cruda de los bins, UNA entrada por rango) y
+   aplica puerta y ganancia después, en una pasada lineal. Las dos mitades se comprueban por separado:
+     a) mover ganancia o puerta CAMBIA lo que devuelve — la corrección;
+     b) treinta valores distintos dejan UNA sola entrada — el coste.
+   Se monta un espectro sintético porque analizar audio de verdad tarda y no aporta nada a lo que se mide. */
+console.log('\n── 5 · el espectro por rango responde a ganancia y puerta sin recomputarse ──');
 const sp = await ev(`(async()=>{ try{
-  const r=await fetch('app.js'); const t=await r.text();
-  const m=t.match(/const key='r'\\+Math\\.round\\(f0\\)\\+'-'\\+Math\\.round\\(f1\\)([^;]*);/);
-  if(!m) return {err:'no encuentro la clave de specRangeRaw'};
-  return {clave:m[0].slice(0,110), gain:/cfg\\.gain/.test(m[1]), gate:/cfg\\.gate/.test(m[1])};
+  await newProject('flat',1920,1080,30,180,true); if(typeof hideLanding==='function')hideLanding();
+  const frames=64, bins=SPEC_BINS, data=new Float32Array(frames*bins);
+  for(let f=0;f<frames;f++){ const v=0.1+0.3*(f/frames); for(let b=0;b<bins;b++)data[f*bins+b]=v; }
+  const m={id:990001,kind:'audio',name:'sintetico',dur:frames/90,spec:{frames,bins,data}};
+  state.media.push(m); _arCache={clip:{mediaId:m.id},raw:null,fps:90};
+  const cfg=ensureReactive();
+  const leer=()=>Array.from(specRangeRaw(100,8000).slice(30,33)).map(x=>Math.round(x*1000)/1000);
+  cfg.gain=100; cfg.gate=0;  const base=leer();
+  cfg.gain=200;              const masGanancia=leer();
+  cfg.gain=100; cfg.gate=20; const conPuerta=leer();
+  cfg.gate=0;
+  for(let gn=100;gn<130;gn++){ cfg.gain=gn; specRangeRaw(100,8000); }   // un arrastre del fader, pixel a pixel
+  const entradas=Object.keys(m._specRaw||{}).length;
+  _arCache=null; state.media=state.media.filter(x=>x.id!==990001);
+  return {base,masGanancia,conPuerta,entradas};
 }catch(e){ return {err:String(e&&e.message||e)}; } })()`);
 if(sp.err) mal('no se pudo evaluar: '+sp.err);
-else if(!sp.gain||!sp.gate) mal('la clave no incluye '+(!sp.gain?'ganancia':'')+(!sp.gain&&!sp.gate?' ni ':'')+(!sp.gate?'puerta':'')+': mover el fader no refresca los rangos a medida');
-else bien('la clave lleva ganancia y puerta, que van horneadas en el resultado');
+else{
+  const j=a=>'['+a.join(', ')+']';
+  console.log('   ganancia 100 '+j(sp.base)+'  →  ganancia 200 '+j(sp.masGanancia)+'  →  con puerta '+j(sp.conPuerta));
+  if(j(sp.base)===j(sp.masGanancia)) mal('subir la ganancia no cambio nada: el rango a medida se queda con el valor viejo');
+  else if(j(sp.base)===j(sp.conPuerta)) mal('subir la puerta no cambio nada: mismo fallo por el otro mando');
+  else bien('ganancia y puerta se reflejan en el resultado');
+  console.log('   entradas en cache tras un arrastre de 30 valores: '+sp.entradas);
+  if(sp.entradas>1) mal('el arrastre dejo '+sp.entradas+' entradas: cada pixel reintegra el espectro entero y reserva su propio bufer');
+  else bien('una sola entrada por rango: el arrastre no reintegra el espectro');
+}
 
 console.log('\n'+(fallos?'*** '+fallos+' FALLOS':'la familia de caches queda cubierta por esta red'));
 ws.close(); process.exit(fallos?1:0);

@@ -41,7 +41,8 @@ Aplicación Electron con motor WebGL2, sin sistema de compilación. Alma Digital
 
 | Ruta | Qué es |
 |---|---|
-| `scratchpad/` | 553 sondas de verificación (`.mjs`) contra la aplicación en marcha. Sus volcados de imagen se regeneran y no se versionan. |
+| `tests/` | Tests que corren **sin la app levantada** — `npm test`. Leen `app.js` como texto (es un script clásico: no se puede importar) y comprueban REGLAS, no parches concretos. |
+| `scratchpad/` | Sondas de verificación (`.mjs`) contra la aplicación **en marcha**, por CDP. Sus volcados de imagen se regeneran y no se versionan. |
 | `_backup/deprecated/` | Código retirado, con fecha. Se archiva en vez de borrarse (`docs/adr/adr-0007`). |
 | `dist/` · `node_modules/` | Salida de compilación y dependencias. Regenerables. |
 
@@ -54,7 +55,21 @@ npm start                                   # desarrollo
 npm run dist                                # .exe: instalador NSIS + portable
 npm run dist:mac                            # sólo funciona ejecutándolo EN un Mac
 node --check app.js && node --check main.js  # comprobación de sintaxis
+npm test                                    # tests sin navegador (~200 ms)
 ```
+
+Las **sondas** necesitan la app levantada con el puerto de depuración abierto — miden comportamiento real
+(píxeles, DOM, deshacer) en vez de leer el fuente:
+
+```bash
+npx electron . --remote-debugging-port=9222   # en una terminal
+npm run redes                                 # en otra: TODAS las redes de regresión
+node scratchpad/r320-verif.mjs                # o una suelta
+```
+
+Las **redes** (`npm run redes`) son el subconjunto de sondas que comprueban una REGLA y no un parche concreto —
+«un gesto que cambia el proyecto se deshace con un Ctrl+Z», «si cambia algo de lo que el resultado depende, la
+caché falla»—. Se pasan enteras antes de compilar: en R320 dos de ellas llevaban dos rondas sin correrse.
 
 Despliegue — **siempre con el script, que además verifica**:
 

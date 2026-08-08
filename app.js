@@ -1258,13 +1258,13 @@ function wvPrep(m){
      · El REPARTO DE FUENTES. `_orderR` ya lo ha devuelto `ensureCompOrder` a false antes de que esto lo vea, asi
        que rebarajar daba firma identica y `ord` conservaba el orden ANTERIOR; y quitar una fuente dejaba ids
        muertos, con los que `drawClip` sale por `if(!m)return` y el elemento DESAPARECE. Se firma el orden real. */
-  /* [R310·A12] …y ese arreglo de la VELOCIDAD llevaba desde R301c sin funcionar: buscaba el diente de sierra por
+  /* [R311·A12] …y ese arreglo de la VELOCIDAD llevaba desde R301c sin funcionar: buscaba el diente de sierra por
      `x.k`/`x.p`, dos propiedades que NO EXISTEN — el esquema de un modificador es `{param,mode,speed,amp,phase,
      curve,on}`, como usa correctamente el mismo buscador nueve lineas mas abajo. `find` devolvia siempre
      `undefined`, `_vel` quedaba en cadena vacia y la velocidad seguia fuera de la firma: mover el fader dejaba
      `per` con el periodo viejo y el intercambio de imagenes que R300 quito podia reaparecer. Se firma tambien
      `on`, que es lo que mira el consumidor: apagar el modificador cambia el reparto igual que cambiar su valor. */
-  /* [R314] …y mirando TODOS los clips, no sólo el primero. R310·A12 corrigió los nombres de propiedad pero dejó
+  /* [R314] …y mirando TODOS los clips, no sólo el primero. R311·A12 corrigió los nombres de propiedad pero dejó
      el alcance: el consumidor de más abajo lee el modificador de CADA clip, así que si el diente de sierra no
      está en `cl[0]` —o se cambia la velocidad de cualquier otro— la firma no variaba y `wvPrep` volvía a salir
      antes de recalcular, que es el síntoma que el arreglo venía a cerrar. */
@@ -1552,9 +1552,11 @@ function raSyncDims(){ const k=RA_SIZE/Math.max(1,compW,compH);
   if(w===_raW&&h===_raH)return; _raW=w; _raH=h; raReset(); }
 function raMakeTex(){ const t=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,t); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,_raW,_raH,0,gl.RGBA,gl.UNSIGNED_BYTE,null); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE); return t; }
 function raReset(){ for(const [,v] of _ra){try{gl.deleteTexture(v.tex);}catch(e){}} _ra.clear(); while(_raPool.length){try{gl.deleteTexture(_raPool.pop());}catch(e){}} }
-/* [R318] `_raGen` NO es sólo del caché de render-ahead: es el contador de GENERACIÓN del fotograma compuesto, y
-   forma parte de la clave de otras tres cachés — los scopes (histograma/vectorscopio), la salida NDI y la
-   salida Spout. Por eso `raInvalidate()` tiene que llamarse SIEMPRE que el fotograma deje de ser válido, no
+/* [R318 · recuento corregido en R320] `_raGen` NO es sólo del caché de render-ahead: es el contador de
+   GENERACIÓN del fotograma compuesto, y forma parte de la clave de otras CUATRO cachés — los scopes
+   (histograma/vectorscopio), la salida NDI, la salida Spout y `_warmCache` (la comprobación de «fotograma
+   caliente» del indicador de reproducción). R318 dijo «tres»: se dejó fuera la cuarta, que está veinte líneas
+   más abajo. Por eso `raInvalidate()` tiene que llamarse SIEMPRE que el fotograma deje de ser válido, no
    sólo con render-ahead encendido.
    Lo que había: 36 llamadores escribían `if(_raOn)raInvalidate()`, una «optimización» que no ahorra nada
    —el cuerpo es un `++`— y que rompía las otras tres. Con render-ahead apagado (el valor POR DEFECTO):
@@ -2958,7 +2960,7 @@ async function bindProxyFile(m,cachePath){ const purl=DSP.toFileURL(cachePath); 
   m.proxyEl=pv; m.el=pv; m.pw=pv.videoWidth; m.ph=pv.videoHeight; m.proxyUrl=purl; m.proxyPath=cachePath; m.proxyReady=true; m.proxyPct=100; m._proxyForce=false; renderMedia(); updProxyUI(m); scrubRender(); }
 function enqProxy(m){proxyQ.push(m);pumpProxy();}
 async function pumpProxy(){if(proxyBusy||!proxyQ.length)return;proxyBusy=true;const m=proxyQ.shift();try{await makeProxy(m);}catch(e){console.error('proxy',e);m.proxyPct=-1;
-  /* [R310·A6] La tabla de fotogramas EN RAM (`m.frames`) se va llenando MIENTRAS se codifica, y `seekMedia` la
+  /* [R311·A6] La tabla de fotogramas EN RAM (`m.frames`) se va llenando MIENTRAS se codifica, y `seekMedia` la
      prefiere al archivo original. Si la generacion muere a mitad —escritura a disco fallida, publicacion
      fallida, un `.part` que luego no se deja enlazar— esa tabla queda PARCIAL con `m.decConfig` puesto: a
      partir del ultimo fotograma codificado el scrub clampa y el clip se ve CONGELADO, en silencio y sin que
@@ -3302,7 +3304,7 @@ function openMediaCtx(e,m){ e.preventDefault(); const seq=isSeqMedia(m); const i
 /* grid tile (square) — same drag / dbl-click / context menu as a list row */
 function makeMediaTile(m){ const seq=isSeqMedia(m), isNdi=(m.kind==='ndi'||m.kind==='spout'); // [V3] Spout se comporta como NDI: fuente en vivo, sin archivo
   const d=document.createElement('div'); d.className='mtile'+((m.missing&&!m._loading)?' missing':'')+(selectedMediaIds().includes(m.id)?' sel':''); d.dataset.id=m.id; d.title=m.name;
-  const isAdj=(m.kind==='adjust'); const dur=isNdi?'NDI':(seq?'SEQ':(isAdj?'ADJ':(m.kind==='image'?'IMG':fmtDur(m.dur))));
+  const isAdj=(m.kind==='adjust'); const dur=isNdi?(m.kind==='spout'?'SPOUT':'NDI'):(seq?'SEQ':(isAdj?'ADJ':(m.kind==='image'?'IMG':fmtDur(m.dur)))); // [R320] el gemelo de la vista de LISTA, que ya distinguía los dos: en cuadrícula una entrada Spout se rotulaba «NDI»
   const px=(m.kind==='video'&&!m.proxyReady&&m.proxyPct>0)?`<div class="tpbar"><i style="width:${m.proxyPct}%"></i></div>`:'';
   const tbg=isAdj?'repeating-linear-gradient(45deg,rgba(180,186,193,0.30) 0 9px,rgba(180,186,193,0.10) 9px 18px)':(m.thumb?`url(${m.thumb})`:'none');
   /* [R253b] el mismo distintivo que la fila de la lista: en cuadricula un archivo marcado tambien suelta un clip
@@ -3712,8 +3714,8 @@ function renderTimeline(){ reconcileVinst(); // free private decoders of clips t
     hd.addEventListener('keydown',ev=>{ if(ev.target!==hd||!hd.matches(':focus-visible'))return; if(ev.key==='Enter'||ev.code==='Space'){ ev.preventDefault(); ev.stopPropagation(); hd.onclick(ev); } }); // :focus-visible → only KEYBOARD focus consumes Enter/Space (a mouse click leaves Space = play)
     hd.addEventListener('pointerdown',ev=>{ if(ev.button!==0)return; if(ev.target.closest('[data-m]')||ev.target.closest('button')||ev.target.isContentEditable)return; startLaneDrag(ev,li); }); // drag the header to reorder tracks
     hd.ondblclick=ev=>{ if(ev.target.isContentEditable||ev.target.closest('[data-m]')||ev.target.closest('.autoctl'))return; renameLane(li); }; // [R224 · ítem 7] doble clic rápido en un chip tampoco debe abrir el renombrado de la pista
-    hd.querySelector('[data-m=mute]').onclick=()=>{pushUndo();lane.mute=!lane.mute;renderTimeline();render();reschedAudio();};
-    hd.querySelector('[data-m=solo]').onclick=()=>{pushUndo();lane.solo=!lane.solo;renderTimeline();render();reschedAudio();};
+    hd.querySelector('[data-m=mute]').onclick=()=>{pushUndo();lane.mute=!lane.mute;renderTimeline();raInvalidate();render();reschedAudio();};
+    hd.querySelector('[data-m=solo]').onclick=()=>{pushUndo();lane.solo=!lane.solo;renderTimeline();raInvalidate();render();reschedAudio();};
     hd.querySelector('[data-m=collapse]').onclick=ev=>{ev.stopPropagation();pushUndo();lane.collapsed=!lane.collapsed;renderTimeline();};
     hd.oncontextmenu=ev=>{ev.preventDefault();openMenu(ev.clientX,ev.clientY,[{label:T('Rename track','Cambiar nombre de pista'),key:'⌘R',fn:()=>renameLane(li)},...trackCreateItems(lane.kind),{label:T('Duplicate track','Duplicar pista'),fn:()=>duplicateLane(li)},'sep',{label:T('Delete track','Eliminar pista'),danger:true,fn:()=>removeLane(li)}]);};
     // [R93] Ableton: automation mode puts the device+parameter choosers INSIDE the track header rectangle (primary overlay param)
@@ -5201,13 +5203,19 @@ function _mirrorLinkTrim(clip,cBase,lb,snap){ if(!lb)return; const p=linkPartner
   p.start=Math.max(0, lb.start+(clip.start-cBase.start));
   p.dur=Math.max(0.05, lb.dur+(clip.dur-cBase.dur));
   p.inP=Math.max(0, lb.inP+((clip.inP||0)-cBase.inP));
-  /* [R314] El material del PARTNER se ha movido lo mismo, así que su automatización tiene que seguirlo. Este es
-     el punto único por el que pasan los cinco modos del trim contextual, así que rebasar aquí cubre la mitad
-     enlazada en todos ellos — R313 sólo cubrió el clip agarrado y dejó al partner descolgado (una curva de
-     volumen en la mitad de audio se quedaba anclada a la ventana mientras su material resbalaba).
+  /* [R314 · corregido en R320] El material del PARTNER se ha movido lo mismo, así que su automatización tiene
+     que seguirlo — R313 sólo cubrió el clip agarrado y dejó al partner descolgado (una curva de volumen en la
+     mitad de audio se quedaba anclada a la ventana mientras su material resbalaba).
+     R314 escribió aquí que ésta era «el punto único por el que pasan los cinco modos». No lo era: son SIETE los
+     puntos de llamada —los cinco modos del trim contextual, con el roll llamando dos veces (uno por lado), más
+     el crossfade del tirador de fundido— y dos de ellos (`slide` y el crossfade) llamaban SIN `snap`, es decir
+     sin rebasar nada. Ahora pasan los siete con instantánea.
+     Sin `if(d)`: el arrastre es ABSOLUTO, así que `d===0` no significa «nada que hacer» sino «vuelve a la curva
+     de partida». Es la misma guarda que R314 quitó de `rebaseAutoPorMaterial` y que aquí se quedó viva: volver
+     al punto de partida del arrastre dejaba pegado el rebase del fotograma anterior en la mitad enlazada.
      `d` va en segundos de LÍNEA DE TIEMPO: el desplazamiento de `inP` es de fuente, y se divide por la
      velocidad. */
-  if(snap){ const d=((p.inP||0)-lb.inP)/(p.speed||1); if(d){ const s=snap(p); rebaseAutoPorMaterial(p,s.kf,s.an,d); } } }
+  if(snap){ const s=snap(p); rebaseAutoPorMaterial(p,s.kf,s.an,((p.inP||0)-lb.inP)/(p.speed||1)); } }
 /* [R313·A10] Rebasa la automatización cuando el MATERIAL se ha desplazado `d` segundos de línea de tiempo bajo
    la ventana del clip. Las claves se guardan RELATIVAS a `c.start` (ver `setKf`/`evalP`), así que mover el clip
    entero no las toca —viajan con él— pero cambiar `inP` sí: el material resbala por debajo y la curva se queda
@@ -5281,15 +5289,26 @@ function applyTrim(z,dt,base){
   if(z.kind==='slip'){ const c=z.c, s=clipSrc(c); if(!s.lim)return 0; // nothing to slip inside a generator/still
     const lo=-base.inP/(c.speed||1), hi=Math.max(0,(s.sd-base.inP)/(c.speed||1)-base.dur);
     const d=clamp(-dt,lo,hi); c.inP=base.inP+d*(c.speed||1);
+    /* [R320] El slip es EL caso de la familia: la ventana no se mueve y el material resbala por debajo, así que
+       la curva —que es relativa a `c.start`, y `start` no cambia— se queda anclada a la ventana. R313 dijo cubrir
+       «los cinco modos» y a éste le faltaba, lo que dejaba una incoherencia visible: la mitad enlazada SÍ se
+       rebasaba (vía `_mirrorLinkTrim`), de modo que al hacer slip sobre un par A/V la curva del audio seguía al
+       material y la del vídeo no. */
+    { const sc=snap(c); rebaseAutoPorMaterial(c,sc.kf,sc.an,d); }
     _mirrorLinkTrim(c,base,base.linkBase,snap); return d; } // drag right → reveal EARLIER material (film under the window)
   if(z.kind==='slide'){ const c=z.c; const P=z.prev,N=z.next;
     let lo=-1e6,hi=1e6;
     if(P){ lo=Math.max(lo,-(base.pDur-0.05)); } else lo=Math.max(lo,-base.start);
     if(N){ const sn=clipSrc(N); hi=Math.min(hi,base.nDur-0.05); if(sn.lim)lo=Math.max(lo,-base.nInP/(N.speed||1)); }
     const d=clamp(dt,lo,hi); c.start=base.start+d;
-    _mirrorLinkTrim(c,base,base.linkBase);
+    _mirrorLinkTrim(c,base,base.linkBase,snap);   /* [R320] con instantánea, como los otros cuatro modos: era el único que la omitía */
     if(P)P.dur=base.pDur+d;
-    if(N){ N.start=base.nStart+d; N.dur=base.nDur-d; N.inP=base.nInP+d*(N.speed||1); } return d; }
+    /* [R320] El vecino de la DERECHA mueve su material (`inP`), así que su automatización tiene que seguirlo —
+       exactamente el caso de `B` en el roll (línea de arriba), que sí lo hacía. El de la izquierda sólo cambia
+       `dur`, y eso no descuelga nada. Deuda conocida y aparte: `slide` no captura `pLinkBase`/`nLinkBase`, así
+       que las mitades enlazadas de P y N no se mueven con ellos (el roll sí las captura). */
+    if(N){ N.start=base.nStart+d; N.dur=base.nDur-d; N.inP=base.nInP+d*(N.speed||1);
+      const sN=snap(N); rebaseAutoPorMaterial(N,sN.kf,sN.an,d); } return d; }
   return 0; }
 /* [R97] keyboard trim: nudge the edge nearest the playhead of the selected clip (ripple if free, roll if it meets a neighbour) */
 function trimNudge(dir,frames){ const c=selClip(); if(!c)return; const dt=dir*frames/(state.fps||30);
@@ -5356,10 +5375,13 @@ function onTLMove(e){ if(!drag)return; const c=clipById(drag.id);if(!c)return; c
 /* trim one clip's edge by `delta` seconds, clamped to its own source/content limits (multi-select trim applies the same delta to every selected clip) */
 function trimItem(it,edge,delta){ const oc=clipById(it.id); if(!oc)return; const m=mediaById(oc.mediaId); const lim=!!(m&&(m.kind==='video'||m.kind==='audio'||isSeqMedia(m))); const sd=(m&&isSeqMedia(m))?seqDur(m):(m?m.dur:Infinity);
   if(edge==='L'){ const sp=(oc.speed||1); const minS=lim?Math.max(0,it.start0-it.inP0/sp):0, maxS=it.start0+it.dur0-0.05; const ns=Math.max(minS,Math.min(it.start0+delta,maxS)); const d=ns-it.start0; oc.start=ns; oc.dur=it.dur0-d; oc.inP=Math.max(0,it.inP0+d*sp); // [R92-T4 F6] inP is SOURCE seconds: a timeline shift of d consumes d×speed of source (the frame under the new edge no longer jumps on sped-up clips)
-    if(it.kf0){ const nk={}; for(const p in it.kf0){ const src=it.kf0[p]; const a=src.map(k=>({...k,t:k.t-d,hOut:k.hOut?{...k.hOut}:undefined,hIn:k.hIn?{...k.hIn}:undefined})).filter(k=>k.t>=-1e-6);
-      if(a.length<src.length&&src.length>1){ const synth={start:0,dur:1e9,props:{[p]:src[0].v},kf:{[p]:src}}; const v=evalP(synth,p,d); if(v!=null&&(!a.length||a[0].t>1e-6))a.unshift({t:0,v,e:'linear'}); } // [R92-T4 F7] boundary keyframe with the curve's value at the cut — trim-in used to silently discard the ramp start (permanently)
-      if(a.length)nk[p]=a; } oc.kf=nk; }
-    if(it.anim0){ oc.anim=it.anim0.map(aa=>({...aa,wetKf:Array.isArray(aa.wetKf)?aa.wetKf.map(k=>({...k,t:k.t-d})).filter(k=>k.t>=-1e-6):aa.wetKf})); } } // [R92-T4 F11] motion-mix (wetKf) ramps stay anchored to the content too
+    /* [R320] Delegado en `rebaseAutoPorMaterial`, que NACIÓ (R313) como copia literal de estas cuatro líneas y
+       desde entonces recibió dos arreglos que aquí nunca llegaron: sin `src.length>1` —una curva de UN solo punto
+       que se salía del borde se perdía entera y sin congelar su valor, y el parámetro saltaba en pantalla— y
+       saltándose las entradas vacías. El gemelo de manual: se arregló la copia y el original se quedó atrás. Con
+       una sola implementación no puede repetirse. El keyframe de frontera de [R92-T4 F7] y el rebase de las
+       rampas de motion-mix de [R92-T4 F11] viven ahora allí, sin cambios. */
+    rebaseAutoPorMaterial(oc,it.kf0,it.anim0,d); }
   else { let nd=Math.max(0.05,it.dur0+delta); if(lim&&!oc.loop)nd=Math.min(nd,Math.max(0.05,(sd-it.inP0)/(oc.speed||1))); oc.dur=nd; } } // loopable clips extend past source
 /* [R92-T3 F3] light reposition path: during a trim drag only start/dur change — move/resize the existing
    clip nodes instead of rebuilding the whole timeline DOM (a full rebuild costs ~100ms at 300 clips → 10fps drags). */
@@ -5474,7 +5496,7 @@ function startFadeDrag(e,c,which){ e.preventDefault(); e.stopPropagation(); cons
         maxExt:Math.max(extPrev,Math.min(room,nb.dur-0.05)),isAud, // `room` ya se mide desde el contacto → no se le suma extPrev
         startBase:cc.start,durBase:cc.dur,inPBase:inP0,
         kfBase:JSON.parse(JSON.stringify(cc.kf||{})),animBase:cc.anim?JSON.parse(JSON.stringify(cc.anim)):null,
-        pp,ppNb,ppBase:pp?{start:pp.start,dur:pp.dur,inP:pp.inP||0}:null,ppNbF0:ppNb?(ppNb[nbFk]||0):0,
+        pp,ppNb,ppBase:pp?{start:pp.start,dur:pp.dur,inP:pp.inP||0}:null,ppAuto:pp?capAuto(pp):null,ppNbF0:ppNb?(ppNb[nbFk]||0):0, // [R320] `ppAuto`: la automatización del partner congelada al empezar, como `kfBase` lo está para el clip agarrado
         f0eff:extPrev>0?-extPrev:(cc[which]||0)}; // geométrico si ya hay solape (fadeOut de vídeo no lo refleja); si no, el valor real (conserva un fade plano previo)
     } }
   /* al crecer/encoger por la IZQUIERDA el borde se come contenido: los keyframes son clip-locales, así que hay que
@@ -5484,7 +5506,12 @@ function startFadeDrag(e,c,which){ e.preventDefault(); e.stopPropagation(); cons
     for(const p in xf.kfBase){ const a=xf.kfBase[p].map(k=>({...k,t:k.t+sh,hOut:k.hOut?{...k.hOut}:undefined,hIn:k.hIn?{...k.hIn}:undefined})).filter(k=>k.t>=-1e-6); if(a.length)nk[p]=a; }
     cc.kf=nk;
     if(xf.animBase)cc.anim=xf.animBase.map(aa=>({...aa,wetKf:Array.isArray(aa.wetKf)?aa.wetKf.map(k=>({...k,t:k.t+sh})).filter(k=>k.t>=-1e-6):aa.wetKf})); };
-  const mirrorLink=()=>{ if(xf.pp)_mirrorLinkTrim(xf.cc,{start:xf.startBase,dur:xf.durBase,inP:xf.inPBase},xf.ppBase); };
+  /* [R320] Con instantánea. El crossfade es el SEXTO llamador de `_mirrorLinkTrim` —el que desmiente el «punto
+     único por el que pasan los cinco modos» que R314 escribió allí— y llamaba sin ella: el clip agarrado rebasaba
+     su curva (`rebaseKf`, justo arriba) y su mitad enlazada no, así que un crossfade sobre un par A/V descolgaba
+     la automatización del audio. La instantánea es fija durante todo el gesto, como `kfBase`, porque cada
+     fotograma recalcula desde la base. */
+  const mirrorLink=()=>{ if(xf.pp)_mirrorLinkTrim(xf.cc,{start:xf.startBase,dur:xf.durBase,inP:xf.inPBase},xf.ppBase,()=>xf.ppAuto); };
   const mv=ev=>{ const d=(ev.clientX-x0)/pps; if(d!==0&&!_undone){pushUndo();_undone=true;}
     for(const {cc,f0} of base){
       if(xf&&cc===xf.cc){
@@ -5776,14 +5803,21 @@ function beginFlatResize(c,h){ const CP0=clipPanel(c); if(!CP0)return null; // [
   const fx0=Math.hypot(P.fx[0],P.fx[1]), fy0=Math.hypot(P.fy[0],P.fy[1]);
   const rot=(evalR(c,'rot',t)||0)*D2R, u=[Math.cos(rot),Math.sin(rot)], v=[-Math.sin(rot),Math.cos(rot)];
   const anchor=[P.fc[0]-h.sx*P.fx[0]-h.sy*P.fy[0], P.fc[1]-h.sx*P.fx[1]-h.sy*P.fy[1]]; // opposite handle
-  const scale0=Math.max(0.001,(evalR(c,'scale',t)||100)/100), sxm0=(c.props.scaleX==null?1:c.props.scaleX), sym0=(c.props.scaleY==null?1:c.props.scaleY);
+  /* [R320] El gemelo del `||100` que R319 arregló en `flatPlace` (ver allí): el 0 es un valor legítimo de Scale
+     —el rango declarado es 0..1000— y tratarlo como «sin valor» daba 100. Aquí el efecto era peor que el de
+     `flatPlace`: agarrar un tirador de escala en un clip a escala 0 lo devolvía a tamaño completo antes incluso
+     de mover el ratón, y el gesto empezaba desde una geometría que no era la que se veía. */
+  const _sv0=evalR(c,'scale',t); const scale0=Math.max(0.001,((_sv0==null||_sv0!==_sv0)?100:_sv0)/100), sxm0=(c.props.scaleX==null?1:c.props.scaleX), sym0=(c.props.scaleY==null?1:c.props.scaleY);
   /* [R234b] El mismo desajuste que R234 arregló en el arrastre, aquí en la escala: toda esta geometría sale de
      `flatPlace`/`evalR` —lo que se VE, con el preset de movimiento y la modulación dentro— pero el centro se
      escribe con `manualEdit`, que toca la BASE. Se guarda el desplazamiento PROCEDIMENTAL para restarlo al
      escribir; así el tirador sigue donde se ve y la base no se come la animación. Es anterior a R234, pero es
      exactamente el mismo error de espacios. */
   const anim=[ (evalR(c,'x',t)||0)-(evalP(c,'x',t)||0), (evalR(c,'y',t)||0)-(evalP(c,'y',t)||0) ];
-  const animS=(evalR(c,'scale',t)||100)-(evalP(c,'scale',t)||100);
+  /* Mismo `||100`, misma corrección: aquí se resta el desplazamiento PROCEDIMENTAL, así que con `evalR`=0 y una
+     base de 50 el `||100` daba +50 en lugar de −50 y el tirador arrancaba desplazado media escala. */
+  const _svR=evalR(c,'scale',t), _svP=evalP(c,'scale',t);
+  const animS=((_svR==null||_svR!==_svR)?100:_svR)-((_svP==null||_svP!==_svP)?100:_svP);
   return {mode:'resizeFlat',id:c.id,sx:h.sx,sy:h.sy,Fx:M.Fx,Fy:M.Fy,fx0,fy0,u,v,anchor,scale0,sxm0,sym0,anim,animS,cur:_resizeCursor(h.sx,h.sy)}; }
 /* [R226·I3] modo de máscara: mientras está activo el lienzo edita PUNTOS, así que los gestos normales
    (seleccionar/mover/escalar clip, panear, orbitar) quedan suspendidos — un clic suelto crearía un punto y
@@ -6057,7 +6091,7 @@ function _renderInspectorMain(){
     row.innerHTML=`<span class="lab" style="width:auto;color:var(--ink-2);">${T('Mask to wall','Máscara a muro')}</span><div style="display:flex;flex-wrap:wrap;gap:6px;">`+
       room.walls.map(w=>{ const on=cur.includes(w.role); return `<button class="wmaskchip" data-role="${w.role}" style="font-size:11px;padding:3px 9px;border-radius:2px;border:.5px solid ${on?ROOM_ROLE_COL[w.role]:'rgba(255,255,255,0.14)'};background:${on?hexA(ROOM_ROLE_COL[w.role],0.28):'#24272C'};color:var(--ink);cursor:pointer;">${roomRoleLabel(w.role)}</button>`; }).join('')+`</div>`;
     host.appendChild(row);
-    row.querySelectorAll('.wmaskchip').forEach(b=>b.onclick=()=>{ const cc=selClip(); if(!cc)return; pushUndo(); const arr=(cc.props.maskWalls||[]).slice(); const r=b.dataset.role; const i=arr.indexOf(r); if(i>=0)arr.splice(i,1); else arr.push(r); if(arr.length)cc.props.maskWalls=arr; else delete cc.props.maskWalls; renderInspector(); render(); markDirty(); }); } }
+    row.querySelectorAll('.wmaskchip').forEach(b=>b.onclick=()=>{ const cc=selClip(); if(!cc)return; pushUndo(); const arr=(cc.props.maskWalls||[]).slice(); const r=b.dataset.role; const i=arr.indexOf(r); if(i>=0)arr.splice(i,1); else arr.push(r); if(arr.length)cc.props.maskWalls=arr; else delete cc.props.maskWalls; renderInspector(); raInvalidate(); render(); markDirty(); }); } }
   // Composition tools — when the selected clip is a nest created from a Compose, expose its layout controls + live dome schematic
   if(m && m.comp){ const g=m.comp; const cap=s=>s.charAt(0).toUpperCase()+s.slice(1);
     /* [R263] La lista de tipos del inspector era fija y de domo: le faltaban TÚNEL y TEJIDO, y no cambiaba a los
@@ -6122,11 +6156,11 @@ function _renderInspectorMain(){
   msrow.innerHTML=`<span class="kf" style="cursor:default;"></span><span class="lab">${T('Mask size','Tamaño máscara')}</span><input type="range" id="maskScaleR" min="20" max="200" value="${Math.round((c.props.maskScale||1)*100)}" style="flex:1;height:20px;"><div class="box"><span class="num" id="maskScaleV">${Math.round((c.props.maskScale||1)*100)}</span><span class="u">%</span></div>`;
   $('#fxRows').appendChild(msrow);
   const msShow=()=>{ const mk=(selClip()||c).props.mask||'none'; msrow.style.display=(mk!=='none'&&mk!=='custom')?'flex':'none'; };
-  msrow.querySelector('#maskScaleR').oninput=e=>{ const cc=selClip(); if(!cc)return; cc.props.maskScale=Math.max(0.2,(+e.target.value)/100); msrow.querySelector('#maskScaleV').textContent=(+e.target.value);   /* [R276c] el '%' vive ya en su propio <span class="u">, como en el resto de filas */ render(); };
+  msrow.querySelector('#maskScaleR').oninput=e=>{ const cc=selClip(); if(!cc)return; cc.props.maskScale=Math.max(0.2,(+e.target.value)/100); msrow.querySelector('#maskScaleV').textContent=(+e.target.value);   /* [R276c] el '%' vive ya en su propio <span class="u">, como en el resto de filas */ raInvalidate(); render(); };
   msrow.querySelector('#maskScaleR').onpointerdown=()=>pushUndo();   /* [R317] como eqPitch, fhAmt, penFe, penExp y el volumen: el arrastre empuja deshacer al agarrar */
   msrow.querySelector('#maskScaleR').onchange=()=>markDirty();
   mrow.querySelector('#maskSel').value=c.props.mask||'none';
-  mrow.querySelector('#maskSel').onchange=e=>{const cc=selClip();if(cc){pushUndo();cc.props.mask=e.target.value;render();} msShow();};
+  mrow.querySelector('#maskSel').onchange=e=>{const cc=selClip();if(cc){pushUndo();cc.props.mask=e.target.value;raInvalidate();render();} msShow();};
   msShow();
   mrow.querySelector('#maskUp').onclick=()=>{ const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.onchange=e=>{ const f=e.target.files[0]; if(!f)return; const url=URL.createObjectURL(f); const im=new Image(); im.onload=()=>{ const cc=selClip(); if(!cc)return; pushUndo();
     const big=Math.max(im.naturalWidth,im.naturalHeight)||1, s=Math.min(1,1024/big); const mc=document.createElement('canvas'); mc.width=Math.max(1,Math.round(im.naturalWidth*s)); mc.height=Math.max(1,Math.round(im.naturalHeight*s)); mc.getContext('2d').drawImage(im,0,0,mc.width,mc.height);
@@ -6609,7 +6643,7 @@ function buildAnimList(c){ const host=$('#animList'); if(!host)return; host.inne
         <input class="awet" type="range" min="0" max="100" value="${wetPct}" title="${T('Dry/wet 0–100% (multiplier)','Dry/wet 0–100% (multiplicador)')}" style="flex:1;height:15px;">
         <span class="awetv" style="font-size:11px;color:var(--ink-2);width:36px;text-align:right;">${wetPct}%${hasWK?' ◆':''}</span></div>`;
     item.querySelectorAll('.anum').forEach(el=>{ el.style.background='#24272C'; el.style.border='.5px solid rgba(255,255,255,0.12)'; el.style.borderRadius='2px'; el.style.color='#E8EAED'; el.style.fontSize='11px'; }); // [U-17] .asel now styled by the shared select rule (inline background here would wipe its chevron)
-    item.querySelector('.animon').onclick=()=>{ a.on=!a.on; buildAnimList(selClip()); render(); renderTimeline(); startMotionPreview(); markDirty(); };
+    item.querySelector('.animon').onclick=()=>{ pushUndo(); a.on=!a.on; buildAnimList(selClip()); render(); renderTimeline(); startMotionPreview(); markDirty(); }; // [R320] el único de los cinco de esta fila sin `pushUndo`: apagar un movimiento cambia lo que se ve y no se podía deshacer
     item.querySelector('.aparam').onchange=e=>{ pushUndo(); a.param=e.target.value; render(); startMotionPreview(); markDirty(); };
     item.querySelector('.amode').onchange=e=>{ pushUndo(); a.mode=e.target.value; if(a.mode==='wave'&&!a.amp)a.amp=15; buildAnimList(selClip()); render(); startMotionPreview(); markDirty(); };
     item.querySelector('.aspeed').onchange=e=>{ pushUndo(); a.speed=+e.target.value||0; render(); startMotionPreview(); markDirty(); };
@@ -6623,8 +6657,13 @@ function buildAnimList(c){ const host=$('#animList'); if(!host)return; host.inne
       buildAnimList(selClip()); render(); renderTimeline(); markDirty(); if(!anyAnim())stopMotionPreview(); };
     const wetR=item.querySelector('.awet'), wetV=item.querySelector('.awetv');
     wetR.addEventListener('pointerdown',()=>focusAutoParam(c,motKeyFor(a))); // [R224 · ítem 4] tocar el Mix pone SU curva a la vista
-    wetR.oninput=()=>{ animSetWet(a,c,(+wetR.value)/100); wetV.textContent=(+wetR.value)+'%'+(animHasWetKf(a,c)?' ◆':''); render(); startMotionPreview(); };
-    wetR.onchange=()=>markDirty();
+    /* [R320] El fader del Mix era el otro hueco de esta fila: ni `oninput` ni `onchange` empujaban deshacer, así
+       que llevar el Mix de 100 a 0 no se podía revertir con Ctrl+Z. Una foto por PÍXEL llenaría el historial, así
+       que se usa el mismo patrón que los demás arrastres de la app: la primera de cada gesto, y se rearma al
+       soltar (`onchange` sólo dispara al terminar). */
+    let wetUndone=false;
+    wetR.oninput=()=>{ if(!wetUndone){ pushUndo(); wetUndone=true; } animSetWet(a,c,(+wetR.value)/100); wetV.textContent=(+wetR.value)+'%'+(animHasWetKf(a,c)?' ◆':''); render(); startMotionPreview(); };
+    wetR.onchange=()=>{ wetUndone=false; markDirty(); };
     item.querySelector('.awetkf').onclick=()=>{ pushUndo(); animToggleWetKf(a,c); focusAutoParam(c,motKeyFor(a)); buildAnimList(selClip()); render(); renderTimeline(); startMotionPreview(); markDirty(); };
     host.appendChild(item); });
   /* [R278b] Esta lista se reconstruye desde sus propios manejadores (anadir, on/off, cambiar modo, borrar),
@@ -6761,7 +6800,7 @@ function startValDrag(e,p,mn,mx){ e.preventDefault(); const c=selClip(); const x
     if(!startValDrag._pushed){pushUndo();startValDrag._pushed=true;} manualEdit(c,p,nv); refreshInspector(); renderTimeline(); render(); };
   const up=()=>{startValDrag._pushed=false;window.removeEventListener('pointermove',mv);window.removeEventListener('pointerup',up);};
   window.addEventListener('pointermove',mv);window.addEventListener('pointerup',up); }
-$('#mirrorBtn').onclick=()=>{const c=selClip();if(!c)return;pushUndo();c.props.mirror=!c.props.mirror;$('#mirrorBtn').classList.toggle('on',c.props.mirror);render();};
+$('#mirrorBtn').onclick=()=>{const c=selClip();if(!c)return;pushUndo();c.props.mirror=!c.props.mirror;$('#mirrorBtn').classList.toggle('on',c.props.mirror);raInvalidate();render();};
 
 /* ===================== CURVE EDITOR ===================== */
 const CURVE_PARAMS=TF.concat(TF_FLAT).concat(FX);
@@ -8766,6 +8805,14 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
      y con un par de nests a la vista basta para tumbar el controlador (el «GPU reset» que reportó Beltrán).
      Se pierde el suavizado extra que daba componer el nest al doble y reducir; a cambio el export termina. */
   const ssExport = (opt.codec==='png') ? 1 : exportSS(qRes);
+  /* [R320] El fotograma de export, en UN solo sitio. Los tres bucles —FFmpeg, secuencia PNG a disco y secuencia
+     PNG a ZIP— repetían esta misma línea, y el `_arTime=t` que R314 añadió a la rama de DOMO entró sólo en la del
+     FFmpeg: las dos de PNG seguían exportando el domo con el reloj de los FX reactivos clavado en el instante del
+     cabezal donde se lanzó el render, sin aviso. Tercera vez que se olvida lo mismo, así que en lugar de un tercer
+     parche va un punto único. (La rama plana no lo necesita: `renderExportFrame` pone `_arTime` por dentro.)
+     `resDome` es lo único que difiere entre bucles: el de FFmpeg pinta a `eW`, los de PNG a `res`. */
+  const pintarFotograma=(t,resDome)=>{ if(flat)renderExportFrame(t,qRes,ssExport,wall);
+    else { _arTime=t; composite(t,resDome,false); gl.finish(); } };
   { const glMaxTex=gl.getParameter(gl.MAX_TEXTURE_SIZE)||8192; nestSize=Math.min(qRes*ssExport, glMaxTex, 8192); }
   let expOut=null; // R82: the written file/folder → offer to reveal it after a successful export
   try{
@@ -8913,12 +8960,7 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
         for(let i=0;i<total;i++){
           if(cancelExport)break;
           const t=t0+i/fps; await seekExport(t); prepNests(state.clips,t,0);
-          /* [R314] `_arTime=t` también aquí. `renderExportFrame` es el ÚNICO sitio que lo avanza durante un
-             export (`_renderNucleo` está parado por `exporting`), así que el camino de domo —que llama a
-             `composite` directo— dejaba el reloj de los FX reactivos clavado en el instante del cabezal donde
-             se lanzó el render: el máster salía con la modulación congelada, sin aviso. El arreglo A7 de R313
-             no lo cubría: las bandas estaban listas, pero el reloj que las consulta no se movía. */
-          if(flat){ renderExportFrame(t,qRes,ssExport,wall); } else { _arTime=t; composite(t,eW,false); gl.finish(); }
+          pintarFotograma(t,eW);   /* [R314 · unificado en R320] ver `pintarFotograma`: el reloj de los FX reactivos */
           if(chapa){ const c=chapaContador(eW,eH,i,fps);
             chapa.cont=chapa.subir(c.cv,chapa.cont); chapa.x=c.x; chapa.y=c.y; chapa.w=c.w; chapa.h=c.h; }
           const buf=nv12Read(exLienzoATex(eW,eH),eW,eH,esDome,chapa);   /* [R310·A2] el LIENZO recien dibujado, no `compTex` — ver exLienzoATex */
@@ -8950,7 +8992,7 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
     } else if(opt.codec==='png'){ const pad=Math.max(6,String(total).length), fnum=i=>String(i+1).padStart(pad,'0'); // [R96] IMERSA/AFDI Dome Master Spec: 6-digit frame number STARTING AT 1 ("Name_000001.png"). We shipped base-0 with a padding that shrank with the take length ("dome_000.png") — a planetarium can't ingest that without renaming every frame, and two exports of different lengths sorted inconsistently.
       /* [R286c] El respaldo en ZIP es una entrega mas: pasa por `chapaLienzo` igual que el streaming a disco.
          Antes salia sin recorte al circulo y sin datos de esquina, sin avisar de nada. */
-      const renderFrame=async i=>{ const t=t0+i/fps; await seekExport(t); prepNests(state.clips,t,0); if(flat){ renderExportFrame(t,qRes,ssExport,wall); } else { composite(t,res,false); gl.finish(); } if(job.frame)job.frame(i,total);
+      const renderFrame=async i=>{ const t=t0+i/fps; await seekExport(t); prepNests(state.clips,t,0); pintarFotograma(t,res); if(job.frame)job.frame(i,total);
         opt.slate=opt.slate||{on:false}; opt.slate.bgBlack=(opt.pngBg==='black');
         const q=chapaLienzo(glc,opt,t,i,total,fps);
         return await new Promise(r=>q.toBlob(r,'image/png')); };
@@ -8958,7 +9000,7 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
          PNG se lleva el 59% del fotograma (152 ms de 257) y mientras tanto la GPU y el disco están parados. Como
          `toBlob` trabaja sobre una INSTANTÁNEA del lienzo, se puede empezar el fotograma siguiente sin esperarla. */
       const pintar=async i=>{ const t=t0+i/fps; await seekExport(t); prepNests(state.clips,t,0);
-        if(flat){ renderExportFrame(t,qRes,ssExport,wall); } else { composite(t,res,false); gl.finish(); }
+        pintarFotograma(t,res);
         if(job.frame)job.frame(i,total); };
       if(IS_ELEC && DSP.chooseExportDir){ // stream to disk, no RAM buildup (handles 75-min 4K+)
         const dir=opt.outDir||await DSP.chooseExportDir();   // [R188] `outDir` salta el diálogo nativo: simetría con el `outPath` que ya usa el MP4, y sin él la secuencia PNG no se puede probar de punta a punta
@@ -9917,10 +9959,18 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
   /* [R319] Sonda de FFmpeg, UNA vez por sesion: `dsp:ffProbe` lanza el binario con `-encoders` y eso cuesta,
      asi que repetirlo en cada repintado del desplegable (que ocurre al cambiar tamano, fps o formato) seria
      caro. `null` = todavia sin preguntar. */
-  let _ffHay=null;
-  async function ffDisponible(){ if(_ffHay!=null)return _ffHay;
-    try{ _ffHay=!!(IS_ELEC&&DSP.ffProbe&&await DSP.ffProbe()); }catch(e){ _ffHay=false; }
-    return _ffHay; }
+  /* [R320] Se sondea el CODIFICADOR, no el binario. `dsp:ffProbe` ya devuelve `{path,h264:[…],hevc:[…]}` —la
+     lista de lo que ESE FFmpeg dice traer— y esto se limitaba a comprobar que el objeto existiera. Un FFmpeg sin
+     libx265 (lo normal en las compilaciones mínimas) ofrecía igualmente la fila de H.265: el usuario montaba el
+     render entero y sólo al arrancar oía «Este FFmpeg no trae ningún codificador para ese formato». La
+     comprobación que `runExport` ya hacía se adelanta aquí, que es donde se decide qué ofrecer.
+     `undefined` = sin sondear · `null` = sondeado y no hay FFmpeg (así no se resondea en cada repintado). */
+  let _ffCap=undefined;
+  async function ffDisponible(v){
+    if(_ffCap===undefined){ try{ _ffCap=(IS_ELEC&&DSP.ffProbe)?(await DSP.ffProbe())||null:null; }catch(e){ _ffCap=null; } }
+    if(!_ffCap)return false;
+    const lista=/hevc/i.test(v||'')?_ffCap.hevc:_ffCap.h264;
+    return !!(lista&&lista.length); }
   let _cdTok=0;
   async function exCodecList(){ const tok=++_cdTok, sel=$$('#exCodec'); if(!sel)return;
     /* [R194] Lo que hay que sondear es lo que se va a CODIFICAR, no lo que se ve en el panel. En la sala por
@@ -9939,7 +9989,7 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
          sin FFmpeg el desplegable los ofrecia igual, Exportar quedaba pulsable, y el trabajo moria en marcha con
          «FFmpeg no esta disponible». Ahora se sondea una vez y, si no esta, salen marcados como el resto de lo
          que no cabe aqui. */
-      if(c.ff){ filas.push({c,cabe:await ffDisponible(),tope:null}); continue; }
+      if(c.ff){ filas.push({c,cabe:await ffDisponible(c.v),tope:null}); continue; } // [R320] por fila: `ffh264` y `ffhevc` no dependen del mismo codificador
       if(!c.kind){ filas.push({c,cabe:true,tope:null}); continue; }   // PNG/HAP sólo dependen de MAX_TEXTURE_SIZE
       if(!HAS_WC){ filas.push({c,cabe:false,tope:null}); continue; }
       const cabe=await exCabeCodec(c.kind,p.w,p.h,S.fps);
@@ -9954,7 +10004,10 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
     const row=$$('#exCodecHintRow'), hint=$$('#exCodecHint');
     if(row&&hint){ if(S.codecOk){ row.style.display='none'; hint.textContent=''; hint.title=''; }
       else { row.style.display='flex';
-        const nom=(mio.c.v==='hevc')?'H.265':'H.264';
+        /* [R320] Salía de comparar con `'hevc'` a secas, así que la fila de HEVC por FFmpeg (`ffhevc`) se
+           anunciaba como «H.264 no llega a …»: el usuario leía un códec que no había elegido. Se deduce del
+           identificador de la fila, que es quien lo sabe, y las demás caen a su propio nombre en mayúsculas. */
+        const nom=/hevc/i.test(mio.c.v)?'H.265':(/264/.test(mio.c.v)||mio.c.kind==='h264')?'H.264':String(mio.c.v||'').toUpperCase();
         const msg=mio.tope
           ? nom+T(' does not reach ',' no llega a ')+p.w+' × '+p.h+T(' on this machine (max ',' en este equipo (máx. ')+mio.tope.w+' × '+mio.tope.h+T('). Lower the size or pick another format.','). Baja el tamaño o elige otro formato.')
           : nom+T(' is not available on this machine.',' no está disponible en este equipo.');
@@ -10099,7 +10152,11 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
   /* [R190] Cerrar con un render vivo lo CANCELA antes de irse. Antes se cerraba el panel y el render seguía a
      ciegas: sin monitor, sin barra y sin forma de pararlo salvo reabrir. Terminado o en reposo, cierra y ya. */
   const cerrarOCancelar=()=>{ if(S.phase==='run'||S.phase==='pause')cancelarRender(); close(); };
-  const onKey=e=>{ if(!ov.isConnected){document.removeEventListener('keydown',onKey,true);return;} /* [R218] guarda de conexión */ if(e.key!=='Escape')return;
+  /* [R320] `ovTop`, como los cuadros de `appConfirm`/`appPrompt` desde R312. Esto escucha en CAPTURA sobre
+     `document` y para la propagación, así que sin la guarda un Escape pulsado con un cuadro ENCIMA —el «¿Cancelar
+     este render?», por ejemplo— no cerraba ese cuadro sino la hoja de export de debajo, y de paso cancelaba el
+     render en marcha. Es el gemelo que R312 dejó fuera. */
+  const onKey=e=>{ if(!ov.isConnected){document.removeEventListener('keydown',onKey,true);return;} /* [R218] guarda de conexión */ if(!ovTop(ov))return; if(e.key!=='Escape')return;
     const t=e.target; if(t&&t.closest&&t.closest('input,select'))return; // `closest` no existe en `document`: sin esta guarda, Esc lanzaba un TypeError y la hoja no cerraba
     e.preventDefault(); e.stopPropagation(); cerrarOCancelar(); };
   document.addEventListener('keydown',onKey,true);
@@ -10947,10 +11004,15 @@ async function openProject(skipConfirm){ if(!(await confirmDiscard(skipConfirm))
        anterior ya liberados, el historial borrado y `currentPath` APUNTANDO AL ARCHIVO NUEVO — de modo que un
        Ctrl+S posterior escribia ese estado a medias encima del bueno. `openProjectPath` (el doble clic) si
        capturaba; este camino se quedo fuera. Se conserva la ruta anterior si la carga falla. */
-      const _rutaPrev=currentPath; currentPath=p; hideLanding();
+      currentPath=p; hideLanding();
       try{ loadProject(await maybeOfferAutosave(p,obj)); }
-      catch(err){ console.error('loadProject',err); currentPath=_rutaPrev;
-        appAlert(T('That project could not be opened — the file looks damaged. Nothing was changed on disk.','Ese proyecto no se pudo abrir — el archivo parece dañado. No se ha modificado nada en el disco.')); } } // hide the landing FIRST so the recovery prompt (if any) shows on a clean screen, not buried behind the start screen
+      catch(err){ console.error('loadProject',err);
+        /* [R320] `currentPath=null`, NO la ruta anterior. R319 reponia la ruta del proyecto que estaba bien, y
+           como `saveProject` solo abre dialogo cuando NO hay ruta, un Ctrl+S posterior escribia el estado a
+           medias ENCIMA del proyecto bueno, sin preguntar. Sin ruta, cualquier guardado pide nombre nuevo y no
+           se puede pisar nada por accidente. El aviso dice lo que hay: el editor quedo en un estado a medias. */
+        currentPath=null; try{ projTitle(); }catch(e){}
+        appAlert(T('That project could not be opened — the file looks damaged. The editor was left half-loaded, so open a project again before working. Nothing was written to disk.','Ese proyecto no se pudo abrir — el archivo parece dañado. El editor ha quedado a medio cargar: vuelve a abrir un proyecto antes de trabajar. No se ha escrito nada en el disco.')); } } // hide the landing FIRST so the recovery prompt (if any) shows on a clean screen, not buried behind the start screen
   else { $('#projInput').click(); } }
 /* [R175] Cada salida de aquí tiene que soltar el splash. Si el archivo no se puede leer, no es JSON válido o el
    usuario cancela, `_bootEsperandoProyecto` se quedaría en true y el editor NO aparecería nunca: el splash se
@@ -11170,7 +11232,7 @@ function resetProjDefaults(){ state.seqMode='dome'; state.seqCov=180;
      archivos que se importan, y con una carpeta del mismo nombre en el proyecto nuevo, Delete borraba la suya
      con sus medios sin que el usuario la hubiera seleccionado nunca. */
   state.selFolder=null; state.mediaFolder=null;
-  /* [R310·A13] Y la CUARTA aparicion de la misma familia, que la auditoria exhaustiva encontro viva: la
+  /* [R311·A13] Y la CUARTA aparicion de la misma familia, que la auditoria exhaustiva encontro viva: la
      biblioteca de automatizacion, los preajustes de export y el zoom de la linea de tiempo. Los tres los
      ESCRIBE `serProject`, asi que File→New heredaba los del proyecto abierto y los fijaba en el `.isp` nuevo.
      (El camino de CARGA no lo sufria: `loadProject` los asigna explicitamente leyendo el archivo. El hueco
@@ -11187,7 +11249,27 @@ function resetProjDefaults(){ state.seqMode='dome'; state.seqCov=180;
      después; esto sólo garantiza el suelo. */
   state.fps=60;
   resetProjView(); }
-function loadProject(obj){ relinkReset(); // [R204] el índice de reenlace es de ESTE proyecto: se tira al cargar otro
+/* [R320] `loadProject` MUESTRA la pantalla de carga, asi que `loadProject` la suelta — pase lo que pase. El
+   cuerpo va envuelto y el `finally` la retira si algo revienta a mitad.
+   Por que aqui y no en los catch de los llamadores: son SIETE (`openProject`, `openProjectPath`, la oferta de
+   autoguardado del arranque, `restoreAutosave` ×2, el historial de recuperacion y el `#projInput` del
+   navegador) y TODOS tienen el mismo agujero. R319 puso un catch en uno solo y ni siquiera cerro el velo: un
+   `.isp` con la estructura rota dejaba «Loading project…» a pantalla completa, con su bucle de logo vivo,
+   sin mas salida que matar la aplicacion. Arreglarlo en los siete catch habria sido el mismo error que este
+   repaso encontro ocho veces: arreglar la copia y dejar el original.
+   OJO: `hideLoadingScreen` NO se llama en el camino feliz — ahi la quita `loadingWaitMedia` cuando los medios
+   terminan de cargar, que es lo que se quiere. El `finally` solo actua si se sale por excepcion. */
+function loadProject(obj){ let ok=false;
+  try{ const r=_loadProjectCore(obj); ok=true; return r; }
+  finally{ if(!ok){
+    try{ hideLoadingScreen(); }catch(e){}
+    /* Y si reventamos DURANTE el arranque, el que se queda colgado no es el velo sino el splash: sin esto
+       `_bootEsperandoProyecto` sigue en true y el editor no se revela hasta el cortafuegos de 35 s. */
+    try{ bootProyectoListo(); }catch(e){}
+    diag('error','proyecto','loadProject reventó a mitad');
+  } }
+}
+function _loadProjectCore(obj){ relinkReset(); // [R204] el índice de reenlace es de ESTE proyecto: se tira al cargar otro
   resetProjDefaults(); // [R242·Aud-2.1] fábrica ANTES de leer `obj`: lo que el archivo no diga, no se hereda
   /* [R282] Los datos de esquina son de la OBRA, así que viajan en el .isp. `resetProjDefaults` acaba de
      dejarlos en blanco, y aquí se recuperan los del archivo (o se quedan en blanco si es de antes). */
@@ -11217,7 +11299,7 @@ function loadProject(obj){ relinkReset(); // [R204] el índice de reenlace es de
   for(const m of state.media) if(m.kind==='nest'&&m.ncPath) ncReattach(m); // [R180] los cachés de nest se re-enganchan al reabrir; la firma decide si siguen valiendo (va después del bucle: nestSig desciende a otros medios) // text/shape re-render from params; nest = a sequence (keeps its own w/h/fps)
   for(const m of state.media)if(m.missing===false)m._loading=false; // text/shape/ndi/nest are ready synchronously → not loading
   let mx=0; const fxMx=c=>{ if(c&&c.fx)for(const f of c.fx)mx=Math.max(mx,f.id||0); }; for(const c of state.clips){mx=Math.max(mx,c.id);fxMx(c);} for(const l of state.lanes)mx=Math.max(mx,l.id); for(const m of state.media){ mx=Math.max(mx,m.id); if(m.nestClips)for(const c of m.nestClips){mx=Math.max(mx,c.id);fxMx(c);} if(m.nestLanes)for(const l of m.nestLanes)mx=Math.max(mx,l.id); if(m.nestMarkers)for(const k of m.nestMarkers)mx=Math.max(mx,k.id); if(m.nestGroups)for(const g of m.nestGroups)mx=Math.max(mx,g.id); if(m.comp&&m.comp.id)mx=Math.max(mx,m.comp.id); } for(const g of (state.groups||[]))mx=Math.max(mx,g.id); for(const k of state.markers)mx=Math.max(mx,k.id);
-  /* [R310·A13] Los ids de la biblioteca de automatizacion tambien cuentan. No estaban: se crean con `uid()`
+  /* [R311·A13] Los ids de la biblioteca de automatizacion tambien cuentan. No estaban: se crean con `uid()`
      igual que todo lo demas, pero un item puede SOBREVIVIR a los clips que lo usaban (se borran los clips, el
      item se queda en la biblioteca). Si esos clips llevaban los ids altos, `_id` quedaba por debajo del id del
      item y el siguiente `uid()` podia repetirlo: `ensureItems()[it.id]=it` lo sobrescribe y todos los clips con
@@ -13357,10 +13439,10 @@ function deleteGroup(id,keepClips){ pushUndo(); const g=groupById(id); if(!g)ret
   state.groups=state.groups.filter(x=>x.id!==id); if(state.selGroupId===id)state.selGroupId=null;
   renderTimeline(); renderInspector(); render(); updStatus(); }
 /* transform whole group by delta, preserving per-member individual offsets */
-function groupSpin(g,val){ const d=val-g.spin; g.spin=val; for(const c of groupMembers(g)) c.props.az=((c.props.az+d)%360+360)%360; render(); }
-function groupRaise(g,val){ const base=(g._elB!=null?g._elB:g.el), d=val-base; g.el=val; for(const c of groupMembers(g)) c.props.el=Math.max(0,Math.min(90,(c._elB!=null?c._elB:c.props.el)+d)); render(); }
-function groupScale(g,val){ const base=(g._szB!=null?g._szB:g.size)||1, r=val/base; g.size=val; for(const c of groupMembers(g)) c.props.size=Math.max(5,Math.min(300,(c._szB!=null?c._szB:c.props.size)*r)); render(); } // 300 = new TF size max (R88 audit: was still 160)
-function groupSetMask(g,mk){ g.mask=mk; for(const c of groupMembers(g)) c.props.mask=mk; render(); }
+function groupSpin(g,val){ const d=val-g.spin; g.spin=val; for(const c of groupMembers(g)) c.props.az=((c.props.az+d)%360+360)%360; raInvalidate(); render(); }
+function groupRaise(g,val){ const base=(g._elB!=null?g._elB:g.el), d=val-base; g.el=val; for(const c of groupMembers(g)) c.props.el=Math.max(0,Math.min(90,(c._elB!=null?c._elB:c.props.el)+d)); raInvalidate(); render(); }
+function groupScale(g,val){ const base=(g._szB!=null?g._szB:g.size)||1, r=val/base; g.size=val; for(const c of groupMembers(g)) c.props.size=Math.max(5,Math.min(300,(c._szB!=null?c._szB:c.props.size)*r)); raInvalidate(); render(); } // 300 = new TF size max (R88 audit: was still 160)
+function groupSetMask(g,mk){ g.mask=mk; for(const c of groupMembers(g)) c.props.mask=mk; raInvalidate(); render(); }
 function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
   /* [R253] Un solo diálogo a la vez. Abrir otro con uno puesto apilaba dos cuadros y dejaba `_composeDrop`
      apuntando sólo al último, así que arrastrar un medio alimentaba la cesta de un diálogo distinto del que se
@@ -13557,7 +13639,7 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
       if(mm==='ring')show=(kind==='ring'); else if(mm==='grid')show=(kind==='grid'); else if(mm==='spiralwave')show=(kind==='spiral'||kind==='wave'); else if(mm==='line')show=(kind==='line');
       else if(mm==='domegrid')show=(kind==='domegrid');
       else if(mm==='shuffle')show=(kind==='domegrid'||kind==='weave'); // [R265] el tejido tambien baraja que fuente va a cada tira
-      /* [R310·A11] Esta linea estaba TRAGADA por el comentario de la de arriba: iba en la misma linea fisica,
+      /* [R311·A11] Esta linea estaba TRAGADA por el comentario de la de arriba: iba en la misma linea fisica,
          despues del `//`, asi que no se ejecutaba. Consecuencia: `mm==='count'` caia al `else show=false` del
          final y la fila «Cantidad» no aparecia NUNCA en una secuencia de domo — toda composicion nueva (anillo,
          espiral, girasol, onda, esparcido, linea, tunel, aleatorio) salia con los 6 elementos por defecto y no
@@ -14170,20 +14252,35 @@ async function computeSpectrum(ab){ if(!ab)return null;
   return {data:out,frames:n,bins:SPEC_BINS,fps:AR_FPS,f0:SPEC_F0,f1:SPEC_F1}; }
 /* the raw envelope of an arbitrary f0..f1 window, built on demand from the spectrum and cached on the media */
 function specRangeRaw(f0,f1){ const m=_arCache&&_arCache.clip&&mediaById(_arCache.clip.mediaId); const sp=m&&m.spec; if(!sp)return null;
-  /* [R318] La ganancia y la puerta van HORNEADAS en el resultado (ver el bucle de abajo), así que forman parte
-     de la identidad de lo cacheado y tienen que estar en la clave. No estaban: mover Gain o Gate actualizaba
-     las cuatro bandas nombradas pero los moduladores de rango de frecuencia a medida seguían con la ganancia
-     vieja hasta acumular 24 entradas o recargar el proyecto. Se prefiere ampliar la clave a vaciar la caché en
-     `arRecompute`: arrastrar el fader la llama en cada píxel, y recomputar el espectro de una pista de 75
-     minutos en cada tic sería inasumible; así, ir y volver con el fader reutiliza lo ya calculado. */
+  /* [R318 -> R320] La ganancia y la puerta van HORNEADAS en el resultado, asi que el resultado no se puede
+     cachear ignorandolas — ese era el fallo de R318. Pero meterlas en la CLAVE, que fue el arreglo de R318,
+     salio mucho peor: el fader de Gain recorre 0..300 en pasos de uno, asi que cada pixel del arrastre era una
+     clave nueva y por tanto una integracion completa del espectro (frames x bins ≈ 13 M iteraciones, medido en
+     24,7 ms) mas 1,5 MB reservados; y el tope de 24 entradas saltaba doce veces en un solo arrastre, de modo
+     que el «ir y volver reutiliza lo calculado» que decia aquel comentario era falso.
+     Lo que se cachea ahora es lo que NO depende de esos dos mandos: la media cruda de los bins del rango, con
+     la clave de siempre y UNA entrada por rango. La puerta y la ganancia se aplican despues, en una pasada
+     lineal sobre un bufer reutilizado — medido 0,83 ms, treinta veces menos, y sin perder la correccion.
+     (Y el dato que aquel comentario daba mal: la pista de 75 minutos no son 135k fotogramas sino 405k, porque
+     el ritmo del analisis es AR_FPS=90, no 30.) */
   const cfg=ensureReactive();
-  const key='r'+Math.round(f0)+'-'+Math.round(f1)+'|g'+cfg.gain+'|q'+cfg.gate; m._specRaw=m._specRaw||{}; if(m._specRaw[key])return m._specRaw[key];
-  const edges=specBandEdges(); const lo=Math.min(f0,f1), hi=Math.max(f0,f1);
-  const out=new Float32Array(sp.frames); const g=Math.max(0,cfg.gain/100), gate=Math.max(0,Math.min(0.95,cfg.gate/100)), gs=1/Math.max(0.05,1-gate);
-  for(let f=0;f<sp.frames;f++){ let acc=0,cnt=0;
-    for(let b=0;b<sp.bins;b++){ const c0=edges[b],c1=edges[b+1]; if(c1<lo||c0>hi)continue; acc+=sp.data[f*sp.bins+b]; cnt++; }
-    let x=cnt?acc/cnt:0; x=(x-gate)*gs; if(x<0)x=0; x*=g; out[f]=x>1?1:x; }
-  if(Object.keys(m._specRaw).length>24)m._specRaw={}; m._specRaw[key]=out; return out; }
+  const key='r'+Math.round(f0)+'-'+Math.round(f1); m._specRaw=m._specRaw||{};
+  let crudo=m._specRaw[key];
+  if(!crudo){
+    const edges=specBandEdges(); const lo=Math.min(f0,f1), hi=Math.max(f0,f1);
+    crudo=new Float32Array(sp.frames);
+    for(let f=0;f<sp.frames;f++){ let acc=0,cnt=0;
+      for(let b=0;b<sp.bins;b++){ const c0=edges[b],c1=edges[b+1]; if(c1<lo||c0>hi)continue; acc+=sp.data[f*sp.bins+b]; cnt++; }
+      crudo[f]=cnt?acc/cnt:0; }
+    if(Object.keys(m._specRaw).length>24)m._specRaw={}; m._specRaw[key]=crudo;
+  }
+  /* El bufer de salida se reutiliza por rango: el consumidor (`modAudioEnv`) lo lee y lo moldea en el acto,
+     nunca lo retiene. Asi un arrastre del fader no reserva 1,5 MB por pixel. */
+  m._specOut=m._specOut||{}; let out=m._specOut[key];
+  if(!out||out.length!==sp.frames){ out=new Float32Array(sp.frames); if(Object.keys(m._specOut).length>24)m._specOut={}; m._specOut[key]=out; }
+  const g=Math.max(0,cfg.gain/100), gate=Math.max(0,Math.min(0.95,cfg.gate/100)), gs=1/Math.max(0.05,1-gate);
+  for(let f=0;f<sp.frames;f++){ let x=(crudo[f]-gate)*gs; if(x<0)x=0; x*=g; out[f]=x>1?1:x; }
+  return out; }
 function armMediaSpectrum(m,ab){ if(!m||m.spec||m._specBusy)return; if(!ab)ab=m.buffer; if(!ab)return; m._specBusy=true;
   computeSpectrum(ab).then(sp=>{ m.spec=sp; m._specBusy=false; try{ if(_modPanel)refreshModFormula(); }catch(e){} }).catch(()=>{ m._specBusy=false; }); }
 async function computeBands(ab){ if(typeof OfflineAudioContext==='undefined'||!ab)return null;
@@ -14276,7 +14373,15 @@ function fxEnvFor(fx){ if(!_arCache)return null; const cfg=ensureReactive();
   if(spr>0){ const k=30+(spr/100)*(spr/100)*900, zeta=0.28, cd=2*Math.sqrt(k)*zeta, h=dt/2; // 2 substeps → stable Euler at 90fps
     let p=0,v=0; const out=new Float32Array(arr.length);
     for(let i=0;i<arr.length;i++){ for(let s2=0;s2<2;s2++){ const acc=k*(arr[i]-p)-cd*v; v+=acc*h; p+=v*h; } out[i]=p<0?0:p; } arr=out; }
-  if(_fxEnvCache.size>128)_fxEnvCache.clear(); _modAudioCache.clear(); // bounded: fader drags create one entry per step; cap + full reset keeps memory flat (arrays rebuild lazily)
+  /* [R320] Aqui NO va `_modAudioCache.clear()`. R318 lo metio con un reemplazo masivo de `_fxEnvCache.clear();`
+     y este sitio es el unico de los seis cuyo `if` NO LLEVA LLAVES: el segundo `clear()` quedaba fuera de la
+     condicion y se ejecutaba en CADA fallo de cache de esta funcion. Como la clave incluye `atk|rel|spr`, que
+     son faders arrastrables, cada movimiento del raton vaciaba las 64 envolventes de los moduladores y cada uno
+     rehacia la suya sobre la pista entera (~0,8 ms x N moduladores por pointermove).
+     Y tampoco hace falta: `_modAudioCache` deriva de `_arCache.raw`, que esta funcion no toca, y ya tiene su
+     propio tope en `modAudioEnv`. Los cinco sitios correctos (arRecompute, los tres reinicios de proyecto y
+     `restore`) siguen puestos. */
+  if(_fxEnvCache.size>128)_fxEnvCache.clear(); // bounded: fader drags create one entry per step; cap + full reset keeps memory flat (arrays rebuild lazily)
   _fxEnvCache.set(key,arr); return arr; }
 /* response shaping: curve 0..100 → exponent 0.25..4 (50 = linear), then optional invert */
 function fxShape(fx,v){ v=Math.min(1.25,Math.max(0,v)); const cu=fx.curve!=null?fx.curve:50;
