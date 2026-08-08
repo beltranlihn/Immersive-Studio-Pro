@@ -43,10 +43,13 @@ const f = await ev(`(async()=>{ try{
     spLive  : /m\\.kind==='spout'\\)\\?m\\._spLive:m\\._ndiLive/.test(t),
     psNdi   : /function startNDI\\(res\\)\\{ if\\(_ndiOn\\)stopNDI\\(\\)/.test(t),
     psSpout : /function startSpout\\(res\\)\\{ if\\(_spoutOn\\)stopSpout\\(\\)/.test(t),
-    /* [R320] R319 capturaba el fallo pero REPONIA la ruta del proyecto anterior, que estaba bien: como
-       saveProject solo abre dialogo cuando no hay ruta, un Ctrl+S posterior escribia el estado a medias
-       encima del proyecto bueno y sin preguntar. Ahora se deja SIN ruta. */
-    openTry : /currentPath=p; hideLanding\\(\\);\\s*try\\{ loadProject/.test(t) && /catch\\(err\\)\\{[\\s\\S]{0,200}?currentPath=null;/.test(t),
+    /* [R320 -> R322] R319 capturaba el fallo pero REPONIA la ruta del proyecto anterior, que estaba bien: como
+       saveProject solo abre dialogo cuando no hay ruta, un Ctrl+S posterior escribia el estado a medias encima
+       del proyecto bueno y sin preguntar. R320 lo dejo sin ruta, pero SOLO en el catch de openProject; los otros
+       seis caminos de carga seguian igual. R322 lo movio al finally de loadProject, que es por donde pasan los
+       siete, asi que la comprobacion ya no es sobre el catch del menu sino sobre el envoltorio. */
+    openTry : /currentPath=p; hideLanding\\(\\);\\s*try\\{ loadProject/.test(t)
+              && /function loadProject\\(obj\\)\\{[\\s\\S]{0,1600}?finally\\{[\\s\\S]{0,1200}?currentPath=null;/.test(t),
   };
 }catch(e){ return {err:String(e&&e.message||e)}; } })()`);
 if(f.err) mal('no se pudo leer el fuente: '+f.err);

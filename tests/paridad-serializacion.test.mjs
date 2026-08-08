@@ -11,15 +11,26 @@
      · R311  — `autoItems` y `exportPresets`.
      · R315  — `fps`. Y éste lo encontró un repaso de código, NO este test: es el que obligó a endurecerlo.
 
-   QUÉ COMPRUEBA, Y POR QUÉ ASÍ (R320). Se comparan FUENTES DE DATOS, no nombres de clave. Para cada campo del
-   objeto que devuelve `serProject` se miran los `state.X` que aparecen en su VALOR, y se exige que cada uno de
-   ellos reciba un valor de fábrica. Comparar nombres de clave no servía: `inlineCurves` se guarda dentro del
-   bloque `tl` (o sea, como `tl.inlineCurves`) pero vive en `state.inlineCurves`, así que por nombre nunca
-   casaban — y la regla «si el bloque padre se reasigna entero, doy por cubiertos sus hijos» tapaba el desajuste
-   dando por buenas TODAS las claves de `tl`, incluida la única que la cabecera cita como motivo de existir.
-   Mirando el valor, `tl:{…inlineCurves:!!state.inlineCurves…}` exige `state.inlineCurves`, que es lo correcto.
+   QUÉ COMPRUEBA, Y POR QUÉ ASÍ (R320, corregido en R322). Se comparan FUENTES DE DATOS, no nombres de clave.
+   Para cada campo del objeto que devuelve `serProject` se miran los `state.X` que aparecen en su VALOR, y se
+   exige que cada uno de ellos reciba un valor de fábrica. Comparar nombres de clave no servía: `inlineCurves` se
+   guarda dentro del bloque `tl` (o sea, como `tl.inlineCurves`) pero vive en `state.inlineCurves`, así que por
+   nombre nunca casaban. Mirando el valor, `tl:{…inlineCurves:!!state.inlineCurves…}` exige `state.inlineCurves`.
    Como efecto secundario desaparecen dos exentos: los campos con valor literal (`app:'DomeStudioPro'`, `v:3`)
-   no leen nada de `state` y ya no hay nada que exigirles.
+   no leen nada de `state` y no hay nada que exigirles.
+
+   AVISO SOBRE LO QUE ESTA CABECERA DIJO ANTES. R320 afirmó aquí que el cambio a fuentes de datos cerraba la
+   exención en bloque de `tl`. **No la cerraba**, y lo demostró un repaso posterior con una mutación de una línea:
+   añadiendo `quantizePRUEBA:state.tl.quantizePRUEBA` a `serProject` sin resetearlo, el test seguía verde. La
+   causa estaba en `reseteosDe`, que ante `state.tl.bpm=120` añadía TAMBIÉN la cadena `tl`, y `cubierto` aceptaba
+   el padre. R322 lo cierra: una asignación a un hijo ya no cubre al padre. Escrito aquí, y no borrado, porque el
+   fallo de este fichero no fue el análisis sino haber declarado cerrado algo sin mutarlo para comprobarlo.
+
+   LAS TRES MUTACIONES QUE TIENEN QUE HACERLO FALLAR (comprobadas una a una en R322, y la forma honesta de
+   verificar un cambio en este fichero — si no falla con las tres, el endurecimiento es decorativo):
+     a) `tl:{quantizePRUEBA:state.tl.quantizePRUEBA,…}` sin resetear  → «tl.quantizePRUEBA ← state.tl.quantizePRUEBA»
+     b) `geoPRUEBA:activeSeq()` como campo nuevo                       → «geoPRUEBA ← valor OPACO (activeSeq())»
+     c) `if(!isRoom()){ state.inlineCurves=false; }`                   → «tl.inlineCurves ← state.inlineCurves»
 
    LAS TRES VÍAS DE FALSO APROBADO QUE SE CERRARON EN R315, y siguen cerradas:
      1. `cuerpoDe` contaba llaves sobre el fuente CRUDO y limpiaba los comentarios DESPUÉS. Una llave
@@ -33,7 +44,13 @@
         [R320] Aquel filtro sólo miraba la sentencia, así que un `if` CON LLAVES —`if(x){ state.foo=1; }`, que
         es como se escribe casi siempre— se le escapaba entero. Ahora sube por los bloques que envuelven a la
         asignación y descarta la que cuelgue de un `if`/`else`/`for`/`while`/`switch`/`catch`.
+        [R322] Y el patrón de cabecera que R320 usó para eso era `\([^()]*\)`, que no casa una condición con
+        paréntesis dentro: `if(!Array.isArray(x))`, `if(a&&b(c))`, `if(!isRoom())`… o sea, casi todas. Ahora se
+        equilibran los paréntesis hacia atrás, que es exacto en vez de aproximado.
      3. Sólo leía las claves de PRIMER nivel, así que el bloque `tl:{…}` quedaba sin comprobar.
+     4. [R322] Un campo cuyo valor no nombra ningún `state.X` no exigía NADA, porque el bucle de comprobación
+        simplemente no iteraba: `room:serRoom()`, `fps,` abreviado o `...serExtra()` entraban con el test verde.
+        Ahora, si no es una constante literal, hay que declararlo en EXENTOS con su motivo.
 
    Cada una lleva su aserción propia —los «delatores»— para que el análisis se delate si se rompe, incluido un
    delator EN POSITIVO: un filtro que rechazara todo también daría un test verde y vacío.
@@ -192,11 +209,16 @@ function camposDe(lit, prefijo){
     const m = /^\s*([A-Za-z_$][\w$]*)\s*:([\s\S]*)$/.exec(s);
     if (!m) continue;
     const clave = (prefijo ? prefijo + '.' : '') + m[1], val = m[2];
-    if (/^\s*\{/.test(val)) { out.push({ clave, fuentes: new Set() }); for (const x of camposDe(val.trim(), clave)) out.push(x); }
-    else out.push({ clave, fuentes: fuentesDe(val) });
+    /* `anidado` marca al contenedor: no reclama nada por su cuenta, lo reclaman sus hijos. Hace falta
+       distinguirlo del campo OPACO (fuentes vacías porque el valor no menciona `state.`), que sí es un agujero. */
+    if (/^\s*\{/.test(val)) { out.push({ clave, val, anidado: true, fuentes: new Set() }); for (const x of camposDe(val.trim(), clave)) out.push(x); }
+    else out.push({ clave, val, anidado: false, fuentes: fuentesDe(val) });
   }
   return out;
 }
+/* ¿El valor es una constante literal, y por tanto no hereda nada de `state`? Ojo: `limpiar` ya ha borrado las
+   CADENAS, así que un `app:'DomeStudioPro'` llega aquí como espacios en blanco — de ahí que el vacío cuente. */
+function esLiteral(val){ return /^\s*(?:-?\d+(?:\.\d+)?|true|false|null|undefined|\[\s*\]|\{\s*\})?\s*$/.test(val); }
 
 /* ¿La asignación que está en `idx` cuelga de una condición? Se mira su propia sentencia Y los bloques que la
    envuelven, porque el `if` con llaves —el caso normal— no deja rastro dentro de la sentencia. */
@@ -210,8 +232,21 @@ function esCondicional(cuerpo, idx){
     else if (c === '{') {
       if (prof) { prof--; continue; }
       const cab = cuerpo.slice(Math.max(0, i - 300), i);
-      /* Bloques que PUEDEN no ejecutarse. `try{…}` no está: su cuerpo corre siempre. */
-      if (/\b(if|for|while|switch|catch)\s*\([^()]*\)\s*$/.test(cab) || /\belse\s*$/.test(cab)) return true;
+      /* Bloques que PUEDEN no ejecutarse. `try{…}` no está: su cuerpo corre siempre.
+         [R322] El patrón anterior era `\([^()]*\)`, que NO casa una condición con paréntesis dentro — es decir,
+         no casaba `if(!Array.isArray(x))`, `if(a&&b(c))`, `if(!isRoom())`… la forma en que se escribe casi todo.
+         El delator de R320 sólo probaba `if(fps){…}`, sin paréntesis, así que pasaba con el agujero abierto.
+         Ahora se equilibran los paréntesis hacia atrás desde el `)` que precede a la llave, que es exacto en vez
+         de aproximado. */
+      const cerr = cab.search(/\)\s*$/);
+      if (cerr >= 0) {
+        let q = 0, j = cab.length - 1;
+        while (j >= 0 && cab[j] !== ')') j--;             // el `)` que cierra la cabecera
+        for (; j >= 0; j--) { const e = cab[j];
+          if (e === ')') q++; else if (e === '(') { q--; if (!q) break; } }
+        if (j >= 0 && /\b(if|for|while|switch|catch)\s*$/.test(cab.slice(0, j))) return true;
+      }
+      if (/\belse\s*$/.test(cab)) return true;
     }
   }
   return false;
@@ -224,8 +259,13 @@ function reseteosDe(cuerpo){
   let m;
   while ((m = rx.exec(cuerpo))) {
     if (esCondicional(cuerpo, m.index)) continue;
-    out.add(m[1]);
-    if (m[2]) out.add(m[1] + '.' + m[2]);
+    /* [R322] Una asignación a un HIJO no cubre al padre. Antes se añadían los dos, así que un solo
+       `state.tl.bpm=120` metía la cadena `tl` en el conjunto y `cubierto` daba por bueno CUALQUIER `tl.*` —
+       incluido `tl.inlineCurves`, que es el caso que la cabecera cita como motivo de existir del test.
+       Comprobado por mutación: añadiendo `quantizePRUEBA:state.tl.quantizePRUEBA` a `serProject` sin resetearlo,
+       el test seguía en verde. Sólo `state.tl=…` entero (sin segundo tramo) cubre a sus hijos, que es lo que la
+       regla de `cubierto` quería decir. */
+    if (m[2]) out.add(m[1] + '.' + m[2]); else out.add(m[1]);
   }
   return out;
 }
@@ -261,11 +301,24 @@ test('todo dato que serProject escribe tiene valor de fabrica al crear un proyec
     'el filtro de condicionales no ve el `if` CON LLAVES, que es como se escribe casi siempre (R320)');
   assert.ok(reseteosDe('function f(){ state.__p=1; }').has('__p'),
     'el filtro se ha vuelto tan estricto que ya no reconoce una asignacion normal: daria un test verde y vacio');
+  /* [R322] Delatores de los otros dos agujeros que este test tuvo abiertos hasta R322, cada uno con la mutación
+     exacta que lo destapó. */
+  assert.ok(!reseteosDe('function f(){ if(!Array.isArray(x)){ state.__p=1; } }').has('__p'),
+    'el filtro no ve un `if` cuya CONDICION lleva parentesis (`if(!f(x))`), que es como se escribe casi todo');
+  assert.ok(!reseteosDe('function f(){ state.tl.bpm=120; }').has('tl'),
+    'una asignacion a un HIJO vuelve a cubrir al padre: eso daba por bueno todo el bloque `tl`, incluido inlineCurves');
 
   const cubierto = f => resetea.has(f) || EXENTOS.has(f) ||
     (f.includes('.') && (resetea.has(f.split('.')[0]) || EXENTOS.has(f.split('.')[0])));
   const huerfanos = [];
   for (const c of campos) for (const f of c.fuentes) if (!cubierto(f)) huerfanos.push(c.clave + ' ← state.' + f);
+  /* [R322] Y el campo OPACO: si el valor no nombra ningun `state.X`, el bucle de arriba no itera y el campo pasa
+     sin exigir NADA. Con eso, `room:serRoom()`, `fps,` en forma abreviada o `...serExtra()` entraban al `.isp`
+     con el test verde — justo la familia que este fichero existe para cerrar. Una constante literal sí es
+     inocente (no hereda nada); lo demas hay que declararlo en EXENTOS, con su motivo escrito. */
+  for (const c of campos)
+    if (!c.anidado && !c.fuentes.size && !esLiteral(c.val) && !EXENTOS.has(c.clave.split('.').pop()) && !EXENTOS.has(c.clave))
+      huerfanos.push(c.clave + ' ← valor OPACO (' + c.val.trim().slice(0, 40) + '): no se puede probar de donde sale');
   assert.deepEqual([...new Set(huerfanos)].sort(), [],
     'Estos datos se GUARDAN en el .isp pero su origen en `state` no vuelve a fabrica al crear un proyecto, asi\n' +
     '   que se heredan del proyecto anterior y quedan fijados en el archivo nuevo:\n     ' +

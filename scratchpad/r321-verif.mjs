@@ -149,13 +149,22 @@ const e6 = await ev(`(async()=>{ try{
   const M={id:960501,kind:'video',name:'v',dur:60,w:1920,h:1080,fps:30,color:'#888'}; state.media.push(M);
   const mk=(id,st)=>{ const c={id,lane:LV,mediaId:M.id,start:st,dur:2,inP:0,speed:1,props:{}}; state.clips.push(c); return c; };
   const a=mk(960601,1), b=mk(960602,5), c3=mk(960603,9);
-  /* Se reproduce lo que hace el gesto: el suelo del BLOQUE y luego el aplicado clip a clip. */
-  const items=[{id:a.id,start0:1},{id:b.id,start0:5},{id:c3.id,start0:9}];
-  const minStart0=items.reduce((m,it)=>Math.min(m,it.start0),Infinity);
-  const pedido=-4;                                     // arrastrar 4 s a la izquierda: el primero se saldria del origen
-  const aplicado=Math.max(pedido,-minStart0);
-  for(const it of items){ const oc=clipById(it.id); oc.start=Math.max(0,it.start0+aplicado); }
-  return {aplicado, starts:[a.start,b.start,c3.start], desfases:[b.start-a.start, c3.start-b.start]};
+  /* [R322] Se conduce el GESTO REAL: se arma el mismo objeto de arrastre que el pointerdown y se llama a
+     onTLMove y onTLUp. El primer intento reproducia la aritmetica del suelo DENTRO de la sonda —minStart0, el
+     Math.max, el bucle de aplicacion— asi que comprobaba su propia copia: revirtiendo el arreglo entero en
+     app.js, el caso seguia dando el visto bueno. Una sonda que no puede fallar no cubre nada.
+     (Y por septima vez: nada de acentos graves aqui dentro, que cierran la plantilla de la sonda.) */
+  state.selIds=[a.id,b.id,c3.id]; state.selId=a.id;
+  const items=[a,b,c3].map(x=>({id:x.id,start0:x.start,dur0:x.dur,inP0:x.inP,lane0:x.lane,linked:false,kf0:null,anim0:null}));
+  drag={id:a.id,mode:'move',x0:0,y0:0,start0:a.start,dur0:a.dur,inP0:a.inP,lane0:a.lane,_undone:false,
+        primaryIds:new Set(state.selIds),items};
+  const pps=state.tl.pxPerSec;
+  onTLMove({clientX:-4*pps, clientY:0, target:null, altKey:false, shiftKey:false});   // pedir 4 s a la izquierda: el primero se saldria del origen
+  const aplicado=drag._applied;
+  onTLUp();
+  const g=i=>{const x=state.clips.find(y=>y.id===i);return x?+x.start.toFixed(3):null;};
+  return {aplicado:+aplicado.toFixed(3), starts:[g(960601),g(960602),g(960603)],
+          desfases:[g(960602)-g(960601), g(960603)-g(960602)]};
 }catch(e){ return {err:String(e&&e.message||e)}; } })()`);
 if(e6.err) mal('no se pudo evaluar: '+e6.err);
 else{
@@ -183,7 +192,9 @@ const e8 = await ev(`(async()=>{ try{
   const bruto=await (await fetch('app.js')).text();
   const t=bruto.replace(/\\/\\*[\\s\\S]*?\\*\\//g,' ').replace(/\\/\\/[^\\n]*/g,' ');
   const usos=(t.match(/_rippleAfter\\(/g)||[]).length;
-  const restos=(t.match(/o\\.start>=edge-0\\.002/g)||[]).length;
+  /* [R322] Anclado con \\b: sin anclar contaba tambien el po.start>=edge-0.002 que R322 anadio DENTRO de la
+     funcion (la prueba de posicion del partner), y ponia la red en rojo por un arreglo correcto. */
+  const restos=(t.match(/\\bo\\.start>=edge-0\\.002/g)||[]).length;
   return {usos,restos};
 }catch(e){ return {err:String(e&&e.message||e)}; } })()`);
 if(e8.err) mal('no se pudo leer el fuente: '+e8.err);

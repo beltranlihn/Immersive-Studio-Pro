@@ -1,5 +1,73 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 322 — Los quince del repaso, y la primera vez que una mutación desmiente al test
+
+Un `/code-review` sobre R320 y R321 sacó quince hallazgos confirmados. **Tres eran fallos introducidos en esas
+dos rondas**, y uno era el patrón de siempre por tercera vez.
+
+**Lo que podía perder trabajo**
+- **`currentPath` volvía a quedarse apuntando al proyecto bueno.** R320 puso `currentPath=null` sólo en el `catch`
+  de `openProject`; los otros SEIS caminos de carga —doble clic, recientes del launcher, arranque,
+  `restoreAutosave` ×2, historial de recuperación, `#projInput`— seguían igual. Y **peor que antes de R320**,
+  porque el `finally` que esa ronda añadió retira el velo que hasta entonces contenía el daño por accidente: el
+  editor a medias pasó a ser alcanzable, y un Ctrl+S lo escribía encima sin preguntar. Ahora la red entera —velo,
+  splash y ruta— vive **dentro** de `loadProject`, que es el punto por el que pasan los siete. Medido: tras
+  reventar la carga, `currentPath` queda en `null`.
+- **`npm run redes` descartaba el proyecto sin guardar.** Las cinco sondas arrancan con `newProject(…,true)`, y ese
+  `true` se salta `confirmDiscard`; el README de R320 mandaba pasarlas antes de compilar. La instrucción venía con
+  el destrozo incluido. El lanzador mira `state.dirty` y se niega, distinguiendo lo sucio del usuario de lo suyo
+  propio con una marca en la ventana.
+
+**El test de paridad daba falsa seguridad, y se demostró con una mutación**
+Añadiendo `quantizePRUEBA:state.tl.quantizePRUEBA` a `serProject` sin resetearlo, **el test seguía en verde**. La
+exención en bloque de `tl` que la cabecera de R320 declaraba cerrada no lo estaba: `reseteosDe` metía el padre
+suelto y `cubierto` lo aceptaba. Se cerraron los tres agujeros —ese, el `if` con paréntesis en la condición, y el
+campo cuyo valor no nombra ningún `state.`— y **cada uno tiene ahora su mutación escrita en la cabecera**, con el
+mensaje exacto que produce. Es la forma honesta de decir que un test comprueba algo: enseñar qué lo rompe.
+
+**Rendimiento: la «optimización» de R320 costó un fotograma**
+`modAudioEnv` llamaba a `specRangeRaw` ANTES de consultar su propia caché, y desde R320 esa llamada aplica
+ganancia y puerta en una pasada O(frames). Medido con una pista de 75 min: **0,445 ms por llamada tirados a la
+basura, en cada fotograma y por cada modulador**. Subiendo el acierto de caché tres líneas: **0,002 ms, 222 veces
+menos**. Y el segundo caché de 24 búferes que R320 introdujo (39 MB por medio) se queda en uno.
+
+**Lo demás**
+- `rippleDelete` cerraba el hueco con DOS huecos distintos, uno por pista: con un J-cut, dos clips de la pista de
+  audio que estaban a 1 s acababan a 3. Se cambia por el modelo que el gesto significa —**se quita un bloque de
+  tiempo**—: un solo desplazamiento, que no puede desincronizar ni dar negativos.
+- El ripple podía arrastrar la mitad enlazada de un clip aunque estuviera DELANTE del borde, y hasta por debajo de
+  cero. Ahora hay prueba de posición, y el gesto se acota por el clip más a la izquierda de los que mueve —
+  recortar clip a clip evitaba el negativo pero desincronizaba el par.
+- Y al mover media pista ajena, el ripple podía crear solapes que antes eran imposibles: al soltar se resuelven
+  con `cutOverlapsOnDrop`, el mecanismo que ya existía.
+- Las instantáneas del trim usaban `JSON.stringify(x||{})`, que es TRUTHY, así que el rebase delegado en R320
+  escribía `kf:{}` en clips sin automatización **y `serClip` lo guardaba en el `.isp`**. `capAuto` existía desde
+  R314 justo para eso. Medido: ya no aparece.
+- El fader de Mix tenía dos fallos del arreglo de R320: el pestillo no se rearmaba si se soltaba en el valor de
+  partida —así que el arrastre siguiente no se podía deshacer— y sólo invalidaba el fotograma en el primer
+  píxel. Se adopta el patrón del hermano `#maskScaleR`. Medido: 33 invalidaciones en 31 eventos, frente a 1.
+- `beginFlatResize` con `props.scale` ausente daba `animS = -100`: la base que falta vale **0**, no 100, porque
+  `evalR` ya sustituye por 0 internamente. Medido: ahora 0.
+- `rippleDelete` no liberaba la textura de máscara ni los búferes de FX que su hermano `deleteSel` sí liberaba;
+  R321 dobló la fuga al añadir el partner. Los dos pasan ya por `_quitarClips`.
+- `ffDisponible` memorizaba el resultado y no la promesa, así que dos repintados del panel lanzaban dos
+  `spawnSync` de ffmpeg en el proceso principal — la aplicación entera congelada mientras tanto.
+
+**Sobre el método, que sigue siendo lo que más cambia**
+- Un arreglo se perdió a mitad de la ronda: el `git checkout -- app.js` con el que revertía las mutaciones de
+  prueba se llevó por delante el de `loadProject`, que era el único hecho antes. **No lo detectó ninguna sonda: lo
+  detectó medir el resultado** en vez de dar por hecho que el `Edit` seguía ahí.
+- Una sonda desechable dejó el editor corrompido —es lo que probaba— y **todo lo que corrió después en esa
+  instancia falló por herencia**, simulando cuatro regresiones que no existían. Una sonda destructiva va la
+  última, o restaura.
+- El guardián nuevo de acentos graves dio un falso positivo en la primera pasada (no contaba los escapados): el
+  guardián tenía el fallo, no la sonda que señalaba.
+- Y tres redes se pusieron rojas por aserciones mías desfasadas, no por el código. Cuando el contrato mejora, la
+  red se actualiza al contrato nuevo — no se borra el caso.
+
+**Verificación:** las cinco redes en verde, `npm test` 3/3, y siete medidas antes/después sobre la app en marcha.
+
+
 ## ROUND 321 — Los gestos que mueven una mitad y dejan la otra
 
 Los MEDIA de §9 «Gestos del timeline» que seguían abiertos. Leídos juntos son **una sola familia**: un gesto

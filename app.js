@@ -974,9 +974,19 @@ function modSignal(c,m,t){
    abrir otro proyecto. Silencioso: el parámetro seguía moviéndose, al ritmo de una música que ya no suena. */
 let _modAudioCache=new Map();
 function modAudioEnv(m){ if(!_arCache)return null;
-  const raw=(m.f0&&m.f1)?specRangeRaw(m.f0,m.f1):(_arCache.raw&&_arCache.raw[m.band||'bass']); if(!raw)return null; // [R95·C2] a custom f0..f1 range reads the real spectrum; named bands keep the filter-bank path
+  /* [R322] La CACHÉ PRIMERO. Estaba tres líneas más abajo, así que un acierto —que es lo que ocurre en cada
+     fotograma de reproducción, por modulador y por clip— pagaba igualmente la llamada a `specRangeRaw`, y desde
+     R320 esa llamada aplica ganancia y puerta en una pasada O(frames) antes de devolver. Medido sobre la app con
+     una pista de 75 min (`sp.frames`=405 000): 0,445 ms por llamada DESPUÉS del primer cálculo, tirados a la
+     basura. Seis clips con un modulador de rango a medida son ~2,7 ms por fotograma de previsualización, y lo
+     mismo por fotograma exportado. Antes de R320 ese camino era O(1) y R320 lo cambió sin darse cuenta: cambió
+     un coste por arrastre del fader por un coste por FOTOGRAMA.
+     Mover el acierto arriba es correcto porque los dos mandos que R318 quiso meter en la clave —ganancia y
+     puerta— ya vacían esta caché al moverse: `arRecompute()` hace `_modAudioCache.clear()` y el fader la llama
+     en cada píxel. La clave puede seguir sin ellos. */
   const atk=m.atk!=null?m.atk:8, rel=m.rel!=null?m.rel:130; const key=((m.f0&&m.f1)?('f'+Math.round(m.f0)+'-'+Math.round(m.f1)):(m.band||'bass'))+'|'+atk+'|'+rel;
   const hit=_modAudioCache.get(key); if(hit)return hit;
+  const raw=(m.f0&&m.f1)?specRangeRaw(m.f0,m.f1):(_arCache.raw&&_arCache.raw[m.band||'bass']); if(!raw)return null; // [R95·C2] a custom f0..f1 range reads the real spectrum; named bands keep the filter-bank path
   const dt=1/(_arCache.fps||30); const aA=Math.exp(-dt/Math.max(0.001,atk/1000)), aR=Math.exp(-dt/Math.max(0.001,rel/1000));
   const arr=new Float32Array(raw.length); let y=0;
   for(let i=0;i<raw.length;i++){ const x=raw[i]; const a=x>y?aA:aR; y=a*y+(1-a)*x; arr[i]=y; }
@@ -5091,7 +5101,17 @@ $('#tracks').addEventListener('pointerdown',e=>{
       if(ev.shiftKey)dt*=0.25; else dt=Math.round(dt*fps)/fps; // [T2] frame-snap by default → the edge steps whole frames (clearly visible once zoomed in); hold Shift for sub-frame fine control
       const d=applyTrim(z,dt,base); scheduleTimeline(); render(); refreshInspector();
       flashStatus(T(TRIM_LABEL[z.kind][0],TRIM_LABEL[z.kind][1])+'  '+(d>=0?'+':'')+d.toFixed(3)+'s ('+(d>=0?'+':'')+Math.round(d*fps)+'f)'); };
-    const up=()=>{ window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up); renderTimeline(); renderInspector(); render(); reschedAudio(); markDirty(); };
+    const up=()=>{ window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up);
+      /* [R322] Al SOLTAR, se resuelven los solapes que el gesto haya podido crear, igual que ya hacen el arrastre
+         de clip y los tiradores de resize ([R223] en `onTLUp`). Hace falta desde R321: al arrastrar también las
+         mitades enlazadas de los clips posteriores, un ripple mueve parte de OTRA pista, y ahí puede chocar con
+         algo que no está enlazado —una cama de música, un ambiente— que no se mueve con ellas. Antes de R321 esa
+         pista no se tocaba y el choque era imposible. Va en el `up` y no en `applyTrim` porque el arrastre es
+         absoluto: cortar en cada pointermove destruiría material a mitad del gesto.
+         `_cutEdgeTo` es no destructivo (sólo start/dur/inP), así que apartar al intruso lo recupera. */
+      if(base.after&&base.after.size){ const movidos=[c.id,...base.after.keys()]; const pc=linkPartner(c); if(pc)movidos.push(pc.id);
+        cutOverlapsOnDrop(movidos.filter(id=>clipById(id))); }
+      renderTimeline(); renderInspector(); render(); reschedAudio(); markDirty(); };
     window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); return; }
   // razor / zoom tools act on the clip wherever you click it
   if(tool==='razor'){ const rect=$('#tracks').getBoundingClientRect(); const sn=applySnap((e.clientX-rect.left)/state.tl.pxPerSec,c.id); razorClip(c, sn.val); showSnap(null); return; }
@@ -5112,7 +5132,12 @@ $('#tracks').addEventListener('pointerdown',e=>{
   // pushUndo is deferred until the drag actually changes something (avoids dead undo entries from a plain click)
   { const _primary=new Set(state.selIds); // [R223] mover/trim SÍ arrastran al partner enlazado (aunque no esté seleccionado); sólo los ids de `_primary` pueden cambiar de lane
     drag={id,mode:isL?'trimL':isR?'trimR':'move',x0:e.clientX,y0:e.clientY,start0:c.start,dur0:c.dur,inP0:c.inP,lane0:c.lane,_undone:false,primaryIds:_primary,
-      items:linkedIds(state.selIds).map(sid=>{const sc=clipById(sid);return sc?{id:sid,start0:sc.start,dur0:sc.dur,inP0:sc.inP,lane0:sc.lane,linked:!_primary.has(sid),kf0:JSON.parse(JSON.stringify(sc.kf||{})),anim0:sc.anim?JSON.parse(JSON.stringify(sc.anim)):null}:null;}).filter(Boolean)}; }
+      /* [R322] `capAuto`, no `JSON.stringify(x||{})`: el literal vacío es TRUTHY, así que al delegar R320 el rebase
+         en `rebaseAutoPorMaterial` su guarda `if(kf0)` dejó de proteger y recortar un clip SIN automatización le
+         escribía `kf={}`, que `serClip` guarda en el `.isp`. `capAuto` devuelve null en los campos vacíos justo
+         para esto (ver su comentario, R314). */
+      items:linkedIds(state.selIds).map(sid=>{const sc=clipById(sid); if(!sc)return null; const a=capAuto(sc);
+        return {id:sid,start0:sc.start,dur0:sc.dur,inP0:sc.inP,lane0:sc.lane,linked:!_primary.has(sid),kf0:a.kf,anim0:a.an};}).filter(Boolean)}; }
   _dragLaneRects=null; _dragLaneScrollTop=null; // [R213] refresca el cache de rects de pistas al empezar un nuevo drag
   window.addEventListener('pointermove',onTLMove); window.addEventListener('pointerup',onTLUp);
 });
@@ -5208,7 +5233,12 @@ function _rippleAfter(c,kind){
   for(const o of state.clips){
     if(o.lane!==c.lane||o===c||o.start<edge-0.002)continue;
     after.set(o.id,o.start);
-    const po=linkPartner(o); if(po&&po!==c&&po!==pc)after.set(po.id,po.start);
+    /* [R322] La mitad enlazada entra sólo si ELLA TAMBIÉN empieza en el borde o después. R321 la añadía sin
+       mirar dónde estaba: con un par cuyas mitades se recortaron por separado —el vídeo en 20 s y su audio en
+       8 s— un ripple sobre un clip anterior se llevaba el audio hacia atrás aunque estuviese delante del borde,
+       y con arrastre suficiente por debajo de cero. Las de la misma pista no necesitan la prueba (no pueden
+       solaparse, así que ya empiezan después del clip agarrado); las de otra pista sí. */
+    const po=linkPartner(o); if(po&&po!==c&&po!==pc&&po.start>=edge-0.002)after.set(po.id,po.start);
   }
   return after; }
 /* [R223] Link A/V: el trim (de cualquier tipo) arrastra al partner enlazado con el MISMO delta absoluto que
@@ -5292,15 +5322,27 @@ function applyTrim(z,dt,base){
     return d; }
   if(z.kind==='rippleL'){ const c=z.c, s=clipSrc(c);
     let lo=s.lim?-base.inP/(c.speed||1):-base.start, hi=base.dur-0.05; lo=Math.max(lo,-base.start);
+    /* [R322] El tope del gesto lo pone TAMBIEN el clip mas a la izquierda de los que arrastra. Desde R321 la
+       lista incluye mitades enlazadas de otra pista, que pueden estar en otro sitio que su pareja si se
+       recortaron por separado, y sin este tope una de ellas se iba por debajo de cero. Recortar cada clip
+       contra 0 por su cuenta —lo primero que puse— evita el negativo pero DESINCRONIZA el par: el video se
+       mueve y su audio se queda amontonado en el origen. Acotando el gesto entero, el bloque se para donde
+       se pararia el primero y todo lo demas conserva su sitio, que es el mismo criterio que el suelo de
+       bloque del arrastre multiple. */
+    for(const st0 of base.after.values())hi=Math.min(hi,st0);   // se mueven -d: ninguno puede bajar de 0
     const d=clamp(dt,lo,hi);
     c.dur=base.dur-d; c.inP=base.inP+d*(c.speed||1); // the clip's START stays put; everything after slides to close/open the gap
     { const sc=snap(c); rebaseAutoPorMaterial(c,sc.kf,sc.an,d); }     /* [R313·A10] el material entra recortado: la curva se corre con él */
-    for(const [oid,st0] of base.after){ const o=clipById(oid); if(o&&o!==c)o.start=st0-d; }   /* [R321] por id: la lista incluye ya las mitades enlazadas, que estan en OTRA pista */
+    /* [R322] Con suelo en 0: la mitad enlazada de un clip posterior puede estar en otro sitio que el suyo si se
+       recortaron por separado, y el motor no sabe dibujar un `start` negativo. El gemelo `rippleDelete` no lo
+       necesita porque alli lo que se mueve arranca en el final del bloque quitado. */
+    for(const [oid,st0] of base.after){ const o=clipById(oid); if(o&&o!==c)o.start=Math.max(0,st0-d); }   /* [R321] por id: la lista incluye ya las mitades enlazadas, que estan en OTRA pista */
     _mirrorLinkTrim(c,base,base.linkBase,snap); return d; }
   if(z.kind==='rippleR'){ const c=z.c, s=clipSrc(c);
     let lo=-(base.dur-0.05), hi=s.lim?Math.max(0,(s.sd-base.inP)/(c.speed||1)-base.dur):1e6;
+    for(const st0 of base.after.values())lo=Math.max(lo,-st0);   // [R322] se mueven +d, y `d` puede ser negativo: ver la nota de rippleL
     const d=clamp(dt,lo,hi); c.dur=base.dur+d;
-    for(const [oid,st0] of base.after){ const o=clipById(oid); if(o&&o!==c)o.start=st0+d; }   /* [R321] idem */
+    for(const [oid,st0] of base.after){ const o=clipById(oid); if(o&&o!==c)o.start=Math.max(0,st0+d); }   /* [R321·R322] idem, con suelo */
     _mirrorLinkTrim(c,base,base.linkBase,snap); return d; }
   if(z.kind==='slip'){ const c=z.c, s=clipSrc(c); if(!s.lim)return 0; // nothing to slip inside a generator/still
     const lo=-base.inP/(c.speed||1), hi=Math.max(0,(s.sd-base.inP)/(c.speed||1)-base.dur);
@@ -5434,8 +5476,8 @@ const CUT_MIN=0.05; // por debajo de esto no queda clip: un resto de 2 frames s�
    Sin esto el recorte por la izquierda desplazaba start/inP sin tocar `kf` → la automatización se descolgaba
    del material. */
 function _cutEdgeTo(oc,edge,val){
-  const it={id:oc.id,start0:oc.start,dur0:oc.dur,inP0:oc.inP||0,
-    kf0:JSON.parse(JSON.stringify(oc.kf||{})),anim0:oc.anim?JSON.parse(JSON.stringify(oc.anim)):null};
+  const _a=capAuto(oc);   // [R322] ver la nota de `capAuto` en el pointerdown del arrastre: `{}` es truthy y materializaba `kf:{}` en el `.isp`
+  const it={id:oc.id,start0:oc.start,dur0:oc.dur,inP0:oc.inP||0,kf0:_a.kf,anim0:_a.an};
   trimItem(it,edge,(edge==='L')?(val-oc.start):(val-oc.start-oc.dur));
   if(oc.fadeIn!=null)oc.fadeIn=Math.min(oc.fadeIn,oc.dur); if(oc.fadeOut!=null)oc.fadeOut=Math.min(oc.fadeOut,oc.dur); }
 function _dropClip(oc){ const p=linkPartner(oc); if(p){ delete p.link; delete p.avRole; } // el superviviente no queda con un `link` colgando
@@ -5524,10 +5566,11 @@ function startFadeDrag(e,c,which){ e.preventDefault(); e.stopPropagation(); cons
          (`_mirrorLinkTrim`) y, como el partner SÍ es audio, se le pone la ganancia cruzada contra SU vecino. */
       const pp=linkPartner(cc); const ppNb=pp?crossfadeNeighbor(pp,which):null;
       const ppm=pp?mediaById(pp.mediaId):null; const ppIsAud=!!pp&&(isAudioClip(pp)||(ppm&&ppm.kind==='audio')); // sólo la MITAD DE AUDIO lleva fundidos; ponerlos en la de vídeo la haría fundir a negro ENCIMA del dissolve
+      const _ac=capAuto(cc);   // [R322] `capAuto` en vez de `JSON.stringify(cc.kf||{})`: el literal vacío es truthy y hacía que el rebase escribiera `kf:{}` en clips sin automatización (ver la nota del arrastre)
       xf={cc,nb,nbFk,nbF0:nb[nbFk]||0,touchEdge,plainDur,rightEdge0,inPTouch,ppIsAud,ppF0:pp?(pp[which]||0):0,
         maxExt:Math.max(extPrev,Math.min(room,nb.dur-0.05)),isAud, // `room` ya se mide desde el contacto → no se le suma extPrev
         startBase:cc.start,durBase:cc.dur,inPBase:inP0,
-        kfBase:JSON.parse(JSON.stringify(cc.kf||{})),animBase:cc.anim?JSON.parse(JSON.stringify(cc.anim)):null,
+        kfBase:_ac.kf,animBase:_ac.an,
         pp,ppNb,ppBase:pp?{start:pp.start,dur:pp.dur,inP:pp.inP||0}:null,ppAuto:pp?capAuto(pp):null,ppNbF0:ppNb?(ppNb[nbFk]||0):0, // [R320] `ppAuto`: la automatización del partner congelada al empezar, como `kfBase` lo está para el clip agarrado
         f0eff:extPrev>0?-extPrev:(cc[which]||0)}; // geométrico si ya hay solape (fadeOut de vídeo no lo refleja); si no, el valor real (conserva un fade plano previo)
     } }
@@ -5848,10 +5891,14 @@ function beginFlatResize(c,h){ const CP0=clipPanel(c); if(!CP0)return null; // [
      escribir; así el tirador sigue donde se ve y la base no se come la animación. Es anterior a R234, pero es
      exactamente el mismo error de espacios. */
   const anim=[ (evalR(c,'x',t)||0)-(evalP(c,'x',t)||0), (evalR(c,'y',t)||0)-(evalP(c,'y',t)||0) ];
-  /* Mismo `||100`, misma corrección: aquí se resta el desplazamiento PROCEDIMENTAL, así que con `evalR`=0 y una
-     base de 50 el `||100` daba +50 en lugar de −50 y el tirador arrancaba desplazado media escala. */
-  const _svR=evalR(c,'scale',t), _svP=evalP(c,'scale',t);
-  const animS=((_svR==null||_svR!==_svR)?100:_svR)-((_svP==null||_svP!==_svP)?100:_svP);
+  /* [R320 → R322] El desplazamiento PROCEDIMENTAL es `evalR − evalP`, y la base que falta vale **0, no 100**.
+     `evalR` no devuelve nunca null —hace `if(v==null)v=0` por dentro—, así que cuando `props.scale` no existe da
+     ya `0 + anim + mod`; restarle 100 (lo que hacía tanto el `||100` viejo como la «corrección» de R320) daba
+     −100 de desplazamiento inventado, y el tirador arrancaba desplazado una escala entera. Medido sobre la app:
+     con `props.scale` borrado, `evalR`=0 y `animS` salía −100 donde debe salir 0.
+     Por eso también sobraba media guarda: la rama `_svR==null` era código muerto. */
+  const _svP=evalP(c,'scale',t);
+  const animS=evalR(c,'scale',t)-((_svP==null||_svP!==_svP)?0:_svP);
   return {mode:'resizeFlat',id:c.id,sx:h.sx,sy:h.sy,Fx:M.Fx,Fy:M.Fy,fx0,fy0,u,v,anchor,scale0,sxm0,sym0,anim,animS,cur:_resizeCursor(h.sx,h.sy)}; }
 /* [R226·I3] modo de máscara: mientras está activo el lienzo edita PUNTOS, así que los gestos normales
    (seleccionar/mover/escalar clip, panear, orbitar) quedan suspendidos — un clic suelto crearía un punto y
@@ -6690,14 +6737,20 @@ function buildAnimList(c){ const host=$('#animList'); if(!host)return; host.inne
       for(const l of state.lanes){ if(l._autoP&&isMotKey(l._autoP)&&!laneMotParams(state.lanes.indexOf(l)).includes(l._autoP.split(':')[1]))delete l._autoP; }
       buildAnimList(selClip()); render(); renderTimeline(); markDirty(); if(!anyAnim())stopMotionPreview(); };
     const wetR=item.querySelector('.awet'), wetV=item.querySelector('.awetv');
-    wetR.addEventListener('pointerdown',()=>focusAutoParam(c,motKeyFor(a))); // [R224 · ítem 4] tocar el Mix pone SU curva a la vista
-    /* [R320] El fader del Mix era el otro hueco de esta fila: ni `oninput` ni `onchange` empujaban deshacer, así
-       que llevar el Mix de 100 a 0 no se podía revertir con Ctrl+Z. Una foto por PÍXEL llenaría el historial, así
-       que se usa el mismo patrón que los demás arrastres de la app: la primera de cada gesto, y se rearma al
-       soltar (`onchange` sólo dispara al terminar). */
-    let wetUndone=false;
-    wetR.oninput=()=>{ if(!wetUndone){ pushUndo(); wetUndone=true; } animSetWet(a,c,(+wetR.value)/100); wetV.textContent=(+wetR.value)+'%'+(animHasWetKf(a,c)?' ◆':''); render(); startMotionPreview(); };
-    wetR.onchange=()=>{ wetUndone=false; markDirty(); };
+    /* [R320 → R322] El fader del Mix era el otro hueco de esta fila: ni `oninput` ni `onchange` empujaban deshacer,
+       así que llevar el Mix de 100 a 0 no se podía revertir con Ctrl+Z. R320 lo cerró con un pestillo que se
+       rearmaba en `onchange`, y eso tenía dos fallos que el repaso midió:
+         · `change` NO dispara si el fader se suelta en el valor de partida, así que tras un arrastre de ida y
+           vuelta el pestillo se quedaba puesto y el arrastre SIGUIENTE no empujaba nada — Ctrl+Z se saltaba la
+           edición de verdad;
+         · y el arrastre repintaba sin invalidar la generación del fotograma salvo en el primer píxel (la que
+           llega por `pushUndo`→`markDirty`), así que scopes, NDI y Spout se quedaban clavados ahí. Medido: 31
+           eventos `input` avanzaban `_raGen` UNA vez, frente a 31 del hermano `#maskScaleR`.
+       Se adopta el patrón de ese hermano, que no tiene ninguno de los dos: la foto se empuja en el `pointerdown`
+       —una por gesto, sin pestillo que rearmar— y el repintado invalida como cualquier otra mutación. */
+    wetR.addEventListener('pointerdown',()=>{ pushUndo(); focusAutoParam(c,motKeyFor(a)); }); // [R224 · ítem 4] tocar el Mix pone SU curva a la vista
+    wetR.oninput=()=>{ animSetWet(a,c,(+wetR.value)/100); wetV.textContent=(+wetR.value)+'%'+(animHasWetKf(a,c)?' ◆':''); raInvalidate(); render(); startMotionPreview(); };
+    wetR.onchange=()=>markDirty();
     item.querySelector('.awetkf').onclick=()=>{ pushUndo(); animToggleWetKf(a,c); focusAutoParam(c,motKeyFor(a)); buildAnimList(selClip()); render(); renderTimeline(); startMotionPreview(); markDirty(); };
     host.appendChild(item); });
   /* [R278b] Esta lista se reconstruye desde sus propios manejadores (anadir, on/off, cambiar modo, borrar),
@@ -9998,10 +10051,17 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
      libx265 (lo normal en las compilaciones mínimas) ofrecía igualmente la fila de H.265: el usuario montaba el
      render entero y sólo al arrancar oía «Este FFmpeg no trae ningún codificador para ese formato». La
      comprobación que `runExport` ya hacía se adelanta aquí, que es donde se decide qué ofrecer.
-     `undefined` = sin sondear · `null` = sondeado y no hay FFmpeg (así no se resondea en cada repintado). */
-  let _ffCap=undefined;
+     [R322] Se memoriza la PROMESA, no el resultado ya resuelto. Con el resultado, dos repintados del panel
+     mientras la primera sonda sigue en vuelo veían los dos «sin sondear» y lanzaban otra: `exCodecList` corre una
+     vez por fila `ff` y el panel se rehace con cada cambio de tamaño, fps o formato, así que cambiar dos mandos
+     seguidos encolaba tres sondas. Y `dsp:ffProbe` no es barato ni asíncrono de verdad: en `main.js` es un
+     `spawnSync(bin,['-encoders'],{timeout:15000})` en el proceso PRINCIPAL, así que cada una de más congela la
+     aplicación entera —ventana, IPC, bucle de render— hasta que termina. Con la promesa, la sonda es una sola y
+     las demás esperan a la misma. (`_cdTok` sólo descartaba los RESULTADOS tardíos, no las sondas.) */
+  let _ffCapP=null;
   async function ffDisponible(v){
-    if(_ffCap===undefined){ try{ _ffCap=(IS_ELEC&&DSP.ffProbe)?(await DSP.ffProbe())||null:null; }catch(e){ _ffCap=null; } }
+    if(!_ffCapP)_ffCapP=(IS_ELEC&&DSP.ffProbe)?Promise.resolve().then(()=>DSP.ffProbe()).then(r=>r||null).catch(()=>null):Promise.resolve(null);
+    const _ffCap=await _ffCapP;
     if(!_ffCap)return false;
     const lista=/hevc/i.test(v||'')?_ffCap.hevc:_ffCap.h264;
     return !!(lista&&lista.length); }
@@ -11041,11 +11101,9 @@ async function openProject(skipConfirm){ if(!(await confirmDiscard(skipConfirm))
       currentPath=p; hideLanding();
       try{ loadProject(await maybeOfferAutosave(p,obj)); }
       catch(err){ console.error('loadProject',err);
-        /* [R320] `currentPath=null`, NO la ruta anterior. R319 reponia la ruta del proyecto que estaba bien, y
-           como `saveProject` solo abre dialogo cuando NO hay ruta, un Ctrl+S posterior escribia el estado a
-           medias ENCIMA del proyecto bueno, sin preguntar. Sin ruta, cualquier guardado pide nombre nuevo y no
-           se puede pisar nada por accidente. El aviso dice lo que hay: el editor quedo en un estado a medias. */
-        currentPath=null; try{ projTitle(); }catch(e){}
+        /* [R320 → R322] De soltar la ruta se encarga ya el `finally` de `loadProject`, que es el punto por el que
+           pasan los SIETE llamadores; tenerlo aquí era el parche a la copia. Queda sólo el aviso, que es lo único
+           propio de este camino: el usuario vino del menú Abrir y merece saber qué ha pasado. */
         appAlert(T('That project could not be opened — the file looks damaged. The editor was left half-loaded, so open a project again before working. Nothing was written to disk.','Ese proyecto no se pudo abrir — el archivo parece dañado. El editor ha quedado a medio cargar: vuelve a abrir un proyecto antes de trabajar. No se ha escrito nada en el disco.')); } } // hide the landing FIRST so the recovery prompt (if any) shows on a clean screen, not buried behind the start screen
   else { $('#projInput').click(); } }
 /* [R175] Cada salida de aquí tiene que soltar el splash. Si el archivo no se puede leer, no es JSON válido o el
@@ -11300,6 +11358,14 @@ function loadProject(obj){ let ok=false;
     /* Y si reventamos DURANTE el arranque, el que se queda colgado no es el velo sino el splash: sin esto
        `_bootEsperandoProyecto` sigue en true y el editor no se revela hasta el cortafuegos de 35 s. */
     try{ bootProyectoListo(); }catch(e){}
+    /* [R322] La ruta se suelta AQUÍ, que es el punto por el que pasan los siete. R320 escribió `currentPath=null`
+       sólo en el `catch` de `openProject` —el mismo error de «arreglar la copia» que esa ronda venía a cerrar— y
+       los otros seis (doble clic, recientes del launcher, arranque, `restoreAutosave` ×2, historial de
+       recuperación, `#projInput`) seguían apuntando a un proyecto BUENO con el editor a medias. Peor aún: el
+       `finally` de arriba retira el velo que hasta R319 contenía el daño por accidente, así que el estado a
+       medias pasó a ser alcanzable. Como `saveProject` sólo abre diálogo cuando NO hay ruta, un Ctrl+S posterior
+       escribía encima sin preguntar; sin ruta, cualquier guardado pide nombre nuevo y no se puede pisar nada. */
+    currentPath=null; try{ projTitle(); }catch(e){}
     diag('error','proyecto','loadProject reventó a mitad');
   } }
 }
@@ -11515,6 +11581,11 @@ async function replaceMedia(m,ruta){ if(!IS_ELEC)return;
   bumpMeta(true); /* [R253d] reparar un medio ausente no es una edicion deshacible, pero si marca version: una foto anterior no puede devolverle el nombre del archivo perdido */
   m.path=p; m.fsize=sz; m.name=DSP.basename(p); m.missing=false; delete m._plazo;
   m.proxyReady=false; m.proxyPct=0; m.proxyUrl=null; m.proxyEl=null; m._proxyForce=false; m.bands=null; m._bandsBusy=false; m.thumb=null; m._texW=null; m._texH=null; m.peaks=null; m.rms=null; m.buffer=null;
+  /* [R322] El ESPECTRO también, que se quedaba fuera. `m.bands` (las cuatro bandas con nombre) sí se recalculaba,
+     pero `m.spec` no, y `armMediaSpectrum` se niega a recomputar mientras `m.spec` esté puesto: al cambiar el
+     archivo de audio de un clip reactivo, los moduladores de RANGO A MEDIDA seguían animando al ritmo de la
+     canción anterior, para siempre y en silencio. Con ellos van sus dos cachés derivadas. */
+  m.spec=null; m._specBusy=false; m._specRaw=null; m._specOut=null;
   try{ disposeAllVinst(); }catch(e){} try{ if(_arCache)arRecompute(); }catch(e){}
   await reloadMedia(m);
   /* [R205b] Si el archivo nuevo no se pudo leer —corrupto, o tan lento que agotó el plazo— se DESHACE el cambio y
@@ -12126,9 +12197,20 @@ $('#curvesBtn').onclick=toggleCurves; // [R93] single Automation button — the 
   const snap=v=>{ if(!e.altKey){ const sn=applySnap(v,null); if(sn.snap!=null)return sn.val; } return v; };
   const mv=ev=>{ const dt=(ev.clientX-downX)/pps; if(mode==='l'){ state.workIn=Math.max(0,Math.min(b0-0.05,snap(a0+dt))); } else if(mode==='r'){ state.workOut=Math.max(a0+0.05,snap(b0+dt)); } else { const len=b0-a0; let na=Math.max(0,snap(a0+dt)); state.workIn=na; state.workOut=na+len; } renderWork(); render(); };
   const up=()=>{ window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up); flashStatus(T('Loop: ','Bucle: ')+fmtTime(state.workIn)+' → '+fmtTime(state.workOut)); }; window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); }); })();
-function deleteSel(){ const ids=(state.selIds&&state.selIds.length)?state.selIds.slice():(state.selId!=null?[state.selId]:[]); if(!ids.length)return; diag('info','clip','delete',{n:ids.length}); pushUndo(); if(state.autoSel&&ids.includes(state.autoSel.cid))state.autoSel=null; for(const _id of ids){ try{freeFxHistFor(_id);}catch(e){} } // free per-clip FX feedback buffers
+/* [R322] Quitar clips del proyecto, con TODO lo que hay que soltar. Era el cuerpo de `deleteSel`, y `rippleDelete`
+   —que borra lo mismo— no hacía nada de esto: se filtraban los clips y punto, así que cada eliminación con
+   arrastre filtraba la textura de máscara y los búferes de realimentación de FX de los clips borrados, y podía
+   dejar `state.autoSel` apuntando a un clip que ya no existe. R321 dobló la fuga al añadir la mitad enlazada al
+   conjunto de borrado sin añadirla a ninguna limpieza. Con una sola función no puede volver a desparejarse. */
+function _quitarClips(ids){
+  if(!ids||!ids.length)return;
+  if(state.autoSel&&ids.includes(state.autoSel.cid))state.autoSel=null;
+  for(const _id of ids){ try{freeFxHistFor(_id);}catch(e){} }              // búferes de realimentación de FX, por clip
   for(const c of state.clips)if(ids.includes(c.id)&&c.maskTex){try{gl.deleteTexture(c.maskTex);}catch(e){}}
-  state.clips=state.clips.filter(x=>!ids.includes(x.id)); state.selId=null; state.selIds=[]; renderTimeline();renderInspector();render();updStatus(); reschedAudio(); }
+  state.clips=state.clips.filter(x=>!ids.includes(x.id)); }
+function deleteSel(){ const ids=(state.selIds&&state.selIds.length)?state.selIds.slice():(state.selId!=null?[state.selId]:[]); if(!ids.length)return; diag('info','clip','delete',{n:ids.length}); pushUndo();
+  _quitarClips(ids);
+  state.selId=null; state.selIds=[]; renderTimeline();renderInspector();render();updStatus(); reschedAudio(); }
 $('#addMk').onclick=addMarker; // [R159] prev/next de localizadores viven en , y . (el diseño tiene un solo botón)
 /* [REDISEÑO Rev1] V-zoom lateral (diseño §6): el thumb refleja la altura media de pista y arrastrarlo la escala
    (abajo = más altas, igual que el handle de resize por-pista). Reutiliza lane.h + los topes LANE_MIN_H/MAX_H. */
@@ -12669,30 +12751,24 @@ function pasteClip(){ const cb=state.clipboard; if(!cb)return;
   renderTimeline(); renderInspector(); render(); reschedAudio(); markDirty();
   if(sinMedio||bucle) flashStatus(nuevos.length+T(' pasted · ',' pegados · ')+((sinMedio?sinMedio+T(' without media',' sin medio'):'')+(sinMedio&&bucle?' · ':'')+(bucle?bucle+T(' would loop',' harían bucle'):'')),'err');
   else if(nuevos.length>1) flashStatus(nuevos.length+T(' clips pasted',' clips pegados')); }
-/* [R321] Eliminación con arrastre — el gemelo del ripple de la herramienta T, y con los mismos dos agujeros.
-   1) Borraba SÓLO la mitad seleccionada de un par A/V: la otra sobrevivía con su `link` colgando, así que
-      `linkPartner` de cualquier resto elegía al azar y quedaba un trozo de audio suelto en la línea de tiempo.
-   2) Cerraba el hueco mirando una sola pista, así que los vídeos de después se corrían y sus audios no: todos
-      los pares aguas abajo desfasados justo la duración del clip borrado, y en silencio.
-   Cada mitad cierra el hueco en SU pista con su propio final y su propia duración (pueden diferir si se
-   recortaron por separado), y quien se mueve arrastra a su partner. `movidos` evita el doble desplazamiento
-   cuando una pista es a la vez la del cierre y la del partner de otra. */
+/* [R321 · rehecha en R322] Eliminación con arrastre. Antes de R321 borraba SÓLO la mitad seleccionada de un par
+   A/V —la otra sobrevivía con su `link` colgando— y cerraba el hueco mirando una sola pista, así que los vídeos
+   posteriores se corrían y sus audios no: todos los pares aguas abajo desfasados, en silencio.
+   R321 arregló eso pero con un modelo equivocado: DOS cierres, uno por pista, cada uno con su propio hueco. Con
+   un J-cut (las mitades recortadas por separado, p. ej. vídeo de 10 s y audio de 8) los dos huecos difieren, así
+   que una misma pista recibía dos desplazamientos distintos y el montaje quedaba descuadrado — medido: dos clips
+   de la pista de audio que estaban a 1 s acabaron a 3.
+   El modelo correcto es el que el gesto significa: **se quita un BLOQUE DE TIEMPO de la secuencia**. El bloque es
+   el que ocupan las dos mitades juntas, y todo lo que empieza en su final o después se corre ese mismo tanto, en
+   todas las pistas. Un solo desplazamiento no puede desincronizar nada, y como lo que se mueve arranca en
+   `fin` y se corre `fin-ini`, tampoco puede dar un `start` negativo: no hace falta suelo. */
 function rippleDelete(){ const c=selClip(); if(!c)return; pushUndo();
   const p=linkPartner(c);
-  const fuera=new Set([c.id]); if(p)fuera.add(p.id);
-  const cierres=[{lane:c.lane,end:c.start+c.dur,gap:c.dur}];
-  if(p)cierres.push({lane:p.lane,end:p.start+p.dur,gap:p.dur});
-  state.clips=state.clips.filter(x=>!fuera.has(x.id));
-  const movidos=new Set();
-  for(const {lane,end,gap} of cierres)
-    for(const x of state.clips){
-      if(x.lane!==lane||x.start<end-0.002||movidos.has(x.id))continue;
-      x.start=Math.max(0,x.start-gap); movidos.add(x.id);
-      /* El suelo de 0 no debería alcanzarse nunca con enlaces bien formados —el partner de un clip posterior
-         está a su misma altura—, pero un `.isp` viejo con un enlace torcido no debe poder dejar un start
-         negativo, que el motor no sabe dibujar. */
-      const px=linkPartner(x); if(px&&!movidos.has(px.id)){ px.start=Math.max(0,px.start-gap); movidos.add(px.id); }
-    }
+  const ini=p?Math.min(c.start,p.start):c.start;
+  const fin=p?Math.max(c.start+c.dur,p.start+p.dur):c.start+c.dur;
+  const gap=fin-ini; if(gap<=0)return;
+  _quitarClips(p?[c.id,p.id]:[c.id]);
+  for(const x of state.clips)if(x.start>=fin-0.002)x.start-=gap;
   state.selId=null; state.selIds=[]; renderTimeline();renderInspector();render();updStatus(); reschedAudio(); }
 
 /* ===================== CONTEXT MENUS ===================== */
@@ -14331,10 +14407,13 @@ function specRangeRaw(f0,f1){ const m=_arCache&&_arCache.clip&&mediaById(_arCach
       crudo[f]=cnt?acc/cnt:0; }
     if(Object.keys(m._specRaw).length>24)m._specRaw={}; m._specRaw[key]=crudo;
   }
-  /* El bufer de salida se reutiliza por rango: el consumidor (`modAudioEnv`) lo lee y lo moldea en el acto,
-     nunca lo retiene. Asi un arrastre del fader no reserva 1,5 MB por pixel. */
-  m._specOut=m._specOut||{}; let out=m._specOut[key];
-  if(!out||out.length!==sp.frames){ out=new Float32Array(sp.frames); if(Object.keys(m._specOut).length>24)m._specOut={}; m._specOut[key]=out; }
+  /* [R320 → R322] UN solo búfer de salida por medio, no uno por rango. El consumidor (`modAudioEnv`) lo lee y lo
+     moldea en el acto —copia a un array propio— y nunca lo retiene, así que no hace falta más de uno: con la
+     tabla de 24 que tenía R320, una pista de 75 min llegaba a retener 24 × 1,6 MB = 39 MB de búferes de usar y
+     tirar, encima de los otros 39 MB de `_specRaw`. Reutilizarlo sigue evitando reservar 1,6 MB por píxel de
+     arrastre, que era el motivo de existir. */
+  let out=m._specOut;
+  if(!out||out.length!==sp.frames)out=m._specOut=new Float32Array(sp.frames);
   const g=Math.max(0,cfg.gain/100), gate=Math.max(0,Math.min(0.95,cfg.gate/100)), gs=1/Math.max(0.05,1-gate);
   for(let f=0;f<sp.frames;f++){ let x=(crudo[f]-gate)*gs; if(x<0)x=0; x*=g; out[f]=x>1?1:x; }
   return out; }

@@ -115,8 +115,13 @@ for(const caso of [
   /* El Mix NO se guarda en `a.wet`: `animSetWet` pasa por `manualEdit`, que escribe `c.props[motKeyFor(a)]`
      (o una clave, si el parametro ya esta automatizado). El primer intento leia `a.wet` y siempre veia 1 —un
      no-cambio que la sonda habria dado por bueno si no exigiera que el gesto cambie algo. */
+  /* [R322] El gesto empieza con un `pointerdown`, que es donde el fader empuja ahora la foto de deshacer. R320 lo
+     hacia con un pestillo rearmado en `change`, y `change` NO dispara si se suelta en el valor de partida: tras
+     un arrastre de ida y vuelta el pestillo se quedaba puesto y el arrastre siguiente no empujaba nada. Se adopto
+     el patron del hermano `#maskScaleR` (foto en el pointerdown), asi que la sonda tiene que reproducir el gesto
+     COMPLETO — con solo `input` medía un arrastre que en la aplicación real no existe. */
   {n:'fader Mix', sel:'.awet',  foto:"String(selClip().props[motKeyFor(selClip().anim[0])])",
-   gesto:"{ const el=document.querySelector('.awet'); el.value='30'; el.dispatchEvent(new Event('input')); el.dispatchEvent(new Event('change')); }"},
+   gesto:"{ const el=document.querySelector('.awet'); el.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true})); el.value='30'; el.dispatchEvent(new Event('input')); el.dispatchEvent(new Event('change')); }"},
 ]){
   const r = await ev(`(async()=>{ try{
     await newProject('flat',1920,1080,30,180,true); if(typeof hideLanding==='function')hideLanding();
