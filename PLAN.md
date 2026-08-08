@@ -1,5 +1,39 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 326 — Del inventario: importación, medios y proxies
+
+Segunda tanda. Nada de esto rompe el programa; todo hace perder tiempo o material sin decirlo.
+
+- **Un archivo que no encaja en ninguna rama desaparecía**: ni medio ni error. No es raro — un `.mxf`, un `.r3d`
+  o un `.braw` llegan con el tipo MIME vacío, así que arrastrar una carpeta de cámara importaba unos sí y otros
+  no, sin pista de cuáles. Ahora se listan por nombre, que es lo único accionable.
+- **El dedup de importación descartaba archivos distintos.** Consultaba `nombre|tamaño` aunque hubiera ruta
+  absoluta, y dos `render.png` del mismo encuadre pesan exactamente igual. Con ruta, manda la ruta.
+- **Dos clics en «Generar proxy» lanzaban dos codificaciones completas** del mismo archivo, y la segunda pisaba
+  el `.part` de la primera.
+- **Con el panel de medios vacío, «Nueva carpeta» creaba una carpeta INVISIBLE**: entraba en `state.folders` y se
+  guardaba en el `.isp`, pero el panel seguía enseñando la zona de arrastre.
+- **Doble `fileClose` sobre el mismo descriptor** en el fallo de `pumpProxy` — y entre uno y otro puede haberse
+  reutilizado ese `fid`.
+- **URLs de objeto sin revocar**: el del import de audio no se guardaba en ningún sitio, así que importar una
+  carpeta de música dejaba todos los archivos clavados en memoria; y regenerar un proxy abandonaba el blob del
+  anterior, decenas o cientos de MB por vuelta.
+- **`detectFps` esperaba el plazo entero** —hasta 8 s por archivo— con clips de menos de 10 fotogramas, porque su
+  bucle nunca llegaba a la cuenta y el `setTimeout` era la única salida; y su `v.pause()` caía hasta 8 s después,
+  sobre un elemento que para entonces podía estar reproduciéndose.
+- **`attachLinkedAudio` trataba igual «este vídeo no tiene audio» y «el decodificador está ocupado»**: soltar dos
+  vídeos a la vez dejaba al segundo sin su pista enlazada. Ahora reintenta una vez.
+- **El selector de `renameFolderInline` no escapaba el nombre**: una comilla doble en una carpeta hacía reventar
+  el renombrado, justo el gesto con el que se arregla un nombre.
+- **Y la segunda entrada Spout pintaba sobre la primera.** El addon mantiene UNA conexión, así que `inOpen` de una
+  segunda fuente la re-apunta mientras el bombeo sigue alimentando la textura de la primera. Mientras el addon no
+  admita varias, no se ofrece: se dice que hay que quitar la anterior.
+
+**Verificación:** `scratchpad/r326-verif.mjs` — cinco comprobaciones, cuatro sobre la app en marcha y una sobre el
+fuente (el dedup no se puede medir con un `File` sintético: `getPathForFile` devuelve vacío, así que el camino
+arreglado no llega a ejecutarse). Seis redes en verde y `npm test` 3/3.
+
+
 ## ROUND 325 — Del inventario: los que destruyen o pierden trabajo
 
 Primera tanda del cierre de los ~60 MEDIA y BAJA que quedaban de la auditoría. Se atacan por daño, no por

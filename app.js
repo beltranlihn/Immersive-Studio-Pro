@@ -2165,7 +2165,13 @@ function spoutPump(){ if(!DSP||!DSP.spout||!DSP.spout.inFrame)return;
     src.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(fr.data.buffer,fr.data.byteOffset,fr.w*fr.h*4),fr.w,fr.h),0,0);
     tx.translate(0,tc.height); tx.scale(1,-1); tx.drawImage(src,0,0,tc.width,tc.height); // llega bocabajo (se pidió volteado para WebGL)
     m.thumb=tc.toDataURL('image/jpeg',0.6); renderMedia(); }catch(e){} } }
+/* [R326] UNA sola entrada Spout a la vez. El addon nativo mantiene una única conexión de recepción, así que
+   `inOpen` de una segunda fuente RE-APUNTA esa conexión — pero el bombeo sigue subiendo los fotogramas a la
+   textura del PRIMER medio: la entrada B pintaba encima de la A, las dos enseñaban lo mismo y ninguna decía por
+   qué. Mientras el addon no admita varias, lo honesto es no ofrecer lo que no puede cumplir. */
 function makeSpoutMedia(nombre){
+  { const ya=spoutMediaList().find(x=>x.spoutSource&&x.spoutSource!==nombre);
+    if(ya){ appAlert(T('Only one Spout input at a time. Remove "'+ya.spoutSource+'" first.','Sólo se admite una entrada Spout a la vez. Quita antes "'+ya.spoutSource+'".')); return null; } }
   const m={id:uid(),kind:'spout',spoutSource:nombre,name:'Spout · '+nombre,w:16,h:16,dur:60,fps:0,color:clipColorFor('ndi'),tex:newTex(),thumb:null,_spLive:false,_thumbT:0};
   try{ upTexRaw(m.tex,16,16,new Uint8Array(16*16*4).fill(24)); }catch(e){}
   try{ if(DSP&&DSP.spout)DSP.spout.inOpen(nombre); }catch(e){}
@@ -2654,13 +2660,27 @@ function importFiles(files,folder,opts){ let arr=[...files]; const dropFolder=fo
   // dedup: skip files already in Media (re-drops / double drop events). Key by absolute path (Electron) or name+byte-size. Missing media is skipped so re-importing one still relinks via adopt().
   { const seen=new Set(); for(const m of state.media){ if(m.missing)continue; if(m.path)seen.add('p:'+m.path); if(m.name!=null)seen.add('n:'+m.name+'|'+(m.fsize||0)); }
     let dups=0; const fresh=[]; for(const f of arr){ const p=filePath(f); const kp=p?'p:'+p:null; const kn='n:'+f.name+'|'+(f.size||0);
-      if((kp&&seen.has(kp))||seen.has(kn)){ dups++; continue; } if(kp)seen.add(kp); seen.add(kn); fresh.push(f); }
+      /* [R326] Con RUTA manda la ruta, y sólo la ruta. Consultar también `nombre|tamaño` descartaba archivos
+         DISTINTOS que coinciden en los dos — dos `render.png` de la misma cámara y el mismo encuadre pesan
+         exactamente igual—, y el aviso decía «duplicado» sobre un archivo que no lo era. El nombre+tamaño sigue
+         siendo la clave del navegador, donde no hay ruta que consultar. */
+      if(kp?seen.has(kp):seen.has(kn)){ dups++; continue; } if(kp)seen.add(kp); seen.add(kn); fresh.push(f); }
     if(dups)flashStatus(dups+T(' duplicate file(s) skipped (already in Media)',' archivo(s) duplicado(s) omitido(s) (ya en Medios)'),'err'); // [R94-UT3·U-21]
     arr=fresh; if(!arr.length)return; }
   const seqs={}, rest=[], seqGroups=[];
   for(const f of arr){ if(!sinSecuencia && f.type.startsWith('image')){ const mm=f.name.match(/^(.*?)(\d+)(\.[^.]+)$/); if(mm){ const k=mm[1]+'|'+mm[3]; (seqs[k]=seqs[k]||[]).push({f,n:+mm[2]}); continue; } } rest.push(f); } // [R245] con `noSeq` (arrastre) ninguna imagen entra al agrupador: van todas a `rest` como clips sueltos
   for(const k in seqs){ const g=seqs[k]; if(g.length>=3){ g.sort((a,b)=>a.n-b.n); seqGroups.push(g); } else rest.push(...g.map(x=>x.f)); }
-  for(const f of rest){ const p=filePath(f); _importFolder=dropFolder; if(f.type.startsWith('video'))addVideo(f,p); else if(f.type.startsWith('image'))addImage(f,p); else if(f.type.startsWith('audio'))addAudio(f,p); } _importFolder=null; // reset so no later add* call inherits this import's folder
+  /* [R326] Lo que no encaja en ninguna rama se DICE. Antes caía por el final del `else if` y desaparecía: ni
+     medio ni error. El caso normal no es rebuscado — un `.mxf`, un `.r3d` o un `.braw` llegan con `f.type` vacío
+     porque el sistema no les asigna tipo MIME, así que arrastrar una carpeta de cámara importaba unos sí y otros
+     no, sin pista de cuáles ni por qué. Se listan por nombre, que es lo único accionable. */
+  { const ignorados=[];
+    for(const f of rest){ const p=filePath(f); _importFolder=dropFolder;
+      if(f.type.startsWith('video'))addVideo(f,p); else if(f.type.startsWith('image'))addImage(f,p); else if(f.type.startsWith('audio'))addAudio(f,p);
+      else ignorados.push(f.name||'?'); }
+    if(ignorados.length){ diag('warn','import','formato no reconocido',{n:ignorados.length,nombres:ignorados.slice(0,8)});
+      flashStatus(ignorados.length+T(' file(s) not imported — format not supported: ',' archivo(s) sin importar — formato no admitido: ')+ignorados.slice(0,3).join(', ')+(ignorados.length>3?'…':''),'err'); } }
+  _importFolder=null; // reset so no later add* call inherits this import's folder
   // numbered PNG/JPG batches → timed video-like sequences; ask the frame rate once for the whole import
   /* [R245b] `cb(fps, sueltas)`: el diálogo tiene ahora una tercera salida — «Como imágenes sueltas», que importa
      el grupo como clips en vez de como un vídeo. Antes sólo cabía aceptar (se convertían en un vídeo) o cancelar
@@ -2781,8 +2801,12 @@ function createShapeClip(shape){ const m={id:uid(),kind:'shape',name:T('Shape','
 /* ---- AUDIO (Web Audio) ---- */
 let actx=null,masterGain=null,analyser=null,audioSources=[],_audioGains={};
 function ACTX(){ if(!actx){ actx=new (window.AudioContext||window.webkitAudioContext)(); masterGain=actx.createGain(); analyser=actx.createAnalyser(); analyser.fftSize=256; masterGain.connect(analyser); analyser.connect(actx.destination); } return actx; }
+/* [R326] El URL de objeto se REVOCA en cuanto se han leído los bytes. Sólo sirve para el `fetch` de aquí abajo
+   —el audio decodificado vive luego en `m.buffer`—, pero no se guardaba en ningún sitio, así que `disposeMedia`
+   no tenía qué revocar y el blob quedaba retenido por el documento durante toda la sesión: importar una carpeta
+   de música dejaba clavados en memoria todos los archivos, enteros. */
 function addAudio(file,path){ const url=URL.createObjectURL(file); const folder=_importFolder;
-  fetch(url).then(r=>r.arrayBuffer()).then(b=>ACTX().decodeAudioData(b)).then(async ab=>{
+  fetch(url).then(r=>r.arrayBuffer()).then(b=>{ try{URL.revokeObjectURL(url);}catch(_){} return ACTX().decodeAudioData(b); }).then(async ab=>{
     const wv=await computeWave(ab); const m={id:uid(),name:file.name,kind:'audio',buffer:ab,peaks:wv.peak,rms:wv.rms,dur:ab.duration,w:1,h:1,color:clipColorFor('audio'),thumb:waveThumb(wv.peak,108,64),path:path||null,fsize:file.size||0,folder:folder||null};
     state.media.push(m); adopt(m); renderMedia(); markDirty(); if(state.playing)startAudio(); }).catch(e=>{console.error('audio decode',e);appAlert(T('Could not decode audio.','No se pudo decodificar el audio.'));}); } // reschedule if the buffer finished decoding after Play started. [R92-T3] armMediaBands moved to on-demand (Reactive panel / source change / first reactive FX): 3 OfflineAudioContext renders per import were ~700MB of churn nobody asked for
 function computePeaks(ab,n){ const ch=ab.getChannelData(0); const block=Math.max(1,Math.floor(ch.length/n)); const out=new Float32Array(n);
@@ -2909,12 +2933,18 @@ function detectFps(v,m,done){let fin=false;
   const canon=f=>{ for(const cc of[24,25,30,48,50,60,120])if(Math.abs(f-cc)<=1.2)return cc; return f; };
   const calc=arr=>{ if(arr.length<3)return 0; const e=arr.slice().sort((a,b)=>a-b); const md=e[Math.floor(e.length/2)]||0;
     return md>0?canon(Math.round(1/md)):0; };
-  const fn=f=>{if(fin)return;fin=true;if(f>0)m.fps=f;if(done)done();};
+  let _to=null; const fn=f=>{if(fin)return;fin=true;if(_to)clearTimeout(_to);if(f>0)m.fps=f;if(done)done();};
   if(!v.requestVideoFrameCallback){fn(0);return;} let last=null,d=[],n=0;
   const onf=(now,meta)=>{if(last!=null&&meta.mediaTime>last)d.push(meta.mediaTime-last);last=meta.mediaTime;n++;
    if(n<10)v.requestVideoFrameCallback(onf);else{v.pause();v.currentTime=0;fn(calc(d));}};
   const mpx=Math.max(1,(v.videoWidth*v.videoHeight)/1e6), plazo=Math.min(8000,Math.round(2500+mpx*800));
-  setTimeout(()=>{ try{v.pause();}catch(_){ } fn(calc(d)); },plazo); // al vencer, se usa lo medido hasta ahora
+  /* [R326] El plazo se CANCELA al terminar, y el final del vídeo también cuenta como final de la medida. Antes
+     el `setTimeout` sobrevivía siempre: con un clip de menos de 10 fotogramas el bucle nunca llegaba a su cuenta,
+     así que la importación esperaba el plazo ENTERO —hasta 8 s por archivo— aunque el vídeo hubiera acabado en
+     medio segundo; y en los normales el `v.pause()` del vencimiento caía hasta 8 s después, sobre un elemento que
+     para entonces podía estar reproduciéndose en el visor. */
+  _to=setTimeout(()=>{ try{v.pause();}catch(_){ } fn(calc(d)); },plazo); // al vencer, se usa lo medido hasta ahora
+  v.addEventListener('ended',()=>{ try{v.pause();}catch(_){ } fn(calc(d)); },{once:true});
   v.muted=true; v.play().then(()=>v.requestVideoFrameCallback(onf)).catch(()=>fn(0)); }
 /* proxies — persistent DISK cache (R78): the proxy MP4 streams to userData/proxies while encoding
    (RAM stays flat regardless of clip length — the old in-memory target held ~12Mbps × duration, multi-GB
@@ -2968,7 +2998,11 @@ async function bindProxyFile(m,cachePath){ const purl=DSP.toFileURL(cachePath); 
   await new Promise((res,rej)=>{ pv.addEventListener('loadedmetadata',res,{once:true}); pv.addEventListener('error',()=>rej(new Error('proxy file invalid')),{once:true}); setTimeout(()=>{ const e=new Error('proxy bind timeout'); e.timeout=true; rej(e); },15000); }); // [R108-rev A2] a slow disk (NAS/cold HDD) can take >8s to read a VALID proxy's metadata; marking timeout lets callers NOT delete it as if corrupt
   if(m.dur>0 && pv.duration>0 && Math.abs(pv.duration-m.dur)>Math.max(1,m.dur*0.03)){ try{pv.removeAttribute('src');pv.load();}catch(_){} throw new Error('proxy duration mismatch — stale cut'); } // a proxy found by basename (moved/rehashed source) must be of THIS cut, not an older one
   m.proxyEl=pv; m.el=pv; m.pw=pv.videoWidth; m.ph=pv.videoHeight; m.proxyUrl=purl; m.proxyPath=cachePath; m.proxyReady=true; m.proxyPct=100; m._proxyForce=false; renderMedia(); updProxyUI(m); scrubRender(); }
-function enqProxy(m){proxyQ.push(m);pumpProxy();}
+/* [R326] Sin repetidos. Dos clics en «Generar proxy» —o el clic doble que un ratón suelta sin querer— metían el
+   mismo medio dos veces en la cola, y como `pumpProxy` los saca de uno en uno eso son DOS codificaciones
+   completas del mismo archivo: la segunda pisa el `.part` de la primera y tira otros tantos minutos de máquina.
+   `m._pxGen` marca el que se está generando ahora mismo; la cola se mira aparte. */
+function enqProxy(m){ if(!m||m._pxGen||proxyQ.includes(m))return; proxyQ.push(m); pumpProxy(); }
 async function pumpProxy(){if(proxyBusy||!proxyQ.length)return;proxyBusy=true;const m=proxyQ.shift();try{await makeProxy(m);}catch(e){console.error('proxy',e);m.proxyPct=-1;
   /* [R311·A6] La tabla de fotogramas EN RAM (`m.frames`) se va llenando MIENTRAS se codifica, y `seekMedia` la
      prefiere al archivo original. Si la generacion muere a mitad —escritura a disco fallida, publicacion
@@ -2977,7 +3011,10 @@ async function pumpProxy(){if(proxyBusy||!proxyQ.length)return;proxyBusy=true;co
      nada delate por que. Solo el camino de «frozen decode» la limpiaba (linea ~3003); los otros tres fallos
      lanzaban sin tocarla. Se limpia aqui, que es el unico sitio por el que pasan todos. */
   m.frames=null; m.decConfig=null;
-  renderMedia();updProxyUI(m);try{if(m._pfid!=null){DSP.fileClose(m._pfid);}}catch(_){} if(e&&e.userMsg)try{appAlert(e.userMsg);}catch(_){}}finally{ if(m._ppart){ try{ if(m._pfid!=null)await DSP.fileClose(m._pfid); }catch(_){} try{ await DSP.deleteFile(m._ppart); }catch(_){} m._ppart=null; } m._pfid=null; m._pxGen=false; renderMedia(); }proxyBusy=false;pumpProxy();}
+  /* [R326] Aquí NO se cierra el descriptor: lo cierra el `finally` de abajo, que corre siempre. Cerrarlo en los
+     dos sitios era un cierre doble sobre el mismo `fid` — y entre uno y otro `makeProxy` puede haber abierto ya
+     otro archivo, así que el segundo cierre puede caer sobre un descriptor reutilizado. */
+  renderMedia();updProxyUI(m); if(e&&e.userMsg)try{appAlert(e.userMsg);}catch(_){}}finally{ if(m._ppart){ try{ if(m._pfid!=null)await DSP.fileClose(m._pfid); }catch(_){} try{ await DSP.deleteFile(m._ppart); }catch(_){} m._ppart=null; } m._pfid=null; m._pxGen=false; renderMedia(); }proxyBusy=false;pumpProxy();}
 function seekRaw(v,t){return new Promise(r=>{t=Math.max(0,Math.min((v.duration||0)-1e-3,t));if(Math.abs(v.currentTime-t)<1e-3&&v.readyState>=2){requestAnimationFrame(()=>r());return;}const on=()=>{v.removeEventListener('seeked',on);r();};v.addEventListener('seeked',on);v.currentTime=t;});}
 async function makeProxy(m){
   if(/\.dsp-proxy-\w+\.mp4$/i.test(m.path||'')){ m.proxyUrl=m.srcUrl; m.proxyEl=m.el; m.proxyReady=true; m.proxyPct=100; renderMedia(); updProxyUI(m); return; } // the imported file IS a proxy — it is its own proxy (no proxy-of-proxy)
@@ -3075,6 +3112,10 @@ async function makeProxy(m){
   const purl=URL.createObjectURL(blob); const pv=document.createElement('video');pv.src=purl;pv.muted=true;pv.playsInline=true;pv.preload='auto';
   await new Promise(r=>pv.addEventListener('loadedmetadata',r,{once:true}));
   if(dec.src)dec.removeAttribute('src');
+  /* [R326] Al REGENERAR, el URL del proxy anterior se revoca antes de sustituirlo. `disposeMedia` sólo revoca
+     el que esté puesto cuando el medio se destruye, así que cada regeneración dejaba atrás el blob completo del
+     proxy viejo — decenas o cientos de MB por vuelta, y regenerar es justo lo que se hace cuando algo no cuadra. */
+  if(m.proxyUrl&&m.proxyUrl!==purl){ try{URL.revokeObjectURL(m.proxyUrl);}catch(_){} }
   m.proxyEl=pv;m.el=pv;m.pw=pw;m.ph=ph;m.proxyUrl=purl;m.proxyReady=true;m.proxyPct=100;renderMedia();updProxyUI(m);scrubRender();
 }
 function updProxyUI(m){const it=document.querySelector('.mitem[data-id="'+m.id+'"]');if(it){const b=it.querySelector('.pbar>i');if(b)b.style.width=Math.max(0,m.proxyPct||0)+'%'; const tx=it.querySelector('.pbar .pbtxt');if(tx)tx.textContent=m.proxyReady?'':(m.proxyPct>0?(m.proxyPct+'%'):'…');}
@@ -3103,7 +3144,10 @@ function _reprefixFolders(oldP,newP){ if(oldP===newP)return;
   const cf=state.mediaFolder; if(cf===oldP)state.mediaFolder=newP; else if(cf&&cf.indexOf(oldP+FSEP)===0)state.mediaFolder=newP+cf.slice(oldP.length);
   const sf=state.selFolder; if(sf===oldP)state.selFolder=newP; else if(sf&&sf.indexOf(oldP+FSEP)===0)state.selFolder=newP+sf.slice(oldP.length); }
 /* R90: rename a folder IN PLACE over its own label (tree .fnm / grid tile .tlbl); falls back to the prompt if the element is missing */
-function renameFolderInline(f,el){ if(!el)el=document.querySelector('#mediaList .folderhdr[data-fname="'+f+'"] .fnm')||document.querySelector('#mediaList .foldertile[data-fname="'+f+'"] .tlbl');
+/* [R326] `CSS.escape`, como el gemelo de la línea ~3166 que sí lo lleva. Sin él, una carpeta con una comilla
+   doble en el nombre —o un `]`, o una barra invertida— cierra el atributo del selector y `querySelector` lanza
+   `SyntaxError`: renombrar esa carpeta reventaba y no se podía arreglar el nombre desde la interfaz. */
+function renameFolderInline(f,el){ const _fq=CSS.escape(String(f==null?'':f)); if(!el)el=document.querySelector('#mediaList .folderhdr[data-fname="'+_fq+'"] .fnm')||document.querySelector('#mediaList .foldertile[data-fname="'+_fq+'"] .tlbl');
   const commit=v=>{ v=sanitizeFolderName(v); if(!v||v===folderName(f)){ renderMedia(); return; } const np=joinFolder(folderParent(f),v); if(folderExists(np)){ flashStatus(T('A folder with that name already exists','Ya existe una carpeta con ese nombre')); renderMedia(); return; } const _fresca=(_folderFresh===f); _folderFresh=null;
     /* [R253d] crear una carpeta y ponerle nombre es UNA sola accion. El renombre inmediato de una recien creada ni
        empuja un segundo deshacer -crearla costaba dos Ctrl+Z, ensenando el nombre automatico por el medio- ni cuenta
@@ -3161,7 +3205,11 @@ function renderMedia(){
     if(so==='name')items.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
     else if(so==='type')items.sort((a,b)=>((a.kind||'')+'~'+(a.name||'')).localeCompare((b.kind||'')+'~'+(b.name||'')));
     else if(so==='date')items.sort((a,b)=>(b.id||0)-(a.id||0)); }
-  if(!state.media.length){ list.innerHTML='<div class="drop" id="dropZone">'+T('Drag <b>videos / images / audio</b><br>or click to import','Arrastra <b>vídeos / imágenes / audio</b><br>o haz clic para importar')+'</div>';
+  /* [R326] La zona de arrastre sólo sustituye al panel si TAMPOCO hay carpetas. Mirando sólo `state.media`, un
+     proyecto recién creado en el que se pulsa «Nueva carpeta» la creaba de verdad —entraba en `state.folders` y se
+     guardaba en el `.isp`— pero el panel seguía enseñando la zona de arrastre: la carpeta existía y era invisible,
+     así que al importar después aparecía una carpeta «de la nada», o se creaban dos con el mismo nombre. */
+  if(!state.media.length&&!(state.folders&&state.folders.length)){ list.innerHTML='<div class="drop" id="dropZone">'+T('Drag <b>videos / images / audio</b><br>or click to import','Arrastra <b>vídeos / imágenes / audio</b><br>o haz clic para importar')+'</div>';
     $('#dropZone').onclick=()=>pickMedia(false); wireDrop($('#dropZone')); return; } // [R245b] la zona vacía importa medios sueltos
   if(!items.length){ list.innerHTML='<div style="padding:34px 16px;color:var(--ink-dim);text-align:center;font-size:11px;">'+T('No matching media.','No hay medios coincidentes.')+'</div>'; return; }
   if(state.mediaView==='grid'){ // square-tile view with NESTED folder navigation (double-click a folder to enter, ← to go back; drag onto a folder to file into it)
@@ -3443,7 +3491,14 @@ async function armMediaAudio(m){
    cuando el decodificado termina. Si no hay sonido, o el archivo pasa del tope, no ocurre nada — un solo clip. */
 async function attachLinkedAudio(cv,m){
   if(!cv||!m||m.kind!=='video'||cv.link)return null;
-  if(!(await armMediaAudio(m)))return null;
+  /* [R326] Un REINTENTO si el decodificador de audio estaba ocupado. `armMediaAudio` devuelve false tanto si el
+     vídeo no tiene audio (`_noAudio`, definitivo) como si otro medio lo está decodificando en ese momento
+     (`_audioBusy`, pasajero), y aquí se trataban igual: soltar dos vídeos a la vez dejaba al segundo SIN su pista
+     de audio enlazada, sin aviso y sin forma de pedirla salvo reimportar. */
+  if(!(await armMediaAudio(m))){
+    if(m._noAudio||!m._audioBusy)return null;
+    await new Promise(r=>setTimeout(r,600));
+    if(!(await armMediaAudio(m)))return null; }
   if(!state.clips.includes(cv))return null;            // lo borraron mientras decodificaba
   /* la pista se pide DESPUÉS de decodificar y con la posición ACTUAL del clip: crear una pista corre todos los
      índices —incluido el de cv—, y el usuario ha podido mover el clip durante el decodificado */
