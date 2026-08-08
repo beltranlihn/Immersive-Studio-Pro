@@ -3824,6 +3824,13 @@ function appPrompt(message,def,cb){ try{closeMenu();}catch(e){}
    `default` de Enter. `esc` = valor que devuelve Escape y el clic fuera.
    Enter: si el foco está en uno de los botones del diálogo, activa ESE botón — antes Enter respondía siempre el
    default aunque el usuario hubiera llegado con Tab hasta «Descartar» (una respuesta que no era la suya). */
+/* [R316] ¿Es `ov` el cuadro de MÁS ARRIBA? Los diálogos escuchan el teclado en `document` y en captura, así que
+   con dos apilados una sola pulsación los respondía TODOS: el oyente más viejo corre primero y
+   `stopPropagation` no frena a los hermanos del MISMO nodo (para eso está `stopImmediatePropagation`, y sólo
+   debe usarlo el de arriba). Se comparte entre `_dialogBase` y `appAlert` para no dejar dos copias de la misma
+   comprobación. Y NO se usa `:last-of-type`: ese pseudo-selector mira el último hermano de la misma ETIQUETA,
+   así que devolvía null en cuanto cualquier otro <div> quedaba por encima del cuadro — el fallo de R314. */
+function ovTop(ov){ const ovs=document.querySelectorAll('.overlay'); return !ovs.length||ovs[ovs.length-1]===ov; }
 function _dialogBase(message,buttons,opts){ opts=opts||{}; try{closeMenu();}catch(e){}
   const ov=document.createElement('div'); ov.className='overlay'; if(opts.id)ov.id=opts.id; if(opts.z)ov.style.zIndex=opts.z;
   const html=buttons.map((b,i)=>'<button data-di="'+i+'"'+(b.id?' id="'+b.id+'"':'')+' class="togbtn2'+(b.primary?' on':'')+'"'+(b.style?' style="'+b.style+'"':'')+'>'+b.label+'</button>').join(''); // los `id` se conservan (#cfOk/#c3Save…): los arneses de prueba y el CDP los pulsan por id
@@ -3851,7 +3858,7 @@ function _dialogBase(message,buttons,opts){ opts=opts||{}; try{closeMenu();}catc
          nada, `querySelector` devolvía null y TODOS los diálogos dejaban de responder a Enter — y como el
          `return` va antes del `stopPropagation`, la tecla se filtraba a los atajos globales (Supr borrando
          clips detrás del modal). Es el idioma que ya usa el manejador de Escape de más abajo. */
-      { const ovs=document.querySelectorAll('.overlay'); if(ovs.length&&ovs[ovs.length-1]!==ov)return; }   // sólo responde el cuadro de más arriba
+      if(!ovTop(ov))return;   // sólo responde el cuadro de más arriba (ver ovTop)
       e.stopPropagation();
       if(e.key==='Escape'){ e.preventDefault(); e.stopImmediatePropagation(); fin(opts.esc); return; }
       if(e.key==='Enter'){ e.preventDefault(); e.stopImmediatePropagation(); const k=btns.indexOf(document.activeElement); fin(buttons[k>=0?k:(def!=null?def:buttons.length-1)].v); } };
@@ -3885,7 +3892,12 @@ function appAlert(message,cb){ try{closeMenu();}catch(e){}
   ov.innerHTML='<div class="modal" style="width:390px;margin-top:130px;padding:16px 18px;"><div style="font-size:13px;color:var(--ink-2);line-height:1.5;margin-bottom:15px;">'+esc(message)+'</div><div style="display:flex;justify-content:flex-end;"><button id="alOk" class="togbtn2 on">'+T('OK','Aceptar')+'</button></div></div>';
   document.body.appendChild(ov); let done=false; const fin=()=>{ if(done)return; done=true; document.removeEventListener('keydown',onk,true); ov.remove(); if(cb)cb(); };
   ov.querySelector('#alOk').onclick=fin; ov.addEventListener('pointerdown',e=>{ if(e.target===ov)fin(); });
-  const onk=e=>{ if(!ov.isConnected){document.removeEventListener('keydown',onk,true);return;} /* [R218] guarda de conexión */ e.stopPropagation(); if(e.key==='Escape'||e.key==='Enter'){e.preventDefault();fin();} }; document.addEventListener('keydown',onk,true);
+  /* [R316] `appAlert` tenía su propio manejador en `document` SIN la guarda que R312 puso en `_dialogBase`, así
+     que dos avisos apilados —`pumpProxy` llama a `appAlert` sin esperar y sigue con la cola, de modo que dos
+     proxys que fallan seguidos apilan dos— se cerraban con UNA sola pulsación de Enter y el segundo aviso no
+     llegaba a leerse. Con la guarda sólo contesta el de arriba, y usa `stopImmediatePropagation` porque
+     `stopPropagation` no frena a los oyentes hermanos del mismo nodo. */
+  const onk=e=>{ if(!ov.isConnected){document.removeEventListener('keydown',onk,true);return;} /* [R218] guarda de conexión */ if(!ovTop(ov))return; e.stopPropagation(); if(e.key==='Escape'||e.key==='Enter'){e.preventDefault(); e.stopImmediatePropagation(); fin();} }; document.addEventListener('keydown',onk,true);
   setTimeout(()=>{try{ov.querySelector('#alOk').focus();}catch(e){}},10); }
 
 /* ===== Recent projects + Start screen (landing) ===== */

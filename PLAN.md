@@ -1,5 +1,34 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 316 — El último hallazgo del repaso: los avisos también se apilaban
+
+El noveno y último hallazgo del repaso de código, el único que quedó sin aplicar en R315.
+
+R312 puso la guarda de «sólo responde el cuadro de más arriba» en `_dialogBase` —que cubre `appConfirm` y
+`appConfirm3`— y dio la familia por cerrada. Pero `appAlert` tiene su PROPIO manejador de teclado en
+`document`, en captura, y se quedó fuera. El caso real: `pumpProxy` llama a `appAlert(e.userMsg)` **sin
+esperar** y sigue con la cola, así que dos proxys que fallan seguidos apilan dos avisos; el oyente más viejo
+corre primero y `stopPropagation` no frena a los hermanos del mismo nodo, de modo que **un solo Enter cerraba
+los dos y el segundo aviso no llegaba a leerse nunca** — justo el mensaje que explica por qué ha fallado el
+proxy.
+
+La comprobación se extrae a `ovTop(ov)` y se comparte entre `_dialogBase` y `appAlert`, en vez de dejar dos
+copias: era la tercera vez que la misma pregunta se escribía en este fichero. Y el helper lleva escrito por qué
+NO usa `:last-of-type` — el pseudo-selector que causó la regresión de R314.
+
+**`appPrompt` NO necesitaba el arreglo, y conviene dejarlo dicho** para que nadie «complete» la simetría sin
+mirar: su manejador no está en `document` sino en su propio `<input>`, así que con dos prompts apilados sólo el
+campo enfocado —el de arriba— recibe la tecla. El hallazgo lo nombraba junto a `appAlert`; comprobado, es
+inmune por construcción.
+
+Sonda `scratchpad/r316-verif.mjs`, validada por reversión: con la guarda, cada Enter cierra UN aviso y los dos
+callbacks se ejecutan en orden; sin ella, un Enter cierra los dos. Comprueba además que el de arriba SÍ
+responde — una guarda que dejara el cuadro sordo sería peor que el fallo, que es exactamente lo que pasó en
+R314 y por lo que esa comprobación está puesta.
+
+**Con esto quedan cerrados los 9 hallazgos del repaso de código** (y, con ellos, los 13 ALTA de la auditoría
+exhaustiva y las 5 regresiones que su arreglo introdujo).
+
 ## ROUND 315 — Un test que no podía fallar, y el barrido de escapes terminado
 
 Lo que quedaba del repaso de código. Lo más importante no es un fallo del programa sino de su red de seguridad.
