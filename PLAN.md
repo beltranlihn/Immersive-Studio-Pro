@@ -1,5 +1,51 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 310 — El export por FFmpeg no escribía la película (y decía que sí)
+
+Primera tanda de la auditoría exhaustiva de `app.js` (informe en `docs/AUDITORIA-2026-08c-REVISION-GENERAL.md`,
+parte 2: las 14 499 líneas leídas por tramos). Se cierran los cuatro hallazgos ALTA de la zona de export, que
+resultaron ser **el mismo problema visto por cuatro lados**: la rama de FFmpeg nunca se había ejercitado de
+punta a punta como la ejercita un usuario.
+
+- **[A1] `fn` no existía en el ámbito de la rama FFmpeg.** Las dos ramas del ternario que compone la ruta de
+  salida lo usaban, pero `fn` sólo se declara dentro de los bloques HERMANOS (fotograma suelto, HAP, MP4 de
+  WebCodecs). Consecuencia: **todo export `ffh264`/`ffhevc` lanzado desde la hoja moría con
+  `ReferenceError: fn is not defined`** antes de escribir un byte. Las sondas no lo veían porque pasan
+  `opt.outPath` y el `||` cortocircuita el resto de la expresión.
+- **[A2] Y debajo había otro: se codificaba `compTex`, que durante un export no la escribe nadie.**
+  `composite()` no ata ningún framebuffer —lo ata siempre quien la llama— y `_renderNucleo` está parado por
+  `exporting`, así que esa textura conservaba el último composite del VISOR, con el tamaño del visor: el MP4
+  salía con ese fotograma congelado y, a 4096, con el resto del cuadro negro. Ahora se codifica el LIENZO
+  recién dibujado (`exLienzoATex`, copia GPU→GPU), que es lo que ya hacían los otros tres caminos.
+  **Los dos fallos se enmascaraban**: A1 impedía llegar a A2 desde la interfaz.
+- **[A3] Un export que falla se anunciaba «Terminado · 100% · Guardado en el destino elegido».** El job de la
+  hoja no declaraba `fail`, y el catch de `runExport` está escrito para que «quien declara `fail` se hace cargo
+  del error» [R179]: sin él, tras el `appAlert` venía `done(false)`, la firma exacta del final feliz. En una
+  sala por muros el muro fallido contaba como entregado. Se añade `job.fail`, el contador `S.batchFail` y una
+  fase `'fail'` propia — que no es cosmética: con `'idle'`, `updExportUI` reescribe `#exSub` y se comía el
+  mensaje de fallo.
+- **[A4] Descriptores en `finally`.** Los de HAP y del MP4 en streaming se cerraban en línea recta después del
+  bucle: una excepción dentro se los saltaba y dejaba el archivo a medias **con el fd abierto**, lo que en
+  Windows lo bloquea —ni borrarlo, ni volver a exportar a esa ruta— hasta cerrar la app, porque los
+  descriptores viven en el proceso principal y `_exportCleanup` no cierra ninguno. De paso, en la rama FFmpeg
+  el `finally` estaba literalmente VACÍO bajo un comentario que prometía cerrar el proceso: ahora suelta el
+  WAV temporal y las texturas de chapa (67 MB a 4096² por export fallido), y mata FFmpeg **antes** de borrar el
+  WAV, que es un archivo que todavía tiene abierto.
+- **Dos de propina en la misma rama:** se mezclaba el audio **dos veces** (descartaba el `audioBuf` de la fase
+  'audio-mix' y volvía a llamar a `exportAudioMix`, la segunda sin `exDeadline` ni `cancelExport` — si se
+  colgaba, el export quedaba parado sin plazo y Cancelar no lo sacaba), y su bucle no miraba `exWaitPause`, así
+  que **el botón Pausa no hacía nada** en esta ruta.
+
+**La sonda que faltaba: `scratchpad/r310-contenido-export.mjs`.** Ninguna sonda miraba los PÍXELES de un export
+por FFmpeg — r291 valida metadatos con ffprobe y r292 comparaba los rótulos de la chapa, que compone el shader
+de NV12 aparte y por eso salían bien sobre una imagen equivocada. La nueva monta una escena cuyo color cambia de
+forma conocida (rojo | verde | azul, 0,2 s cada uno), exporta por `outDir` —el camino de la hoja, el que tenía
+el ReferenceError— y comprueba canal a canal que el archivo sigue a la línea de tiempo. Criterio **intrínseco**,
+sin referencia externa, y con el camino de WebCodecs como control para que la sonda se valide a sí misma.
+**Verificada por reversión**: con el `compTex` de vuelta reporta «TODOS los fotogramas son iguales» y los dos
+caminos discrepando; con el arreglo, los 18 fotogramas llevan su color. (Medido de paso: FFmpeg 0,6 s contra
+3,0 s de WebCodecs para el mismo trozo.)
+
 ## ROUND 307 — El manual, reescrito como manual
 
 Tres correcciones de Beltrán, las tres ciertas. **El tono era de venta** (un «para esto sirve / esto no es»,

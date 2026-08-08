@@ -8406,6 +8406,30 @@ function nv12Read(srcTex,W,H,disco,chapa){
   gl.bindFramebuffer(gl.FRAMEBUFFER,null);
   if(_blendPrev){ gl.enable(gl.BLEND); NORMAL_BLEND(); }   // [R301c] devuelto como estaba
   return N.buf; }
+/* [R310·A2] El fotograma que se codifica tiene que ser el que se acaba de DIBUJAR, y se dibuja en el lienzo
+   (`glc`), igual que en los otros tres caminos de salida: `renderExportFrame` termina con un blit al lienzo y el
+   composite del domo de esa rama tambien va ahi. Como `nv12Read` necesita una TEXTURA, se copia el lienzo a una
+   —copia dentro de la GPU, sin pasar por la CPU— y se le entrega esa.
+   Lo que habia antes: se le pasaba `compTex`, que durante un export NO LA ESCRIBE NADIE. `composite()` no ata
+   ningun framebuffer (lo ata siempre quien la llama, ver `_renderNucleo`) y el nucleo de render esta parado por
+   `exporting`, asi que `compTex` conservaba el ultimo composite del VISOR, con el tamano del visor: todo MP4 por
+   FFmpeg salia con ese fotograma congelado y, a 4096, con el resto del cuadro negro (muestreo fuera de rango).
+   Por que ninguna sonda lo cazo: la chapa la compone el propio shader de NV12 a partir de sus dos texturas, asi
+   que los rotulos salian correctos sobre una imagen equivocada (r292 comparaba rotulos) y r291 solo miraba los
+   metadatos con ffprobe. De ahi la sonda de CONTENIDO que acompana a esta ronda. */
+let _exNvTex=null,_exNvW=0,_exNvH=0;
+function exLienzoATex(W,H){
+  if(!_exNvTex||_exNvW!==W||_exNvH!==H){ if(_exNvTex)try{ gl.deleteTexture(_exNvTex); }catch(e){}
+    _exNvTex=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,_exNvTex);
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,W,H,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+    _exNvW=W; _exNvH=H; }
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);   // leer del LIENZO, que es donde se acaba de dibujar (null ata lectura y escritura en WebGL2)
+  gl.bindTexture(gl.TEXTURE_2D,_exNvTex);
+  gl.copyTexSubImage2D(gl.TEXTURE_2D,0,0,0,0,0,W,H);
+  return _exNvTex; }
+function exLienzoTexFree(){ if(_exNvTex){ try{ gl.deleteTexture(_exNvTex); }catch(e){} _exNvTex=null; _exNvW=0; _exNvH=0; } }
 
 let _ffJob=null;   /* [R291] el trabajo de FFmpeg en curso, para que Cancelar lo mate de verdad */
 async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
@@ -8466,7 +8490,7 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
   try{ if(_ffJob!=null&&DSP.ffKill){ DSP.ffKill(_ffJob); _ffJob=null; } }catch(e){}
 
     if(_ripSaved)state.clips=_ripSaved; // [R115] restore the full clip list after an isolated render-in-place
-    glc.width=oW;glc.height=oH; freeExportFBO(); dxtFree(); nestSize=COMP; freeNestPool();
+    glc.width=oW;glc.height=oH; freeExportFBO(); dxtFree(); exLienzoTexFree(); nestSize=COMP; freeNestPool(); // [R310·A2] la textura puente del camino FFmpeg mide eW×eH (67 MB a 4096²): se suelta con el resto
     /* [R286b] El lienzo 2D de la chapa se dimensiona al EXPORT (W x H) y solo se reemplaza si alguien vuelve a
        llamar con otro tamano. Con la vista de chapa apagada nadie lo reduce, asi que un domo a 4096 dejaba ~67 MB
        retenidos para siempre (~268 MB a 8192), justo en la app que ya tiene historial de GPU reset a esos tamanos. */
@@ -8563,22 +8587,31 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
       if(!nv12Cabe(eW,eH)) throw new Error(T('This GPU cannot allocate the conversion buffer at that size.',
                                              'Esta GPU no admite el búfer de conversión a ese tamaño.'));
       const _une=(d,n)=>{ const sep=(d.indexOf(String.fromCharCode(92))>=0)?String.fromCharCode(92):'/'; return d+sep+n; };
-      const outPath=opt.outPath||(opt.outDir?_une(opt.outDir,fn.replace(/\.[^.]+$/,'')+'.mp4'):await DSP.saveFile(fn.replace(/\.[^.]+$/,'')+'.mp4','mp4','MP4 video'));
+      /* [R310·A1] El nombre del archivo se declara AQUI. Faltaba, y las dos ramas del ternario lo usaban: `fn`
+         solo existe dentro de los bloques HERMANOS (el fotograma suelto, HAP y el MP4 de WebCodecs), asi que
+         cualquier export por FFmpeg lanzado desde la hoja moria con `ReferenceError: fn is not defined` antes de
+         escribir un solo byte. Las sondas no lo veian porque pasan `opt.outPath` y el `||` cortocircuita el
+         resto de la expresion. Mismo patron de nombre que la rama de WebCodecs, que entrega el mismo formato. */
+      const fn=`${filePre}_${dimStr}_${fps}fps.mp4`;
+      const outPath=opt.outPath||(opt.outDir?_une(opt.outDir,fn):await DSP.saveFile(fn,'mp4','MP4 video'));
       if(!outPath){ _exportCleanup(true); return; }
 
       /* AUDIO: en MP4 va DENTRO, estéreo (decisión de Beltrán). Se escribe la mezcla a un WAV temporal y se le
          da a FFmpeg como segunda entrada — pasarla por la misma tubería que el vídeo mezclaría dos flujos con
          ritmos distintos y es justo donde se descuadra el sonido. */
       let wavTmp=null;
-      if(!opt.noAudio){ try{
+      if(!opt.noAudio&&audioBuf&&audioBuf.length){ try{
         /* [R301c] exportAudioMix devuelve un AudioBuffer, no bytes. Se escribia tal cual, y como
            AudioBuffer.length es el numero de MUESTRAS la guarda pasaba; luego el IPC no puede clonar un
            AudioBuffer y todo caia en el catch de abajo: el MP4 salia SIN AUDIO, siempre y en silencio. El
            camino PNG ya lo hacia bien con audioBufferToWav. */
-        const mezcla=await exportAudioMix(t0,t0+total/fps);
-        if(mezcla&&mezcla.length){ const wav=audioBufferToWav(mezcla);
-          wavTmp=outPath.replace(/\.mp4$/i,'')+'.__mix.wav';
-          if(await DSP.writeBinary(wavTmp,wav)===false)wavTmp=null; }
+        /* [R310] Y se usa la mezcla que YA hizo la fase 'audio-mix' (`audioBuf`), que es la que usan las demas
+           rutas. Antes esta rama la descartaba y volvia a llamar a `exportAudioMix`: se pagaba DOS VECES una
+           fase que en un montaje largo dura minutos, y la segunda llamada iba sin `exDeadline` y sin mirar
+           `cancelExport` — si se colgaba, el export quedaba parado sin plazo y Cancelar no lo sacaba de ahi. */
+        const wav=audioBufferToWav(audioBuf);
+        wavTmp=outPath.replace(/\.mp4$/i,'')+'.__mix.wav';
+        if(await DSP.writeBinary(wavTmp,wav)===false)wavTmp=null;
       }catch(e){ wavTmp=null; } }
 
       const q=opt.ffq||{};
@@ -8627,6 +8660,7 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
           chapa={ fija:subir(fijaCv,null), cont:null, x:0,y:0,w:0,h:0, subir };
         }catch(e){ chapa=null; diag('warn','export','chapa',{e:String(e&&e.message||e)}); }
       }
+      let fin=null;
       try{
         for(let i=0;i<total;i++){
           if(cancelExport)break;
@@ -8634,17 +8668,26 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
           if(flat){ renderExportFrame(t,qRes,ssExport,wall); } else { composite(t,eW,false); gl.finish(); }
           if(chapa){ const c=chapaContador(eW,eH,i,fps);
             chapa.cont=chapa.subir(c.cv,chapa.cont); chapa.x=c.x; chapa.y=c.y; chapa.w=c.w; chapa.h=c.h; }
-          const buf=nv12Read(compTex,eW,eH,esDome,chapa);
+          const buf=nv12Read(exLienzoATex(eW,eH),eW,eH,esDome,chapa);   /* [R310·A2] el LIENZO recien dibujado, no `compTex` — ver exLienzoATex */
           if(!buf)throw new Error('nv12Read');
           await DSP.ffWrite(st.id,buf);           /* esperar: contrapresión */
           if(job.frame)job.frame(i,total); job.prog(i+1,total);
+          await exWaitPause();                    /* [R310] Pausar vale tambien aqui: era el unico bucle de export que no lo miraba, asi que el boton no hacia nada en esta ruta */
         }
-      } finally { /* pase lo que pase, el proceso se cierra: uno huérfano sigue escribiendo un archivo que el
-                     usuario cree cancelado, y en Windows lo deja bloqueado */ }
-      const fin=cancelExport?(await DSP.ffKill(st.id),{ok:false}):await DSP.ffEnd(st.id);
-      _ffJob=null;
-      if(chapa){ try{ if(chapa.fija)gl.deleteTexture(chapa.fija); if(chapa.cont)gl.deleteTexture(chapa.cont); }catch(e){} }
-      if(wavTmp)try{ await DSP.deleteFile(wavTmp); }catch(e){}
+        fin=cancelExport?(await DSP.ffKill(st.id),{ok:false}):await DSP.ffEnd(st.id);
+        _ffJob=null;
+      } finally {
+        /* [R310·A4] Lo que hay que soltar pase lo que pase. Antes esto era un `finally` VACIO —con un comentario
+           que prometia cerrar el proceso— y las tres liberaciones vivian debajo, en linea recta: una excepcion
+           dentro del bucle (un `nv12Read` nulo, un `ffWrite` rechazado, un disco que se va) se las saltaba y
+           dejaba el WAV temporal junto al MP4 y dos texturas de chapa colgando —la fija mide eW×eH, unos 67 MB
+           a 4096²— por cada export fallido de la sesion. El proceso de FFmpeg si estaba cubierto, pero por la
+           red de `_exportCleanup`; aqui se mata ANTES de borrar el WAV, que es un archivo que todavia tiene
+           abierto (en Windows, borrarlo con el proceso vivo falla en silencio y deja el temporal ahi). */
+        if(!fin){ try{ if(DSP.ffKill)await DSP.ffKill(st.id); }catch(e){} _ffJob=null; }
+        if(chapa){ try{ if(chapa.fija)gl.deleteTexture(chapa.fija); if(chapa.cont)gl.deleteTexture(chapa.cont); }catch(e){} chapa=null; }
+        if(wavTmp)try{ await DSP.deleteFile(wavTmp); }catch(e){}
+      }
       if(!cancelExport&&!fin.ok)throw new Error(T('FFmpeg failed: ','FFmpeg ha fallado: ')+(fin.err||''));
       if(!cancelExport&&job.wrote){ try{ const stt=await DSP.stat(outPath); if(stt&&stt.size)job.wrote(stt.size); }catch(e){} }
     } else if(opt.codec==='png'){ const pad=Math.max(6,String(total).length), fnum=i=>String(i+1).padStart(pad,'0'); // [R96] IMERSA/AFDI Dome Master Spec: 6-digit frame number STARTING AT 1 ("Name_000001.png"). We shipped base-0 with a padding that shrank with the take length ("dome_000.png") — a planetarium can't ingest that without renaming every frame, and two exports of different lengths sorted inconsistently.
@@ -8720,6 +8763,12 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
         const fid=await DSP.fileOpen(path);
         if(fid==null) throw new Error(T('Cannot write there (locked or no permission).','No se puede escribir ahí (bloqueado o sin permiso).'));
         let pos=0, wq=Promise.resolve(), wErr=null, pending=0;
+        /* [R310·A4] El descriptor se cierra en un `finally`. Estaba mas abajo, en linea recta: si el bucle
+           lanzaba (una fuente que falla a mitad, el `throw` de `dxtEnsure` con el FBO incompleto, el disco que
+           se va) se saltaba el cierre y el .mov a medias quedaba con el fd ABIERTO. En Windows eso deja el
+           archivo bloqueado —no se puede borrar, mover ni volver a exportar a esa ruta— hasta cerrar la app
+           entera, porque los descriptores viven en el proceso principal. `_exportCleanup` no cierra handles. */
+        try{
         const put=u8=>{ const at=pos; pos+=u8.length; // a VIEW would structured-clone its whole backing buffer over IPC → copy those
           const buf=(u8.byteOffset===0&&u8.byteLength===u8.buffer.byteLength)?u8:u8.slice(); pending++;
           wq=wq.then(()=>DSP.fileWriteAt(fid,at,buf)).then(ok=>{ pending--; if(ok===false)wErr=wErr||new Error('disk write failed'); },e=>{ pending--; wErr=wErr||e; }); return at; };
@@ -8744,7 +8793,7 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
           await DSP.fileWriteAt(fid,mdatStart+8,_bytes(8,(dv)=>{ dv.setUint32(0,Math.floor(mdatSize/4294967296)); dv.setUint32(4,mdatSize>>>0); }));
           put(movBuild({fourcc:F.fourcc,w:eW,h:eH,depth:F.depth,fps,frames,audio:(pcm&&aChunks.length)?{sr:aSR,ch:aCH,chunks:aChunks}:null}));
           try{ await wq; }catch(e){ wErr=wErr||e; } }
-        try{ await DSP.fileClose(fid); }catch(e){}
+        } finally { try{ await wq; }catch(e){} try{ await DSP.fileClose(fid); }catch(e){} }   /* [R310·A4] ver arriba — se espera la cola antes de cerrar para no cerrar bajo una escritura en vuelo */
         if(wErr) throw new Error(T('Write failed during HAP export (disk full or no permission).','Fallo de escritura durante el export HAP (disco lleno o sin permiso).'));
         if(!cancelExport){ expOut=path; job.label&&job.label(T('Saved','Guardado')); } }
     } else {
@@ -8776,6 +8825,15 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
       let encErr=null; const enc=new VideoEncoder({output:(c,m)=>mux.addVideoChunk(c,m),error:e=>{encErr=e;console.error('VideoEncoder:',e);}});
       enc.configure({codec,width:eW,height:eH,bitrate:opt.bitrate,framerate:fps,bitrateMode:'variable',latencyMode:'quality'});
       _exStage='loop';
+      /* [R310·A4] El descriptor del MP4 en streaming se cierra pase lo que pase. El cierre estaba en linea recta
+         despues del bucle: una excepcion dentro (una fuente que falla a mitad, el disco que se va) se lo saltaba
+         y dejaba el .mp4 a medias con el fd ABIERTO, lo que en Windows bloquea el archivo —ni borrarlo, ni
+         volver a exportar a esa ruta— hasta cerrar la app, porque los descriptores viven en el proceso
+         principal y `_exportCleanup` no cierra ninguno. Idempotente: el camino normal ya lo llama, y el
+         `finally` no lo repite. */
+      let _mp4Cerrado=false;
+      const _cerrarMp4=async()=>{ if(_mp4Cerrado||!streaming)return; _mp4Cerrado=true; try{ await wq; }catch(e){} try{ await DSP.fileClose(fileId); }catch(e){} };
+      try{
       const us=1e6/fps,gop=Math.max(1,Math.round(fps)); const ssE=ssExport; // supersampling factor (2× when the GPU allows)
       for(let i=0;i<total;i++){ if(cancelExport||encErr||wErr)break; const t=t0+i/fps; await seekExport(t); prepNests(state.clips,t,0); renderExportFrame(t,qRes,ssE,wall);
         if(job.frame)job.frame(i,total); // [R179] live thumbnail for the progress viewer — read glc HERE, while the drawing buffer is still valid (same rule the VideoFrame below lives by)
@@ -8787,7 +8845,8 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
       try{ enc.close(); }catch(e){}
       if(wantAudio && !cancelExport && !encErr){ job.label&&job.label(T('Encoding audio…','Codificando audio…')); try{ await muxAudioAAC(mux,audioBuf); }catch(e){ console.warn('audio mux',e); } }
       if(!encErr && !cancelExport) mux.finalize();
-      if(streaming){ try{ await wq; }catch(e){} try{ await DSP.fileClose(fileId); }catch(e){} }
+      await _cerrarMp4();
+      } finally { try{ if(enc.state!=='closed')enc.close(); }catch(e){} await _cerrarMp4(); }   /* [R310·A4] ver arriba — y el codificador tampoco queda vivo si el bucle lanza */
       if(encErr) throw new Error(T('Encoding failed at '+res+'² with '+codec+' (','La codificación falló a '+res+'² con '+codec+' (')+(encErr.message||encErr)+T('). Try a lower resolution or PNG sequence.','). Prueba una resolución menor o Secuencia PNG.'));
       if(wErr) throw new Error(T('Write failed during MP4 export (disk full or no permission).','Fallo de escritura durante el export MP4 (disco lleno o sin permiso).'));
       if(!cancelExport){
@@ -9522,14 +9581,18 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
         mctx.fillStyle='rgba(255,255,255,0.16)'; mctx.fillRect(x,0,1,mon.height); }
     }catch(e){} } // en try/catch a propósito: un fallo de dibujo NUNCA puede congelar el modelo de progreso
 
+  /* [R310·A3] Fase 'fail'. No es cosmetica: se comporta como 'idle' para los botones (el render acabo, hay que
+     soltarlos) pero NO es 'idle' para `updExportUI`, que en esa fase reescribe `#exSub` con el recuento de
+     fotogramas — y se habria comido el mensaje de fallo, porque `done()` termina llamandolo. Sin clase CSS
+     propia a proposito: el chip cae al estilo neutro y el motivo lo lleva el aviso en ambar de arriba. */
   function exSetPhase(ph){ S.phase=ph;
     const chip=$$('#exChip'), dot=$$('#exDot'), rail=$$('#exRail'), acts=$$('#exActs');
     chip.className='exs-chip'+(ph==='run'?' run':ph==='pause'?' pause':ph==='done'?' done':'');
-    chip.textContent=ph==='run'?T('Rendering','Renderizando'):ph==='pause'?T('Paused','En pausa'):ph==='done'?T('Done','Terminado'):T('Idle','En reposo');
+    chip.textContent=ph==='run'?T('Rendering','Renderizando'):ph==='pause'?T('Paused','En pausa'):ph==='done'?T('Done','Terminado'):ph==='fail'?T('Failed','Fallido'):T('Idle','En reposo');
     dot.className='exs-dot'+(ph==='run'?' run':ph==='pause'?' pause':ph==='done'?' done':'');
     rail.className='exs-rail'+(ph==='pause'?' pause':ph==='done'?' done':'');
     acts.style.display=(ph==='run'||ph==='pause')?'flex':'none';
-    $$('#exPhase').textContent=ph==='run'?T('Rendering','Renderizando'):ph==='pause'?T('Paused','En pausa'):ph==='done'?T('Finished','Terminado'):T('Ready','Listo');
+    $$('#exPhase').textContent=ph==='run'?T('Rendering','Renderizando'):ph==='pause'?T('Paused','En pausa'):ph==='done'?T('Finished','Terminado'):ph==='fail'?T('Failed','Fallido'):T('Ready','Listo');
     /* [R190] Mientras corre, «Exportar» queda BLOQUEADO. Antes decía «Reiniciar render» y relanzaba encima de un
        render vivo — un clic de más y perdías el trabajo hecho. Para rehacerlo hay que cancelar primero, que es
        explícito. Y «Cerrar» pasa a cancelar mientras corre: si te vas, el render no se queda trabajando solo. */
@@ -9781,7 +9844,7 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
   $$('#exGo').onclick=()=>{ const p=exPx(S), n=exFrames();
     const codec=S.codec, fps=S.fps, br=S.br*1e6, range=exRangeMode();
     const cLbl=HAP_FMT[codec]?HAP_FMT[codec].label:codec.toUpperCase();
-    S.frames=n; S.frame=0; S.bytes=0; S.warns=[]; S.batch=[]; S.batchDone=0; S.t0=performance.now(); _exPaused=false; exSetPhase('run');
+    S.frames=n; S.frame=0; S.bytes=0; S.warns=[]; S.batch=[]; S.batchDone=0; S.batchFail=0; S.t0=performance.now(); _exPaused=false; exSetPhase('run'); // [R310·A3] batchFail: piezas que terminaron MAL — sin este contador el lote no sabe distinguir «entregado» de «fallado»
     { const w=$$('#exWarn'); if(w){ w.style.display='none'; w.textContent=''; } } // los avisos son del render EN CURSO, no del anterior
     $$('#exPause').textContent=T('Pause','Pausar');
     /* [R185] La sala por muro encola 4 trabajos + piso. Antes cada uno escribía en el panel como si fuera el
@@ -9792,7 +9855,7 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
       _exJobs.push(rec);
       const myIx=S.batch.length; S.batch.push({name:labelTxt,frac:0});
       const nBatch=()=>S.batch.length;
-      let _lastStat=0;
+      let _lastStat=0, _fallo=null;   // [R310·A3] el error de ESTA pieza, puesto por job.fail y leido por job.done
       const job={
         prog:(k,tot)=>{ rec.p=k/tot; S.frame=k; S.frames=tot;
           if(S.phase==='run')$$('#exPhase').textContent=T('Rendering','Renderizando'); // [R187] `label` deja escrito «Decodificando audio…» y nadie lo devolvía: la fase mentía durante TODO el render
@@ -9817,18 +9880,36 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
            el peor final posible. Se queda escrito en el panel hasta que se cierre, y sobrevive al «Terminado». */
         warn:m=>{ if(!m)return; if(S.warns.indexOf(m)<0)S.warns.push(m);
           const w=$$('#exWarn'); if(w){ w.style.display='block'; w.textContent='⚠ '+S.warns.join(' · '); } },
-        done:cx=>{ rec.status=cx?'cancelled':'done'; if(!cx){ rec.p=1; S.batch[myIx].frac=1; S.batchDone++; }
+        /* [R310·A3] Un export que falla tiene que DECIRLO. Este `fail` no existia, y el catch de `runExport`
+           esta escrito para que «un trabajo que declara job.fail se hace cargo del error» [R179]: sin el, se
+           mostraba el `appAlert` y acto seguido `_exportCleanup` llamaba a `done(false)` —la firma exacta del
+           final feliz—, asi que el panel anunciaba «Terminado · 100% · Guardado en el destino elegido» sobre un
+           archivo que no existe. En una sala por muros, ademas, el muro fallido contaba como entregado. */
+        fail:e=>{ _fallo=e||new Error('export failed'); rec.status='failed';
+          const m=T('Export failed: ','La exportación ha fallado: ')+((e&&e.message)||e||'');
+          if(S.warns.indexOf(m)<0)S.warns.push(m);
+          const w=$$('#exWarn'); if(w){ w.style.display='block'; w.textContent='⚠ '+S.warns.join(' · '); } },
+        done:cx=>{ const fallo=_fallo; _fallo=null;
+          rec.status=fallo?'failed':(cx?'cancelled':'done');
+          /* Una pieza fallida TERMINO, aunque terminara mal: tiene que contar para saber si el lote acabo. Si
+             no, un muro fallido dejaba el panel en «continuando…» para siempre, sin soltar los botones. */
+          if(fallo){ S.batchFail=(S.batchFail||0)+1; S.batch[myIx].frac=1; }
+          else if(!cx){ rec.p=1; S.batch[myIx].frac=1; S.batchDone++; }
           if(S.bytes)$$('#exWrote').textContent=fmtBytes(S.bytes); // el muxer vuelca por trozos: al principio no hay bytes y la celda se quedaba en «—» hasta el final
-          const ultima=cx||S.batchDone>=nBatch();
+          const ultima=cx||(S.batchDone+(S.batchFail||0))>=nBatch();
           if(!ultima){ // quedan piezas del lote: ni se anuncia «Terminado» ni se sueltan los botones
             $$('#exSub').textContent=T('Finished ','Terminadas ')+S.batchDone+' / '+nBatch()+' · '+T('continuing…','continuando…');
             updExportUI(); return; }
-          _exPaused=false; exSetPhase(cx?'idle':'done');
-          if(!cx){ $$('#exPct').textContent='100%'; $$('#exRail').firstElementChild.style.width='100%';
+          _exPaused=false; exSetPhase(S.batchFail?'fail':(cx?'idle':'done'));
+          if(S.batchFail){ // el motivo ya quedo escrito arriba por `fail`, y sobrevive al cierre del panel
+            $$('#exSub').textContent=(S.batchFail>=nBatch())?T('Export failed — nothing was written','Exportación fallida — no se ha escrito nada')
+                                                            :(S.batchDone+' '+T('of','de')+' '+nBatch()+' '+T('written · the rest failed','escritas · el resto ha fallado'));
+            $$('#exNote').textContent=T('See the warning above','Ver el aviso de arriba'); }
+          else if(!cx){ $$('#exPct').textContent='100%'; $$('#exRail').firstElementChild.style.width='100%';
             $$('#exSub').textContent=(nBatch()>1?(nBatch()+' '+T('files written','archivos escritos')):(S.frames+' '+T('frames written','fotogramas escritos')))+(S.bytes?(' · '+fmtBytes(S.bytes)):'');
             $$('#exNote').textContent=T('Saved to the chosen destination','Guardado en el destino elegido'); }
           else { $$('#exNote').textContent=T('Cancelled · partial output kept','Cancelado · se conserva lo escrito'); }
-          flashStatus(cx?T('Export cancelled','Exportación cancelada'):T('Export finished','Exportación terminada'),cx?'err':undefined);
+          flashStatus(S.batchFail?T('Export failed','Exportación fallida'):(cx?T('Export cancelled','Exportación cancelada'):T('Export finished','Exportación terminada')),(S.batchFail||cx)?'err':undefined);
           try{ if(IS_ELEC&&DSP.setProgress)DSP.setProgress(-1); }catch(e){} updExportUI(); } };
       const opt=Object.assign({codec,res:p.w,outW:p.w,outH:p.h,fps,bitrate:br,chunks:S.chunks,range,job,_rec:rec,outDir:S.outDir||undefined,pngBg:S.pngBg,
         /* [R282] los datos de la chapa salen del PROYECTO; aqui solo se decide si se hornean */

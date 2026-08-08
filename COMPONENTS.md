@@ -116,11 +116,12 @@
 ### 5 · Export, proxies & decode → [detalle](#5--export-proxies--decode-detalle)
 | Componente | Qué hace | Ubicación | Estado | Roadmap |
 |---|---|---|---|---|
-| Panel de export | **Hoja flotante** arrastrable + monitor de render + bloque de estado | app.js · `openExport` · #exOv.exs-scrim | ✅ | R183 |
+| Panel de export | **Hoja flotante** arrastrable + monitor de render + bloque de estado. **[R310]** declara `job.fail` y fase `'fail'`: un export que falla ya no se anuncia «Terminado · Guardado» (contador `S.batchFail`, para que un muro fallido no cuente como entregado ni deje el lote colgado) | app.js · `openExport` · #exOv.exs-scrim | ✅ | R310 |
 | Monitor de render | 160×90, el fotograma que acaba de escribir el codificador | app.js · `exDrawMon`/`exFit` · #exMon | ✅ | R183 |
 | `exPx()` | Fuente ÚNICA del tamaño de salida | app.js · `exPx` | ✅ | R183 |
 | Cola de export | Registro de jobs uno-a-la-vez | app.js · `pumpExportQ` · #exQueue | ✅ | [D2] |
-| `runExport` | Driver máster PNG/MP4/HEVC/HAP/still | app.js · `runExport` (~L4302) | ✅ | [R1],[R2],[D2] |
+| `runExport` | Driver máster PNG/MP4/HEVC/HAP/still. **[R310]** los descriptores de HAP y del MP4 en streaming se cierran en `finally` (una excepción en el bucle dejaba el archivo a medias con el fd abierto → bloqueado en Windows hasta cerrar la app) | app.js · `runExport` (~L8411) | ✅ | R310 |
+| **Export por FFmpeg** | H.264/H.265 a 4096² por el chip de vídeo, NV12 en GPU. **[R310]** dos fallos que se tapaban: `fn` no existía en su ámbito (todo export desde la HOJA moría con ReferenceError; las sondas lo esquivaban pasando `outPath`) y el bucle convertía `compTex`, que durante un export NO ESCRIBE NADIE → el MP4 salía con el fotograma del visor congelado. Ahora se codifica el LIENZO (`exLienzoATex`), como los otros tres caminos | app.js · rama `ffh264`/`ffhevc` de `runExport` · `exLienzoATex` (~L8410) | ✅ | R310 |
 | Render in place | Hornear clip/nest o **selección** → MP4 mudo → pista nueva | app.js · `ripRun`/`renderInPlace`/`renderRangeInPlace` | ✅ | R179 |
 | **Proxy de composición** | Caché de un nest: 1 decodificador en vez de N (**medido 2,6 → 15,8 fps**) · sólo cuadradas | app.js · `ncBuild`/`ncUsable`/`nestSig` | ✅ | R180 · R192 |
 | Visor de avance RIP | Fotograma en vivo + barra + ETA + Cancelar | app.js · `ripProgress` · #ripPv | ✅ | R179 |
