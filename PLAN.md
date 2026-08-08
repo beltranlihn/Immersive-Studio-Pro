@@ -1,5 +1,27 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 333 — Un evaluador para todos, una carga por LUT, una ventana con nombre
+
+- **El bloque de imagen se evaluaba con la BASE.** La geometría (x/y/az/el/tamaño/giro/opacidad) usa `evalR`
+  —base + modificadores + pila de modulación—, pero el desenfoque, el difuminado, el recorte y **los nueve
+  parámetros de color** usaban `evalP`, que es sólo la base. Quedaban fuera de la modulación **mientras la línea
+  de auditoría del inspector sí enseñaba el valor modulado**: el número de la interfaz y lo que se veía en
+  pantalla no eran el mismo. Ahora TODO el dibujo pasa por el mismo evaluador — el parámetro que se añada mañana
+  no puede caer en el mismo agujero. Medido espiando el uniform que se sube de verdad.
+- **Dos cargas simultáneas de la misma LUT creaban dos texturas 3D**, y la segunda pisaba a la primera en el
+  registro: la huérfana se queda en la GPU sin dueño ni forma de borrarla, y el ciclo se repite con cada carga
+  solapada (el clip visible que la recarga solo y el selector del inspector, por ejemplo). Comparten carga.
+- **`DOMAIN_MIN`/`DOMAIN_MAX` del `.cube` se ignoraba en silencio.** Declaran el rango de ENTRADA de la tabla; el
+  motor muestrea siempre en 0..1, así que una LUT de flujo HDR/log se aplicaba con las coordenadas equivocadas y
+  salía un grado que no es el que el archivo describe. El usuario ve un color raro y **culpa a su LUT**. Ahora se
+  detecta y se avisa por la barra de estado; soportarlo de verdad pide un uniform en los tres programas del domo.
+- **`m.f0&&m.f1` en SEIS sitios, y `0` es falso.** Una ventana de espectro que empieza en 0 Hz — justo la del
+  bombo, la más pedida — se caía a la banda con nombre sin avisar; y como cada sitio se caía por su cuenta, la
+  etiqueta decía una cosa y la señal era otra. Una sola pregunta con nombre (`modVentana`) para los seis.
+
+**Verificación:** `scratchpad/r333-verif.mjs`. **Trece redes en verde.**
+
+
 ## ROUND 332 — El visor emergente estampaba fotogramas de otro tiempo
 
 - **La reutilización del composite era un acto de fe.** El visor emergente repinta por el MISMO `render()` con

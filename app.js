@@ -327,23 +327,44 @@ function makeLutTex(data,size){ const tex=gl.createTexture(); gl.bindTexture(gl.
   gl.texImage3D(gl.TEXTURE_3D,0,gl.RGBA8,size,size,size,0,gl.RGBA,gl.UNSIGNED_BYTE,data);
   gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true); gl.pixelStorei(gl.UNPACK_ALIGNMENT,4); gl.bindTexture(gl.TEXTURE_3D,null); return tex; } // restore the app's prevailing 2D-upload defaults
 (function(){ const N=2,d=new Uint8Array(N*N*N*4); let p=0; for(let b=0;b<N;b++)for(let g=0;g<N;g++)for(let r=0;r<N;r++){ d[p++]=r*255; d[p++]=g*255; d[p++]=b*255; d[p++]=255; } _lutIdentity=makeLutTex(d,N); })();
-function parseCubeLUT(text){ let size=0; const vals=[];
+/* [R333] `DOMAIN_MIN`/`DOMAIN_MAX` declaran el rango de ENTRADA de la tabla. El motor muestrea siempre en
+   0..1, asi que una LUT con otro dominio (las de flujo HDR/log llevan `DOMAIN_MAX 4.0` y parecidos) se
+   aplicaba con las coordenadas equivocadas y salia un grado que no es el que el archivo describe -en
+   silencio, que es lo peor: el usuario ve un color raro y culpa a su LUT-. Se devuelve el dominio para que
+   quien la cargue AVISE. Soportarlo de verdad pide un uniform en los tres programas del domo; hasta
+   entonces, decirlo en voz alta. */
+function parseCubeLUT(text){ let size=0; const vals=[]; let dmin=[0,0,0], dmax=[1,1,1];
+  const tres=(l,d)=>{ const q=l.split(/\s+/).slice(1).map(parseFloat).filter(x=>!isNaN(x)); return q.length>=3?q.slice(0,3):(q.length===1?[q[0],q[0],q[0]]:d); };
   for(let line of text.split(/\r?\n/)){ line=line.trim(); if(!line||line[0]==='#')continue; const up=line.toUpperCase();
     if(up.startsWith('LUT_3D_SIZE')){ size=parseInt(line.split(/\s+/)[1],10)||0; continue; }
     if(up.startsWith('LUT_1D_SIZE'))return null; // 1D LUTs unsupported
+    if(up.startsWith('DOMAIN_MIN')){ dmin=tres(line,dmin); continue; }
+    if(up.startsWith('DOMAIN_MAX')){ dmax=tres(line,dmax); continue; }
     if(up.startsWith('TITLE')||up.startsWith('DOMAIN_')||up.startsWith('LUT_3D_INPUT'))continue;
     const p=line.split(/\s+/); if(p.length>=3){ const r=parseFloat(p[0]),g=parseFloat(p[1]),b=parseFloat(p[2]); if(!isNaN(r)&&!isNaN(g)&&!isNaN(b))vals.push(r,g,b); } }
   if(!size||vals.length!==size*size*size*3)return null;
   const d=new Uint8Array(size*size*size*4); // .cube order = R fastest → matches texImage3D (x=r fastest)
   for(let i=0,j=0;i<size*size*size;i++){ for(let k=0;k<3;k++)d[j++]=Math.max(0,Math.min(255,Math.round(vals[i*3+k]*255))); d[j++]=255; }
-  return {size,data:d}; }
+  const dominioRaro=dmin.some(v=>Math.abs(v)>1e-6)||dmax.some(v=>Math.abs(v-1)>1e-6);
+  return {size,data:d,dmin,dmax,dominioRaro}; }
 const LUT_CAP=16; // [R213] tope LRU del registro de texturas 3D de LUT — evita crecer sin límite proyecto tras proyecto
+const _lutEnVuelo=new Map(); // [R333] una sola carga por ruta: ver loadLUT
 async function loadLUT(path){ if(!path)return null;
   if(_lutReg.has(path)){ const rec=_lutReg.get(path); _lutReg.delete(path); _lutReg.set(path,rec); return rec; } // [R213] Map preserva orden de inserción → reinsertar al usar la mueve al final ("más reciente")
+  /* [R333] Dos llamadas para la MISMA ruta antes de que la primera termine -el clip visible que la recarga
+     solo y el selector de LUT del inspector, por ejemplo- fallaban las dos en la cache, parseaban las dos y
+     creaban DOS texturas 3D; la segunda pisaba a la primera en el registro y esa se quedaba sin duenyo ni
+     forma de borrarla (una LUT de 33 al cubo son ~140 KB en GPU, y se repite con cada carga solapada).
+     Las llamadas concurrentes comparten ahora la misma promesa. */
+  if(_lutEnVuelo.has(path))return _lutEnVuelo.get(path);
+  const _pr=_cargarLUT(path).finally(()=>{ _lutEnVuelo.delete(path); });
+  _lutEnVuelo.set(path,_pr); return _pr; }
+async function _cargarLUT(path){
   if(!(IS_ELEC&&DSP.readText))return null;
   let txt=null; try{ txt=await DSP.readText(path); }catch(e){} if(txt==null)return null;
   const parsed=parseCubeLUT(txt); if(!parsed)return null;
-  const name=path.split(/[\\/]/).pop().replace(/\.cube$/i,''); const rec={tex:makeLutTex(parsed.data,parsed.size),size:parsed.size,name,path}; _lutReg.set(path,rec);
+  const name=path.split(/[\\/]/).pop().replace(/\.cube$/i,''); if(parsed.dominioRaro)try{ flashStatus(T('LUT '+name+' declares a non-standard input domain ('+parsed.dmin[0]+' to '+parsed.dmax[0]+'): it is applied over 0-1 and will not match the source application.','La LUT '+name+' declara un dominio de entrada no estandar ('+parsed.dmin[0]+' a '+parsed.dmax[0]+'): se aplica sobre 0-1 y no coincidira con la aplicacion de origen.'),'err'); }catch(e){} // [R333] antes se clampaba sin decir nada
+  const rec={tex:makeLutTex(parsed.data,parsed.size),size:parsed.size,name,path,dmin:parsed.dmin,dmax:parsed.dmax}; _lutReg.set(path,rec);
   if(_lutReg.size>LUT_CAP){ const oldestKey=_lutReg.keys().next().value; const old=_lutReg.get(oldestKey); try{ gl.deleteTexture(old.tex); }catch(e){} _lutReg.delete(oldestKey); } // [R213] expulsa la menos usada recientemente (primera del Map)
   return rec; }
 function resetLutReg(){ for(const rec of _lutReg.values()){ try{ gl.deleteTexture(rec.tex); }catch(e){} } _lutReg.clear(); } // [R213] libera las texturas 3D de LUT del proyecto anterior — llamar donde se resetea el resto del estado GL
@@ -939,6 +960,13 @@ function animOffset(c,p,t){ if(!c||!c.anim||!c.anim.length)return 0; let o=0; co
 /* render-time evaluator = base (keyframe/props) + procedural offset. Used ONLY by the renderer so editing/keyframing stays on the base value. */
 /* [R95·C1] The resolved value the RENDER sees = keyframes → motion modifiers → MODULATION STACK.
    evalP stays the pure keyframe/base value (the curve editor draws and edits THAT), so the stack never fights the editor. */
+/* [R333] La ventana de espectro propia de un modulador se preguntaba con `m.f0&&m.f1` en SEIS sitios,
+   y `0` es falso: una ventana que empieza en 0 Hz -justo la del bombo, la mas pedida- se caia a la banda con
+   nombre sin avisar, y ademas cada sitio se caia por su cuenta (la etiqueta decia una cosa y la senal era
+   otra). Una sola pregunta, con nombre, para los seis. */
+function modVentana(m){ if(!m)return null; const a=m.f0, b=m.f1;
+  if(typeof a!=='number'||typeof b!=='number'||!isFinite(a)||!isFinite(b)||a===b)return null;
+  return {lo:Math.min(a,b), hi:Math.max(a,b)}; }
 function evalR(c,p,t){ let v=evalP(c,p,t); if(v==null)v=0; if(c.anim&&c.anim.length)v+=animOffset(c,p,t); if(c.mod&&c.mod[p])v=evalModStack(c,p,t,v); return v; }
 /* ===================== [R95·C1] MODULATION STACK — the unified, LEGIBLE model =====================
    Bitwig proves modulation belongs ON the control; Cavalry's Behaviour Mixer proves layers need EXPLICIT blend modes;
@@ -988,9 +1016,9 @@ function modAudioEnv(m){ if(!_arCache)return null;
      Mover el acierto arriba es correcto porque los dos mandos que R318 quiso meter en la clave —ganancia y
      puerta— ya vacían esta caché al moverse: `arRecompute()` hace `_modAudioCache.clear()` y el fader la llama
      en cada píxel. La clave puede seguir sin ellos. */
-  const atk=m.atk!=null?m.atk:8, rel=m.rel!=null?m.rel:130; const key=((m.f0&&m.f1)?('f'+Math.round(m.f0)+'-'+Math.round(m.f1)):(m.band||'bass'))+'|'+atk+'|'+rel;
+  const atk=m.atk!=null?m.atk:8, rel=m.rel!=null?m.rel:130; const _vt=modVentana(m); const key=(_vt?('f'+Math.round(_vt.lo)+'-'+Math.round(_vt.hi)):(m.band||'bass'))+'|'+atk+'|'+rel;
   const hit=_modAudioCache.get(key); if(hit)return hit;
-  const raw=(m.f0&&m.f1)?specRangeRaw(m.f0,m.f1):(_arCache.raw&&_arCache.raw[m.band||'bass']); if(!raw)return null; // [R95·C2] a custom f0..f1 range reads the real spectrum; named bands keep the filter-bank path
+  const raw=_vt?specRangeRaw(_vt.lo,_vt.hi):(_arCache.raw&&_arCache.raw[m.band||'bass']); if(!raw)return null; // [R95·C2] a custom f0..f1 range reads the real spectrum; named bands keep the filter-bank path
   const dt=1/(_arCache.fps||30); const aA=Math.exp(-dt/Math.max(0.001,atk/1000)), aR=Math.exp(-dt/Math.max(0.001,rel/1000));
   const arr=new Float32Array(raw.length); let y=0;
   for(let i=0;i<raw.length;i++){ const x=raw[i]; const a=x>y?aA:aR; y=a*y+(1-a)*x; arr[i]=y; }
@@ -1019,7 +1047,7 @@ function modFormula(c,p,t){ const st=(c.mod&&c.mod[p])||[]; const base=evalP(c,p
   return f(evalR(c,p,t))+u+'  =  '+s; }
 function modLabel(m){ if(m.frz!=null)return '❄'+(m.src==='lfo'?'LFO':m.src==='audio'?T('audio','audio'):T('dome','domo')); // [R95·D4] the audit line must say it's frozen — otherwise "why isn't it reacting?" has no visible answer
   if(m.src==='lfo')return 'LFO '+(m.bpmSync?('1/'+(m.div||1)):((m.hz||0.5)+'Hz'))+' '+(m.shape||'sine');
-  if(m.src==='audio')return T('audio','audio')+'('+((m.f0&&m.f1)?(Math.round(Math.min(m.f0,m.f1))+'-'+Math.round(Math.max(m.f0,m.f1))+'Hz'):(m.band||'bass'))+')'; // [R95·C2] the audit line must name the REAL source — a custom window, not a band it isn't using
+  if(m.src==='audio'){ const _v=modVentana(m); return T('audio','audio')+'('+(_v?(Math.round(_v.lo)+'-'+Math.round(_v.hi)+'Hz'):(m.band||'bass'))+')'; } // [R95·C2] the audit line must name the REAL source — a custom window, not a band it isn't using
   return T('dome','domo')+'('+(m.axis||'el')+')'; }
 function anyAnim(){ for(const c of state.clips){ if(hasLiveAnim(c)||hasLiveMod(c))return true; const m=mediaById(c.mediaId); if(m&&m.nestClips)for(const nc of m.nestClips)if(hasLiveAnim(nc)||hasLiveMod(nc))return true; } return false; } // [R95·C1] a free-running LFO must animate the idle preview exactly like a motion modifier does
 function hasLiveMod(c){ if(!c||!c.mod)return false; for(const p in c.mod)for(const m of c.mod[p])if(m.on!==false&&(m.src==='lfo'))return true; return false; } // only the LFO runs off the clock; audio/space follow the playhead
@@ -1139,11 +1167,17 @@ function drawClipFlat(c,m,t,xf,ntex,op){ const SR=clipSurfaceRect(c); let P;
   gl.uniform2f(LW.half,P.hw,P.hh); gl.uniform1f(LW.mir,c.props.mirror?-1:1); gl.uniform1f(LW.op,op);
   gl.uniform1f(LW.cull,0); gl.uniform1f(LW.sector,0); gl.uniform1f(LW.tile,0); gl.uniform1f(LW.maskScale,c.props.maskScale||1);
   setWeaveGrid(c);
-  gl.uniform1f(LW.blur,(evalP(c,'blur',t)||0)*0.0016); gl.uniform1f(LW.feather,(evalP(c,'feather',t)||0)/100); gl.uniform1f(LW.crop,(evalP(c,'crop',t)||0)/100*0.9);
+  /* [R333] `evalR` y no `evalP` en TODO el bloque de imagen (desenfoque, difuminado, recorte y color), como
+     ya hacia la geometria. `evalP` es la BASE -solo keyframes-, asi que estos parametros se quedaban fuera
+     de los modificadores y de la pila de modulacion mientras la linea de auditoria del inspector si ensenaba
+     el valor modulado: el numero de la interfaz y lo que se veia en pantalla no eran el mismo. Un evaluador
+     para todos, para que el parametro que se anada manana no vuelva a caer en el mismo agujero (cuesta dos
+     comprobaciones falsas por uniform cuando no hay ni anim ni mod, que es el caso normal). */
+  gl.uniform1f(LW.blur,(evalR(c,'blur',t)||0)*0.0016); gl.uniform1f(LW.feather,(evalR(c,'feather',t)||0)/100); gl.uniform1f(LW.crop,(evalR(c,'crop',t)||0)/100*0.9);
   gl.uniform1f(LW.mask,MASK_IDX[c.props.mask||'none']||0);
-  gl.uniform1f(LW.exp,(evalP(c,'exposure',t)||0)/100); gl.uniform1f(LW.con,(evalP(c,'contrast',t)||0)/100); gl.uniform1f(LW.sat,(evalP(c,'saturation',t)||0)/100);
-  gl.uniform1f(LW.tmp,(evalP(c,'temperature',t)||0)/100*0.15); gl.uniform1f(LW.tnt,(evalP(c,'tint',t)||0)/100*0.15);
-  gl.uniform1f(LW.glow,(evalP(c,'glow',t)||0)/100); gl.uniform1f(LW.ca,(evalP(c,'chroma',t)||0)/100); bindClipLUT(c);
+  gl.uniform1f(LW.exp,(evalR(c,'exposure',t)||0)/100); gl.uniform1f(LW.con,(evalR(c,'contrast',t)||0)/100); gl.uniform1f(LW.sat,(evalR(c,'saturation',t)||0)/100);
+  gl.uniform1f(LW.tmp,(evalR(c,'temperature',t)||0)/100*0.15); gl.uniform1f(LW.tnt,(evalR(c,'tint',t)||0)/100*0.15);
+  gl.uniform1f(LW.glow,(evalR(c,'glow',t)||0)/100); gl.uniform1f(LW.ca,(evalR(c,'chroma',t)||0)/100); bindClipLUT(c);
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,ntex); gl.uniform1i(LW.tex,0);
   gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D,c.maskTex||ntex); gl.uniform1i(LW.maskTex,1);
   const bm=c.props.blend||'normal'; setBlend(bm); gl.uniform1f(LW.premul,(bm==='screen'||bm==='multiply')?1:0); gl.uniform1f(LW.blend,BLEND_ID[bm]||0);
@@ -1191,8 +1225,8 @@ function drawClip(c,m,t,xf){
   let op=Math.max(0,Math.min(1,evalR(c,'opacity',t)/100))*fadeFactor(c,t)*(xf==null?1:xf);
   if(c.props.equirect){ gl.useProgram(PEQ); gl.bindVertexArray(eqVAO); // [F7] equirectangular 360° source → dome: az (Azimuth+Spin) = yaw (rotate the camera), eqPitch tilts
     gl.uniform1f(LEQ.op,op); gl.uniform1f(LEQ.mir,c.props.mirror?-1:1); gl.uniform1f(LEQ.covHalf, curCovHalf()); gl.uniform1f(LEQ.yaw, az*D2R); gl.uniform1f(LEQ.pitch, (c.props.eqPitch||0)*D2R);
-    gl.uniform1f(LEQ.exp,(evalP(c,'exposure',t)||0)/100); gl.uniform1f(LEQ.con,(evalP(c,'contrast',t)||0)/100); gl.uniform1f(LEQ.sat,(evalP(c,'saturation',t)||0)/100); gl.uniform1f(LEQ.tmp,(evalP(c,'temperature',t)||0)/100*0.15); gl.uniform1f(LEQ.tnt,(evalP(c,'tint',t)||0)/100*0.15);
-    gl.uniform1f(LEQ.mask, MASK_IDX[c.props.mask||'none']||0); gl.uniform1f(LEQ.feather,(evalP(c,'feather',t)||0)/100); gl.uniform1f(LEQ.maskScale, c.props.maskScale||1);
+    gl.uniform1f(LEQ.exp,(evalR(c,'exposure',t)||0)/100); gl.uniform1f(LEQ.con,(evalR(c,'contrast',t)||0)/100); gl.uniform1f(LEQ.sat,(evalR(c,'saturation',t)||0)/100); gl.uniform1f(LEQ.tmp,(evalR(c,'temperature',t)||0)/100*0.15); gl.uniform1f(LEQ.tnt,(evalR(c,'tint',t)||0)/100*0.15);
+    gl.uniform1f(LEQ.mask, MASK_IDX[c.props.mask||'none']||0); gl.uniform1f(LEQ.feather,(evalR(c,'feather',t)||0)/100); gl.uniform1f(LEQ.maskScale, c.props.maskScale||1);
     bindClipLUT(c,LEQ); // [grade gap] wheels + curves + LUT on the equirect path (units 2/3), restores TEXTURE0 before the tex bind below
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,ntex); gl.uniform1i(LEQ.tex,0);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, c.maskTex||m.tex); gl.uniform1i(LEQ.maskTex,1);
@@ -1208,8 +1242,8 @@ function drawClip(c,m,t,xf){
        hacia dónde (grados). Ambos son props normales, así que se automatizan y llevan modificadores como
        cualquier otro; el túnel les pone los suyos. Sin ellos, offset (0,0) y todo se dibuja como siempre. */
     { const hx=evalR(c,'helix',t)||0; if(hx){ const ha=(evalR(c,'helixAng',t)||0)*D2R; gl.uniform2f(LFD.off, hx*Math.cos(ha), hx*Math.sin(ha)); } else gl.uniform2f(LFD.off,0,0); }
-    gl.uniform1f(LFD.exp,(evalP(c,'exposure',t)||0)/100); gl.uniform1f(LFD.con,(evalP(c,'contrast',t)||0)/100); gl.uniform1f(LFD.sat,(evalP(c,'saturation',t)||0)/100); gl.uniform1f(LFD.tmp,(evalP(c,'temperature',t)||0)/100*0.15); gl.uniform1f(LFD.tnt,(evalP(c,'tint',t)||0)/100*0.15);
-    gl.uniform1f(LFD.mask, MASK_IDX[c.props.mask||'none']||0); gl.uniform1f(LFD.feather,(evalP(c,'feather',t)||0)/100); gl.uniform1f(LFD.maskScale, c.props.maskScale||1);
+    gl.uniform1f(LFD.exp,(evalR(c,'exposure',t)||0)/100); gl.uniform1f(LFD.con,(evalR(c,'contrast',t)||0)/100); gl.uniform1f(LFD.sat,(evalR(c,'saturation',t)||0)/100); gl.uniform1f(LFD.tmp,(evalR(c,'temperature',t)||0)/100*0.15); gl.uniform1f(LFD.tnt,(evalR(c,'tint',t)||0)/100*0.15);
+    gl.uniform1f(LFD.mask, MASK_IDX[c.props.mask||'none']||0); gl.uniform1f(LFD.feather,(evalR(c,'feather',t)||0)/100); gl.uniform1f(LFD.maskScale, c.props.maskScale||1);
     bindClipLUT(c,LFD); // [grade gap] wheels + curves + LUT on the fulldome path (units 2/3), restores TEXTURE0 before the tex bind below
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,ntex); gl.uniform1i(LFD.tex,0);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, c.maskTex||m.tex); gl.uniform1i(LFD.maskTex,1);
@@ -1239,13 +1273,13 @@ function drawClip(c,m,t,xf){
   const sector=(c.props.warp==='dome'); gl.uniform1f(LW.sector, sector?1:0); gl.uniform1f(LW.tile, sector?1:0); // dome-tile (annular sector) → seamless rings/grids that follow the dome's az/el grid (tiles skip edge feather/aspect → no seams)
   gl.uniform1f(LW.maskScale, c.props.maskScale||1); gl.uniform4f(LW.weave,0,1,0,0); // la rejilla del tejido es cosa del plano; en el domo siempre apagada
   if(sector){ gl.uniform1f(LW.azC, az*D2R); gl.uniform1f(LW.azSpan, (c.props.secAz||60)*D2R); gl.uniform1f(LW.elC, el*D2R); gl.uniform1f(LW.elSpan, (c.props.secEl||30)*D2R); }
-  gl.uniform1f(LW.blur, (evalP(c,'blur',t)||0)*0.0016);
-  gl.uniform1f(LW.feather, (evalP(c,'feather',t)||0)/100);
-  gl.uniform1f(LW.crop, (evalP(c,'crop',t)||0)/100*0.9);
+  gl.uniform1f(LW.blur, (evalR(c,'blur',t)||0)*0.0016);
+  gl.uniform1f(LW.feather, (evalR(c,'feather',t)||0)/100);
+  gl.uniform1f(LW.crop, (evalR(c,'crop',t)||0)/100*0.9);
   gl.uniform1f(LW.mask, MASK_IDX[c.props.mask||'none']||0);
-  gl.uniform1f(LW.exp,(evalP(c,'exposure',t)||0)/100); gl.uniform1f(LW.con,(evalP(c,'contrast',t)||0)/100); gl.uniform1f(LW.sat,(evalP(c,'saturation',t)||0)/100);
-  gl.uniform1f(LW.tmp,(evalP(c,'temperature',t)||0)/100*0.15); gl.uniform1f(LW.tnt,(evalP(c,'tint',t)||0)/100*0.15);
-  gl.uniform1f(LW.glow,(evalP(c,'glow',t)||0)/100); gl.uniform1f(LW.ca,(evalP(c,'chroma',t)||0)/100); bindClipLUT(c);
+  gl.uniform1f(LW.exp,(evalR(c,'exposure',t)||0)/100); gl.uniform1f(LW.con,(evalR(c,'contrast',t)||0)/100); gl.uniform1f(LW.sat,(evalR(c,'saturation',t)||0)/100);
+  gl.uniform1f(LW.tmp,(evalR(c,'temperature',t)||0)/100*0.15); gl.uniform1f(LW.tnt,(evalR(c,'tint',t)||0)/100*0.15);
+  gl.uniform1f(LW.glow,(evalR(c,'glow',t)||0)/100); gl.uniform1f(LW.ca,(evalR(c,'chroma',t)||0)/100); bindClipLUT(c);
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,ntex); gl.uniform1i(LW.tex,0);
   gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, c.maskTex||ntex); gl.uniform1i(LW.maskTex,1);
   const bm=c.props.blend||'normal'; setBlend(bm); gl.uniform1f(LW.premul,(bm==='screen'||bm==='multiply')?1:0); gl.uniform1f(LW.blend,BLEND_ID[bm]||0);
@@ -7352,7 +7386,7 @@ function drawSpecPicker(cv,m,c){ const dpr=Math.min(window.devicePixelRatio||1,2
   x.fillStyle=UI.s0; x.fillRect(0,0,W,H);
   if(!sp){ x.fillStyle=UI.ink2; x.font='11px Geist'; x.textAlign='center'; x.fillText(src?T('Analysing spectrum…','Analizando espectro…'):T('Pick a Reactive FX audio source first','Elige primero una fuente de audio reactiva'),W/2,H/2); x.textAlign='left'; return; }
   const fr=Math.max(0,Math.min(sp.frames-1,Math.round(state.playhead*sp.fps))); const edges=specBandEdges();
-  const custom=!!(m.f0&&m.f1); const lo=custom?Math.min(m.f0,m.f1):0, hi=custom?Math.max(m.f0,m.f1):0;
+  const _v0=modVentana(m); const custom=!!_v0; const lo=custom?_v0.lo:0, hi=custom?_v0.hi:0;
   for(let b=0;b<sp.bins;b++){ const x0=specX(edges[b],W), x1=specX(edges[b+1],W); const v=Math.pow(sp.data[fr*sp.bins+b]||0,0.55); const h=Math.max(1,v*(H-10)); // ^0.55 = visual lift only (the stored data stays linear and honest)
     const inWin=custom&&edges[b+1]>=lo&&edges[b]<=hi;
     x.fillStyle=inWin?'rgba(79,195,232,0.85)':'rgba(154,160,168,0.34)'; x.fillRect(x0+0.5,H-h-2,Math.max(1,x1-x0-1),h); }
@@ -7367,10 +7401,10 @@ function bindSpecPicker(cv,m,c,onChange){
   const paint=()=>drawSpecPicker(cv,m,c);
   requestAnimationFrame(paint); cv._paint=paint;
   const info=cv.parentElement.querySelector('.mpspecinfo');
-  const setInfo=()=>{ if(!info)return; info.textContent=(m.f0&&m.f1)?(Math.round(Math.min(m.f0,m.f1))+' – '+Math.round(Math.max(m.f0,m.f1))+' Hz'):T('Drag across the spectrum to pick a band','Arrastra sobre el espectro para elegir una banda'); };
+  const setInfo=()=>{ if(!info)return; const _v=modVentana(m); info.textContent=_v?(Math.round(_v.lo)+' – '+Math.round(_v.hi)+' Hz'):T('Drag across the spectrum to pick a band','Arrastra sobre el espectro para elegir una banda'); };
   setInfo();
   cv.addEventListener('pointerdown',e=>{ e.stopPropagation(); const r=cv.getBoundingClientRect(); const W=cv._W||r.width; const px=e.clientX-r.left;
-    const inWin=(m.f0&&m.f1)&&px>=specX(Math.min(m.f0,m.f1),W)-3&&px<=specX(Math.max(m.f0,m.f1),W)+3;
+    const _vw=modVentana(m); const inWin=!!_vw&&px>=specX(_vw.lo,W)-3&&px<=specX(_vw.hi,W)+3;
     const f0=specF(px,W); const startLo=m.f0, startHi=m.f1;
     const mv=ev=>{ const p2=ev.clientX-r.left;
       if(inWin){ const d=specF(p2,W)/Math.max(1e-6,f0); m.f0=Math.max(SPEC_F0,Math.min(SPEC_F1,startLo*d)); m.f1=Math.max(SPEC_F0,Math.min(SPEC_F1,startHi*d)); } // slide the window (log-proportional → it keeps its musical width)
@@ -7406,7 +7440,7 @@ function openModPanel(c,p,anchor){ closeModPanel(); if(!c)return; c.mod=c.mod||{
           <label class="mpsync"><input type="checkbox" class="mpbpm"${m.bpmSync?' checked':''}> ${T('sync','sinc')}</label>
           ${m.bpmSync?`<span class="mplab">1/</span><input class="mpdiv tnum" type="number" min="0.25" step="0.25" value="${m.div||1}">`:`<input class="mphz tnum" type="number" min="0.01" step="0.1" value="${m.hz||0.5}"><span class="mplab">Hz</span>`}
           <span class="mplab">${T('phase','fase')}</span><input class="mpph tnum" type="number" min="0" max="360" step="15" value="${m.phase||0}">`; }
-      else if(m.src==='audio'){ const custom=!!(m.f0&&m.f1);
+      else if(m.src==='audio'){ const custom=!!modVentana(m);
         r2.innerHTML=`<select class="mpband sysel"><option value="bass"${!custom&&m.band==='bass'?' selected':''}>${T('Bass','Graves')}</option><option value="mid"${!custom&&m.band==='mid'?' selected':''}>${T('Mid','Medios')}</option><option value="treble"${!custom&&m.band==='treble'?' selected':''}>${T('Treble','Agudos')}</option><option value="bright"${!custom&&m.band==='bright'?' selected':''}>${T('Bright','Brillo')}</option><option value="custom"${custom?' selected':''}>${T('Custom range…','Rango propio…')}</option></select>
           <span class="mplab">${T('atk','atq')}</span><input class="mpatk tnum" type="number" min="0" max="500" step="1" value="${m.atk}"><span class="mplab">ms</span>
           <span class="mplab">${T('rel','rel')}</span><input class="mprel tnum" type="number" min="0" max="2000" step="10" value="${m.rel}"><span class="mplab">ms</span>

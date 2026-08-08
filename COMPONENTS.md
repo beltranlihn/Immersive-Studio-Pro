@@ -91,7 +91,7 @@
 | `hasKf` | Test de automatización (devuelve undefined ⚠️) | app.js · `hasKf` | ✅ | — |
 | `evalP` | Evaluador puro de keyframes/base | app.js · `evalP` | ✅ | [A2]/[D1] |
 | `setKf` / clearKf | Escribir/mergear/borrar keyframes | app.js · `setKf` | ✅ | — |
-| `evalR` | Base+motion+mod en tiempo de render | app.js · `evalR` | ✅ | [L7] |
+| `evalR` | Base+motion+mod en tiempo de render. **[R333]** lo usa AHORA todo el dibujo: el bloque de imagen (blur/feather/crop y el color) leía con `evalP` —la base, sólo keyframes— mientras la geometría usaba `evalR`, así que esos parámetros quedaban fuera de los modificadores y de la pila de modulación **mientras la línea de auditoría del inspector sí enseñaba el valor modulado** | app.js · `evalR` | ✅ | R333 |
 | `manualEdit` | Regla AE (editar valor → keyframe) | app.js · `manualEdit` | ✅ | [A2]/[D1] |
 | Toggle modo automatización | inlineCurves → body.automode | app.js · `toggleCurves`/`syncAutoUI` · #curvesBtn (dentro de #tlEditSeg) | ✅ | [A1] |
 | Param del lane (track) | Un overlay por pista (`lane._autoP`) = **única fuente de qué curva se ve** | app.js · `laneAutoP`/`openAuto`/`showAutomation`/`clipArmedTrackKeys` | ✅ | [A5]/[L3]/[L4] |
@@ -141,7 +141,7 @@
 | Componente | Qué hace | Ubicación | Estado | Roadmap |
 |---|---|---|---|---|
 | Pipeline de color (FSW) | Pipeline completo en el fragment shader | app.js · `FSW`/`PW` (~L169) | ✅ | R116/R130/R132 |
-| Import de LUT 3D | LUT `.cube` por clip como look final; [R213] `_lutReg` = LRU de 16 con deleteTexture + `resetLutReg()` en new/open + recarga perezosa desde `bindClipLUT` | app.js · `parseCubeLUT`/`loadLUT`/`bindClipLUT` | ✅ | R116 |
+| Import de LUT 3D | LUT `.cube` por clip como look final; [R213] `_lutReg` = LRU de 16 con deleteTexture + `resetLutReg()` en new/open + recarga perezosa desde `bindClipLUT` **[R333]** dos llamadas simultáneas para la misma ruta parseaban las dos y creaban DOS texturas 3D (una sin dueño): comparten carga por `_lutEnVuelo`. Y `DOMAIN_MIN/MAX` ya no se ignora — una LUT con dominio no estándar se aplicaba con las coordenadas equivocadas en silencio; ahora se detecta y se avisa (soportarlo pide un uniform en los tres programas del domo) | app.js · `parseCubeLUT`/`loadLUT`+`_cargarLUT`/`bindClipLUT` | ✅ | R333 |
 | Ruedas Lift/Gamma/Gain | Grado primario estilo DaVinci | app.js · `wheelRGB`/`bindClipGrade` | ✅ | R130 |
 | Curvas de tono | Curvas luma+RGB → LUT 256×1 | app.js · `buildCurveData`/`clipCurveTex`/`bindClipCurve` | ✅ | R132 |
 | Grado en PFD/PEQ | Fulldome/equirect ya reciben ruedas/curvas/LUT (paridad con FSW) | app.js · `bindClipLUT(c,LFD/LEQ)` en draw PFD/PEQ | ✅ | R138 (gap cerrado) |
@@ -931,7 +931,7 @@ Reference map of `app.js`. Line numbers verified against the current file.
 - **Purpose:** The value the RENDERER sees: `base (evalP) → + procedural motion (animOffset) → modulation stack (evalModStack)`. Keeps `evalP` pure so the stack never fights the editor.
 - **Location:** app.js · `evalR` (L521)
 - **State owned:** reads `c.anim`, `c.mod`
-- **Key symbols:** `evalR(c,p,t)`, `animOffset` (L512), `evalModStack` (L563)
+- **Key symbols:** `evalR(c,p,t)`, `animOffset` (L512), `evalModStack` (L563), **[R333]** `modVentana(m)` — «¿este modulador usa una ventana de espectro propia?» se preguntaba con `m.f0&&m.f1` en SEIS sitios, y `0` es falso: una ventana que empieza en 0 Hz (la del bombo) se caía a la banda con nombre, y cada sitio se caía por su cuenta
 - **Invariants / gotchas:** [L7] the RENDERER must call `evalR` (not raw props) for automation to run in Play. Order is fixed: keyframes → motion → modulation.
 - **Status:** ✅
 - **Roadmap:** [L7]
