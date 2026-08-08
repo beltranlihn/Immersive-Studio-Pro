@@ -1,5 +1,49 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 325 — Del inventario: los que destruyen o pierden trabajo
+
+Primera tanda del cierre de los ~60 MEDIA y BAJA que quedaban de la auditoría. Se atacan por daño, no por
+orden de lista, y éstos son los que cuestan material.
+
+- **`emergencySave` guardaba DURANTE un export.** `runExport` con `isolateClips` (Render in place) sustituye
+  `state.clips` por los clips aislados mientras dura el render; si algo revienta en medio, `serProject()`
+  serializa esa lista recortada y la deja como el autoguardado **más reciente**. Al reabrir tras la caída, la
+  recuperación ofrece un proyecto con un clip y el resto perdido. Ahora no escribe, y la comprobación va **antes**
+  del limitador de 5 s para que un export no consuma esa ventana.
+- **Y escribía siempre en `.autosave1`**, machacando justo la ranura que la alternancia acababa de dejar buena:
+  el sistema de dos ranuras existía para sobrevivir a una escritura desgarrada y quedaba anulado.
+- **`runExport` no tenía guarda de reentrada.** Todo su estado es global —`exporting`, `glc.width`, `nestSize`,
+  el `state.clips` sustituido— así que dos renders solapados se pisan, y el primero en terminar repone el lienzo
+  y los clips a lo que había antes de él. La cola serializa el camino normal, pero Render in place y el fotograma
+  suelto no pasan por ella.
+- **Editar una composición de domo desde una pestaña 2D destruía el túnel o el tejido.** El diálogo leía
+  `isFlat()` —el modo de la secuencia ACTIVA— en vez del modo de la composición que está editando, así que su
+  tipo caía a `grid` por no estar en `FLAT_COMP_KINDS` y Aplicar la reconstruía como rejilla, sin aviso.
+- **El reenlace automático elegía entre homónimos en silencio.** El índice se quedaba con el primer archivo que
+  el barrido encontrara —y ese orden lo decide el sistema de ficheros—, así que dos `take01.mp4` en subcarpetas
+  distintas eran una moneda al aire. Ahora guarda todos los candidatos y **desempata por tamaño** (`fsize` ya
+  viaja en el `.isp`); si no puede, deja el medio ausente y lo dice — reenlazar a mano es reversible, adivinar no.
+- **Rehacer un borrado de medio se quedaba a medias**: los clips volvían a irse pero el medio seguía en el panel,
+  huérfano, y se guardaba así. `restore` sólo sabía revivir de la papelera; le faltaba el camino de vuelta, y
+  `mmeta` —la lista de medios que tenía la foto— era justo el dato que hacía falta.
+- **La ✕ de la barra de estado cancelaba sólo el trabajo activo**: en una sala por muros, los tres muros y el
+  piso encolados seguían renderizando con el panel ya en reposo.
+- **El parche de `largesize` del `.mov` ignoraba el resultado de la escritura.** Esos 8 bytes son lo que hace
+  legible el archivo: un disco lleno al final de un render de horas lo dejaba roto y anunciado como guardado.
+- **El escritor ZIP truncaba en silencio por encima de 65 535 entradas** —un domo a 60 fps las pasa en 18
+  minutos— y por encima de 4 GB. Ahora se planta al añadir, con el consejo de exportar a una carpeta.
+- **`migrateRoomFloor` retiraba la secuencia de piso sin quitar los clips que la usaban** desde otras secuencias:
+  quedaban con un `mediaId` inexistente, mudos, sin dibujar y viajando así al `.isp`.
+
+Dos del lote resultaron ya cerrados en rondas anteriores y se comprobaron antes de tocarlos: `adopt` recibió su
+`bumpMeta` en R317, y la limpieza del WAV temporal y las texturas de chapa del bucle de FFmpeg vive desde R310 en
+`_exportCleanup`.
+
+**Verificación:** `scratchpad/r325-verif.mjs`, ya en el lanzador — **seis redes en verde** y `npm test` 3/3.
+*Nota de método: la primera medida del guardián de `emergencySave` dio un falso negativo porque el limitador de
+ritmo tocaba `_emergT` antes que la guarda. Moverla al principio arregló a la vez la medida y el diseño.*
+
+
 ## ROUND 324 — El fader del Mix, cuarto intento, y un tope que colapsaba el gesto
 
 Los siete del repaso de R323. **Los dos graves eran míos, de R323**, y los dos por la misma causa: una guarda

@@ -21,6 +21,7 @@ const REDES = [
   ['r319-verif.mjs',   'los ocho de la tanda de MEDIA siguen arreglados'],
   ['r320-verif.mjs',   'los gemelos: nada quedó arreglado a medias'],
   ['r321-verif.mjs',   'un gesto mueve el clip Y su mitad enlazada; un gesto de grupo conserva los desfases'],
+  ['r325-verif.mjs',   'los cuatro que, si vuelven, cuestan material'],
 ];
 
 /* Sin app levantada no se distingue «rojo» de «no medido», y esa confusión es justo la que hace inútil una red. */

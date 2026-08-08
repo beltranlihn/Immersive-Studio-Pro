@@ -8827,7 +8827,16 @@ async function exPrepararReactivo(job){
   }catch(e){ diag('warn','export','reactivo',{e:String(e&&e.message||e)}); }
 }
 let _ffJob=null;   /* [R291] el trabajo de FFmpeg en curso, para que Cancelar lo mate de verdad */
-async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
+async function runExport(opt){
+  /* [R325] Guarda de REENTRADA. Todo lo que sigue es estado GLOBAL —`exporting`, `_exportQuality`, `glc.width`,
+     `nestSize`, `_exCD`, el `state.clips` sustituido de `isolateClips`— así que dos renders solapados se pisan:
+     el segundo redimensiona el lienzo mientras el primero codifica, y el primero en terminar repone `glc` y
+     `state.clips` a lo que había ANTES de él, dejando al otro escribiendo fotogramas del tamaño equivocado y,
+     con `isolateClips`, pudiendo reponer una lista de clips que ya no es la del proyecto. La cola `_exq` lo
+     serializa por el camino normal, pero no todos los llamadores pasan por ella (Render in place, el fotograma
+     suelto, y cualquier atajo futuro). Un aviso y fuera: encolar aquí escondería el error de diseño. */
+  if(exporting){ flashStatus(T('A render is already running — wait for it to finish.','Ya hay un render en marcha — espera a que termine.'),'err'); return; }
+  if(state.playing)pause(); cancelExport=false;
   /* [R284] El logo lo comparten visor y export. Antes, un export SIN chapa llamaba a cargarlo con null y
      borraba el que el visor estaba usando: desaparecia de la pantalla hasta reabrir el cuadro. Ahora
      solo se carga cuando hace falta, y nunca se borra desde aqui. */
@@ -9198,7 +9207,11 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
         try{ await wq; }catch(e){ wErr=wErr||e; }
         if(!wErr&&!cancelExport){ job.label&&job.label(T('Writing index…','Escribiendo el índice…'));
           const mdatSize=pos-mdatStart;
-          await DSP.fileWriteAt(fid,mdatStart+8,_bytes(8,(dv)=>{ dv.setUint32(0,Math.floor(mdatSize/4294967296)); dv.setUint32(4,mdatSize>>>0); }));
+          /* [R325] Se MIRA el resultado. Este parche de 8 bytes es lo que convierte el `size=1` del `mdat` en un
+             tamaño válido de 64 bits: sin él el `.mov` es ILEGIBLE. Descartar el retorno significaba que un disco
+             lleno justo al final de un render de horas dejaba el archivo roto y lo anunciaba como guardado. */
+          if(await DSP.fileWriteAt(fid,mdatStart+8,_bytes(8,(dv)=>{ dv.setUint32(0,Math.floor(mdatSize/4294967296)); dv.setUint32(4,mdatSize>>>0); }))===false)
+            throw new Error(T('Could not finish the .mov (disk full?) — the file is unusable','No se pudo cerrar el .mov (¿disco lleno?) — el archivo no sirve'));
           put(movBuild({fourcc:F.fourcc,w:eW,h:eH,depth:F.depth,fps,frames,audio:(pcm&&aChunks.length)?{sr:aSR,ch:aCH,chunks:aChunks}:null}));
           try{ await wq; }catch(e){ wErr=wErr||e; } }
         } finally { try{ await wq; }catch(e){} try{ await DSP.fileClose(fid); }catch(e){} }   /* [R310·A4] ver arriba — se espera la cola antes de cerrar para no cerrar bajo una escritura en vuelo */
@@ -9770,7 +9783,16 @@ function hapAutoChunks(){ const n=(navigator.hardwareConcurrency||4); let p=1; w
 const CRC=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1);t[n]=c>>>0;}return t;})();
 function crc32(b){let c=0xFFFFFFFF;for(let i=0;i<b.length;i++)c=CRC[(c^b[i])&0xFF]^(c>>>8);return(c^0xFFFFFFFF)>>>0;}
 class Zip{constructor(){this.p=[];this.c=[];this.o=0;this.e=new TextEncoder();}
-  add(n,d){const nb=this.e.encode(n),crc=crc32(d),sz=d.length;const lh=new DataView(new ArrayBuffer(30));lh.setUint32(0,0x04034b50,true);lh.setUint16(4,20,true);lh.setUint32(14,crc,true);lh.setUint32(18,sz,true);lh.setUint32(22,sz,true);lh.setUint16(26,nb.length,true);this.p.push(new Uint8Array(lh.buffer),nb,d);
+  /* [R325] Un ZIP clásico no admite más de 65 535 entradas ni pasar de 4 GB: los dos contadores del directorio
+     central son de 16 bits y los desplazamientos de 32, y `setUint16`/`setUint32` TRUNCAN en silencio. Un domo a
+     60 fps pasa de 65 535 fotogramas en 18 minutos, así que el caso es normal, no rebuscado — y el archivo salía
+     corrupto anunciado como guardado, después de horas. Se para al añadir, que es cuando aún se puede decir algo
+     útil. (ZIP64 lo resolvería, pero el camino bueno para una secuencia larga es exportar a una CARPETA, que es
+     lo que hace la app cuando corre en Electron; este ZIP es el respaldo del navegador.) */
+  add(n,d){
+    if(this.c.length/2>=65535)throw new Error(T('Too many frames for a ZIP (65535 max) — export to a folder instead','Demasiados fotogramas para un ZIP (máximo 65535) — exporta a una carpeta'));
+    if(this.o+30+d.length>0xFFFFFFFF)throw new Error(T('The ZIP would exceed 4 GB — export to a folder instead','El ZIP pasaría de 4 GB — exporta a una carpeta'));
+    const nb=this.e.encode(n),crc=crc32(d),sz=d.length;const lh=new DataView(new ArrayBuffer(30));lh.setUint32(0,0x04034b50,true);lh.setUint16(4,20,true);lh.setUint32(14,crc,true);lh.setUint32(18,sz,true);lh.setUint32(22,sz,true);lh.setUint16(26,nb.length,true);this.p.push(new Uint8Array(lh.buffer),nb,d);
    const cd=new DataView(new ArrayBuffer(46));cd.setUint32(0,0x02014b50,true);cd.setUint16(4,20,true);cd.setUint16(6,20,true);cd.setUint32(16,crc,true);cd.setUint32(20,sz,true);cd.setUint32(24,sz,true);cd.setUint16(28,nb.length,true);cd.setUint32(42,this.o,true);this.c.push(new Uint8Array(cd.buffer),nb);this.o+=30+nb.length+sz;}
   finish(){let cs=0;for(const x of this.c)cs+=x.length;const n=this.c.length/2;const eo=new DataView(new ArrayBuffer(22));eo.setUint32(0,0x06054b50,true);eo.setUint16(8,n,true);eo.setUint16(10,n,true);eo.setUint32(12,cs,true);eo.setUint32(16,this.o,true);return new Blob([...this.p,...this.c,new Uint8Array(eo.buffer)],{type:'application/zip'});}}
 
@@ -9794,7 +9816,12 @@ function exCancelJob(rec){ if(!rec)return; // [R94-UT3·U-02] queued → remove 
   if(rec.status==='queued'){ const i=_exq.indexOf(rec.opt); if(i>=0)_exq.splice(i,1); rec.status='cancelled'; exPaintJob(rec); flashStatus(T('Export cancelled','Exportación cancelada'),'err'); }
   else if(rec.status==='running'||rec.status==='cancelling'){ cancelExport=true; rec.status='cancelling'; exPaintJob(rec); }
   updExportUI(); }
-function exCancelActive(){ const rec=_exJobs.find(j=>j.status==='running'||j.status==='cancelling'); if(rec)exCancelJob(rec); } // [R94-UT3·U-02c] status-bar ✕ → cancel the ACTIVE job
+/* [R325] La ✕ de la barra cancela el trabajo activo Y VACÍA LA COLA, como ya hacía el botón Cancelar de la
+   hoja de export. Cancelando sólo el activo, una sala por muros —que encola tres muros más el piso— seguía
+   renderizando los tres siguientes con el panel ya en reposo: el usuario cree haber parado y la máquina sigue
+   horas. El que quiera parar sólo uno tiene su propia ✕ en la fila de la cola. */
+function exCancelActive(){ const rec=_exJobs.find(j=>j.status==='running'||j.status==='cancelling'); if(rec)exCancelJob(rec);
+  if(_exq.length){ for(const o of _exq)if(o._rec)o._rec.status='cancelled'; _exq.length=0; renderExQueue(); updExportUI(); } } // [R94-UT3·U-02c] status-bar ✕ → cancel the ACTIVE job
 function updExportUI(){ // [R94-UT3·U-02c/U-33] status-bar ✕ + Export button badge reflect the live queue
   const running=_exJobs.some(j=>j.status==='running'||j.status==='cancelling');
   const n=_exJobs.filter(j=>j.status==='running'||j.status==='cancelling'||j.status==='queued').length;
@@ -11307,6 +11334,16 @@ function migrateRoomFloor(wseq){
         flashStatus(T('Room floor migrated into the walls canvas','Suelo de la sala migrado al lienzo de muros'));
       }
     }
+    /* [R325] Al retirar la secuencia de piso hay que quitar TAMBIÉN los clips que la usaban desde otras
+       secuencias. Sólo se filtraba `state.media`, así que un clip del piso colocado en la línea principal —o
+       dentro de otro nido— se quedaba con un `mediaId` que ya no existe: `mediaById` devuelve `undefined` y ese
+       clip pasa a ser un hueco mudo que no se dibuja, no se puede seleccionar bien y viaja así al `.isp`.
+       Se mira en la línea activa y en los `nestClips` de todas las secuencias, que es donde puede haber clips. */
+    { const fid=fseq.id; let quitados=0;
+      const limpiar=arr=>{ if(!Array.isArray(arr))return arr; const n=arr.filter(c=>c.mediaId!==fid); quitados+=arr.length-n.length; return n; };
+      state.clips=limpiar(state.clips);
+      for(const sm of state.media)if(isSeqMedia(sm)&&Array.isArray(sm.nestClips))sm.nestClips=limpiar(sm.nestClips);
+      if(quitados)diag('info','room','clips del piso retirados con su secuencia',{n:quitados}); }
     state.media=state.media.filter(x=>x.id!==fseq.id); // its content now lives in wseq.nestClips — the standalone sequence is gone
   }
   room.floorSeqId=null;
@@ -11513,20 +11550,36 @@ async function relinkIndex(){
   if(!IS_ELEC||!DSP.listDir||!currentPath)return null;
   const raiz=pdir(currentPath); if(!raiz)return null;
   if(_relIdx&&_relIdxDir===raiz)return _relIdx;
+  /* [R325] Se guardan TODOS los candidatos por nombre, con su tamaño, no sólo el primero que aparezca. Con
+     `!idx.has(k)` el índice se quedaba con el primero que el barrido encontrara —y el orden depende del sistema
+     de ficheros—, así que dos tomas homónimas en subcarpetas distintas (`take01.mp4` en `bruto/` y en
+     `seleccion/`) hacían que el reenlace eligiera una EN SILENCIO, y el proyecto quedaba apuntando a un archivo
+     que no es el que tenía. El tamaño lo desempata: `serMedia` guarda `fsize` de cada medio. */
   const idx=new Map();
   const meter=async(d)=>{ let fs=[]; try{ fs=(await DSP.listDir(d))||[]; }catch(e){ return; }
-    for(const f of fs){ const k=(f.name||'').toLowerCase(); if(k&&!idx.has(k))idx.set(k,pjoin(d,f.name)); } };
+    for(const f of fs){ const k=(f.name||'').toLowerCase(); if(!k)continue;
+      if(!idx.has(k))idx.set(k,[]); idx.get(k).push({p:pjoin(d,f.name),size:f.size||0}); } };
   await meter(raiz);
   if(DSP.listSubdirs){ let subs=[]; try{ subs=(await DSP.listSubdirs(raiz))||[]; }catch(e){}
     for(const s of subs){ if(s==='autosave'||s==='rendered clips')continue; await meter(pjoin(raiz,s)); } }
   _relIdx=idx; _relIdxDir=raiz; return idx;
 }
 /* devuelve una ruta que EXISTE (la de siempre, o su gemela junto al proyecto) — o null */
-async function repararRuta(p){
+/* [R325] `fsize` = el tamaño que el `.isp` recuerda de ese medio; sirve para desempatar homónimos. Si hay
+   varios candidatos y ninguno coincide en tamaño, se prefiere NO reenlazar: el medio se queda «ausente» y el
+   usuario lo reenlaza a mano, que es reversible. Adivinar no lo es — el proyecto se guarda con la ruta elegida. */
+async function repararRuta(p,fsize){
   if(!p)return null;
   try{ if(await DSP.exists(p))return p; }catch(e){}
   const idx=await relinkIndex(); if(!idx)return null;
-  const alt=idx.get(pbase(p).toLowerCase());
+  const cands=idx.get(pbase(p).toLowerCase()); if(!cands||!cands.length)return null;
+  let alt=null;
+  if(cands.length===1)alt=cands[0].p;
+  else { const exactos=fsize?cands.filter(c=>c.size===fsize):[];
+    if(exactos.length===1)alt=exactos[0].p;
+    else { diag('warn','relink','homónimos sin desempate',{nombre:pbase(p),n:cands.length,fsize:fsize||0});
+      flashStatus(T('Several files named "'+pbase(p)+'" — relink it by hand','Hay varios archivos llamados "'+pbase(p)+'" — reenlázalo a mano'),'err');
+      return null; } }
   if(alt&&alt!==p){ _relCount++; relinkReport(); return alt; }
   return null;
 }
@@ -11539,7 +11592,7 @@ async function reloadMedia(m){
     m.framePaths.forEach((fp,i)=>{ if(!fp){ if(++loaded===total){ m._loading=false; renderMedia(); } return; } const img=new Image(); img.onload=()=>{ const fit=fitImage(img); frames[i]=fit.src; if(i===0){ m.w=fit.w; m.h=fit.h; upTex(m.tex,fit.src); m._curFrame=0; m.thumb=DSP.toFileURL(fp); m.missing=false; } if(++loaded===total){ m.missing=false; m._loading=false; renderMedia(); render(); } }; img.onerror=()=>{ if(++loaded===total){ m._loading=false; renderMedia(); } }; img.src=DSP.toFileURL(fp); });
     m.frames=frames; return; }
   if(!m.path){ m._loading=false; return; }
-  { const np=await repararRuta(m.path); // [R204] si no está en su ruta, se busca junto al proyecto antes de rendirse
+  { const np=await repararRuta(m.path,m.fsize); // [R204] si no está en su ruta, se busca junto al proyecto antes de rendirse · [R325] con el tamaño, para desempatar homónimos
     if(!np){ m.missing=true; m._loading=false; renderMedia(); updRelink(); return; }
     if(np!==m.path){ m.path=np; m.proxyReady=false; m.proxyUrl=null; m.proxyEl=null; } } // ruta nueva ⇒ el proxy se re-engancha desde la nueva ubicación
   const url=DSP.toFileURL(m.path);
@@ -11794,6 +11847,18 @@ function restore(s){ const o=JSON.parse(s);
   /* [R253d] ¿es segura la parte global de esta foto? Ver el comentario de `bumpMeta`. */
   const _segura=(o.metaVer!=null) && (_metaOwner===(state.activeSeqId!=null?state.activeSeqId:"_"))
                 && (o.metaVer>=_metaFree) && Math.abs(_metaVer-o.metaVer)<=1;
+  /* [R325] Un medio que la foto NO tenía vuelve a la papelera. Sin esto, deshacer y REHACER un borrado de medio
+     se quedaba a medias: al rehacer, los clips volvían a irse pero el medio seguía en `state.media` — huérfano
+     en el panel, sin ningún clip que lo use, y guardándose así en el `.isp`. El bloque de arriba sólo sabe
+     REVIVIR de la papelera; le faltaba el camino de vuelta, y `mmeta` (la lista de medios que había en la foto)
+     es exactamente el dato que hace falta. Se exige `_segura` como el resto del bloque global: si la foto es de
+     otra secuencia, sus medios no dicen nada de ésta. */
+  if(_segura&&Array.isArray(o.mmeta)){
+    const habia=new Set(o.mmeta.map(e=>e[0]));
+    for(let i=state.media.length-1;i>=0;i--){ const mm=state.media[i];
+      if(habia.has(mm.id)||isSeqMedia(mm))continue;              // las secuencias no viven en la papelera
+      state.mediaTrash=state.mediaTrash||{}; mm._trashed=true; state.mediaTrash[mm.id]=mm; state.media.splice(i,1); }
+  }
   if(_segura&&Array.isArray(o.mmeta)){ for(const e of o.mmeta){ const mm=mediaById(e[0]); if(!mm)continue;
       if(e[1]!=null)mm.name=e[1];
       mm.folder=(e[2]==null)?null:e[2];
@@ -11872,8 +11937,22 @@ function updEnable(){ const hasSel=!!selClip(), hasClips=state.clips.length>0, h
 let _asDir=null; if(IS_ELEC&&DSP.autosaveDir){ try{ DSP.autosaveDir().then(d=>{_asDir=d||null;}); }catch(e){} }
 /* LIFELINE (renderer side): any uncaught error → immediate disk autosave (throttled 5s) + diag, so even a
    broken state right before a crash loses ≤ the last edit, not the last 15s window. */
-let _emergT=0; function emergencySave(){ const now=Date.now(); if(now-_emergT<5000)return; _emergT=now;
-  try{ const base=IS_ELEC?autosaveBase():null; if(base){ const j=JSON.stringify(serProject()); const dir=projAutosaveDir(); const w=()=>DSP.writeText(base+'.autosave1',j); if(dir&&DSP.ensureDir)DSP.ensureDir(dir).then(w).catch(w); else w(); } }catch(e){} }
+let _emergT=0; function emergencySave(){
+  /* [R325] NO se guarda durante un export, y se comprueba ANTES del limitador de ritmo: un export no debe
+     consumir la ventana de 5 s, o el primer error posterior al render se quedaría sin guardar.
+     `runExport` con `isolateClips` (Render in place) SUSTITUYE `state.clips` por los clips aislados mientras
+     dura el render y los repone al terminar; si algo revienta en medio, `serProject()` serializa esa lista
+     recortada y la deja como el autoguardado MÁS RECIENTE. Al abrir el programa tras la caída, la recuperación
+     ofrece un proyecto con un solo clip y el resto perdido. El estado bueno no está en memoria en ese instante,
+     así que lo correcto es no escribir nada. */
+  if(exporting)return;
+  const now=Date.now(); if(now-_emergT<5000)return; _emergT=now;
+  /* [R325] Y se respeta la ALTERNANCIA `_asFlip`, como el autoguardado normal. Escribir siempre en
+     `.autosave1` machaca precisamente la copia que la alternancia acababa de dejar buena: una caída durante una
+     escritura desgarrada dejaba las DOS ranuras inservibles, que es justo lo que el sistema de dos ranuras
+     existe para impedir. */
+  try{ const base=IS_ELEC?autosaveBase():null; if(base){ const j=JSON.stringify(serProject()); const dir=projAutosaveDir(); const ruta=base+(_asFlip?'.autosave2':'.autosave1');
+      const w=()=>{ const r=DSP.writeText(ruta,j); _asFlip=!_asFlip; return r; }; if(dir&&DSP.ensureDir)DSP.ensureDir(dir).then(w).catch(w); else w(); } }catch(e){} }
 window.addEventListener('error',e=>{ try{diag('error','uncaught',String(e.message||'').slice(0,300));}catch(_){} emergencySave(); });
 window.addEventListener('unhandledrejection',e=>{ try{diag('error','unhandledrejection',String(e.reason&&e.reason.message||e.reason||'').slice(0,300));}catch(_){} emergencySave(); });
 let _asFlip=false, _asBusy=false;
@@ -13630,8 +13709,17 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
   if(_cerrarComp)_cerrarComp();
   else { const prev=document.getElementById('compOv'); if(prev){ _composeDrop=null; document.body.classList.remove('composing'); prev.remove(); } }
   const vids=state.media.filter(m=>m.kind!=='audio'&&!isSeqMedia(m)); if(!vids.length){flashStatus(T('Import images or videos first.','Primero importa imágenes o vídeos.'),'err');return;} // [R94-UT3·U-21] // scopeClip (R82): compose from ONE clip's cut portion → the result is a NEW media on a NEW track, only that clip's length. preselIds (R88): pre-check several media (compose from a media multi-selection)
-  const pre=editGroup||(nestMedia&&nestMedia.comp)||null; const _flatComp=isFlat();
-  let kind=(pre&&pre.kind)||initialKind||(_flatComp?'grid':'ring'); if(_flatComp&&!FLAT_COMP_KINDS.includes(kind))kind='grid';
+  const pre=editGroup||(nestMedia&&nestMedia.comp)||null;
+  /* [R325] Al EDITAR una composición existente manda SU modo, no el de la secuencia desde la que se abre. Una
+     composición es un medio con su propio `mode`: un túnel de domo sigue siendo de domo aunque se abra desde una
+     pestaña 2D (por el panel de medios, por ejemplo). Leyendo `isFlat()` —el modo de la secuencia ACTIVA—, el
+     diálogo se creía plano, el tipo caía al `grid` de la línea de abajo por no estar en `FLAT_COMP_KINDS`, y
+     Aplicar reconstruía la composición como una rejilla: el túnel, el tejido, la espiral o el girasol
+     DESAPARECÍAN, sin aviso y sin forma de recuperarlos salvo deshacer. La coerción sigue viva para las
+     composiciones NUEVAS, que sí nacen en la secuencia activa. */
+  const _flatComp=(nestMedia&&nestMedia.mode)?flatLikeMode(nestMedia.mode):isFlat();
+  let kind=(pre&&pre.kind)||initialKind||(_flatComp?'grid':'ring');
+  if(_flatComp&&!FLAT_COMP_KINDS.includes(kind)&&!(pre&&pre.kind))kind='grid';
   let _infinite=(pre&&pre.infinite)||false; const ov=document.createElement('div'); ov.className='overlay'; ov.id='compOv';
   /* [R248] El velo deja pasar el ratón. Sin esto el panel de Medios queda tapado y no se puede arrastrar nada a la
      cesta, que es la forma de añadir. El cuadro sí captura (se le devuelve `pointer-events` justo debajo), y el
