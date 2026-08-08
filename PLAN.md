@@ -1,5 +1,39 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 312 — Un nombre de archivo no debería poder ejecutar código
+
+Tercera tanda de la auditoría exhaustiva: los dos hallazgos de seguridad.
+
+- **[A5] Inyección de HTML por el nombre de cualquier cosa.** El DOM se construye con plantillas de cadena e
+  `innerHTML`, y por esas plantillas pasan datos que escribe el usuario: nombres de medio, de clip, de pista y
+  de carpeta. Un archivo llamado `<img src=x onerror=…>.mp4` —o un `.isp` ajeno que traiga ese nombre—
+  **ejecutaba su contenido dentro del renderer, que tiene el puente `DSP` delante**: disco entero, con los
+  permisos de la aplicación. Y no hacía falta un archivo raro: el nombre se puede cambiar desde la propia
+  interfaz, que acepta cualquier texto.
+  Lo llamativo es que el escape ya existía… dos veces y sin usarse: `lchEsc` (completo, sólo en el launcher) y
+  `escAttr` (incompleto — sin `>` ni `'`, así que un valor entre comillas simples se escapaba de su atributo).
+  Ahora hay **uno**, `esc()`, declarado arriba del todo con la regla escrita al lado, y los otros dos son
+  alias suyos para no dejar una segunda implementación viva. Barridas las once plantillas con datos de
+  usuario, y escapado además **en los sumideros** —el mensaje de los diálogos y la etiqueta de los menús—, que
+  protege de golpe a los 53 llamadores de `appConfirm`/`appAlert` sin tocarlos: por ahí pasan avisos como
+  «"X" se usa también en…», construidos con nombres de archivo. Se comprobó antes que ningún llamador manda
+  HTML a propósito.
+- **[A8] Supr sobre varios medios: N cuadros apilados y un Enter que los aceptaba todos.** El bucle llamaba a
+  `deleteMedia` una vez por medio dentro del mismo tick, y cada medio usado en otras secuencias —o cada
+  secuencia— abría el suyo. Como todos escuchan el teclado en `document`, **una sola pulsación de Enter los
+  respondía todos con el botón primario, que es Eliminar**: tres medios borrados de golpe, con clips en otras
+  secuencias que el propio aviso declara irrecuperables con Ctrl+Z. `stopPropagation` no lo evitaba porque no
+  frena a los escuchadores hermanos del MISMO nodo — eso es `stopImmediatePropagation`, y sólo debe hacerlo el
+  cuadro de más arriba. Arreglado por los dos lados: los diálogos ya no responden en cadena, y la cura de
+  fondo es **no apilar** — `deleteMediaMany` resume qué se va a perder (cuántas secuencias, qué medios están en
+  uso fuera) y pregunta **una vez**.
+
+Verificado sobre la app viva en `scratchpad/r312-verif.mjs`, con `window.__xss` de testigo: la carga se planta
+como nombre de medio, clip, pista y carpeta a la vez, y se comprueba que no se dispara el `onerror`, que no
+nace ninguna etiqueta y que el nombre **se sigue viendo literal** (escapar sin romper la lectura). **Validado
+por reversión**: quitando un solo `esc()`, la sonda reporta «EL CODIGO SE EJECUTO», la etiqueta creada y el
+texto desaparecido.
+
 ## ROUND 311 — Tres de una línea, y una familia de fallos cerrada con un test
 
 Segunda tanda de la auditoría exhaustiva. Los tres primeros son arreglos diminutos con consecuencias grandes, y

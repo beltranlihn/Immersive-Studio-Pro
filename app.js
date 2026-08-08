@@ -106,6 +106,17 @@ function clipTint(c,m){ const own=c&&c.color; if(own&&!CLIP_AUTO.has(String(own)
    clipTint. Estaba MUERTO (0 llamadas), pero era una segunda fuente de verdad para el color de clip esperando
    a que alguien la usara: habría devuelto el gris heredado en vez del tono del tipo, y como `#3C4046` es justo
    el centinela de "sin color", el fallo habría sido silencioso. Borrado. El color de clip se pide a clipTint. */
+/* [R312·A5] EL escape de HTML del programa. Uno solo, y declarado arriba del todo para que no haya excusa de
+   «es que aquí todavía no existe» (las declaraciones `function` se elevan, pero tenerlo a la vista importa).
+   POR QUÉ HACE FALTA. El DOM se construye con plantillas de cadena y `innerHTML`, y por esas plantillas pasan
+   datos que escribe el USUARIO: nombres de medio, de clip, de pista y de carpeta. Un archivo llamado
+   `<img src=x onerror=…>.mp4` —o un `.isp` ajeno que traiga ese nombre— ejecutaba su contenido dentro del
+   renderer, que tiene el puente `DSP` delante: disco entero, con los permisos de la aplicación. No es teórico:
+   el nombre se puede cambiar desde la propia interfaz (`inlineEdit` acepta cualquier texto).
+   Había DOS escapes y casi nadie los usaba: `lchEsc` (completo, sólo en el launcher) y `escAttr` (incompleto —
+   no cubría `>` ni `'`). Los dos pasan a ser alias de éste para no dejar una segunda implementación viva.
+   REGLA: todo dato que no haya escrito este programa y acabe en `innerHTML` va envuelto en `esc()`. */
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function hexA(hex,a){ hex=(hex||'').replace('#',''); if(hex.length===3)hex=hex.split('').map(c=>c+c).join(''); const n=parseInt(hex,16)||0; return 'rgba('+((n>>16)&255)+','+((n>>8)&255)+','+(n&255)+','+a+')'; }
 /* readable text color for a clip-color headband (dark text on light colors, light on dark)
    [R94-UT5·U-26] real WCAG relative-luminance contrast ratio (was a 0.62 luma heuristic): pick whichever
@@ -3124,7 +3135,7 @@ function renderMedia(){
       grid.appendChild(back); }
     for(const f of folderChildren(cur)){ const cnt=folderCount(f)+folderChildren(f).length; const fcol=folderColor(f);
       const t=document.createElement('div'); t.className='mtile foldertile folderhdr'; t.dataset.fname=f; t.title=folderName(f)+' — '+T('double-click to open','doble-clic para abrir');
-      t.innerHTML=`<div class="tthumb" style="display:flex;align-items:center;justify-content:center;color:${fcol||'#8A9199'};">${ICO('folder',26)}</div><div class="tlbl" style="border-top:2px solid ${fcol||'#454C55'};">${folderName(f)} <span style="color:var(--ink-dim);">${cnt}</span></div>`;
+      t.innerHTML=`<div class="tthumb" style="display:flex;align-items:center;justify-content:center;color:${fcol||'#8A9199'};">${ICO('folder',26)}</div><div class="tlbl" style="border-top:2px solid ${fcol||'#454C55'};">${esc(folderName(f))} <span style="color:var(--ink-dim);">${cnt}</span></div>`;
       t.ondblclick=e=>{ if(e.target.isContentEditable)return; state.mediaFolder=f; renderMedia(); };
       t.addEventListener('pointerdown',e=>{ if(e.button===0&&!e.target.isContentEditable)startFolderDrag(e,f); }); // drag a folder into another folder
       t.oncontextmenu=e=>{ e.preventDefault(); openMenu(e.clientX,e.clientY,[{label:T('Open folder','Abrir carpeta'),fn:()=>{state.mediaFolder=f;renderMedia();}},{label:T('New subfolder…','Nueva subcarpeta…'),ico:'folder',fn:()=>newFolderIn(f)},{label:T('Rename','Cambiar nombre'),fn:()=>renameFolderInline(f,t.querySelector('.tlbl'))},...(folderParent(f)!=null?[{label:T('Move to top level','Mover al nivel superior'),fn:()=>moveFolder(f,null)}]:[]),'sep',{swatches:{cur:folderColor(f),onPick:col=>{ pushUndo(); bumpMeta(); state.folderColors=state.folderColors||{}; state.folderColors[f]=col; renderMedia(); markDirty(); } /* [R253d] antes ni empujaba deshacer ni marcaba version: un Ctrl+Z ajeno se llevaba el color por delante */,onClear:()=>{ if(state.folderColors)delete state.folderColors[f]; renderMedia(); markDirty(); }}},'sep',{label:T('Delete folder','Eliminar carpeta'),danger:true,fn:()=>deleteFolder(f)}]); };
@@ -3144,7 +3155,7 @@ function renderMedia(){
     const drawFolder=(f,depth)=>{ const key='f_'+f, collapsed=!!state.collapsedGroups[key]; const kids=folderChildren(f); const gi=items.filter(m=>m.folder===f);
       const fcol=folderColor(f);
       const h=document.createElement('div'); h.className='grphead2 folderhdr'+(state.selFolder===f?' fsel':''); h.dataset.folder=key; h.dataset.fname=f; h.style.paddingLeft=(6+depth*IND)+'px';
-      h.innerHTML=`<span class="fchev" title="${collapsed?T('Expand','Expandir'):T('Collapse','Contraer')}" style="display:inline-flex;cursor:pointer;transform:rotate(${collapsed?-90:0}deg);">${ICO('chevDown',12)}</span><span style="color:${fcol||'#8A9199'};display:inline-flex;">${ICO('folder',12)}</span><span class="fnm" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${fcol?'color:'+fcol+';':''}">${folderName(f)}</span><span style="color:#50565D;">${gi.length+kids.length}</span>`;
+      h.innerHTML=`<span class="fchev" title="${collapsed?T('Expand','Expandir'):T('Collapse','Contraer')}" style="display:inline-flex;cursor:pointer;transform:rotate(${collapsed?-90:0}deg);">${ICO('chevDown',12)}</span><span style="color:${fcol||'#8A9199'};display:inline-flex;">${ICO('folder',12)}</span><span class="fnm" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${fcol?'color:'+fcol+';':''}">${esc(folderName(f))}</span><span style="color:#50565D;">${gi.length+kids.length}</span>`;
       h.querySelector('.fchev').onclick=e=>{ e.stopPropagation(); state.collapsedGroups[key]=!collapsed; renderMedia(); };
       h.onclick=e=>{ if(_folderJustDragged||e.target.closest('.fchev')||e.target.isContentEditable)return; selectHdr(h,f); }; // select (Adobe: "New folder" then creates inside it)
       h.ondblclick=e=>{ if(e.target.closest('.fchev')||e.target.isContentEditable)return; state.mediaFolder=f; state.selFolder=null; renderMedia(); }; // R89c: double-click ENTERS the folder
@@ -3157,7 +3168,7 @@ function renderMedia(){
       else if(!kids.length){ const ph=document.createElement('div'); ph.className='folderdrop'; ph.dataset.fname=f; ph.style.marginLeft=(6+(depth+1)*IND)+'px'; ph.textContent=T('Drag media here','Arrastra medios aquí'); list.appendChild(ph); } };
     if(cur){ // scoped view: breadcrumb back row + the folder's subtree/media at depth 0
       const bk=document.createElement('div'); bk.className='grphead2 folderhdr'; bk.dataset.fname=(folderParent(cur)||''); bk.style.cursor='pointer';
-      bk.innerHTML=`<span style="display:inline-flex;color:var(--ink-2);">←</span><span style="color:var(--ink-2);display:inline-flex;">${ICO('folder',12)}</span><span class="fnm" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${cur}</span>`;
+      bk.innerHTML=`<span style="display:inline-flex;color:var(--ink-2);">←</span><span style="color:var(--ink-2);display:inline-flex;">${ICO('folder',12)}</span><span class="fnm" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(cur)}</span>`;
       bk.title=T('Back','Atrás'); bk.onclick=()=>{ state.mediaFolder=folderParent(cur); state.selFolder=null; renderMedia(); };
       list.appendChild(bk);
       for(const f of folderChildren(cur))drawFolder(f,0);
@@ -3190,7 +3201,7 @@ function makeMediaItem(m){
     const thumbBg=isAdj?'repeating-linear-gradient(45deg,rgba(180,186,193,0.30) 0 9px,rgba(180,186,193,0.10) 9px 18px)':(m.thumb?`url(${m.thumb})`:'none');
     d.innerHTML=`<div class="mthumb${seq?' mseq':''}" style="background-image:${thumbBg}">
         <span class="dur"${seq?' style="background:var(--state-on);color:var(--ink);"':''}>${dur}</span>${px}</div>
-      <div style="flex:1;min-width:0;"><div class="mname">${m.name}${m.kind==='video'?` <span class="mprx" style="color:var(--ink-dim);font-weight:400;font-size:10px;">${m.proxyReady?T('proxy','proxy'):T('original','original')}</span>`:''}</div>
+      <div style="flex:1;min-width:0;"><div class="mname">${esc(m.name)}${m.kind==='video'?` <span class="mprx" style="color:var(--ink-dim);font-weight:400;font-size:10px;">${m.proxyReady?T('proxy','proxy'):T('original','original')}</span>`:''}</div>
       <div class="mmeta" style="${reallyMissing?'color:#E06A6A':''}">${meta}${_rg?' · <span class="mrange" title="'+T('Drags in trimmed: ','Entra recortado: ')+fmtTime(_rg.inP)+' → '+fmtTime(_rg.inP+_rg.dur)+'">['+fmtDur(_rg.dur)+']</span>':''}</div></div>
       ${m.kind==='video'?`<span class="pdot" data-mid="${m.id}" title="${m.proxyReady?T('Proxy ready','Proxy listo'):T('No proxy yet','Sin proxy aún')}" style="width:8px;height:8px;border-radius:50%;flex-shrink:0;background:${m.proxyReady?'#8A9199':'#5E646C'}"></span>`:''}
       ${isNdi?`<span class="pdot ndilive${m._ndiLive?' on':''}" title="${T('Live NDI','NDI en vivo')}" style="width:8px;height:8px;border-radius:50%;flex-shrink:0;background:${m._ndiLive?'#E8EAED':'#5E646C'}"></span>`:''}
@@ -3218,7 +3229,7 @@ function mediaProperties(m){ const rows=[]; const add=(k,v)=>{ if(v!=null&&v!=='
   add(T('Location','Ubicación'),m.path||(m.kind==='text'||m.kind==='shape'||m.kind==='nest'||m.kind==='adjust'?T('(generated inside the project)','(generado dentro del proyecto)'):'—'));
   const ov=document.createElement('div'); ov.className='overlay';
   ov.innerHTML=`<div class="modal" style="width:460px;"><div class="mh"><span style="color:var(--ink-2);display:flex;">${ICO('panel',16)}</span><span class="t">${T('Properties','Propiedades')}</span></div><div class="mb">
-    <div style="border:.5px solid rgba(255,255,255,0.08);border-radius:2px;overflow:hidden;">${rows.map((r,i)=>`<div style="display:flex;gap:12px;padding:7px 11px;background:${i%2?'transparent':'rgba(255,255,255,0.02)'};font-size:11px;"><span style="width:130px;flex-shrink:0;color:var(--ink-3);">${r[0]}</span><span class="tnum" style="flex:1;min-width:0;color:var(--ink);word-break:break-all;user-select:text;">${r[1]}</span></div>`).join('')}</div>
+    <div style="border:.5px solid rgba(255,255,255,0.08);border-radius:2px;overflow:hidden;">${rows.map((r,i)=>`<div style="display:flex;gap:12px;padding:7px 11px;background:${i%2?'transparent':'rgba(255,255,255,0.02)'};font-size:11px;"><span style="width:130px;flex-shrink:0;color:var(--ink-3);">${esc(r[0])}</span><span class="tnum" style="flex:1;min-width:0;color:var(--ink);word-break:break-all;user-select:text;">${esc(r[1])}</span></div>`).join('')}</div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:11px;">${(IS_ELEC&&m.path&&DSP.revealPath)?`<button class="mbtn" id="prReveal">${ICO('folder',13)} ${T('Reveal in Explorer','Mostrar en el Explorador')}</button>`:''}<button class="mbtn pri" id="prClose">${T('Close','Cerrar')}</button></div></div></div>`;
   document.body.appendChild(ov); const close=()=>ov.remove(); $('#prClose').onclick=close; ov.addEventListener('pointerdown',e=>{if(e.target===ov)close();});
   const rv=$('#prReveal'); if(rv)rv.onclick=()=>{ try{DSP.revealPath(m.path);}catch(e){} }; }
@@ -3269,7 +3280,7 @@ function makeMediaTile(m){ const seq=isSeqMedia(m), isNdi=(m.kind==='ndi'||m.kin
      recortado, y sin esto no habia NADA en pantalla que lo explicara. Es el patron que ya me mordio en R245: un
      camino cubierto y su gemelo olvidado. */
   const _rg=srcRange(m);
-  d.innerHTML=`<div class="tthumb${seq?' mseq':''}" style="background-image:${tbg};"><span class="tdur">${dur}</span>${m.kind==='video'&&m.proxyReady?'<span class="tprox">⚡</span>':''}${px}${_rg?'<span class="tcut" title="'+T('Drags in trimmed: ','Entra recortado: ')+fmtTime(_rg.inP)+' → '+fmtTime(_rg.inP+_rg.dur)+'">['+fmtDur(_rg.dur)+']</span>':''}</div><div class="tlbl" style="border-top:2px solid ${m.color};">${m.name}</div>`;
+  d.innerHTML=`<div class="tthumb${seq?' mseq':''}" style="background-image:${tbg};"><span class="tdur">${dur}</span>${m.kind==='video'&&m.proxyReady?'<span class="tprox">⚡</span>':''}${px}${_rg?'<span class="tcut" title="'+T('Drags in trimmed: ','Entra recortado: ')+fmtTime(_rg.inP)+' → '+fmtTime(_rg.inP+_rg.dur)+'">['+fmtDur(_rg.dur)+']</span>':''}</div><div class="tlbl" style="border-top:2px solid ${m.color};">${esc(m.name)}</div>`;
   d.addEventListener('dblclick',()=>{ if(_composeDrop){ _composeDrop([m.id]); return; } /* [R248] con la composición abierta el doble clic la alimenta a ELLA */ if(seq)openSeq(m.id); else openSourceMonitor(m); }); // [R249] modelo Premiere: el doble clic ABRE el material en el monitor de origen, no lo suelta en la línea de tiempo (para eso se arrastra)
   d.addEventListener('pointerdown',e=>{ if(e.button===0){ const multi=e.shiftKey||e.ctrlKey||e.metaKey; if(multi||!selectedMediaIds().includes(m.id))selectMedia(m.id,e); if(!multi)startMediaDrag(e,m); } }); // press on an already-selected tile keeps the multi-selection (drag the whole set)
   d.addEventListener('contextmenu',e=>{ if(!selectedMediaIds().includes(m.id))selectMedia(m.id); openMediaCtx(e,m); });
@@ -3277,6 +3288,33 @@ function makeMediaTile(m){ const seq=isSeqMedia(m), isNdi=(m.kind==='ndi'||m.kin
   return d; }
 /* media selection — single click, or shift/ctrl-click to MULTI-select (R88, e.g. compose from several media). Takes Delete priority over the timeline clip selection (R86). */
 function selectedMediaIds(){ return (state.selMediaIds&&state.selMediaIds.length)?state.selMediaIds.slice():(state.selMediaId!=null?[state.selMediaId]:[]); }
+/* [R312·A8] Borrar VARIOS medios pregunta UNA vez, y por todo lo que hay que preguntar.
+   Antes, Supr sobre una selección llamaba a `deleteMedia` en bucle dentro del mismo tick: cada medio usado en
+   otras secuencias abría SU cuadro, y cada secuencia el suyo, así que se apilaban N. Y como los cuadros
+   escuchan el teclado en `document`, una sola pulsación de Enter los respondía todos con el botón primario
+   —Eliminar—: tres medios borrados de golpe, con clips en otras secuencias que el propio aviso declara
+   irrecuperables con Ctrl+Z. El apilado ya no responde en cadena (ver `_dialogBase`), pero la cura de fondo es
+   no apilar: se resume qué se va a perder y se pregunta una sola vez. */
+async function deleteMediaMany(ids){
+  const ms=(ids||[]).map(id=>mediaById(id)).filter(Boolean); if(!ms.length)return;
+  if(ms.length===1){ deleteMedia(ms[0]); return; }                       // uno solo: su propio aviso, con su detalle
+  const seqs=ms.filter(isSeqMedia);
+  const riesgo=[]; // medios normales que además viven en OTRAS secuencias, que es lo que el deshacer no cubre
+  for(const m of ms){ if(isSeqMedia(m))continue;
+    const otras=state.media.filter(s=>isSeqMedia(s)&&s.id!==state.activeSeqId&&(s.nestClips||[]).some(c=>c.mediaId===m.id));
+    if(otras.length)riesgo.push(m.name); }
+  if(seqs.length||riesgo.length){
+    const trozos=[];
+    if(seqs.length)trozos.push(T(seqs.length+' sequence'+(seqs.length>1?'s':'')+' ('+seqs.map(s=>s.name).join(', ')+')',
+                                 seqs.length+' secuencia'+(seqs.length>1?'s':'')+' ('+seqs.map(s=>s.name).join(', ')+')'));
+    if(riesgo.length)trozos.push(T(riesgo.length+' item'+(riesgo.length>1?'s':'')+' used in other sequences ('+riesgo.join(', ')+')',
+                                   riesgo.length+' medio'+(riesgo.length>1?'s':'')+' en uso en otras secuencias ('+riesgo.join(', ')+')'));
+    const ok=await new Promise(res=>appConfirm(
+      T('Delete '+ms.length+' items? This includes '+trozos.join(' and ')+'. Undo only restores the current sequence.',
+        '¿Eliminar '+ms.length+' elementos? Incluye '+trozos.join(' y ')+'. Deshacer solo restaura la secuencia actual.'),
+      res,{ok:T('Delete','Eliminar'),danger:true}));
+    if(!ok)return; }
+  for(const m of ms) deleteMedia(m,true); }
 function paintMediaSel(){ const set=new Set(selectedMediaIds()); $$('#mediaList .mitem,#mediaList .mtile').forEach(x=>x.classList.toggle('sel',set.has(+x.dataset.id))); }
 function orderedMediaIds(){ return [...$$('#mediaList .mitem,#mediaList .mtile')].map(x=>+x.dataset.id).filter(id=>!isNaN(id)); } // media ids in on-screen order (respects folders/collapse/filter)
 function selectMedia(id,e){
@@ -3292,7 +3330,7 @@ function mediaNameEl(id){ return document.querySelector('#mediaList .mitem[data-
 /* rename a media item IN PLACE (over its own label), not a floating dialog (R86) */
 function renameMediaInline(m,el){ if(!m)return; el=el||mediaNameEl(m.id); if(!inlineEdit(el,m.name,v=>{ pushUndo(); bumpMeta(); m.name=v; renderMedia(); projTitle&&projTitle(); markDirty(); })) appPrompt(T('Media name:','Nombre del medio:'),m.name,n=>{ if(n!=null){ pushUndo(); bumpMeta(); m.name=n; renderMedia(); markDirty(); } }); }
 /* delete a media item + its clips (shared by the context menu and the Delete key) */
-function deleteMedia(m){ if(!m)return; if(isSeqMedia(m)){ deleteSequenceMedia(m.id); return; }
+function deleteMedia(m,sinPreguntar){ if(!m)return; if(isSeqMedia(m)){ deleteSequenceMedia(m.id,sinPreguntar); return; }
   const doIt=()=>{
     pushUndo([m.id]); /* [R212] record the deleted id so restore() revives it even if no clip references it (deleted straight from the media panel) */ for(const c of state.clips)if(c.mediaId===m.id&&c.maskTex){try{gl.deleteTexture(c.maskTex);}catch(e){}} try{disposeDecoder(m);}catch(e){} if(m.kind==='ndi')closeNdiMedia(m); if(m.kind==='spout')closeSpoutMedia(m); state.mediaTrash=state.mediaTrash||{}; state.mediaTrash[m.id]=m; state.media=state.media.filter(x=>x.id!==m.id);
     if(m.path&&(m.kind==='video'||m.kind==='audio'||m.kind==='image')){ // [R92-T3 F2] the trash used to retain the decoded AudioBuffer (1.4GB/h), the <video> demuxer and the GPU texture for the whole session — undo re-loads from disk instead
@@ -3301,7 +3339,7 @@ function deleteMedia(m){ if(!m)return; if(isSeqMedia(m)){ deleteSequenceMedia(m.
     state.clips=state.clips.filter(c=>c.mediaId!==m.id); for(const s of state.media)if(isSeqMedia(s)){ if(s.id===state.activeSeqId)s.nestClips=state.clips; else if(s.nestClips)s.nestClips=s.nestClips.filter(c=>c.mediaId!==m.id); }
     renderMedia();renderTimeline();render();updStatus(); };
   const others=state.media.filter(s=>isSeqMedia(s)&&s.id!==state.activeSeqId&&(s.nestClips||[]).some(c=>c.mediaId===m.id)); // [R92-T1 C6] undo only restores the ACTIVE sequence — warn before silently losing clips in other sequences
-  if(others.length){ appConfirm(T('"'+m.name+'" is also used in '+others.length+' other sequence'+(others.length>1?'s':'')+' ('+others.map(s=>s.name).join(', ')+'). Deleting removes those clips too, and Undo only restores the current sequence.','"'+m.name+'" también se usa en '+others.length+' secuencia'+(others.length>1?'s':'')+' más ('+others.map(s=>s.name).join(', ')+'). Al borrar se eliminan también esos clips, y Deshacer solo restaura la secuencia actual.'), ok=>{ if(ok)doIt(); }, {ok:T('Delete','Eliminar'),danger:true}); return; }
+  if(others.length&&!sinPreguntar){ appConfirm(T('"'+m.name+'" is also used in '+others.length+' other sequence'+(others.length>1?'s':'')+' ('+others.map(s=>s.name).join(', ')+'). Deleting removes those clips too, and Undo only restores the current sequence.','"'+m.name+'" también se usa en '+others.length+' secuencia'+(others.length>1?'s':'')+' más ('+others.map(s=>s.name).join(', ')+'). Al borrar se eliminan también esos clips, y Deshacer solo restaura la secuencia actual.'), ok=>{ if(ok)doIt(); }, {ok:T('Delete','Eliminar'),danger:true}); return; }
   doIt(); }
 
 /* ===================== TIMELINE ===================== */
@@ -3603,7 +3641,7 @@ function renderTimeline(){ reconcileVinst(); // free private decoders of clips t
       /* [R271] Sólo la línea punteada. Cada vuelta llevaba además una chapa ↻ pegada a la línea, y con un clip
          extendido son decenas de iconos repitiendo lo que la línea ya dice. Basta con la línea (Beltrán). */
       if(lcyc>0.02){ for(let k=1;k*lcyc<c.dur-1e-3;k++){ const lx=k*lcyc*pps; loopMarks+=`<div style="position:absolute;left:${lx}px;top:0;bottom:0;width:1px;background:repeating-linear-gradient(180deg,rgba(255,255,255,0.55) 0 3px,transparent 3px 6px);pointer-events:none;z-index:2;"></div>`; } }
-      const _ct=clipTint(c,m); cd.innerHTML=`<div class="fill" style="background-image:${fillBg};background-color:${_ct}"></div><div class="scrim"></div>${cth}${fades}${loopMarks}<div class="tt" style="background:${_ct};color:${textOn(_ct)}">${c.name}${pxTag}</div>${px2}${mutedBadge}<div class="hd l"></div><div class="hd r"></div><div class="fadeh fadeL" style="left:${fiPx}px"></div><div class="fadeh fadeR" style="right:${foPx}px"></div>${kf}`; // R84c: clips use their OWN colour (lane colour tints only the header)
+      const _ct=clipTint(c,m); cd.innerHTML=`<div class="fill" style="background-image:${fillBg};background-color:${_ct}"></div><div class="scrim"></div>${cth}${fades}${loopMarks}<div class="tt" style="background:${_ct};color:${textOn(_ct)}">${esc(c.name)}${pxTag}</div>${px2}${mutedBadge}<div class="hd l"></div><div class="hd r"></div><div class="fadeh fadeL" style="left:${fiPx}px"></div><div class="fadeh fadeR" style="right:${foPx}px"></div>${kf}`; // R84c: clips use their OWN colour (lane colour tints only the header)
       cd.tabIndex=0; cd.setAttribute('aria-label',c.name||T('Clip','Clip')); // [R94-UT5·U-10b] Tab reaches every clip; Enter/Space selects (keydown delegated on #tracks)
       row.appendChild(cd);
       // drag-and-drop a Motion chip onto a clip to animate it
@@ -3625,7 +3663,7 @@ function renderTimeline(){ reconcileVinst(); // free private decoders of clips t
     hd.innerHTML=`<span class="bar" style="background:${laneColor(lane)}"></span>
       <div class="lnrow">
         <button class="lcol" data-m="collapse" title="${collapsed?T('Expand track','Expandir pista'):T('Collapse track','Contraer pista')}"><span style="display:inline-flex;transform:rotate(${collapsed?-90:0}deg);">${ICO('chevDown',11)}</span></button>
-        <span class="tag${lane.surf==='floor'?' floor':''}"${lane.surf==='floor'?' title="'+T('Floor track — composites onto the room floor, not the walls','Pista de piso — compone sobre el piso de la sala, no sobre los muros')+'"':''}>${lane.tag}</span><span class="nm">${lane.name===lane.tag?'':lane.name}</span>
+        <span class="tag${lane.surf==='floor'?' floor':''}"${lane.surf==='floor'?' title="'+T('Floor track — composites onto the room floor, not the walls','Pista de piso — compone sobre el piso de la sala, no sobre los muros')+'"':''}>${lane.tag}</span><span class="nm">${lane.name===lane.tag?'':esc(lane.name)}</span>
         <button class="ms ${lane.mute?'on':''}" data-m="mute">M</button><button class="ms solo ${lane.solo?'on':''}" data-m="solo">S</button>
       </div>`;
     /* [R224 · ítem 7] Los chips de automatización CONSUMEN el clic: elegir qué curva se ve es navegación dentro de la
@@ -3761,7 +3799,10 @@ function appPrompt(message,def,cb){ try{closeMenu();}catch(e){}
 function _dialogBase(message,buttons,opts){ opts=opts||{}; try{closeMenu();}catch(e){}
   const ov=document.createElement('div'); ov.className='overlay'; if(opts.id)ov.id=opts.id; if(opts.z)ov.style.zIndex=opts.z;
   const html=buttons.map((b,i)=>'<button data-di="'+i+'"'+(b.id?' id="'+b.id+'"':'')+' class="togbtn2'+(b.primary?' on':'')+'"'+(b.style?' style="'+b.style+'"':'')+'>'+b.label+'</button>').join(''); // los `id` se conservan (#cfOk/#c3Save…): los arneses de prueba y el CDP los pulsan por id
-  ov.innerHTML='<div class="modal" style="width:'+(opts.width||390)+'px;padding:16px 18px;"><div style="font-size:13px;color:var(--ink-2);line-height:1.5;margin-bottom:15px;">'+message+'</div>'
+  /* [R312·A5] El mensaje se ESCAPA aqui, en el sumidero, y no en los 53 llamadores: por estos cuadros pasan
+     nombres de archivo y de secuencia («X se usa tambien en…»), y uno con `<img onerror=…>` ejecutaba su
+     contenido con el puente DSP delante. Se comprobo que ningun llamador manda HTML a proposito. */
+  ov.innerHTML='<div class="modal" style="width:'+(opts.width||390)+'px;padding:16px 18px;"><div style="font-size:13px;color:var(--ink-2);line-height:1.5;margin-bottom:15px;">'+esc(message)+'</div>'
     +'<div style="display:flex;gap:8px;justify-content:flex-end;">'+html+'</div></div>';
   document.body.appendChild(ov);
   return new Promise(res=>{
@@ -3770,10 +3811,16 @@ function _dialogBase(message,buttons,opts){ opts=opts||{}; try{closeMenu();}catc
     btns.forEach((el,i)=>{ el.onclick=()=>fin(buttons[i].v); });
     let def=null; for(let i=0;i<buttons.length;i++)if(buttons[i].primary)def=i;
     ov.addEventListener('pointerdown',e=>{ if(e.target===ov)fin(opts.esc); });
+    /* [R312·A8] `stopImmediatePropagation`, no `stopPropagation`. Los dos frenan la BAJADA hacia otros nodos,
+       pero ninguno de los dos frena a los demas escuchadores registrados sobre el MISMO nodo — y todos estos
+       cuadros escuchan en `document`, en captura. Con dos o mas apilados (borrar varios medios abria uno por
+       medio), UNA pulsacion de Enter los respondia TODOS a la vez, con el boton primario. El de arriba se
+       queda con la tecla y los de abajo no la ven. */
     const onk=e=>{ if(!ov.isConnected){document.removeEventListener('keydown',onk,true);return;} /* [R218] guarda de conexión: overlay destruido por otra vía → no matar atajos para siempre */
+      if(document.querySelector('.overlay:last-of-type')!==ov)return;   // sólo responde el cuadro de más arriba
       e.stopPropagation();
-      if(e.key==='Escape'){ e.preventDefault(); fin(opts.esc); return; }
-      if(e.key==='Enter'){ e.preventDefault(); const k=btns.indexOf(document.activeElement); fin(buttons[k>=0?k:(def!=null?def:buttons.length-1)].v); } };
+      if(e.key==='Escape'){ e.preventDefault(); e.stopImmediatePropagation(); fin(opts.esc); return; }
+      if(e.key==='Enter'){ e.preventDefault(); e.stopImmediatePropagation(); const k=btns.indexOf(document.activeElement); fin(buttons[k>=0?k:(def!=null?def:buttons.length-1)].v); } };
     document.addEventListener('keydown',onk,true);
     if(def!=null)setTimeout(()=>{try{btns[def].focus();}catch(e){}},10);
   }); }
@@ -3801,7 +3848,7 @@ function appAlert(message,cb){ try{closeMenu();}catch(e){}
 
 
   const ov=document.createElement('div'); ov.className='overlay'; ov.style.alignItems='flex-start'; ov.id='alertOv';
-  ov.innerHTML='<div class="modal" style="width:390px;margin-top:130px;padding:16px 18px;"><div style="font-size:13px;color:var(--ink-2);line-height:1.5;margin-bottom:15px;">'+message+'</div><div style="display:flex;justify-content:flex-end;"><button id="alOk" class="togbtn2 on">'+T('OK','Aceptar')+'</button></div></div>';
+  ov.innerHTML='<div class="modal" style="width:390px;margin-top:130px;padding:16px 18px;"><div style="font-size:13px;color:var(--ink-2);line-height:1.5;margin-bottom:15px;">'+esc(message)+'</div><div style="display:flex;justify-content:flex-end;"><button id="alOk" class="togbtn2 on">'+T('OK','Aceptar')+'</button></div></div>';
   document.body.appendChild(ov); let done=false; const fin=()=>{ if(done)return; done=true; document.removeEventListener('keydown',onk,true); ov.remove(); if(cb)cb(); };
   ov.querySelector('#alOk').onclick=fin; ov.addEventListener('pointerdown',e=>{ if(e.target===ov)fin(); });
   const onk=e=>{ if(!ov.isConnected){document.removeEventListener('keydown',onk,true);return;} /* [R218] guarda de conexión */ e.stopPropagation(); if(e.key==='Escape'||e.key==='Enter'){e.preventDefault();fin();} }; document.addEventListener('keydown',onk,true);
@@ -3847,7 +3894,9 @@ function loadingWaitMedia(deadline){ if(!_loadingOv)return; const anyLoading=sta
   if((!anyLoading&&!proxying&&loopsDone)||Date.now()>deadline){ hideLoadingScreen(); return; }
   setLoadingMsg((anyLoading||proxying)?(proxying?T('Buffering proxies…','Cargando proxys…'):T('Loading media…','Cargando medios…')):T('Loading…','Cargando…'));
   _loadingPoll=setTimeout(()=>loadingWaitMedia(deadline),200); }
-function escAttr(s){ return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+/* [R312·A5] alias del canonico `esc`. Este cubria solo & " < — le faltaban `>` y `'`, asi que un valor de
+   atributo entre comillas simples se escapaba de su propio atributo. Se conserva el nombre por sus llamadores. */
+function escAttr(s){ return esc(s); }
 /* ==============================================================================================================
    LAUNCHER (pantalla de inicio) — recreado del handoff "Launcher - Rev 4.dc.html" de Claude Design.
    Reemplaza al landing de cuatro botones: acá se elige el tipo de proyecto, se editan TODOS sus parámetros y se
@@ -3917,7 +3966,7 @@ function lchInit(){ return { ptype:'dome', pname:'', discardOk:false,
   fps:60, draft:{} }; }
 const lchMP=(w,h)=>(w*h/1e6).toFixed(1)+' MP';
 function lchAspect(w,h){ return (w&&h)?fmtAspect(w,h):((w||0)+':'+(h||0)); } // [R214→R215] shares fmtAspect's core for the normal case (both reduce 1920×1080 → "16:9"). fmtAspect on its own returns '' for a falsy w/h — fine where it's shown standalone, but both call sites here (~2828/2903) splice the result into a string with ' · ' on either side, so an empty result left a dangling " ·  · " with nothing between the separators; the fallback keeps the output well-formed (e.g. "0:0") even mid-edit while a size field is momentarily empty/NaN
-function lchEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function lchEsc(s){ return esc(s); }   /* [R312·A5] alias del canonico: era la implementacion buena, pero solo la usaba el launcher */
 
 /* --- campo numérico con BORRADOR: escribir no compromete nada hasta Enter/blur; Esc descarta; ↑/↓ ±10,
        Shift ±100, Alt ±1 (mecánica exacta del handoff). Se marca con data-lk para poder devolver el foco. --- */
@@ -10095,16 +10144,20 @@ function renameSequence(id){ const m=mediaById(id); if(!isSeqMedia(m))return; co
   if(el)el.addEventListener('blur',_estrecha,{once:true});
   const _fin=nv=>{ _estrecha(); _ren(nv); };
   if(!inlineEdit(el,m.name,_fin)) appPrompt(T('Sequence name:','Nombre de la secuencia:'),m.name,n=>{ if(n!=null)_fin(n); else _estrecha(); }); }
-function deleteSequenceMedia(id){ const m=mediaById(id); if(!isSeqMedia(m))return; if(state.media.filter(isSeqMedia).length<=1){ flashStatus(T('Keep at least one sequence','Mantén al menos una secuencia')); return; }
+function deleteSequenceMedia(id,sinPreguntar){ const m=mediaById(id); if(!isSeqMedia(m))return; if(state.media.filter(isSeqMedia).length<=1){ flashStatus(T('Keep at least one sequence','Mantén al menos una secuencia')); return; }
   const usedElsewhere=state.media.some(s=>isSeqMedia(s)&&s.id!==id&&(s.nestClips||[]).some(c=>c.mediaId===id));
-  appConfirm(T('Delete this sequence?','¿Eliminar esta secuencia?')+(usedElsewhere?T(' It is nested inside another sequence.',' Está anidada dentro de otra secuencia.'):''), ok=>{ if(!ok)return;
+  /* [R312·A8] `sinPreguntar`: la pregunta ya la hizo el camino agregado (borrar varios a la vez). Sin esto,
+     seleccionar tres secuencias y pulsar Supr apilaba tres cuadros identicos. */
+  const seguir=ok=>{ if(!ok)return;
     const wasActive=(id===state.activeSeqId); if(wasActive)saveActiveSeq();
     disposeMedia(m); state.media=state.media.filter(x=>x.id!==id); state.openSeqs=(state.openSeqs||[]).filter(x=>x!==id);
     state.clips=state.clips.filter(c=>c.mediaId!==id); for(const s of state.media)if(isSeqMedia(s)&&s.nestClips)s.nestClips=s.nestClips.filter(c=>c.mediaId!==id); // remove orphan nest clips that referenced the deleted sequence
     { const as=activeSeq(); if(as)as.nestClips=state.clips; } // re-heal the state.clips ⇄ activeSeq().nestClips alias broken by the filters above
     if(!state.openSeqs.length)state.openSeqs=[state.media.filter(isSeqMedia)[0].id];
     if(wasActive){ state.activeSeqId=state.openSeqs[state.openSeqs.length-1]; loadSeqIntoState(activeSeq()); }
-    clearAllUndo(); renderMedia(); renderSeqBar(); renderTimeline(); renderInspector(); renderWork(); render(); updStatus(); updFmtChip(); setTlScrollT((activeSeq()||{}).nestScrollT||0); markDirty(); }, {ok:T('Delete','Eliminar'),danger:true}); } // [R239] eliminar la secuencia activa aterriza en otra: su encuadre, no el de la borrada // clearAllUndo: other sequences' histories may reference the deleted sequence's media id — resurrecting those clips would orphan them
+    clearAllUndo(); renderMedia(); renderSeqBar(); renderTimeline(); renderInspector(); renderWork(); render(); updStatus(); updFmtChip(); setTlScrollT((activeSeq()||{}).nestScrollT||0); markDirty(); }; // [R239] eliminar la secuencia activa aterriza en otra: su encuadre, no el de la borrada // clearAllUndo: other sequences' histories may reference the deleted sequence's media id — resurrecting those clips would orphan them
+  if(sinPreguntar){ seguir(true); return; }
+  appConfirm(T('Delete this sequence?','¿Eliminar esta secuencia?')+(usedElsewhere?T(' It is nested inside another sequence.',' Está anidada dentro de otra secuencia.'):''), seguir, {ok:T('Delete','Eliminar'),danger:true}); }
 const DOME_COV=[180,200,210,220]; // fisheye coverage presets (deg). 180° = full hemisphere (fulldome standard)
 /* [R214] plain GCD reduction (1920×1080 → "16:9") capped at 40: odd custom sizes can have a huge coprime ratio
    (e.g. "1937:1080") that's useless as a label, so past the cap it falls back to a decimal "W/H:1" form instead. */
@@ -12054,7 +12107,7 @@ window.addEventListener('keydown',e=>{ const tag=(e.target.tagName||'').toLowerC
     if(live.length){ pushUndo(); c.kf[a.p]=ks.filter(x=>!a.set.has(x)); if(!c.kf[a.p].length)delete c.kf[a.p]; } // stale selection (after undo/split) → just clear it: no bogus undo entry, and NEVER fall through to clip deletion
     renderTimeline(); renderInspector(); render(); return; } // delete selected breakpoints
   if((e.key==='ArrowLeft'||e.key==='ArrowRight'||e.key==='ArrowUp'||e.key==='ArrowDown')&&state.autoSel&&state.autoSel.set&&state.autoSel.set.size){ e.preventDefault(); nudgeAutoSel(e); return; } // nudge selected breakpoints (←→ grid/frame · ↑↓ value)
-  if((e.key==='Delete'||e.key==='Backspace')&&(state.selMediaId!=null||(state.selMediaIds&&state.selMediaIds.length))){ const ids=selectedMediaIds(); state.selMediaId=null; state.selMediaIds=[]; for(const id of ids){ const mm=mediaById(id); if(mm)deleteMedia(mm); } return; } // media selected → Delete removes them (not the timeline clip) (R86/R88)
+  if((e.key==='Delete'||e.key==='Backspace')&&(state.selMediaId!=null||(state.selMediaIds&&state.selMediaIds.length))){ const ids=selectedMediaIds(); state.selMediaId=null; state.selMediaIds=[]; deleteMediaMany(ids); return; } // [R312·A8] UNA pregunta por el lote, no una por medio // media selected → Delete removes them (not the timeline clip) (R86/R88)
   if((e.key==='Delete'||e.key==='Backspace')&&state.selFolder&&folderExists(state.selFolder)){ deleteFolder(state.selFolder); return; } // R90: Delete removes the SELECTED folder (confirms if it has media); cleared when you touch the timeline
   if(e.shiftKey&&(e.key==='Delete'||e.key==='Backspace')){rippleDelete();return;}
   if((e.key==='Delete'||e.key==='Backspace')&&state.selMarkerId!=null){ pushUndo(); state.markers=state.markers.filter(m=>m.id!==state.selMarkerId); state.selMarkerId=null; renderTimeline(); return; }
@@ -12291,7 +12344,7 @@ function openMenu(x,y,items){
       LANE_PALETTE.forEach(col=>{ const b=document.createElement('button'); b.title=col; b.style.cssText='width:18px;height:18px;min-height:18px;border-radius:3px;border:.5px solid rgba(255,255,255,0.25);background:'+col+';cursor:pointer;padding:0;flex:0 0 auto;'+(it.swatches.cur===col?'box-shadow:0 0 0 2px #E8EAED;':''); b.onclick=e=>{ e.stopPropagation(); closeMenu(); it.swatches.onPick(col); }; row.appendChild(b); }); // [R223] mismo tamaño cuadrado (18px) que colorPopup + min-height explícito (ver nota arriba)
       const nx=document.createElement('button'); nx.title=T('No color','Sin color'); nx.textContent='✕'; nx.style.cssText='width:18px;height:18px;min-height:18px;border-radius:3px;border:.5px dashed rgba(255,255,255,0.35);background:transparent;color:var(--ink-2);cursor:pointer;padding:0;font-size:11px;line-height:1;flex:0 0 auto;'; nx.onclick=e=>{ e.stopPropagation(); closeMenu(); it.swatches.onClear(); }; row.appendChild(nx);
       m.appendChild(row); continue; }
-    const b=document.createElement('button'); if(it.danger)b.className='danger'; b.setAttribute('role','menuitem'); b.innerHTML=(it.ico?ICO(it.ico,13):'')+'<span style="flex:1">'+it.label+'</span>'+(it.key?('<span class="tnum" style="color:var(--ink-2);font-size:11px">'+fmtKey(it.key)+'</span>'):''); b.style.gap='9px'; // [R94-UT5·U-10a]
+    const b=document.createElement('button'); if(it.danger)b.className='danger'; b.setAttribute('role','menuitem'); b.innerHTML=(it.ico?ICO(it.ico,13):'')+'<span style="flex:1">'+esc(it.label)+'</span>'+(it.key?('<span class="tnum" style="color:var(--ink-2);font-size:11px">'+fmtKey(it.key)+'</span>'):''); b.style.gap='9px'; // [R94-UT5·U-10a]
     b.onclick=()=>{closeMenu();it.fn();}; m.appendChild(b); }
   /* [R94-UT5·U-10a] keyboard-navigable menu: ArrowUp/Down cycle the enabled buttons (separators are divs → skipped
      naturally), Home/End jump, Escape closes, Enter/Space activate via the native <button> default. Every key is
@@ -13200,7 +13253,7 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
     if(!_pick.length){ host.innerHTML=`<div class="cbhint">${T('Empty. Drag clips here from the Media panel.','Vacío. Arrastra clips aquí desde el panel de Medios.')}</div>`; return; }
     host.innerHTML=_pick.map((id,i)=>{ const m=mediaById(id);
       const bg=m.thumb?`url(${m.thumb})`:'none';
-      return `<div class="cbitem" title="${m.name}"><span class="cbnum">${i+1}</span><span class="cbthumb" style="background-image:${bg};background-color:${m.color};"></span><span class="cbname">${m.name}</span><button class="cbx" type="button" data-id="${id}" title="${T('Remove from the composition','Quitar de la composición')}">×</button></div>`; }).join('');
+      return `<div class="cbitem" title="${esc(m.name)}"><span class="cbnum">${i+1}</span><span class="cbthumb" style="background-image:${bg};background-color:${m.color};"></span><span class="cbname">${esc(m.name)}</span><button class="cbx" type="button" data-id="${id}" title="${T('Remove from the composition','Quitar de la composición')}">×</button></div>`; }).join('');
     host.querySelectorAll('.cbx').forEach(b=>b.onclick=e=>{ e.stopPropagation();
       _pick=_pick.filter(x=>x!==+b.dataset.id); pintarCesta(); preview(); }); };
   /* Recibe lo que se suelte desde el panel de Medios. Los repetidos no entran dos veces: una composición usa cada
