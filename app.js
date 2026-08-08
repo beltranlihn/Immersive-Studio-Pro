@@ -9098,7 +9098,7 @@ async function runExport(opt){
   try{ const _w=(opt&&opt.wall)?Math.max(opt.wall.pxW||0,opt.wall.pxH||0)
                               :Math.max(+(opt&&(opt.outW||opt.res))||0, +(opt&&(opt.outH||opt.res))||0)||2048;
        _fxCap=Math.max(1024,Math.min(4096, _w||2048)); }catch(_){ _fxCap=2048; }
-  let _rsSeq=null; if(opt.seqId && isSeqMedia(mediaById(opt.seqId)) && opt.seqId!==state.activeSeqId){ _rsSeq=state.activeSeqId; switchSeq(opt.seqId); } // F5: export another sequence (e.g. the room floor) in its own job, then restore
+  let _rsSeq=null; if(opt.seqId && isSeqMedia(mediaById(opt.seqId)) && opt.seqId!==state.activeSeqId){ _rsSeq=state.activeSeqId; switchSeq(opt.seqId,true); } // F5: export another sequence (e.g. the room floor) in its own job, then restore
   const res=opt.res, fps=opt.fps; diag('info','export','start',{codec:opt.codec,res,fps,bitrate:opt.bitrate, seq:activeSeq()&&activeSeq().name});
   // [R94d] range chosen in the export dialog: 'inout' = the I/O marks · 'clips' = the clip extent (default). Legacy jobs with no range keep the old behaviour (I/O if set).
   const hasWork=state.workIn!=null&&state.workOut!=null&&state.workOut>state.workIn;
@@ -9143,7 +9143,7 @@ async function runExport(opt){
     exporting=false; _exportQuality=false; _exCD=false; _vinstCap=VINST_MAX; _ncSquare=false; disposeAllVinst();
     try{ if(IS_ELEC&&DSP.powerSave)DSP.powerSave(false); }catch(e){}
     for(const m of state.media)if(m._exAudio)delete m._exAudio; // _exAudio freed: decoded video audio is export-only (1h ≈ 1.4GB PCM)
-    if(_rsSeq)switchSeq(_rsSeq); resize(); try{scrubRender();}catch(_){}
+    if(_rsSeq)switchSeq(_rsSeq,true); resize(); try{scrubRender();}catch(_){}
     job.done(doneArg);
   }
   exporting=true; _exportQuality=true; _ncSquare=!!opt.squareNest;
@@ -10773,16 +10773,20 @@ function updModeUI(){ const fl=isFlat(), room=isRoom(); // a 360 room has a real
   if(fl && !room && state.view.mode==='3d'){ state.view.mode='2d'; document.querySelectorAll('#viewModeSeg button').forEach(x=>x.classList.toggle('on',x.dataset&&x.dataset.v==='2d')); }
   try{ updViewCtl(); }catch(e){} } // [R230b] cambiar de secuencia también re-evalúa la barra (ahí vive el interruptor del piso)
 function openSeq(id){ const m=mediaById(id); if(!isSeqMedia(m))return; if(!state.openSeqs)state.openSeqs=[]; if(!state.openSeqs.includes(id))state.openSeqs.push(id); switchSeq(id); }
-function switchSeq(id){ const m=mediaById(id); if(!isSeqMedia(m))return; if(id===state.activeSeqId){ if(!state.openSeqs.includes(id))state.openSeqs.push(id); renderSeqBar(); return; }
+/* [R334] `silencioso`: el export cambia de secuencia para hornear otra (el piso de una sala) y la devuelve al
+   terminar. Eso NO es una edicion del usuario, asi que no debe ensuciar el proyecto — sin la puerta, exportar
+   dejaba el asterisco puesto y una pregunta de «guardar cambios» al cerrar sin haber tocado nada. */
+function switchSeq(id,silencioso){ const m=mediaById(id); if(!isSeqMedia(m))return; if(id===state.activeSeqId){ if(!state.openSeqs.includes(id))state.openSeqs.push(id); renderSeqBar(); return; }
   saveActiveSeq(); state.activeSeqId=id; if(!state.openSeqs.includes(id))state.openSeqs.push(id); loadSeqIntoState(m); // [R92-T1] per-sequence undo stacks survive the switch
   syncNestAudioClips(); // [R225·9] al ATERRIZAR en una secuencia: si alguno de sus nests estrenó (o perdió) audio dentro, su clip derivado se crea/retira aquí
   renderSeqBar(); renderMedia(); renderTimeline(); renderInspector(); renderWork(); render(); updStatus(); updFmtChip(); projTitle();
+  if(!silencioso)markDirty(); // [R334] `activeSeqId` viaja en el .isp: la pestana en la que dejas el proyecto es parte del proyecto
   setTlScrollT(m.nestScrollT||0); // [R239] el encuadre de ESA secuencia (0 la primera vez que se entra) — después de renderTimeline, que es quien fija el ancho del contenido
   flashStatus(T('Sequence: ','Secuencia: ')+m.name); } // [R212] the window/tab title shows the active sequence name — switching tabs left it stale until the next unrelated projTitle() call
 function closeSeqTab(id){ if(!state.openSeqs)return; const wasActive=(id===state.activeSeqId); if(wasActive)saveActiveSeq();
   const next=state.openSeqs.filter(x=>x!==id); if(!next.length){ flashStatus(T('At least one sequence stays open','Al menos una secuencia queda abierta')); return; } state.openSeqs=next;
-  if(wasActive){ state.activeSeqId=state.openSeqs[state.openSeqs.length-1]; loadSeqIntoState(activeSeq()); syncNestAudioClips(); renderMedia(); renderTimeline(); renderInspector(); renderWork(); render(); updStatus(); updFmtChip(); setTlScrollT((activeSeq()||{}).nestScrollT||0); } // [R225·9] · [R239] cerrar la pestaña activa también aterriza en otra secuencia: mismo encuadre propio
-  renderSeqBar(); }
+  if(wasActive){ state.activeSeqId=state.openSeqs[state.openSeqs.length-1]; loadSeqIntoState(activeSeq()); syncNestAudioClips(); renderMedia(); renderTimeline(); renderInspector(); renderWork(); render(); updStatus(); updFmtChip(); setTlScrollT((activeSeq()||{}).nestScrollT||0); projTitle(); } // [R225·9] · [R239] cerrar la pestaña activa también aterriza en otra secuencia: mismo encuadre propio · [R334] + `projTitle`: el título lleva el nombre de la secuencia activa y se quedaba con el de la que se acababa de cerrar
+  renderSeqBar(); markDirty(); } // [R334] `openSeqs` viaja en el .isp: cerrar una pestaña es un cambio del proyecto
 function renameSequence(id){ const m=mediaById(id); if(!isSeqMedia(m))return; const el=document.querySelector('#seqTabs .seqtab[data-seq="'+id+'"] .seqlab');
   /* [R253d] renombrar una secuencia cambia `m.name` de un medio: sin empujar deshacer ni marcar version, un
      Ctrl+Z ajeno le devolvia el nombre viejo -y encima renderSeqBar lo repintaba en la pestana, delante del
@@ -10805,7 +10809,11 @@ function deleteSequenceMedia(id,sinPreguntar){ const m=mediaById(id); if(!isSeqM
   const seguir=ok=>{ if(!ok)return;
     const wasActive=(id===state.activeSeqId); if(wasActive)saveActiveSeq();
     disposeMedia(m); state.media=state.media.filter(x=>x.id!==id); state.openSeqs=(state.openSeqs||[]).filter(x=>x!==id);
-    state.clips=state.clips.filter(c=>c.mediaId!==id); for(const s of state.media)if(isSeqMedia(s)&&s.nestClips)s.nestClips=s.nestClips.filter(c=>c.mediaId!==id); // remove orphan nest clips that referenced the deleted sequence
+    state.clips=state.clips.filter(c=>c.mediaId!==id);
+    /* [R334] …y el PADRE que la contenía mide otra cosa: `m.dur` de una secuencia es un dato GUARDADO (lo usan
+       el clip anidado y el panel), y quitarle su clip más largo lo dejaba con la duración vieja — un clip del
+       abuelo podía seguir estirado sobre contenido que ya no existe. Se recalcula en los que pierden clips. */
+    for(const s of state.media)if(isSeqMedia(s)&&s.nestClips){ const antes=s.nestClips.length; s.nestClips=s.nestClips.filter(c=>c.mediaId!==id); if(s.nestClips.length!==antes)s.dur=seqDur(s); } // remove orphan nest clips that referenced the deleted sequence
     { const as=activeSeq(); if(as)as.nestClips=state.clips; } // re-heal the state.clips ⇄ activeSeq().nestClips alias broken by the filters above
     if(!state.openSeqs.length)state.openSeqs=[state.media.filter(isSeqMedia)[0].id];
     if(wasActive){ state.activeSeqId=state.openSeqs[state.openSeqs.length-1]; loadSeqIntoState(activeSeq()); }
@@ -11911,7 +11919,7 @@ async function replaceMedia(m,ruta){ if(!IS_ELEC)return;
   let sz=0; try{ const st=await DSP.stat(p); sz=(st&&st.size)||0; }catch(e){}
   bumpMeta(true); /* [R253d] reparar un medio ausente no es una edicion deshacible, pero si marca version: una foto anterior no puede devolverle el nombre del archivo perdido */
   m.path=p; m.fsize=sz; m.name=DSP.basename(p); m.missing=false; delete m._plazo;
-  m.proxyReady=false; m.proxyPct=0; m.proxyUrl=null; m.proxyEl=null; m._proxyForce=false; m.bands=null; m._bandsBusy=false; m.thumb=null; m._texW=null; m._texH=null; m.peaks=null; m.rms=null; m.buffer=null;
+  m.proxyReady=false; m.proxyPct=0; m.proxyUrl=null; m.proxyEl=null; m._proxyForce=false; m.bands=null; m._bandsBusy=false; m._bandsFail=false; // [R334] el material cambia: el fallo recordado ya no vale m.thumb=null; m._texW=null; m._texH=null; m.peaks=null; m.rms=null; m.buffer=null;
   /* [R322] El ESPECTRO también, que se quedaba fuera. `m.bands` (las cuatro bandas con nombre) sí se recalculaba,
      pero `m.spec` no, y `armMediaSpectrum` se niega a recomputar mientras `m.spec` esté puesto: al cambiar el
      archivo de audio de un clip reactivo, los moduladores de RANGO A MEDIDA seguían animando al ritmo de la
@@ -13395,9 +13403,10 @@ function toggleLoopReverse(c){ if(!c)return; const m=mediaById(c.mediaId); if(!(
   disposeAllVinst(); renderTimeline(); renderInspector(); render(); markDirty(); flashStatus(c.loopRev?T('Loop reverse on (ping-pong)','Loop inverso activado (ping-pong)'):T('Loop reverse off','Loop inverso desactivado')); }
 /* ---- R80-2: Ableton-style "0" — disable the selected clips, or the time-selection slice of them (split first) ---- */
 function toggleDisable(){ const a=state.tl.selA,b=state.tl.selB; const hasRange=(a!=null&&b!=null&&Math.abs(b-a)>1e-3);
-  if(hasRange){ const lo=Math.min(a,b),hi=Math.max(a,b); const lanes=state.tl.selLanes&&state.tl.selLanes.length?new Set(state.tl.selLanes):null; pushUndo();
+  if(hasRange){ const lo=Math.min(a,b),hi=Math.max(a,b); const lanes=state.tl.selLanes&&state.tl.selLanes.length?new Set(state.tl.selLanes):null;
     const hits=state.clips.filter(c=>(!lanes||lanes.has(c.lane))&&c.start<hi-0.02&&c.start+c.dur>lo+0.02);
     if(!hits.length){ flashStatus(T('No clips in the selection','No hay clips en la selección')); return; }
+    pushUndo(); // [R334] DESPUES de saber que hay algo que apagar: sobre un rango vacio se apilaba una foto muerta y el siguiente Ctrl+Z parecia no hacer nada (misma familia que el locator de R328)
     for(const c of hits.slice()){ if(lo>c.start+0.02&&lo<c.start+c.dur-0.02)razorCore(c,lo); }
     const hits2=state.clips.filter(c=>(!lanes||lanes.has(c.lane))&&c.start<hi-0.02&&c.start+c.dur>lo+0.02);
     for(const c of hits2.slice()){ if(hi>c.start+0.02&&hi<c.start+c.dur-0.02)razorCore(c,hi); }
@@ -14888,11 +14897,15 @@ async function computeBands(ab){ if(typeof OfflineAudioContext==='undefined'||!a
   }
   let beats=pickOnsets(comb,0.10); if(!beats.length){ try{ beats=detectBeats(ab)||[]; }catch(e){} }
   return {v:2,fps:AR_FPS,dur,bass:eB,mid:eM,treble:eT,bright,onsets,beats,bpm:Math.round(bpm*10)/10,beat0}; }
-function armMediaBands(m,ab){ if(!m||m.bands||m._bandsBusy)return; if(!ab)ab=m.buffer; if(!ab)return; m._bandsBusy=true;
+/* [R334] `_bandsFail`: si el analisis falla, `m.bands` se queda en null y la guarda de arriba deja pasar la
+   siguiente llamada — y esto se llama desde cada repintado del panel reactivo, asi que un audio que no se
+   puede analizar relanzaba la FFT entera una y otra vez, con su aviso de «Analizando bandas…» parpadeando.
+   Se recuerda el fallo. Reimportar el medio o regenerar su proxy lo limpia (ver donde se resetea `m.bands`). */
+function armMediaBands(m,ab){ if(!m||m.bands||m._bandsBusy||m._bandsFail)return; if(!ab)ab=m.buffer; if(!ab)return; m._bandsBusy=true;
   try{ flashStatus(T('Analyzing audio bands…','Analizando bandas de audio…')); }catch(e){}
-  computeBands(ab).then(bd=>{ m._bandsBusy=false; if(!bd)return; m.bands=bd; if(reactiveSourceMedia()===m){ arRecompute(); raInvalidate(); try{render();}catch(e){} if(state.inspTab==='react')renderReactivePanel(); } try{ flashStatus(T('Audio bands ready','Bandas de audio listas')); }catch(e){}
+  computeBands(ab).then(bd=>{ m._bandsBusy=false; if(!bd){ m._bandsFail=true; return; } m.bands=bd; if(reactiveSourceMedia()===m){ arRecompute(); raInvalidate(); try{render();}catch(e){} if(state.inspTab==='react')renderReactivePanel(); } try{ flashStatus(T('Audio bands ready','Bandas de audio listas')); }catch(e){}
     armMediaSpectrum(m,ab); }) // [R95·C2] the spectrum rides along after the bands (lower priority): it powers the frequency picker + custom ranges
-  .catch(e=>{ m._bandsBusy=false; }); }
+  .catch(e=>{ m._bandsBusy=false; m._bandsFail=true; try{ flashStatus(T('Could not analyze the audio bands of '+(m.name||'this media'),'No se han podido analizar las bandas de audio de '+(m.name||'este medio')),'err'); }catch(_){} }); } // [R334] se dice UNA vez, en vez de reintentarlo en silencio para siempre
 
 /* ---- reactive config + deterministic band eval ---- */
 function ensureReactive(){ if(!state.reactive)state.reactive={srcClipId:null,gain:130,gate:5,attack:8,release:130,bpm:0}; return state.reactive; } // bpm 0 = auto (detected)

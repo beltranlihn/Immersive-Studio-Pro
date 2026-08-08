@@ -1,5 +1,27 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 334 — Pestañas, duración del padre y un análisis que se reintentaba solo
+
+- **`toggleDisable` sobre un rango sin clips apilaba una foto de deshacer** y luego salía por la puerta: el
+  siguiente Ctrl+Z parecía no hacer nada, el usuario lo pulsaba otra vez y perdía la edición de verdad. Es la
+  misma familia que el locator de R328 — la foto va **después** de saber que hay algo que cambiar.
+- **Cambiar y cerrar pestaña son cambios del proyecto.** `activeSeqId` y `openSeqs` viajan en el `.isp`, así que
+  la pestaña en la que dejas el proyecto es parte del proyecto — y no marcaban sucio: cerrar la app tras
+  reordenar el trabajo perdía esa disposición sin preguntar. Cerrar la activa dejaba además el rótulo con el
+  modo de la secuencia **que se acababa de cerrar** («Domo inmersivo» sobre una secuencia 2D). Con su puerta: el
+  export cambia de secuencia para hornear el piso de una sala y la devuelve, y eso no debe ensuciar nada
+  (`switchSeq(id,silencioso)`) — si no, exportar dejaba el asterisco puesto y una pregunta de guardar al cerrar.
+- **Borrar una secuencia dejaba al padre midiendo lo que ya no tiene.** Se le quitan sus clips, pero `m.dur` —que
+  es un dato GUARDADO, no derivado— se quedaba con el valor viejo: un clip del abuelo podía seguir estirado
+  sobre contenido inexistente. Medido: 13 s → 3 s.
+- **Un análisis de bandas fallido se reintentaba en bucle.** `m.bands` se quedaba en null, y como esto se llama
+  desde **cada repintado del panel reactivo**, un audio que no se puede analizar relanzaba la FFT entera una y
+  otra vez con su aviso parpadeando. Ahora se recuerda el fallo, se dice **una** vez, y reimportar el medio o
+  regenerar su proxy lo limpia (el flag no se serializa: una sesión nueva vuelve a intentarlo).
+
+**Verificación:** `scratchpad/r334-verif.mjs`. **Catorce redes en verde.**
+
+
 ## ROUND 333 — Un evaluador para todos, una carga por LUT, una ventana con nombre
 
 - **El bloque de imagen se evaluaba con la BASE.** La geometría (x/y/az/el/tamaño/giro/opacidad) usa `evalR`

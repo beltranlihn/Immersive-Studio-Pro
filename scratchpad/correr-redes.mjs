@@ -29,6 +29,7 @@ const REDES = [
   ['r331-verif.mjs',   'NV12 sin sesgo, timecode de secuencia y fundidos en orden'],
   ['r332-verif.mjs',   'el visor no estampa fotogramas viejos y los recursos se sueltan'],
   ['r333-verif.mjs',   'un evaluador para todos, una carga por LUT y una ventana con nombre'],
+  ['r334-verif.mjs',   'sin fotos muertas, proyecto sucio cuando toca y sin reintentos en bucle'],
 ];
 
 /* Sin app levantada no se distingue «rojo» de «no medido», y esa confusión es justo la que hace inútil una red. */

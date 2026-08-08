@@ -79,7 +79,7 @@
 | Modo simple-clip | Agarre Premiere vs Ableton | app.js · `toggleSimpleClips` | ✅ | — |
 | Regla & playhead | Scrub + arrastre de locator | app.js · #ruler pointerdown / `positionPlayhead` | ✅ | — |
 | Marcadores / locators | Marcadores temporales con nombre, dibujados en la **mitad inferior** de la regla; selección exclusiva con clip/pista (prioridad de Ctrl+R) | app.js · `addMarker`/`jumpMarker`/`drawRuler` · `state.selMarkerId` | ✅ | [R223] |
-| Pestañas de secuencia | Barra de secuencias abiertas (drag para reordenar) — **movida al transport** (R148); **[R239]** sin barra de scroll, se recorre con la RUEDA sobre las pestañas | app.js · `renderSeqBar`/`startSeqTabDrag` · #seqTabs (dentro de `.transport`) | ✅ | Rev1 §5 |
+| Pestañas de secuencia | Barra de secuencias abiertas (drag para reordenar) — **movida al transport** (R148); **[R239]** sin barra de scroll, se recorre con la RUEDA sobre las pestañas **[R334]** cambiar y cerrar pestaña son cambios del PROYECTO (`activeSeqId` y `openSeqs` viajan en el `.isp`) y no marcaban sucio; cerrar la activa dejaba además el rótulo con el modo de la secuencia cerrada. `switchSeq(id,silencioso)` — el export cambia de secuencia para hornear el piso de una sala y la devuelve: eso no ensucia nada | app.js · `renderSeqBar`/`startSeqTabDrag`/`switchSeq`/`closeSeqTab` · #seqTabs (dentro de `.transport`) | ✅ | R334 |
 | Well de edición del transport | Simple · Auto · Grid · Fit | app.js · `toggleSimpleClips`/`toggleCurves`/`fitAll` · #tlEditSeg (#simpleClipBtn/#curvesBtn/#tlGridBtn/#fitAllBtn) | ✅ | Rev1 §5 |
 | Menú contextual de clip | Acciones clic-derecho sobre clip | app.js · #tracks contextmenu | ✅ | [T1] |
 
