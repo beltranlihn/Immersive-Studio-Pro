@@ -1,5 +1,60 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 314 — El repaso de código de mis propias rondas: cinco regresiones
+
+Un `/code-review` a máximo esfuerzo sobre R310-R313 (diez ángulos en paralelo + lectura propia) encontró que
+**las cuatro rondas anteriores arreglaron 13 fallos reales e introdujeron 5 regresiones**, tres de ellas peores
+que algo de lo que arreglaban. Se cierran aquí, junto con los tres arreglos que habían quedado a medias.
+
+**Las cinco regresiones:**
+- **El escape de R312 rompía los menús de automatización.** `esc(it.label)` en el sumidero de `openMenu`
+  también escapaba las entradas que llevan marcado A PROPÓSITO — el rombo `◆` en cian y la negrita de la
+  entrada vigente pasaron a verse como texto literal. La comprobación de «ningún llamador manda HTML» que
+  declaró R312 se hizo sobre los diálogos, no sobre los menús. Ahora esas entradas van marcadas `html:true` y
+  el escape sigue puesto para todo lo demás, que es por donde viajan los nombres del usuario.
+- **La guarda de diálogos apilados los dejaba sordos.** `:last-of-type` no significa «el último overlay» sino
+  «el último hermano de su misma ETIQUETA»: basta con que aparezca cualquier `<div>` por encima del cuadro
+  —un menú, un fantasma de arrastre, el monitor de origen, el tooltip la primera vez— para que el selector no
+  case con nada y el manejador salga por el `return`. Enter dejaba de funcionar y, como el `return` va antes del
+  `stopPropagation`, la tecla se filtraba a los atajos globales: Supr borrando clips detrás de un modal. Se usa
+  el idioma que el propio fichero ya tenía dos funciones más abajo: `ovs[ovs.length-1]`.
+- **`if(!d)return` no restauraba la curva.** El arrastre es ABSOLUTO —cada fotograma reconstruye desde la
+  instantánea—, así que `d===0` no es «no hay nada que hacer» sino «vuelve a la curva de partida». Arrastrar
+  y volver al origen dejaba pegado el rebase del fotograma anterior, con las claves que se salieron ya
+  destruidas, sobre un clip que al final no se recortó. `trimItem` no tenía esa guarda justamente por eso.
+- **Duplicar una pista duplicaba el audio.** Cambiar el clon crudo por `duplicateClipAt` ganó la textura sana
+  pero soltó `avRole`, que es lo único que mantenía muda la mitad de vídeo de un par A/V: como la mitad de
+  audio sigue en su pista, las copias volvían a sonar y el mismo sonido entraba dos veces (+6 dB) en la
+  previsualización y en el máster. Se conserva `avRole` y se suelta el `link`; para que la copia muda siga
+  siendo recuperable, «Desenlazar» aparece también con `avRole` sin pareja.
+- **El reloj de los FX reactivos se quedaba congelado en el domo.** `renderExportFrame` es el ÚNICO sitio que
+  avanza `_arTime` durante un export, y la rama de domo por FFmpeg llama a `composite()` directo: el máster
+  salía con la modulación clavada en el instante del cabezal. **El arreglo A7 de R313 no lo cubría**: las
+  bandas estaban listas, pero el reloj que las consulta no se movía.
+
+**Y los tres arreglos que habían quedado a medias**, los tres por el mismo motivo —se arregló un camino y se
+dejó su gemelo—, ahora resueltos en el punto común en vez de caso a caso:
+- **`trimNudge`** (el mismo recorte con el TECLADO) llamaba a `rebaseAutoPorMaterial` con `undefined`. La
+  instantánea pasa a tomarse DENTRO de `applyTrim`, así que no se puede invocar sin ella.
+- **El PARTNER enlazado** no rebasaba: `_mirrorLinkTrim` mueve su `inP` y es el punto único por el que pasan
+  los cinco modos del trim, así que rebasar ahí cubre todos de una vez.
+- **La firma del tejido** miraba sólo `cl[0].anim`: R310·A12 corrigió los nombres de propiedad pero dejó el
+  alcance, y el consumidor lee el modificador de CADA clip.
+
+De regalo, dos de la misma familia: una curva de UN SOLO punto que se salía del borde se perdía entera sin
+congelar su valor (el mismo defecto que R313·A9 arregló en el diamante), y la instantánea incondicional
+materializaba `kf:{}` y `anim:[]` en clips que no tenían automatización — dos campos que luego `serClip`
+guardaba en el `.isp`.
+
+**Lo que enseña esta ronda sobre el método.** Verificar por reversión demostró que cada arreglo arreglaba SU
+fallo, pero no que no rompiera otra cosa; y las sondas eran demasiado estrechas — `r313-verif.mjs` monta el
+proyecto en 2D, que es exactamente lo que ocultó el `_arTime` del domo. `scratchpad/r314-verif.mjs` cubre las
+diez comprobaciones **en el formato donde el fallo vive**, y sus dos casos nuevos están validados por
+reversión. Dos avisos anotados para la próxima sonda, los dos aprendidos aquí a base de falsos resultados:
+leer `_arTime` DESPUÉS del export no sirve (`_exportCleanup` llama a `scrubRender()` y lo devuelve al cabezal
+— hay que muestrear dentro del bucle, por `job.frame`), y para reproducir lo de `:last-of-type` el div de
+sobra tiene que añadirse DESPUÉS de abrir el cuadro, no antes.
+
 ## ROUND 313 — La tanda de edición diaria (y el export que salía sin reactividad)
 
 Cuarta y última tanda de los hallazgos ALTA/MEDIA de la auditoría exhaustiva. Cinco arreglos, todos de cosas

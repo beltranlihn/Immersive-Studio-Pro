@@ -1256,9 +1256,13 @@ function wvPrep(m){
      `undefined`, `_vel` quedaba en cadena vacia y la velocidad seguia fuera de la firma: mover el fader dejaba
      `per` con el periodo viejo y el intercambio de imagenes que R300 quito podia reaparecer. Se firma tambien
      `on`, que es lo que mira el consumidor: apagar el modificador cambia el reparto igual que cambiar su valor. */
-  const _vel=(function(){ try{ const a=(cl[0]&&cl[0].anim)||[];
-    const sw=a.find(x=>x&&x.mode==='saw'&&(x.param==='x'||x.param==='y')&&x.on!==false);
-    return sw?(sw.speed||0)+':'+(sw.phase||0):''; }catch(_){ return ''; } })();
+  /* [R314] …y mirando TODOS los clips, no sólo el primero. R310·A12 corrigió los nombres de propiedad pero dejó
+     el alcance: el consumidor de más abajo lee el modificador de CADA clip, así que si el diente de sierra no
+     está en `cl[0]` —o se cambia la velocidad de cualquier otro— la firma no variaba y `wvPrep` volvía a salir
+     antes de recalcular, que es el síntoma que el arreglo venía a cerrar. */
+  const _vel=(function(){ try{ return cl.map(c=>{
+      const sw=((c&&c.anim)||[]).find(x=>x&&x.mode==='saw'&&(x.param==='x'||x.param==='y')&&x.on!==false);
+      return sw?(sw.speed||0)+':'+(sw.phase||0):'-'; }).join(','); }catch(_){ return ''; } })();
   const _ord=(function(){ try{ return (g.order||[]).join(',')+'#'+cl.map(c=>c.mediaId).join(','); }catch(_){ return ''; } })();
   const firma=cl.length+'|'+(g.bands||0)+'|'+(g.count||0)+'|'+(g.motion||'')+'|'+(g._orderR?1:0)+'|'+_vel+'|'+_ord;
   if(m._wvSig===firma)return; m._wvSig=firma;
@@ -3834,7 +3838,13 @@ function _dialogBase(message,buttons,opts){ opts=opts||{}; try{closeMenu();}catc
        medio), UNA pulsacion de Enter los respondia TODOS a la vez, con el boton primario. El de arriba se
        queda con la tecla y los de abajo no la ven. */
     const onk=e=>{ if(!ov.isConnected){document.removeEventListener('keydown',onk,true);return;} /* [R218] guarda de conexión: overlay destruido por otra vía → no matar atajos para siempre */
-      if(document.querySelector('.overlay:last-of-type')!==ov)return;   // sólo responde el cuadro de más arriba
+      /* [R314] `:last-of-type` NO significa «el último overlay»: significa «el último hermano de su misma
+         ETIQUETA», así que exigía que el cuadro fuese el último <div> hijo de body. El tooltip `.dsp-tip` se
+         crea una vez y no se quita nunca, de modo que desde el primero de la sesión el selector no casaba con
+         nada, `querySelector` devolvía null y TODOS los diálogos dejaban de responder a Enter — y como el
+         `return` va antes del `stopPropagation`, la tecla se filtraba a los atajos globales (Supr borrando
+         clips detrás del modal). Es el idioma que ya usa el manejador de Escape de más abajo. */
+      { const ovs=document.querySelectorAll('.overlay'); if(ovs.length&&ovs[ovs.length-1]!==ov)return; }   // sólo responde el cuadro de más arriba
       e.stopPropagation();
       if(e.key==='Escape'){ e.preventDefault(); e.stopImmediatePropagation(); fin(opts.esc); return; }
       if(e.key==='Enter'){ e.preventDefault(); e.stopImmediatePropagation(); const k=btns.indexOf(document.activeElement); fin(buttons[k>=0?k:(def!=null?def:buttons.length-1)].v); } };
@@ -4905,7 +4915,14 @@ function duplicateLane(li){ const src=state.lanes[li]; if(!src)return; pushUndo(
        el primero que encuentra) elegía al azar: mover la copia arrastraba el audio del ORIGINAL.
      `duplicateClipAt` ya resuelve los dos (anula `maskTex`/`_penCv`, clona las máscaras en profundidad, suelta
      el enlace y reconstruye la textura), y de regalo separa la automatización agrupada con `sepAuto`. */
-  for(const c of state.clips.filter(c=>c.lane===srcLi).slice()){ const n=duplicateClipAt(c,c.start,at); n.groupId=undefined; state.clips.push(n); }
+  /* [R314] …pero conservando `avRole`. `duplicateClipAt` lo suelta a propósito —es lo correcto al duplicar UN
+     clip suelto, que nace libre— y aquí no: la mitad de audio del par sigue en su pista, así que una copia sin
+     `avRole:'v'` vuelve a reproducir su sonido incrustado y se oye DOS VECES, en la previsualización y en el
+     máster (+6 dB). El `link` sí se suelta (si no, tres clips con el mismo enlace y `linkPartner` eligiendo al
+     azar); para que la copia muda siga siendo recuperable, el menú ofrece «Desenlazar» también cuando hay
+     `avRole` sin pareja. */
+  for(const c of state.clips.filter(c=>c.lane===srcLi).slice()){ const n=duplicateClipAt(c,c.start,at); n.groupId=undefined;
+    if(c.avRole)n.avRole=c.avRole; state.clips.push(n); }
   state.selLane=at; renderTimeline();renderInspector();render();updStatus(); flashStatus(T('Track duplicated','Pista duplicada')); }
 /* drag a track header vertically to REORDER lanes (remaps every clip's lane index; handles the top-down display reversal) */
 let _laneJustDragged=false;
@@ -5016,12 +5033,6 @@ $('#tracks').addEventListener('pointerdown',e=>{
       const pa=linkPartner(z.a); if(pa)base.aLinkBase={start:pa.start,dur:pa.dur,inP:pa.inP||0}; // [R223] link A/V: recorte junto
       const pb=linkPartner(z.b); if(pb)base.bLinkBase={start:pb.start,dur:pb.dur,inP:pb.inP||0}; }
     else { const pc=linkPartner(c); if(pc)base.linkBase={start:pc.start,dur:pc.dur,inP:pc.inP||0}; } // [R223] rippleL/rippleR/slip/slide: mismo espejo
-    /* [R313·A10] Instantánea de la automatización, sólo donde el material se va a mover: ripple de ENTRADA (el
-       clip agarrado) y roll (su mitad derecha). Ripple de salida, slide y slip no la necesitan — el primero sólo
-       cambia `dur`, el segundo mueve el clip entero (las claves van con él) y el tercero cambia a propósito el
-       material dejando la forma del clip quieta, que es lo que se pide al deslizar. */
-    if(z.kind==='rippleL'){ base.kf0=JSON.parse(JSON.stringify(c.kf||{})); base.anim0=JSON.parse(JSON.stringify(c.anim||[])); }
-    if(z.kind==='roll'){ base.bKf0=JSON.parse(JSON.stringify(z.b.kf||{})); base.bAnim0=JSON.parse(JSON.stringify(z.b.anim||[])); }
     if(z.kind==='rippleL'||z.kind==='rippleR'){ base.after=new Map(); const edge=c.start+(z.kind==='rippleL'?0:c.dur);
       for(const o of state.clips)if(o.lane===c.lane&&o!==c&&o.start>=edge-0.002)base.after.set(o.id,o.start); }
     if(z.kind==='slide'){ if(z.prev)base.pDur=z.prev.dur; if(z.next){ base.nStart=z.next.start; base.nDur=z.next.dur; base.nInP=z.next.inP||0; } }
@@ -5138,10 +5149,17 @@ const TRIM_LABEL={roll:['Roll — move the cut','Roll — mover el corte'],rippl
    acaba de aplicarse al clip principal respecto de su propio `base` — el partner tiene su propia base congelada
    (`base.linkBase`/`aLinkBase`/`bLinkBase`, capturada al pointerdown) así que no importa si sus valores de
    partida difieren. Sólo un piso mínimo (dur≥0.05, inP/start≥0); no reclama los límites de origen del partner. */
-function _mirrorLinkTrim(clip,cBase,lb){ if(!lb)return; const p=linkPartner(clip); if(!p)return;
+function _mirrorLinkTrim(clip,cBase,lb,snap){ if(!lb)return; const p=linkPartner(clip); if(!p)return;
   p.start=Math.max(0, lb.start+(clip.start-cBase.start));
   p.dur=Math.max(0.05, lb.dur+(clip.dur-cBase.dur));
-  p.inP=Math.max(0, lb.inP+((clip.inP||0)-cBase.inP)); }
+  p.inP=Math.max(0, lb.inP+((clip.inP||0)-cBase.inP));
+  /* [R314] El material del PARTNER se ha movido lo mismo, así que su automatización tiene que seguirlo. Este es
+     el punto único por el que pasan los cinco modos del trim contextual, así que rebasar aquí cubre la mitad
+     enlazada en todos ellos — R313 sólo cubrió el clip agarrado y dejó al partner descolgado (una curva de
+     volumen en la mitad de audio se quedaba anclada a la ventana mientras su material resbalaba).
+     `d` va en segundos de LÍNEA DE TIEMPO: el desplazamiento de `inP` es de fuente, y se divide por la
+     velocidad. */
+  if(snap){ const d=((p.inP||0)-lb.inP)/(p.speed||1); if(d){ const s=snap(p); rebaseAutoPorMaterial(p,s.kf,s.an,d); } } }
 /* [R313·A10] Rebasa la automatización cuando el MATERIAL se ha desplazado `d` segundos de línea de tiempo bajo
    la ventana del clip. Las claves se guardan RELATIVAS a `c.start` (ver `setKf`/`evalP`), así que mover el clip
    entero no las toca —viajan con él— pero cambiar `inP` sí: el material resbala por debajo y la curva se queda
@@ -5155,45 +5173,67 @@ function _mirrorLinkTrim(clip,cBase,lb){ if(!lb)return; const p=linkPartner(clip
    Incluye el KEYFRAME DE FRONTERA de [R92-T4 F7]: sin él, una rampa que arrancaba en el material consumido se
    pierde y la curva salta al primer punto superviviente. */
 function rebaseAutoPorMaterial(c,kf0,anim0,d){
-  if(!c||!d)return;
+  /* [R314] Sin `!d`. El arrastre es ABSOLUTO —cada fotograma reconstruye desde la instantánea—, así que `d===0`
+     no significa «no hay nada que hacer» sino «vuelve a la curva de partida»: saliendo aquí, arrastrar y volver
+     al origen dejaba pegado el rebase del fotograma anterior, con las claves que se salieron del borde ya
+     destruidas, sobre un clip que al final no se recortó. `trimItem`, de donde está copiada esta función, no
+     tiene esa guarda justamente por eso: con d=0 el mapeo es la identidad y restaura. */
+  if(!c)return;
   if(kf0){ const nk={};
     for(const p in kf0){ const src=kf0[p]; if(!Array.isArray(src)||!src.length)continue;
       const a=src.map(k=>({...k,t:k.t-d,hOut:k.hOut?{...k.hOut}:undefined,hIn:k.hIn?{...k.hIn}:undefined})).filter(k=>k.t>=-1e-6);
-      if(a.length<src.length&&src.length>1){ const synth={start:0,dur:1e9,props:{[p]:src[0].v},kf:{[p]:src}}; const v=evalP(synth,p,d);
+      /* [R314] Sin `src.length>1`. Una curva de UN SOLO punto que se salía del borde se perdía entera y sin
+         congelar su valor: `nk[p]` no se escribía, `evalP` caía a `c.props[p]` —que conserva el valor viejo— y
+         el parámetro saltaba en pantalla. Es el mismo defecto que R313·A9 arregló en el diamante del inspector. */
+      if(a.length<src.length){ const synth={start:0,dur:1e9,props:{[p]:src[0].v},kf:{[p]:src}}; const v=evalP(synth,p,d);
         if(v!=null&&(!a.length||a[0].t>1e-6))a.unshift({t:0,v,e:'linear'}); }
       if(a.length)nk[p]=a; }
     c.kf=nk; }
   if(anim0)c.anim=anim0.map(aa=>({...aa,wetKf:Array.isArray(aa.wetKf)?aa.wetKf.map(k=>({...k,t:k.t-d})).filter(k=>k.t>=-1e-6):aa.wetKf}));
 }
+/* [R314] Captura de la automatización de un clip. Devuelve `null` en los campos vacíos A PROPÓSITO: con `{}` /
+   `[]` (que son truthy) `rebaseAutoPorMaterial` escribía `c.kf={}` y `c.anim=[]` en clips que no tenían nada,
+   materializando dos campos que luego `serClip` guarda en el `.isp`, y generando basura en cada pointermove. */
+function capAuto(c){
+  const kf=(c&&c.kf&&Object.keys(c.kf).length)?JSON.parse(JSON.stringify(c.kf)):null;
+  const an=(c&&Array.isArray(c.anim)&&c.anim.length)?JSON.parse(JSON.stringify(c.anim)):null;
+  return {kf,an}; }
 /* apply a trim by dt seconds. base = the frozen start values captured at pointerdown (so every drag frame is absolute). */
 function applyTrim(z,dt,base){
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  /* [R314] La instantánea se toma AQUÍ, no en el llamador. R313 la cableó sólo en el `pointerdown` del arrastre,
+     así que `trimNudge` —el mismo recorte con el teclado— llamaba a `rebaseAutoPorMaterial` con `undefined` y no
+     rebasaba nada: el defecto seguía vivo por el camino hermano. Tomándola dentro, no se puede invocar sin ella.
+     Se cachea en `base` (que es de todo el gesto) y se toma perezosa: la primera llamada ocurre antes de mutar
+     nada, y así el arrastre sigue siendo absoluto. Un clic que no llega a arrastrar no paga la copia. */
+  if(!base._auto)base._auto=new Map();
+  const snap=c=>{ if(!base._auto.has(c))base._auto.set(c,capAuto(c)); return base._auto.get(c); };
   if(z.kind==='roll'){ const A=z.a,B=z.b; const sa=clipSrc(A), sb=clipSrc(B);
     let lo=-(base.aDur-0.05), hi=(base.bDur-0.05); // can't shrink either side below 5 frames-ish
     if(sa.lim)hi=Math.min(hi,Math.max(0,(sa.sd-base.aInP)/(A.speed||1)-base.aDur)); // A can't grow past its source
     if(sb.lim)lo=Math.max(lo,-base.bInP/(B.speed||1));                              // B can't pull before its source start
     const d=clamp(dt,lo,hi);
     A.dur=base.aDur+d; B.start=base.bStart+d; B.dur=base.bDur-d; B.inP=base.bInP+d*(B.speed||1);
-    rebaseAutoPorMaterial(B,base.bKf0,base.bAnim0,d);   /* [R313·A10] B mueve su material: su automatización lo sigue (A sólo cambia `dur`, no hace falta) */
-    if(base.aLinkBase)_mirrorLinkTrim(A,{start:A.start,dur:base.aDur,inP:base.aInP},base.aLinkBase); // A: sólo dur cambia (start no formaba parte del roll)
-    if(base.bLinkBase)_mirrorLinkTrim(B,{start:base.bStart,dur:base.bDur,inP:base.bInP},base.bLinkBase);
+    { const sB=snap(B); rebaseAutoPorMaterial(B,sB.kf,sB.an,d); }   /* [R313·A10] B mueve su material: su automatización lo sigue (A sólo cambia `dur`, no hace falta) */
+    if(base.aLinkBase)_mirrorLinkTrim(A,{start:A.start,dur:base.aDur,inP:base.aInP},base.aLinkBase,snap); // A: sólo dur cambia (start no formaba parte del roll)
+    if(base.bLinkBase)_mirrorLinkTrim(B,{start:base.bStart,dur:base.bDur,inP:base.bInP},base.bLinkBase,snap);
     return d; }
   if(z.kind==='rippleL'){ const c=z.c, s=clipSrc(c);
     let lo=s.lim?-base.inP/(c.speed||1):-base.start, hi=base.dur-0.05; lo=Math.max(lo,-base.start);
     const d=clamp(dt,lo,hi);
     c.dur=base.dur-d; c.inP=base.inP+d*(c.speed||1); // the clip's START stays put; everything after slides to close/open the gap
-    rebaseAutoPorMaterial(c,base.kf0,base.anim0,d);     /* [R313·A10] el material entra recortado: la curva se corre con él */
+    { const sc=snap(c); rebaseAutoPorMaterial(c,sc.kf,sc.an,d); }     /* [R313·A10] el material entra recortado: la curva se corre con él */
     for(const o of state.clips)if(o.lane===c.lane&&o!==c&&base.after.has(o.id))o.start=base.after.get(o.id)-d;
-    _mirrorLinkTrim(c,base,base.linkBase); return d; }
+    _mirrorLinkTrim(c,base,base.linkBase,snap); return d; }
   if(z.kind==='rippleR'){ const c=z.c, s=clipSrc(c);
     let lo=-(base.dur-0.05), hi=s.lim?Math.max(0,(s.sd-base.inP)/(c.speed||1)-base.dur):1e6;
     const d=clamp(dt,lo,hi); c.dur=base.dur+d;
     for(const o of state.clips)if(o.lane===c.lane&&o!==c&&base.after.has(o.id))o.start=base.after.get(o.id)+d;
-    _mirrorLinkTrim(c,base,base.linkBase); return d; }
+    _mirrorLinkTrim(c,base,base.linkBase,snap); return d; }
   if(z.kind==='slip'){ const c=z.c, s=clipSrc(c); if(!s.lim)return 0; // nothing to slip inside a generator/still
     const lo=-base.inP/(c.speed||1), hi=Math.max(0,(s.sd-base.inP)/(c.speed||1)-base.dur);
     const d=clamp(-dt,lo,hi); c.inP=base.inP+d*(c.speed||1);
-    _mirrorLinkTrim(c,base,base.linkBase); return d; } // drag right → reveal EARLIER material (film under the window)
+    _mirrorLinkTrim(c,base,base.linkBase,snap); return d; } // drag right → reveal EARLIER material (film under the window)
   if(z.kind==='slide'){ const c=z.c; const P=z.prev,N=z.next;
     let lo=-1e6,hi=1e6;
     if(P){ lo=Math.max(lo,-(base.pDur-0.05)); } else lo=Math.max(lo,-base.start);
@@ -6794,12 +6834,17 @@ function autoDuoText(li,cur,onPick){ const wrap=document.createElement('div'); w
      la app) delante de la entrada. En la IZQUIERDA basta con que UNO de sus parámetros esté automatizado. La entrada
      vigente va en negrita, para que el menú diga también dónde estás. */
   const dia='<span style="color:var(--auto-live);font-size:10px;">◆</span>&nbsp;&nbsp;';
-  const ent=(lab,on,sel)=>(on?dia:'')+(sel?'<b>'+lab+'</b>':lab);
+  /* [R314] Estas entradas SÍ llevan marcado a propósito (el rombo y la negrita), así que van marcadas con
+     `html:true` para que `openMenu` no las escape. R312 escapó la etiqueta en el sumidero dando por hecho que
+     ningún llamador manda HTML — la comprobación se hizo sobre los diálogos, no sobre los menús, y estos dos
+     selectores pasaron a enseñar el marcado como texto literal. El escape sigue puesto para todo lo demás, que
+     es donde viajan los nombres del usuario (`'Move to: '+carpeta`). */
+  const ent=(lab,on,sel)=>(on?dia:'')+(sel?'<b>'+esc(lab)+'</b>':esc(lab));
   wrap.querySelector('.acat').addEventListener('pointerdown',e=>{ e.stopPropagation();
     menu(e.currentTarget, cats.map(x=>{ const auto=x.params.find(pp=>autoHasKf(li,pp[2])); // al elegir un dispositivo se aterriza en su parámetro AUTOMATIZADO si lo hay (nunca en uno vacío teniendo curva a mano)
-      return {label:ent(x.label,!!auto,x.k===cat.k), fn:()=>onPick((auto||x.params[0])[2])}; })); });
+      return {label:ent(x.label,!!auto,x.k===cat.k), html:true, fn:()=>onPick((auto||x.params[0])[2])}; })); });
   wrap.querySelector('.apac').addEventListener('pointerdown',e=>{ e.stopPropagation();
-    menu(e.currentTarget, cat.params.map(([k,lab,key])=>({label:ent(lab,autoHasKf(li,key),key===cur),fn:()=>onPick(key)}))); });
+    menu(e.currentTarget, cat.params.map(([k,lab,key])=>({label:ent(lab,autoHasKf(li,key),key===cur),html:true,fn:()=>onPick(key)}))); });
   return wrap; }
 function fxParamLabel(ty,k){ const def=FXBY[ty]; if(!def)return k; if(k==='int')return T('Intensity','Intensidad'); if(k==='amt')return T('Reactivity','Reactividad'); const pd=(def.params||[]).find(x=>x.k===k); return pd?T(pd.label[0],pd.label[1]):k; }
 /* [archivado 20260730 · R224] `autoDuo` (la variante del chooser con dos <select>) — sin llamadores desde R156 y con un
@@ -8819,7 +8864,12 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
         for(let i=0;i<total;i++){
           if(cancelExport)break;
           const t=t0+i/fps; await seekExport(t); prepNests(state.clips,t,0);
-          if(flat){ renderExportFrame(t,qRes,ssExport,wall); } else { composite(t,eW,false); gl.finish(); }
+          /* [R314] `_arTime=t` también aquí. `renderExportFrame` es el ÚNICO sitio que lo avanza durante un
+             export (`_renderNucleo` está parado por `exporting`), así que el camino de domo —que llama a
+             `composite` directo— dejaba el reloj de los FX reactivos clavado en el instante del cabezal donde
+             se lanzó el render: el máster salía con la modulación congelada, sin aviso. El arreglo A7 de R313
+             no lo cubría: las bandas estaban listas, pero el reloj que las consulta no se movía. */
+          if(flat){ renderExportFrame(t,qRes,ssExport,wall); } else { _arTime=t; composite(t,eW,false); gl.finish(); }
           if(chapa){ const c=chapaContador(eW,eH,i,fps);
             chapa.cont=chapa.subir(c.cv,chapa.cont); chapa.x=c.x; chapa.y=c.y; chapa.w=c.w; chapa.h=c.h; }
           const buf=nv12Read(exLienzoATex(eW,eH),eW,eH,esDome,chapa);   /* [R310·A2] el LIENZO recien dibujado, no `compTex` — ver exLienzoATex */
@@ -12440,7 +12490,7 @@ function openMenu(x,y,items){
       LANE_PALETTE.forEach(col=>{ const b=document.createElement('button'); b.title=col; b.style.cssText='width:18px;height:18px;min-height:18px;border-radius:3px;border:.5px solid rgba(255,255,255,0.25);background:'+col+';cursor:pointer;padding:0;flex:0 0 auto;'+(it.swatches.cur===col?'box-shadow:0 0 0 2px #E8EAED;':''); b.onclick=e=>{ e.stopPropagation(); closeMenu(); it.swatches.onPick(col); }; row.appendChild(b); }); // [R223] mismo tamaño cuadrado (18px) que colorPopup + min-height explícito (ver nota arriba)
       const nx=document.createElement('button'); nx.title=T('No color','Sin color'); nx.textContent='✕'; nx.style.cssText='width:18px;height:18px;min-height:18px;border-radius:3px;border:.5px dashed rgba(255,255,255,0.35);background:transparent;color:var(--ink-2);cursor:pointer;padding:0;font-size:11px;line-height:1;flex:0 0 auto;'; nx.onclick=e=>{ e.stopPropagation(); closeMenu(); it.swatches.onClear(); }; row.appendChild(nx);
       m.appendChild(row); continue; }
-    const b=document.createElement('button'); if(it.danger)b.className='danger'; b.setAttribute('role','menuitem'); b.innerHTML=(it.ico?ICO(it.ico,13):'')+'<span style="flex:1">'+esc(it.label)+'</span>'+(it.key?('<span class="tnum" style="color:var(--ink-2);font-size:11px">'+fmtKey(it.key)+'</span>'):''); b.style.gap='9px'; // [R94-UT5·U-10a]
+    const b=document.createElement('button'); if(it.danger)b.className='danger'; b.setAttribute('role','menuitem'); b.innerHTML=(it.ico?ICO(it.ico,13):'')+'<span style="flex:1">'+(it.html?it.label:esc(it.label))+'</span>'+(it.key?('<span class="tnum" style="color:var(--ink-2);font-size:11px">'+fmtKey(it.key)+'</span>'):''); b.style.gap='9px'; // [R94-UT5·U-10a]
     b.onclick=()=>{closeMenu();it.fn();}; m.appendChild(b); }
   /* [R94-UT5·U-10a] keyboard-navigable menu: ArrowUp/Down cycle the enabled buttons (separators are divs → skipped
      naturally), Home/End jump, Escape closes, Enter/Space activate via the native <button> default. Every key is
@@ -12647,7 +12697,7 @@ $('#tracks').addEventListener('contextmenu',e=>{ const cd=e.target.closest('.cli
        uno de audio seleccionados y ninguno está ya enlazado (así se rehace un par deshecho, o se ata un audio
        aparte a una imagen). */
     ...(()=>{ const c=clipById(id); if(!c)return [];
-      if(c.link) return [{label:T('Unlink audio and video','Desenlazar audio y vídeo'),fn:()=>unlinkClip(c)},'sep'];
+      if(c.link||c.avRole) return [{label:T('Unlink audio and video','Desenlazar audio y vídeo'),fn:()=>unlinkClip(c)},'sep']; // [R314] `avRole` sin `link`: una copia de pista duplicada — sin esta puerta quedaría muda para siempre
       const sel=state.selIds.map(clipById).filter(Boolean);
       if(sel.length===2&&!sel.some(x=>x.link)){ const v=sel.find(x=>!isAudioClip(x)), a=sel.find(x=>isAudioClip(x));
         if(v&&a) return [{label:T('Link audio and video','Enlazar audio y vídeo'),fn:()=>linkClips(v,a)},'sep']; }
