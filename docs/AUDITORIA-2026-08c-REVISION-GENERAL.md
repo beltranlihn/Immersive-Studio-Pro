@@ -428,6 +428,15 @@ sonda de píxeles; el **patrón 5** (`innerHTML` sin `esc()`) tiene ya función 
 | **R319** `0ecb122` | Primera tanda de MEDIA (8), elegida por lo que aparece en un día normal | `scratchpad/r319-verif.mjs`. |
 | **R321** | Los seis MEDIA de §9 «Gestos del timeline» + el gemelo que salió al barrer (`rippleDelete` borraba media pareja). Leídos juntos son una familia: **un gesto mueve un clip y se olvida de su mitad enlazada.** | `scratchpad/r321-verif.mjs`, con control positivo en la guarda nueva del slide. |
 | **R320** `1cc8de9` | **Las 13 regresiones del segundo repaso** — ocho de ellas el mismo error: arreglar la copia y dejar el original | `scratchpad/r320-verif.mjs` + `npm run redes` (lanza las cuatro redes de golpe). |
+| **R325-R327** | Los que destruyen o pierden trabajo + importación/medios/proxies, y los TRES arreglos que salieron INERTES (gateados por una condición que nunca se cumplía) | `r325-verif.mjs`, `r327-verif.mjs`. |
+| **R328** | Deshacer muerto, Shape Box huérfana (se COMPRUEBA en vez de acordarse de cerrarla en cinco sitios) y el panel de modulación | `r328-verif.mjs`, con control positivo. |
+| **R329** | Copias A/V sueltas, curva de Mix huérfana y **las tres listas distintas de «qué se ve»** (una de ellas reescrita en caliente 3900 líneas más abajo) | `r329-verif.mjs`, dos controles. |
+| **R330** | El CONTEXTO de la secuencia que se compone: `_zsortSize`, la cobertura del nido, el decodificador del tejido barajado y `collectActiveVideos` muerta | `r330-verif.mjs`, dos controles. |
+| **R331** | NV12 sesgado con ancho no múltiplo de 4, handles borrados, timecode horneado sin las marcas I/O y fundidos desordenados | `r331-verif.mjs`, dos controles. |
+| **R332** | El visor emergente estampaba fotogramas de otro tiempo (y en el editor), oyentes acumulados, `_curveTex` y `_arCache.clip` | `r332-verif.mjs`, medido POR PÍXELES. |
+| **R333** | Un evaluador para todos (`evalR` en el bloque de imagen), la carrera de `loadLUT`, `DOMAIN_MIN/MAX` y los seis gemelos de `f0&&f1` | `r333-verif.mjs`. |
+| **R334** | Pestañas sin marcar sucio, duración del padre al borrar una secuencia, deshacer muerto y un análisis de bandas que se reintentaba en bucle | `r334-verif.mjs`. |
+| **R335** | El selector de espectro llegaba **por encima de Nyquist** (energía replegada) y el INV se disparaba al 100 % donde no hay señal | `r335-verif.mjs`, con control. |
 
 Además, de los patrones transversales de §11: el **patrón 2** (familia «heredar del proyecto anterior») queda
 cerrado *por un test*, rehecho en R320 para que compare FUENTES DE DATOS y no nombres de clave — por nombre, todo
@@ -440,8 +449,31 @@ canónica y regla escrita; el **patrón 6** (diálogos apilables) está resuelto
 SU caso. Ocho de las trece regresiones fueron «arreglar la copia y dejar el original». **Antes de cerrar un
 arreglo: `grep` del patrón en todo el fichero; si sale más de uno, van todos o no va ninguno.**
 
-**Queda pendiente:** los MEDIA de §9 que no cerraron R311/R313/R317/R318/R319/R320/R321 —unos 19— y los ~25 BAJA de
-§10 (cada uno con su línea exacta, no hace falta re-investigar), más las decisiones de producto de §12-P2.
+**Queda pendiente (a R335).** Cerradas ya casi todas las de §9 y buena parte de §10. **Ojo: parte del inventario
+original ya estaba cerrado por rondas anteriores** — se comprobó en el código antes de tocar nada: `flatPlace`
+con Scale=0, el rombo `hasKf` del Mix, `_modAudioCache`, los scopes durante el arrastre, `CSS.escape`, los
+object URLs, el punto en vivo de Spout, el ✕ de la barra, el `largesize` del `.mov`, la guarda de reentrada de
+`runExport`, `M/I/O/X/D` con modificadores, `Rebarajar` y la coerción de `kind` a 'grid'.
+
+Lo que sigue ABIERTO, por orden de valor:
+
+- **Decodificador (los dos más caros de investigar):** el demuxador ignora `edts/elst` → fuentes con edit list
+  real muestran fotogramas corridos entre previsualización y export (7403) · salto atrás con un vecino ≤2
+  fotogramas en caché: ni reinicio ni la rama de atasco de R256 disparan → 10 s muertos y `_cdFail` degrada
+  todo el medio (7472).
+- **Export:** el horneado de caché de nest pasa por `chapaLienzo` y en domo recorta las esquinas del cuadrado
+  (8783) · la estimación de tamaño HAP multiplica ×16 de más (9553) · en excepción del bucle FFmpeg se saltan
+  la limpieza del WAV temporal y las texturas de la chapa (8646).
+- **Medios y salidas:** dos entradas Spout comparten conexión (2114) · dedup de import por nombre+tamaño
+  descarta archivos distintos (2596) · `detectFps` espera el plazo entero con clips cortos (2851) ·
+  `attachLinkedAudio` aborta sin reintento (3343) · `repararRuta` elige el primer homónimo en silencio (10936).
+- **Render/UI:** máscara pen sobre nido arranca invisible (1173) · muro de ancho 0 → NaN (1092) · la vista
+  previa de Cuadrícula/Aleatorio en domo dibuja el esquema PLANO (12879) · Escape del compose cierra también el
+  monitor (13072) · el monitor puede abrir con marcas invertidas (13400) · rótulo «6 elementos» del tejido
+  (13137) · el ping-pong de FX se realoja 1280↔2048 cada fotograma con capa de ajuste (14117) · undo muerto en
+  la herramienta T sin arrastre (4938).
+- **Decisión de producto:** el panel de modulación sigue sin puerta (`openModPanel`, 0 llamadores). El motor
+  está vivo y desde R333 el dibujo lo respeta en TODOS los parámetros: o se le da entrada, o se retira con ADR.
 
 ## 12 · Plan actualizado (sustituye al P0/P1 de la Parte 1 en lo que toca a bugs)
 
