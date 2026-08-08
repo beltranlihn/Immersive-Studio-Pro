@@ -1,5 +1,33 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 338 — Las diez de la segunda revisión: arreglos que se quedaron a medias
+
+Segunda revisión a máximo esfuerzo, esta vez sobre R336-R337. **Nueve de los diez hallazgos eran arreglos míos
+que no llegaron al final**, y el patrón es siempre el mismo: cubrir el caso que tenía delante y no barrer.
+
+- **La guarda del disparo con INV era una copia de la que `fxTrigEnv` ya tenía en su primera línea.** Repliqué dos
+  de sus cinco caminos de «sin datos» y dejé tres fuera — con las bandas sin analizar, o antes del primer golpe,
+  el efecto invertido seguía al 100 % durante un export entero. Arreglado **donde se sabe**: `fxTrigEnv` devuelve
+  `null` cuando no hay información, y el llamador lo traduce a 0 sin pasar por `fxShape`.
+- **`prepNests` componía el nido CRUDO** mientras el compositor dibujaba el rotado — el gemelo que R330 no barrió.
+  Y desde R336 dolía más: el derribo nuevo de `vinstEnsure` se disparaba dos veces por fotograma, `vi.ready` no
+  llegaba nunca a true y esos elementos del tejido salían **negros**. Es la única que podía ser peor que antes.
+- **`migrateRoomFloor` no llamaba al `_reataReactivo` nuevo**: ni reconstruía la caché ni limpiaba la bandera, así
+  que el siguiente borrado de cualquier clip pagaba un `arRecompute` de balde.
+- **El barrido de `l._autoP` borraba la superposición también cuando la curva se había MOVIDO**, deshaciendo lo que
+  R329 había establecido ocho líneas más arriba. Ahora la pista sigue a la curva.
+- **El pool `_fxRT` cambió churn por retención sin tope** (~400 MB al mover la calidad de previsualización): ahora
+  tiene desalojo por menos-usado. Y **`_bloomRT` seguía siendo la pareja única** que acababa de quitar una función
+  más abajo — el gemelo sin barrer, otra vez: ahora comparte el pool y, con él, su política de desalojo.
+- Más: `_bandsFail` no se limpiaba en el camino por el que decodifican los medios de AUDIO; el arrastre de la
+  ventana de espectro leía los `f0`/`f1` crudos mientras el dibujo usaba los clampados; el `pushUndo` del selector
+  gastaba historial en clics que no cambian nada y el doble clic no guardaba ninguno; y la duración al borrar una
+  secuencia no se propagaba al abuelo si el orden de `state.media` no ayudaba — ahora converge por vueltas.
+
+**Verificación:** `scratchpad/r338-verif.mjs`, ocho casos escritos para fallar con su arreglo revertido, todos con
+control. **Dieciocho redes en verde** y `npm test` 6/6.
+
+
 ## ROUND 337 — El churn de VRAM, y un inventario que ya no decía la verdad
 
 - **El ping-pong de FX se reasignaba cuatro veces por fotograma.** Hay DOS cadenas con tamaños distintos

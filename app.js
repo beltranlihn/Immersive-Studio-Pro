@@ -1538,7 +1538,12 @@ async function ncReattach(m){ if(!m||!m.ncPath||!IS_ELEC||!DSP.stat){ return; }
   m.ncUrl=DSP.toFileURL(m.ncPath); m.ncReady=true; m.ncStale=(nestSig(m)!==m.ncSig);
   try{ renderMedia(); renderTimeline(); }catch(e){} }
 function prepNests(clips,t,depth){ if(!depth)_nestN=0; if((depth||0)>5||!clips)return; // post-order: render inner nests first, then each clip into its own slot
-  for(const c of clips){ const m=mediaById(c.mediaId); if(!m||!isSeqMedia(m)){ c._ntex=null; continue; } if(t<c.start||t>=c.start+c.dur){ c._ntex=null; continue; }
+  /* [R338] El medio EFECTIVO (`mediaEfId`), como hace `composite`. Este era el gemelo que R330 dejo sin
+     barrer: con un tejido barajado de nidos, aqui se componia el nido CRUDO en `c._ntex` mientras el compositor
+     dibujaba el rotado. Y desde R336 duele mas que antes: `vinstEnsure` recibia medios distintos desde aqui y
+     desde `collectDrawnVideoClips`, asi que el reinicio por cambio de fuente derribaba la instancia dos veces
+     por fotograma, `vi.ready` no llegaba nunca a true y esos elementos salian NEGROS. */
+  for(const c of clips){ const m=mediaById(mediaEfId(c,t)); if(!m||!isSeqMedia(m)){ c._ntex=null; continue; } if(t<c.start||t>=c.start+c.dur){ c._ntex=null; continue; }
     if(isNestAudioClip(c)){ c._ntex=null; continue; } // [R225·9] el clip derivado es SÓLO audio: componer su nest en una FBO cada fotograma sería trabajo tirado (nadie lo dibuja: vive en una pista de audio)
     if(c.disabled){ c._ntex=null; continue; } // [R180] apagar un nest NO lo hacía gratis: compositeClips lo saltaba al dibujar, pero aquí se seguían componiendo sus 15 hijos cada fotograma para producir una textura que nadie usaba
     const lt=srcT(c,t);
@@ -6933,15 +6938,19 @@ function buildAnimList(c){ const host=$('#animList'); if(!host)return; host.inne
       const habia=!!((c.kf&&c.kf[kv])||(c.props&&c.props[kv]!=null));
       const libre=!(c.kf&&c.kf[kn])&&!(c.props&&c.props[kn]!=null);
       const huerfana=!(c.anim||[]).some(x=>x.param===viejo); // otro Motion sobre el parámetro viejo la sigue usando
-      if(huerfana&&libre){ if(c.kf&&c.kf[kv]){ c.kf[kn]=c.kf[kv]; delete c.kf[kv]; }
+      const movida=(huerfana&&libre);
+      if(movida){ if(c.kf&&c.kf[kv]){ c.kf[kn]=c.kf[kv]; delete c.kf[kv]; }
         if(c.props&&c.props[kv]!=null){ c.props[kn]=c.props[kv]; delete c.props[kv]; }
         if(state.autoSel&&state.autoSel.cid===c.id&&state.autoSel.p===kv)state.autoSel.p=kn;
         if(state.shapeBox&&state.shapeBox.cid===c.id&&state.shapeBox.p===kv)state.shapeBox.p=kn; }
       else soltarMixSiHuerfana(c,viejo);
-      /* [R336] …y las dos limpiezas que `.animdel` si hace y aqui faltaban: la pista que tuviera la clave vieja
-         como superposicion seguia dibujando una curva que ya no existe, y sin `renderTimeline` la Shape Box
-         muerta se quedaba pintada con sus tiradores inertes. */
-      for(const l of state.lanes){ if(l._autoP&&isMotKey(l._autoP)&&!laneMotParams(state.lanes.indexOf(l)).includes(l._autoP.split(':')[1]))delete l._autoP; }
+      /* [R336 → R338] La pista que ensenaba la clave vieja: si la curva se MOVIO, la superposicion la SIGUE
+         (es la misma curva con otro nombre); si se solto, se cae como en `.animdel`. R336 copio de alli el
+         barrido tal cual, asi que borraba la superposicion tambien en la rama que acababa de conservar la curva
+         — deshaciendo lo que R329 establecio ocho lineas mas arriba, con `markDirty` persistiendo la perdida. */
+      for(const l of state.lanes){ if(!l._autoP||!isMotKey(l._autoP))continue;
+        if(movida&&l._autoP===kv){ l._autoP=kn; continue; }
+        if(!laneMotParams(state.lanes.indexOf(l)).includes(l._autoP.split(':')[1]))delete l._autoP; }
       if(habia||!libre)buildAnimList(selClip()); // el Mix de esta fila muestra otro valor: hay que repintarla
       render(); renderTimeline(); startMotionPreview(); markDirty(); };
     item.querySelector('.amode').onchange=e=>{ pushUndo(); a.mode=e.target.value; if(a.mode==='wave'&&!a.amp)a.amp=15; buildAnimList(selClip()); render(); startMotionPreview(); markDirty(); };
@@ -7430,18 +7439,26 @@ function bindSpecPicker(cv,m,c,onChange){
      R328 recorrio los controles de capa y se dejo este: arrastrar una ventana de frecuencia sobre el espectro
      —o el doble clic que la borra— reescribia `m.f0`/`m.f1` sin foto, asi que el Ctrl+Z siguiente revertia la
      edicion ANTERIOR y la ventana se perdia igual. Una sola foto por gesto, no una por pixel del arrastre. */
-  cv.addEventListener('pointerdown',e=>{ e.stopPropagation(); pushUndo(); const r=cv.getBoundingClientRect(); const W=cv._W||r.width; const px=e.clientX-r.left;
+  cv.addEventListener('pointerdown',e=>{ e.stopPropagation(); const r=cv.getBoundingClientRect(); const W=cv._W||r.width; const px=e.clientX-r.left;
     const _vw=modVentana(m); const inWin=!!_vw&&px>=specX(_vw.lo,W)-3&&px<=specX(_vw.hi,W)+3;
-    const f0=specF(px,W); const startLo=m.f0, startHi=m.f1;
-    const mv=ev=>{ const p2=ev.clientX-r.left;
+    /* [R338] Los extremos de partida salen de la ventana CLAMPADA, no de los `m.f0`/`m.f1` crudos. Con una
+       ventana heredada que cruza el techo (5000-20000 en un analisis que llega a 8000) el selector dibujaba
+       5-8 kHz pero el arrastre partia de 20000: el borde derecho se quedaba clavado y la ventana se estiraba en
+       vez de deslizarse, hasta colapsar los dos extremos y desaparecer a media caricia. */
+    const f0=specF(px,W); const startLo=_vw?_vw.lo:m.f0, startHi=_vw?_vw.hi:m.f1;
+    /* [R338] …y la foto de deshacer va en el primer MOVIMIENTO, no en el `pointerdown`. R336 la puso al agarrar
+       y un clic suelto -leer una banda, pinchar dentro de la ventana- consumia una entrada de las 80 sin cambiar
+       nada, expulsando la edicion mas antigua de verdad. Es la regla del arrastre de clip y la del recorte. */
+    let _fotoHecha=false;
+    const mv=ev=>{ const p2=ev.clientX-r.left; if(!_fotoHecha){ pushUndo(); _fotoHecha=true; }
       if(inWin){ const d=specF(p2,W)/Math.max(1e-6,f0); m.f0=Math.max(SPEC_F0,Math.min(SPEC_F1,startLo*d)); m.f1=Math.max(SPEC_F0,Math.min(SPEC_F1,startHi*d)); } // slide the window (log-proportional → it keeps its musical width)
       else { m.f0=f0; m.f1=specF(p2,W); }
       setInfo(); paint(); };
     const up=()=>{ window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up);
-      if(Math.abs(specX(m.f1||0,W)-specX(m.f0||0,W))<4&&!inWin){ m.f0=0; m.f1=0; } // a click, not a drag → back to the named band
-      setInfo(); paint(); if(onChange)onChange(); };
+      if(Math.abs(specX(m.f1||0,W)-specX(m.f0||0,W))<4&&!inWin){ if(!_fotoHecha&&(m.f0||m.f1)){ pushUndo(); _fotoHecha=true; } m.f0=0; m.f1=0; } /* [R338] borrar la ventana con un clic SI es un cambio: su foto va aqui */ // a click, not a drag → back to the named band
+      setInfo(); paint(); if(_fotoHecha&&onChange)onChange(); }; /* [R338] sin cambio no hay `onChange`: no se marca sucio por mirar */
     window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); });
-  cv.addEventListener('dblclick',e=>{ e.stopPropagation(); m.f0=0; m.f1=0; setInfo(); paint(); if(onChange)onChange(); }); }
+  cv.addEventListener('dblclick',e=>{ e.stopPropagation(); if(!m.f0&&!m.f1)return; pushUndo(); /* [R338] el doble clic borra la ventana y no empujaba NINGUNA foto: un Ctrl+Z devolvia el estado intermedio del primer clic y la ventana no volvia hasta el segundo */ m.f0=0; m.f1=0; setInfo(); paint(); if(onChange)onChange(); }); }
 /* [R95·C1] The modulation panel: the stack as an ordered, reorderable list of layers with an EXPLICIT blend per layer,
    and the audit line in plain text at the bottom. Anchored to its button, closes on outside click / Esc. */
 let _modPanel=null;
@@ -10848,7 +10865,15 @@ function deleteSequenceMedia(id,sinPreguntar){ const m=mediaById(id); if(!isSeqM
     /* [R334] …y el PADRE que la contenía mide otra cosa: `m.dur` de una secuencia es un dato GUARDADO (lo usan
        el clip anidado y el panel), y quitarle su clip más largo lo dejaba con la duración vieja — un clip del
        abuelo podía seguir estirado sobre contenido que ya no existe. Se recalcula en los que pierden clips. */
-    for(const s of state.media)if(isSeqMedia(s)&&s.nestClips){ const antes=s.nestClips.length; s.nestClips=s.nestClips.filter(c=>c.mediaId!==id); if(s.nestClips.length!==antes){ s.dur=seqDur(s); clampNestInstances(s.id); } } /* [R336] + `clampNestInstances`, la companyera con la que `saveActiveSeq` siempre empareja `seqDur`: sin ella el clip del ABUELO seguia estirado sobre contenido que ya no existe, que es justo lo que R334 decia cerrar */ // remove orphan nest clips that referenced the deleted sequence
+    for(const s of state.media)if(isSeqMedia(s)&&s.nestClips)s.nestClips=s.nestClips.filter(c=>c.mediaId!==id);
+    /* [R338] …y la duracion se propaga HACIA ARRIBA hasta que deja de cambiar. R336 recalculaba `dur` y recortaba
+       las instancias en una sola pasada sobre `state.media`, que no tiene orden de anidamiento: si el abuelo se
+       visitaba ANTES que el padre, su propio `dur` se quedaba con el valor viejo y un clip suyo en la linea de
+       tiempo principal seguia estirado sobre contenido que ya no existe — el mismo sintoma, un nivel mas arriba.
+       El bucle converge: cada vuelta solo puede acortar, y se acota a la profundidad maxima de anidamiento. */
+    for(let vuelta=0;vuelta<8;vuelta++){ let cambio=false;
+      for(const s of state.media)if(isSeqMedia(s)){ const d=seqDur(s); if(Math.abs((s.dur||0)-d)>1e-4){ s.dur=d; cambio=true; } if(clampNestInstances(s.id))cambio=true; }
+      if(!cambio)break; } /* [R336] + `clampNestInstances`, la companyera con la que `saveActiveSeq` siempre empareja `seqDur`: sin ella el clip del ABUELO seguia estirado sobre contenido que ya no existe, que es justo lo que R334 decia cerrar */ // remove orphan nest clips that referenced the deleted sequence
     { const as=activeSeq(); if(as)as.nestClips=state.clips; } // re-heal the state.clips ⇄ activeSeq().nestClips alias broken by the filters above
     if(!state.openSeqs.length)state.openSeqs=[state.media.filter(isSeqMedia)[0].id];
     if(wasActive){ state.activeSeqId=state.openSeqs[state.openSeqs.length-1]; loadSeqIntoState(activeSeq()); }
@@ -11636,6 +11661,11 @@ function migrateRoomFloor(wseq){
       if(idsFuera.length){ _soltarRecursosClips(idsFuera); const fuera=new Set(idsFuera);
         state.clips=state.clips.filter(c=>!fuera.has(c.id));
         for(const sm of state.media)if(isSeqMedia(sm)&&Array.isArray(sm.nestClips))sm.nestClips=sm.nestClips.filter(c=>!fuera.has(c.id));
+        /* [R338] El OTRO llamador de `_soltarRecursosClips`. R336 saco la reconstruccion al llamador para que
+           corriera DESPUES del filtro, y solo la puso en `_quitarClips`: aqui la bandera se quedaba enganchada,
+           asi que ni se reconstruia -la cache seguia apuntando al clip del piso retirado- ni se limpiaba: el
+           siguiente borrado de cualquier clip sin relacion pagaba un `arRecompute` entero de balde. */
+        _reataReactivo();
         diag('info','room','clips del piso retirados con su secuencia',{n:idsFuera.length}); } }
     state.media=state.media.filter(x=>x.id!==fseq.id); // its content now lives in wseq.nestClips — the standalone sequence is gone
   }
@@ -11924,7 +11954,7 @@ async function reloadMedia(m){
        reemplazaba un archivo en un disco lento veía «reemplazado» y ni un bucle reajustado, sin saber por qué.
        No es hipotético: este mismo archivo documenta lecturas de metadatos de más de 8 s en disco frío o red. */
     setTimeout(()=>{ if(!fin){ m._plazo=true; } acabar(); },15000); }); }
-  else if(m.kind==='audio'){ return await fetch(url).then(r=>r.arrayBuffer()).then(b=>ACTX().decodeAudioData(b)).then(async ab=>{ m.buffer=ab; const wv=await computeWave(ab); m.peaks=wv.peak; m.rms=wv.rms; m.dur=ab.duration;m.missing=false;m._loading=false;m.thumb=waveThumb(m.peaks,108,64);renderMedia(); if(state.playing)startAudio(); }).catch(()=>{ m.missing=true;m._loading=false;renderMedia();updRelink(); }); } } // reschedule if the audio decoded after Play started (a long film track can finish decoding a beat after load → was silent until re-play)
+  else if(m.kind==='audio'){ m._bandsFail=false; /* [R338] el reinicio de R336 vivia en `armMediaAudio`, que sale por `kind!=='video'` y por `m.buffer`: los medios de AUDIO no pasaban por ahi jamas, que es justo el caso -una cancion- del que hablaba su comentario */ return await fetch(url).then(r=>r.arrayBuffer()).then(b=>ACTX().decodeAudioData(b)).then(async ab=>{ m.buffer=ab; const wv=await computeWave(ab); m.peaks=wv.peak; m.rms=wv.rms; m.dur=ab.duration;m.missing=false;m._loading=false;m.thumb=waveThumb(m.peaks,108,64);renderMedia(); if(state.playing)startAudio(); }).catch(()=>{ m.missing=true;m._loading=false;renderMedia();updRelink(); }); } } // reschedule if the audio decoded after Play started (a long film track can finish decoding a beat after load → was silent until re-play)
 /* Replace media (offline→online workflow): swap this media's FILE for another of the same kind. Clips
    reference media by id, so every cut/keyframe/fx survives; proxy/bands/thumb reset and rebuild (the new
    file's proxy is picked from its own cache if it exists). If the new file is shorter, clips past its end
@@ -15019,9 +15049,13 @@ function fxShape(fx,v){ v=Math.min(1.25,Math.max(0,v)); const cu=fx.curve!=null?
   if(cu!==50)v=Math.pow(Math.min(1,v),Math.pow(4,(cu-50)/50))*(v>1?v:1); // spring overshoot >1 survives the pow
   if(fx.inv)v=1-Math.min(1,v); return v>1?1:v; }
 /* trigger mode: per-band onsets (kick/snare/hat) → attack ramp + exponential release (analytic = deterministic) */
-function fxTrigEnv(fx,t){ if(!_arCache)return 0; const c=_arCache.clip; if(!c||t<c.start||t>c.start+c.dur)return 0; const local=srcT(c,t);
-  const os=(_arCache.onsets&&fx.band&&fx.band!=='none'&&_arCache.onsets[fx.band])||_arCache.beats; if(!os||!os.length)return 0;
-  let lo=0,hi=os.length-1,last=-1; while(lo<=hi){ const md=(lo+hi)>>1; if(os[md]<=local){last=os[md];lo=md+1;}else hi=md-1; } if(last<0)return 0;
+/* [R338] Devuelve NULL cuando no hay informacion, y un numero cuando la hay. R336 intento cubrir esto
+   duplicando en `fxModLevel` las dos primeras guardas de aqui, y dejo fuera las otras: sin onsets analizados
+   -o antes del primer golpe- seguia saliendo un 0 pelado que `fxShape` con INV convierte en 1, o sea el efecto
+   al 100 % justo donde no hay senal. La distincion vive DONDE se sabe, no copiada en el llamador. */
+function fxTrigEnv(fx,t){ if(!_arCache)return null; const c=_arCache.clip; if(!c||t<c.start||t>c.start+c.dur)return null; const local=srcT(c,t);
+  const os=(_arCache.onsets&&fx.band&&fx.band!=='none'&&_arCache.onsets[fx.band])||_arCache.beats; if(!os||!os.length)return null;
+  let lo=0,hi=os.length-1,last=-1; while(lo<=hi){ const md=(lo+hi)>>1; if(os[md]<=local){last=os[md];lo=md+1;}else hi=md-1; } if(last<0)return null;
   const cfg=ensureReactive(), atkS=Math.max(0.001,(fx.atk!=null?fx.atk:cfg.attack)/1000), relS=Math.max(0.03,(fx.rel!=null?fx.rel:cfg.release)/1000); // defaults = engine values (what fxParamVal displays)
   const d=local-last; if(d<0)return 0; if(d<atkS)return d/atkS; return Math.exp(-(d-atkS)/relS); }
 /* LFO mode: phase-locked to the detected (or manual) BPM via beat0 — pure function of t, no state */
@@ -15034,12 +15068,10 @@ function fxLfoVal(fx,t){ const cfg=ensureReactive(); const bpm=(cfg.bpm>0?cfg.bp
     default: return 0.5-0.5*Math.cos(ph*6.283185307179586); } }
 function fxModLevel(fx){ const t=_arTime; let v;
   if(fx.mode==='lfo') v=fxLfoVal(fx,t);
-  else if(fx.mode==='trigger'){ /* [R336] mismo trato que la rama de bandas: `fxTrigEnv` devuelve un 0 pelado en
-      CINCO caminos de «no hay datos» (sin cache, fuera del clip fuente, sin onsets, sin onset anterior, d<0) y
-      pasarlo por `fxShape` con INV lo convierte en 1 — el efecto de disparo invertido se quedaba al 100 % antes y
-      despues de la cancion, y durante un export entero sin bandas. R335 arreglo una rama y dejo la gemela. */
-    const c0=_arCache&&_arCache.clip; if(!c0||t<c0.start||t>c0.start+c0.dur)return 0;
-    v=fxTrigEnv(fx,t); }
+  else if(fx.mode==='trigger'){ /* [R336 → R338] «sin datos» sale de `fxTrigEnv` como NULL en sus CINCO caminos,
+      y aqui se traduce a 0 sin pasar por `fxShape` — que con INV convertiria ese 0 en 1. R336 copio aqui las dos
+      primeras guardas de aquella funcion y dejo tres fuera; la pregunta se hace una sola vez, donde se sabe. */
+    const w=fxTrigEnv(fx,t); if(w==null)return 0; v=w; }
   else { if(!fx.band||fx.band==='none')return 0; // no source → static effect (int only), invert intentionally not applied
     /* [R335] …y los OTROS tres «sin fuente» merecían el mismo trato, que era el gemelo olvidado: sin caché de
        bandas, fuera del clip que suena, o sin envolvente, se caía a `v=0` y seguía hasta `fxShape`, que con INV
@@ -15272,8 +15304,12 @@ void main(){ vec4 s=texture(u_tex,v_uv); vec3 g=clamp(texture(u_glow,v_uv).rgb*u
 const _BU={bpTex:gl.getUniformLocation(_BLOOM_BP,'u_tex'),bpTh:gl.getUniformLocation(_BLOOM_BP,'u_thresh'),
   blTex:gl.getUniformLocation(_BLOOM_BL,'u_tex'),blDir:gl.getUniformLocation(_BLOOM_BL,'u_dir'),
   mxTex:gl.getUniformLocation(_BLOOM_MX,'u_tex'),mxGlow:gl.getUniformLocation(_BLOOM_MX,'u_glow'),mxBoost:gl.getUniformLocation(_BLOOM_MX,'u_boost')};
-let _bloomRT=[null,null];
-function _bloomHalfRT(i,size){ let e=_bloomRT[i]; if(!e){ e={tex:gl.createTexture(),fbo:gl.createFramebuffer(),size:0}; _bloomRT[i]=e; } if(e.size!==size){ _ppTex(e.tex,size); gl.bindFramebuffer(gl.FRAMEBUFFER,e.fbo); gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,e.tex,0); gl.bindFramebuffer(gl.FRAMEBUFFER,null); e.size=size; } return e; }
+/* [R338] Los medios buferes del bloom salen del MISMO pool que los destinos de la cadena, con ranuras propias
+   ('b0'/'b1'). Eran la pareja unica indexada que R337 acababa de quitar una funcion mas abajo: el gemelo sin
+   barrer. Con un clip con Bloom (cadena a 1280 → mitad 640) y una capa de ajuste con Bloom sobre el composite
+   (2048 → mitad 1024) se peleaban por las mismas dos entradas y hacian cuatro `texImage2D` completas por
+   fotograma. Compartir el pool tambien significa compartir su desalojo: no hay una segunda politica que mantener. */
+function _bloomHalfRT(i,size){ return _ppRT('b'+i,size); }
 const FX_APPLY={ bloom:(src,size,host,fx,t,amt,di)=>{
   const hs=Math.max(8,size>>1); const A=_bloomHalfRT(0,hs), B=_bloomHalfRT(1,hs); const out=_ppRT(di,size); // allocate BEFORE binding units/FBOs (same rule as applyChain)
   const th=evalFxParam(host,fx,'thresh',t), rad=Math.max(0,evalFxParam(host,fx,'radius',t)), boost=Math.max(0,evalFxParam(host,fx,'boost',t))*0.01*amt;
@@ -15293,9 +15329,18 @@ function newFx(type){ const cfg=ensureReactive(); return {id:uid(),type,on:true,
    del composite (2048 en domo). Con las dos activas, cada fotograma hacia cuatro `texImage2D` de reasignacion
    —dos de 2048x2048 RGBA, 16 MB cada una— solo para volver a dejarlo como estaba: churn de VRAM y tirones.
    El mapa tiene pocas entradas (los tamanyos que la sesion usa de verdad) y `freeFxResources` lo vacia entero. */
-const _fxRT=new Map(); const _fxHist=new Map();
+const _fxRT=new Map(); let _fxRTClock=0; const FXRT_MAX=12; const _fxHist=new Map(); // [R338] tope del pool: ver _ppRT
 function _ppTex(tex,size){ gl.bindTexture(gl.TEXTURE_2D,tex); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,size,size,0,gl.RGBA,gl.UNSIGNED_BYTE,null); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE); gl.bindTexture(gl.TEXTURE_2D,null); }
-function _ppRT(i,size){ const k=size+'|'+i; let e=_fxRT.get(k); if(!e){ e={tex:gl.createTexture(),fbo:gl.createFramebuffer(),size:0}; _fxRT.set(k,e); } if(e.size!==size){ _ppTex(e.tex,size); gl.bindFramebuffer(gl.FRAMEBUFFER,e.fbo); gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,e.tex,0); gl.bindFramebuffer(gl.FRAMEBUFFER,null); e.size=size; } return e; }
+/* [R338] …y con TOPE. R337 cambio la pareja unica por un mapa por tamanyo para quitar el churn, pero sin
+   desalojo: cada tamanyo que la sesion tocaba se quedaba residente hasta el `freeFxResources()` global, que no
+   corre al cambiar de secuencia ni de calidad de previsualizacion — mover la calidad 1 → 1/2 → 1/4 en un domo
+   4K retenia tres parejas (~400 MB) donde antes habia una. Doce entradas dejan sitio de sobra a las cadenas
+   que conviven de verdad en un fotograma (dos destinos + dos de bloom por tamanyo), y la menos usada se suelta.
+   `i` es la ranura, no un indice: el bloom pasa 'b0'/'b1' para compartir este pool en vez de tener el suyo. */
+function _ppRT(i,size){ const k=size+'|'+i; let e=_fxRT.get(k); if(!e){ e={tex:gl.createTexture(),fbo:gl.createFramebuffer(),size:0}; _fxRT.set(k,e); } e.last=++_fxRTClock;
+  if(_fxRT.size>FXRT_MAX){ let vk=null,vt=Infinity; for(const [k2,e2] of _fxRT)if(e2!==e&&e2.last<vt){ vt=e2.last; vk=k2; }
+    if(vk!=null){ const vieja=_fxRT.get(vk); try{gl.deleteTexture(vieja.tex);}catch(x){} try{gl.deleteFramebuffer(vieja.fbo);}catch(x){} _fxRT.delete(vk); } }
+  if(e.size!==size){ _ppTex(e.tex,size); gl.bindFramebuffer(gl.FRAMEBUFFER,e.fbo); gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,e.tex,0); gl.bindFramebuffer(gl.FRAMEBUFFER,null); e.size=size; } return e; }
 function _fxHistFor(id,size){ let h=_fxHist.get(id); if(!h){ h={tex:gl.createTexture(),fbo:gl.createFramebuffer(),size:0,lastT:-999}; _fxHist.set(id,h); } if(h.size!==size){ _ppTex(h.tex,size); gl.bindFramebuffer(gl.FRAMEBUFFER,h.fbo); gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,h.tex,0); gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT); gl.bindFramebuffer(gl.FRAMEBUFFER,null); h.size=size; } return h; }
 function enabledFx(host){ return (host&&host.fx&&host.fx.length)?host.fx.filter(f=>f&&f.on!==false&&FXBY[f.type]):[]; }
 function hasFx(host){ return enabledFx(host).length>0; }
@@ -15337,7 +15382,7 @@ function fxResetHistory(){ for(const [,h] of _fxHist){ try{ gl.bindFramebuffer(g
 /* GPU resource disposal (the _fxHist history textures/FBOs otherwise leak on clip/fx/project churn) */
 function freeFxHistOne(hostId,fxId){ const k=hostId+':'+fxId, h=_fxHist.get(k); if(h){ try{gl.deleteTexture(h.tex);}catch(e){} try{gl.deleteFramebuffer(h.fbo);}catch(e){} _fxHist.delete(k); } }
 function freeFxHistFor(hostId){ const pre=hostId+':'; for(const k of [..._fxHist.keys()]){ if(k.indexOf(pre)===0){ const h=_fxHist.get(k); try{gl.deleteTexture(h.tex);}catch(e){} try{gl.deleteFramebuffer(h.fbo);}catch(e){} _fxHist.delete(k); } } }
-function freeFxResources(){ for(const [,h] of _fxHist){ try{gl.deleteTexture(h.tex);}catch(e){} try{gl.deleteFramebuffer(h.fbo);}catch(e){} } _fxHist.clear(); for(const [,e] of _fxRT){ if(e){ try{gl.deleteTexture(e.tex);}catch(x){} try{gl.deleteFramebuffer(e.fbo);}catch(x){} } } _fxRT.clear(); for(const e of _bloomRT){ if(e){ try{gl.deleteTexture(e.tex);}catch(x){} try{gl.deleteFramebuffer(e.fbo);}catch(x){} } } _bloomRT=[null,null]; if(_fishRT){ try{gl.deleteTexture(_fishRT.tex);}catch(x){} try{gl.deleteFramebuffer(_fishRT.fbo);}catch(x){} _fishRT=null; } if(_keyRT){ try{gl.deleteTexture(_keyRT.tex);}catch(x){} try{gl.deleteFramebuffer(_keyRT.fbo);}catch(x){} _keyRT=null; } if(_fxSnap){ try{gl.deleteTexture(_fxSnap.tex);}catch(e){} try{gl.deleteFramebuffer(_fxSnap.fbo);}catch(e){} _fxSnap=null; } }
+function freeFxResources(){ for(const [,h] of _fxHist){ try{gl.deleteTexture(h.tex);}catch(e){} try{gl.deleteFramebuffer(h.fbo);}catch(e){} } _fxHist.clear(); for(const [,e] of _fxRT){ if(e){ try{gl.deleteTexture(e.tex);}catch(x){} try{gl.deleteFramebuffer(e.fbo);}catch(x){} } } _fxRT.clear(); /* [R338] el bloom ya vive en `_fxRT`, liberado en el bucle de arriba */ if(_fishRT){ try{gl.deleteTexture(_fishRT.tex);}catch(x){} try{gl.deleteFramebuffer(_fishRT.fbo);}catch(x){} _fishRT=null; } if(_keyRT){ try{gl.deleteTexture(_keyRT.tex);}catch(x){} try{gl.deleteFramebuffer(_keyRT.fbo);}catch(x){} _keyRT=null; } if(_fxSnap){ try{gl.deleteTexture(_fxSnap.tex);}catch(e){} try{gl.deleteFramebuffer(_fxSnap.fbo);}catch(e){} _fxSnap=null; } }
 
 /* ---- Adjustment layer: applies its FX chain to the composite of EVERYTHING BELOW it (Premiere-style) ---- */
 /* [R237] u_uvsc/u_uvof: con el máster de RELLENO el destino ya no es el cuadrado en el que corre la cadena de FX,

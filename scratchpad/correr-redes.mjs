@@ -33,6 +33,7 @@ const REDES = [
   ['r335-verif.mjs',   'el espectro no miente arriba y el INV no se dispara sin senal'],
   ['r336-verif.mjs',   'las correcciones de la revision, medidas'],
   ['r337-verif.mjs',   'un destino por tamanyo: sin churn de VRAM'],
+  ['r338-verif.mjs',   'las diez de la segunda revision, medidas'],
 ];
 
 /* Sin app levantada no se distingue «rojo» de «no medido», y esa confusión es justo la que hace inútil una red. */
