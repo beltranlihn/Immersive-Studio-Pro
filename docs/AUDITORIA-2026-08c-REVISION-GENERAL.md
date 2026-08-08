@@ -405,6 +405,25 @@ muerto — candidato a `_backup/deprecated/` (1465).
 6. **Diálogos apilables + `stopPropagation`** (A8, Escape del compose): los `onk` de `_dialogBase` necesitan
    `stopImmediatePropagation` y/o una cola de diálogos que impida apilar.
 
+## 12bis · ESTADO DE EJECUCIÓN (2026-08-08)
+
+**Los 13 hallazgos ALTA están cerrados, verificados y commiteados**, en cuatro rondas:
+
+| Ronda | Cierra | Verificación |
+|---|---|---|
+| **R310** `dacb291` | A1, A2, A3, A4 + doble mezcla de audio y Pausa en la rama FFmpeg | `scratchpad/r310-contenido-export.mjs` — **la sonda que faltaba**: valida PÍXELES, no metadatos. Validada por reversión. |
+| **R311** `3b7a525` | A11, A12, A13, A6 | `tests/paridad-serializacion.test.mjs` (primer test que corre **sin la app levantada**, 60 ms) + `scratchpad/r311-verif.mjs`. Ambos validados por reversión. |
+| **R312** `2f0c433` | A5, A8 | `scratchpad/r312-verif.mjs` con `window.__xss` de testigo. Validada por reversión. |
+| **R313** | A10, A7, A9 + duplicateLane, removeLane, atajos `bare` | `scratchpad/r313-verif.mjs` — A10 medido **por valor**, no por forma. |
+
+Además, de los patrones transversales de §11: el **patrón 2** (familia «heredar del proyecto anterior») queda
+cerrado *por un test*, no por otro parche; el **patrón 4** (sondas que no miran contenido) estrena su primera
+sonda de píxeles; el **patrón 5** (`innerHTML` sin `esc()`) tiene ya función canónica y regla escrita; y el
+**patrón 6** (diálogos apilables) está resuelto por los dos lados.
+
+**Queda pendiente:** los ~35 MEDIA y ~25 BAJA de §9 y §10 (cada uno con su línea exacta, no hace falta
+re-investigar), los patrones 1 y 3, y las decisiones de producto de §12-P2.
+
 ## 12 · Plan actualizado (sustituye al P0/P1 de la Parte 1 en lo que toca a bugs)
 
 **P0 — pérdida de trabajo o resultado roto (esta semana):**

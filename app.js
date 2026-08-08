@@ -3777,7 +3777,24 @@ function trackCreateItems(kind){ const it=[]; // [R223] revierte el filtro por k
 function removeLane(li){ const lane=state.lanes[li]; if(!lane)return; const has=state.clips.some(c=>c.lane===li);
   if(lane.kind==='audio'&&state.lanes.filter(l=>l.kind==='audio').length<=1){ flashStatus(T('Keep at least one audio track','Mantén al menos una pista de audio')); return; } // [R92-T9] the audio module is always present
   if(lane.kind!=='audio'&&state.lanes.filter(l=>l.kind!=='audio').length<=1){ flashStatus(T('Keep at least one video track','Mantén al menos una pista de vídeo')); return; }
-  const doIt=()=>{ pushUndo(); state.clips=state.clips.filter(c=>c.lane!==li); for(const c of state.clips)if(c.lane>li)c.lane--; state.lanes.splice(li,1); if(state.selLane===li)state.selLane=null; renderTimeline();renderInspector();render();updStatus(); };
+  const doIt=()=>{ pushUndo();
+    /* [R313] Los clips que se van pueden ser la MITAD de una pareja A/V enlazada. Borrarlos a secas dejaba al
+       superviviente con un `link` que ya no apunta a nada (`linkPartner` devuelve null y los gestos de mover y
+       recortar buscan un fantasma) y, si el que quedaba era el vídeo, con `avRole:'v'` puesto — que es
+       justamente lo que lo mantiene MUDO, porque su sonido lo ponía la pareja que se acaba de borrar.
+       Resultado: borrar una pista de audio dejaba sus vídeos sin sonido para siempre.
+       Se le aplica lo mismo que hace «Desenlazar audio y vídeo»: sin pareja no hay enlace, y la mitad de vídeo
+       recupera su voz propia. Es también lo recuperable: si lo que se quería era silencio, ahí están el mute
+       de la pista y el del clip; al revés no había vuelta. */
+    const enlacesQueSeVan=new Set(state.clips.filter(c=>c.lane===li).map(c=>c.link).filter(Boolean));
+    state.clips=state.clips.filter(c=>c.lane!==li);
+    for(const c of state.clips) if(c.link&&enlacesQueSeVan.has(c.link)&&!state.clips.some(x=>x!==c&&x.link===c.link)){ delete c.link; delete c.avRole; }
+    for(const c of state.clips)if(c.lane>li)c.lane--; state.lanes.splice(li,1);
+    /* Y la selección de pista sigue a su pista. `addLane` sí corre los índices por encima al insertar; aquí
+       sólo se contemplaba el caso «era la borrada». Con `selLane` por ENCIMA, la selección se quedaba señalando
+       la pista de al lado y «Eliminar pista» actuaba sobre la equivocada. */
+    if(state.selLane===li)state.selLane=null; else if(state.selLane!=null&&state.selLane>li)state.selLane--;
+    renderTimeline();renderInspector();render();updStatus(); };
   if(has) appConfirm(T('This track has clips. Delete it with its clips?','Esta pista contiene clips. ¿Eliminarla junto con sus clips?'), ok=>{ if(ok)doIt(); }, {ok:T('Delete','Eliminar'),danger:true}); else doIt(); }
 /* Electron disables window.prompt() → custom in-app prompt modal (works in the packaged .exe). */
 function appPrompt(message,def,cb){ try{closeMenu();}catch(e){}
@@ -4879,7 +4896,16 @@ function duplicateLane(li){ const src=state.lanes[li]; if(!src)return; pushUndo(
   state.lanes.splice(at,0,nl);
   for(const c of state.clips)if(c.lane>=at)c.lane++;
   const srcLi=(kind==='audio')?li+1:li; // where the source landed after the insert
-  for(const c of state.clips.filter(c=>c.lane===srcLi).map(c=>c)) state.clips.push(Object.assign({},JSON.parse(JSON.stringify(c)),{id:uid(),lane:at,groupId:undefined}));
+  /* [R313] Se clona con `duplicateClipAt`, que es el clon CANÓNICO de un clip, en vez de con un
+     `JSON.parse(JSON.stringify(...))` a pelo. El clon crudo tenía dos defectos, los dos reales:
+     · `maskTex` es un `WebGLTexture`, y JSON lo convierte en `{}` — un objeto VACÍO pero truthy. El render hace
+       `gl.bindTexture(gl.TEXTURE_2D, c.maskTex||ntex)`, así que recibía algo que no es una textura y lanzaba
+       TypeError **en cada fotograma**: duplicar una pista con máscaras dejaba el visor muerto.
+     · Conservaba el `link` A/V, así que quedaban TRES clips con el mismo enlace y `linkPartner` (que devuelve
+       el primero que encuentra) elegía al azar: mover la copia arrastraba el audio del ORIGINAL.
+     `duplicateClipAt` ya resuelve los dos (anula `maskTex`/`_penCv`, clona las máscaras en profundidad, suelta
+     el enlace y reconstruye la textura), y de regalo separa la automatización agrupada con `sepAuto`. */
+  for(const c of state.clips.filter(c=>c.lane===srcLi).slice()){ const n=duplicateClipAt(c,c.start,at); n.groupId=undefined; state.clips.push(n); }
   state.selLane=at; renderTimeline();renderInspector();render();updStatus(); flashStatus(T('Track duplicated','Pista duplicada')); }
 /* drag a track header vertically to REORDER lanes (remaps every clip's lane index; handles the top-down display reversal) */
 let _laneJustDragged=false;
@@ -4990,6 +5016,12 @@ $('#tracks').addEventListener('pointerdown',e=>{
       const pa=linkPartner(z.a); if(pa)base.aLinkBase={start:pa.start,dur:pa.dur,inP:pa.inP||0}; // [R223] link A/V: recorte junto
       const pb=linkPartner(z.b); if(pb)base.bLinkBase={start:pb.start,dur:pb.dur,inP:pb.inP||0}; }
     else { const pc=linkPartner(c); if(pc)base.linkBase={start:pc.start,dur:pc.dur,inP:pc.inP||0}; } // [R223] rippleL/rippleR/slip/slide: mismo espejo
+    /* [R313·A10] Instantánea de la automatización, sólo donde el material se va a mover: ripple de ENTRADA (el
+       clip agarrado) y roll (su mitad derecha). Ripple de salida, slide y slip no la necesitan — el primero sólo
+       cambia `dur`, el segundo mueve el clip entero (las claves van con él) y el tercero cambia a propósito el
+       material dejando la forma del clip quieta, que es lo que se pide al deslizar. */
+    if(z.kind==='rippleL'){ base.kf0=JSON.parse(JSON.stringify(c.kf||{})); base.anim0=JSON.parse(JSON.stringify(c.anim||[])); }
+    if(z.kind==='roll'){ base.bKf0=JSON.parse(JSON.stringify(z.b.kf||{})); base.bAnim0=JSON.parse(JSON.stringify(z.b.anim||[])); }
     if(z.kind==='rippleL'||z.kind==='rippleR'){ base.after=new Map(); const edge=c.start+(z.kind==='rippleL'?0:c.dur);
       for(const o of state.clips)if(o.lane===c.lane&&o!==c&&o.start>=edge-0.002)base.after.set(o.id,o.start); }
     if(z.kind==='slide'){ if(z.prev)base.pDur=z.prev.dur; if(z.next){ base.nStart=z.next.start; base.nDur=z.next.dur; base.nInP=z.next.inP||0; } }
@@ -5110,6 +5142,29 @@ function _mirrorLinkTrim(clip,cBase,lb){ if(!lb)return; const p=linkPartner(clip
   p.start=Math.max(0, lb.start+(clip.start-cBase.start));
   p.dur=Math.max(0.05, lb.dur+(clip.dur-cBase.dur));
   p.inP=Math.max(0, lb.inP+((clip.inP||0)-cBase.inP)); }
+/* [R313·A10] Rebasa la automatización cuando el MATERIAL se ha desplazado `d` segundos de línea de tiempo bajo
+   la ventana del clip. Las claves se guardan RELATIVAS a `c.start` (ver `setKf`/`evalP`), así que mover el clip
+   entero no las toca —viajan con él— pero cambiar `inP` sí: el material resbala por debajo y la curva se queda
+   donde estaba, «descolgada» de lo que animaba.
+   La herramienta de trim contextual (T) no lo hacía en ninguno de sus cinco modos, mientras que `trimItem`
+   —el recorte normal por el tirador—, `razorCore` y el crossfade sí. Con una curva de opacidad y un ripple de
+   entrada de 2 s, el material se corría bajo la ventana y la curva no: exactamente el defecto que el comentario
+   de `_cutEdgeTo` declara inaceptable.
+   Se parte de la instantánea del pointerdown (`kf0`/`anim0`) porque el arrastre es ABSOLUTO: cada fotograma
+   recalcula desde la base, así que rebasar sobre lo ya rebasado acumularía el desplazamiento.
+   Incluye el KEYFRAME DE FRONTERA de [R92-T4 F7]: sin él, una rampa que arrancaba en el material consumido se
+   pierde y la curva salta al primer punto superviviente. */
+function rebaseAutoPorMaterial(c,kf0,anim0,d){
+  if(!c||!d)return;
+  if(kf0){ const nk={};
+    for(const p in kf0){ const src=kf0[p]; if(!Array.isArray(src)||!src.length)continue;
+      const a=src.map(k=>({...k,t:k.t-d,hOut:k.hOut?{...k.hOut}:undefined,hIn:k.hIn?{...k.hIn}:undefined})).filter(k=>k.t>=-1e-6);
+      if(a.length<src.length&&src.length>1){ const synth={start:0,dur:1e9,props:{[p]:src[0].v},kf:{[p]:src}}; const v=evalP(synth,p,d);
+        if(v!=null&&(!a.length||a[0].t>1e-6))a.unshift({t:0,v,e:'linear'}); }
+      if(a.length)nk[p]=a; }
+    c.kf=nk; }
+  if(anim0)c.anim=anim0.map(aa=>({...aa,wetKf:Array.isArray(aa.wetKf)?aa.wetKf.map(k=>({...k,t:k.t-d})).filter(k=>k.t>=-1e-6):aa.wetKf}));
+}
 /* apply a trim by dt seconds. base = the frozen start values captured at pointerdown (so every drag frame is absolute). */
 function applyTrim(z,dt,base){
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
@@ -5119,6 +5174,7 @@ function applyTrim(z,dt,base){
     if(sb.lim)lo=Math.max(lo,-base.bInP/(B.speed||1));                              // B can't pull before its source start
     const d=clamp(dt,lo,hi);
     A.dur=base.aDur+d; B.start=base.bStart+d; B.dur=base.bDur-d; B.inP=base.bInP+d*(B.speed||1);
+    rebaseAutoPorMaterial(B,base.bKf0,base.bAnim0,d);   /* [R313·A10] B mueve su material: su automatización lo sigue (A sólo cambia `dur`, no hace falta) */
     if(base.aLinkBase)_mirrorLinkTrim(A,{start:A.start,dur:base.aDur,inP:base.aInP},base.aLinkBase); // A: sólo dur cambia (start no formaba parte del roll)
     if(base.bLinkBase)_mirrorLinkTrim(B,{start:base.bStart,dur:base.bDur,inP:base.bInP},base.bLinkBase);
     return d; }
@@ -5126,6 +5182,7 @@ function applyTrim(z,dt,base){
     let lo=s.lim?-base.inP/(c.speed||1):-base.start, hi=base.dur-0.05; lo=Math.max(lo,-base.start);
     const d=clamp(dt,lo,hi);
     c.dur=base.dur-d; c.inP=base.inP+d*(c.speed||1); // the clip's START stays put; everything after slides to close/open the gap
+    rebaseAutoPorMaterial(c,base.kf0,base.anim0,d);     /* [R313·A10] el material entra recortado: la curva se corre con él */
     for(const o of state.clips)if(o.lane===c.lane&&o!==c&&base.after.has(o.id))o.start=base.after.get(o.id)-d;
     _mirrorLinkTrim(c,base,base.linkBase); return d; }
   if(z.kind==='rippleR'){ const c=z.c, s=clipSrc(c);
@@ -6518,7 +6575,15 @@ function buildRows(sel,defs,c){ const host=$(sel); host.innerHTML='';
     // [A1] single point button: the diamond toggles a keyframe at the playhead (add if none / remove if on one); the first one reveals the curve on the track; right-click clears the whole automation
     row.querySelector('[data-k=add]').onclick=()=>{ const cc=selClip(); if(!cc)return; if(state.playhead<cc.start-1e-6||state.playhead>cc.start+cc.dur+1e-6){flashStatus(T('The playhead is outside this clip','El cabezal está fuera de este clip'),'err');return;}
       const wasAuto=hasKf(cc,p), onKf=kfAt(cc,p); pushUndo();
-      if(onKf){ cc.kf[p]=cc.kf[p].filter(k=>k!==onKf); if(!cc.kf[p].length){ const v=evalP(cc,p,state.playhead); delete cc.kf[p]; cc.props[p]=v; } } // remove the point under the playhead; last one freezes the value
+      /* [R313·A9] El valor con el que se CONGELA se calcula ANTES de quitar el punto. Estaba después: con el
+         array ya vacío, `evalP` cae al valor base (`cc.props[p]`) en vez de dar el de la curva, así que quitar
+         el ÚLTIMO keyframe con el diamante devolvía el parámetro a un valor viejo y saltaba en pantalla. Se
+         nota cuando el punto se creó y luego se arrastró en el editor de curvas, que escribe `k.v` sin tocar
+         `props`. Las tres rutas hermanas ya lo hacían bien: el clic derecho de este mismo diamante, «Clear
+         automation» del menú y `animToggleWetKf`. */
+      if(onKf){ const vCongelar=evalP(cc,p,state.playhead);
+        cc.kf[p]=cc.kf[p].filter(k=>k!==onKf);
+        if(!cc.kf[p].length){ delete cc.kf[p]; cc.props[p]=vCongelar; } } // remove the point under the playhead; last one freezes the value
       else { setKf(cc,p,state.playhead,evalP(cc,p,state.playhead),curEase()); if(!wasAuto)openAuto(cc,p); } // first point reveals the single automation overlay on the track
       focusAutoParam(cc,p); // [R224 · ítem 4] y a partir del segundo también: el keyframe que acabo de tocar es el que quiero ver
       renderInspector();renderTimeline();render();markDirty(); };
@@ -8495,6 +8560,30 @@ function exLienzoATex(W,H){
   return _exNvTex; }
 function exLienzoTexFree(){ if(_exNvTex){ try{ gl.deleteTexture(_exNvTex); }catch(e){} _exNvTex=null; _exNvW=0; _exNvH=0; } }
 
+/* [R313·A7] El export ESPERA a que estén las bandas de audio si la pieza usa FX reactivos.
+   El análisis es perezoso a propósito —se dispara al abrir la pestaña Reactive— y `loadProject` deja
+   `_arCache=null` con un comentario que lo dice. Pero `runExport` no lo miraba ni lo lanzaba: abrir un `.isp`
+   con FX reactivos y exportar SIN pasar antes por esa pestaña dejaba `_arCache` en null, y con él `fxModLevel`
+   devuelve 0 en follow y en trigger. El máster salía SIN reactividad, en silencio: se ve bien, sólo que sin la
+   modulación que define la pieza. Y el LFO caía al bpm de emergencia, con otra fase que la previsualización.
+   Se avisa por `job.warn` si no llegan a tiempo: mejor un máster sin reactividad ANUNCIADO que uno mudo. */
+async function exPrepararReactivo(job){
+  try{
+    if(!state.reactive||state.reactive.srcClipId==null)return;
+    const clip=reactiveSourceClip(); const m=clip&&mediaById(clip.mediaId); if(!m)return;
+    if(!m.bands){
+      if(job&&job.label)job.label(T('Analyzing audio bands…','Analizando bandas de audio…'));
+      if(!m.buffer&&m.kind==='video'){ try{ await armMediaAudio(m); }catch(e){} }
+      armMediaBands(m);
+      const t0=Date.now();
+      while(!m.bands && !cancelExport && (Date.now()-t0)<EX_AUDIO_MS && (m._bandsBusy||(Date.now()-t0)<1200))
+        await new Promise(r=>setTimeout(r,60));
+    }
+    if(m.bands){ arRecompute(); }
+    else if(job&&job.warn){ const msg=T('No audio-reactive modulation in this export — the band analysis did not finish. The picture is otherwise unaffected.','Este export sale sin modulación reactiva — el análisis de bandas no terminó. La imagen no se ve afectada por lo demás.');
+      job.warn(msg); try{ flashStatus(msg,'err'); }catch(e){} }
+  }catch(e){ diag('warn','export','reactivo',{e:String(e&&e.message||e)}); }
+}
 let _ffJob=null;   /* [R291] el trabajo de FFmpeg en curso, para que Cancelar lo mate de verdad */
 async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
   /* [R284] El logo lo comparten visor y export. Antes, un export SIN chapa llamaba a cargarlo con null y
@@ -8616,6 +8705,7 @@ async function runExport(opt){ if(state.playing)pause(); cancelExport=false;
           const msg=(e&&e.exTimeout)?T('No audio in this export — the mix timed out. The picture is unaffected.','Este export sale sin audio — se agotó el plazo de la mezcla. La imagen no se ve afectada.')
                                     :T('No audio in this export — the mix failed. The picture is unaffected.','Este export sale sin audio — falló la mezcla. La imagen no se ve afectada.');
           flashStatus(msg,'err'); if(job&&job.warn)job.warn(msg); } } } // a still has no audio; neither has a render-in-place bake (opt.noAudio)
+    _exStage='reactive'; await exPrepararReactivo(job);   /* [R313·A7] ver exPrepararReactivo */
     if(opt.codec==='still'){ // single high-quality PNG of the current frame, rendered from ORIGINAL media (seekExport→seekMedia useOrig=true), with SSAA
       const t=state.playhead; await seekExport(t); prepNests(state.clips,t,0); renderExportFrame(t,qRes,ssExport,wall);
       /* [R286b] El fotograma suelto es una SALIDA MAS, y se entrega como master igual que el MP4 o la secuencia:
@@ -12096,8 +12186,14 @@ window.addEventListener('keydown',e=>{ const tag=(e.target.tagName||'').toLowerC
   if(bare&&(e.key==='t'||e.key==='T')){ setTool(state.tl.tool==='trim'?'select':'trim'); return; } // [R97] T = trim contextual (alterna); Ctrl+T (pista nueva) se maneja arriba. [R103] `!mod` no bastaba: dejaba pasar Shift+T.
   if(bare&&(e.key==='b'||e.key==='B'))setTool('razor'); if(bare&&(e.key==='z'||e.key==='Z'))setTool('zoom');
   if(bare&&(e.key==='c'||e.key==='C'))setTool('razor'); // C = Razor tool; cut lands where you click on the clip (with snap), not at the playhead
-  if(e.key==='a'||e.key==='A'){ toggleCurves(); return; } // [R92-T4] A = Automation view (Ableton)
-  if(e.key==='d'||e.key==='D'){ state.tl.draw=!state.tl.draw; if(state.tl.draw&&!state.inlineCurves)toggleCurves(); flashStatus(state.tl.draw?T('Draw mode on — drag on a lane to paint (Alt = freehand) · D to exit','Modo dibujo activo — arrastra sobre un carril para pintar (Alt = a mano alzada) · D para salir'):T('Draw mode off','Modo dibujo desactivado')); return; } // [R92-T4] D = Draw (B is the razor here)
+  /* [R313] `bare`, como las herramientas. Estos cinco atajos aceptaban CUALQUIER modificador, que es justo el
+     defecto que R103 midió y arregló… sólo para las herramientas: «9 combinaciones armaban herramienta por
+     accidente». El caso que duele a diario es Ctrl+A —la memoria muscular de «seleccionar todo»— con el ratón
+     fuera de un carril de automatización: el manejador de arriba sólo se queda con la tecla si hay `hoverAuto`,
+     así que caía aquí y ALTERNABA la vista de automatización entera. (En macOS, además, el `selectAll` que
+     sintetiza el menú Edición acababa en el mismo sitio.) */
+  if(bare&&(e.key==='a'||e.key==='A')){ toggleCurves(); return; } // [R92-T4] A = Automation view (Ableton)
+  if(bare&&(e.key==='d'||e.key==='D')){ state.tl.draw=!state.tl.draw; if(state.tl.draw&&!state.inlineCurves)toggleCurves(); flashStatus(state.tl.draw?T('Draw mode on — drag on a lane to paint (Alt = freehand) · D to exit','Modo dibujo activo — arrastra sobre un carril para pintar (Alt = a mano alzada) · D para salir'):T('Draw mode off','Modo dibujo desactivado')); return; } // [R92-T4] D = Draw (B is the razor here)
   if(e.key==='+'||e.key==='='){ state.tl.pxPerSec=Math.min(TL_PPS_MAX,state.tl.pxPerSec*1.25); renderTimeline(); return; } // [R92-T5] +/− timeline zoom (the palette promised them)
   if(e.key==='-'||e.key==='_'){ state.tl.pxPerSec=Math.max(TL_PPS_MIN,state.tl.pxPerSec*0.8); renderTimeline(); return; }
   if(e.key==='0'&&!mod){ toggleDisable(); return; } // Ableton: 0 disables/enables the selected clips or the time-selection slice
@@ -12119,13 +12215,13 @@ window.addEventListener('keydown',e=>{ const tag=(e.target.tagName||'').toLowerC
   if((e.key==='ArrowLeft'||e.key==='ArrowRight')&&state.tl.tool==='trim'&&selClip()&&!e.altKey){ e.preventDefault(); trimNudge(e.key==='ArrowRight'?1:-1,e.shiftKey?10:1); return; }
   if(e.key==='ArrowLeft'){ e.preventDefault(); if(e.altKey){nudgeSel(-(e.shiftKey?1:1/state.fps),e.repeat);} else {const f=state.fps||30;state.playhead=Math.max(0,(Math.round(state.playhead*f)-1)/f);scrubRender();positionPlayhead();} } /* [T7] frame-exact step (preventDefault: no page scroll) */
   if(e.key==='ArrowRight'){ e.preventDefault(); if(e.altKey){nudgeSel(e.shiftKey?1:1/state.fps,e.repeat);} else {const f=state.fps||30;state.playhead=(Math.round(state.playhead*f)+1)/f;scrubRender();positionPlayhead();} }
-  if(e.key==='m'||e.key==='M')addMarker(); // [R97] marker moved L→M (the industry-standard key) so L can be the shuttle
+  if(bare&&(e.key==='m'||e.key==='M'))addMarker(); // [R97] marker moved L→M (the industry-standard key) so L can be the shuttle · [R313] `bare`: Ctrl+M / Shift+M no deben soltar un localizador
   // [R159] Alt+, / Alt+. = fotograma anterior/siguiente del clip seleccionado (reemplazan a los botones que
   // salieron de la fila del inspector). Sin Alt siguen siendo los localizadores, como siempre.
   if(e.altKey&&e.key===','){ e.preventDefault(); jumpAnyKf(-1); return; }
   if(e.altKey&&e.key==='.'){ e.preventDefault(); jumpAnyKf(1); return; }
   if(e.key===',')jumpMarker(-1); if(e.key==='.')jumpMarker(1);
-  if(e.key==='i'||e.key==='I')setWorkIn(); if(e.key==='o'||e.key==='O')setWorkOut(); if(e.key==='x'||e.key==='X')clearWork();
+  if(bare&&(e.key==='i'||e.key==='I'))setWorkIn(); if(bare&&(e.key==='o'||e.key==='O'))setWorkOut(); if(bare&&(e.key==='x'||e.key==='X'))clearWork(); // [R313] `bare`: Shift+I/O/X movían o borraban el rango de trabajo sin querer
 });
 
 /* [R206] macOS: el menú Edición nativo captura Cmd+Z/X/C/V/A antes que la página (ver `menuMac` en main.js), así

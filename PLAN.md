@@ -1,5 +1,50 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 313 — La tanda de edición diaria (y el export que salía sin reactividad)
+
+Cuarta y última tanda de los hallazgos ALTA/MEDIA de la auditoría exhaustiva. Cinco arreglos, todos de cosas
+que se tocan cada sesión.
+
+- **[A10] La herramienta de trim contextual (T) no rebasaba la automatización.** Las claves se guardan
+  RELATIVAS a `c.start`, así que mover un clip entero no las toca —viajan con él— pero cambiar `inP` sí: el
+  material resbala por debajo y la curva se queda donde estaba, **descolgada de lo que animaba**. `trimItem`
+  (el recorte normal por el tirador), `razorCore` y el crossfade sí lo hacían; los cinco modos de la T, no. Se
+  rebasa donde el material se mueve de verdad —ripple de ENTRADA y la mitad derecha del roll— con el keyframe
+  de frontera de [R92-T4 F7], y partiendo de la instantánea del `pointerdown` porque el arrastre es absoluto
+  (rebasar sobre lo ya rebasado acumularía el desplazamiento). Ripple de salida, slide y slip se quedan como
+  están, y el porqué está escrito: el primero sólo cambia `dur`, el segundo mueve el clip entero y el tercero
+  cambia el material a propósito dejando quieta la forma del clip, que es lo que se pide al deslizar.
+- **[A7] Exportar un proyecto recién abierto con FX reactivos salía SIN reactividad.** El análisis de bandas es
+  perezoso a propósito (lo dispara abrir la pestaña Reactive), pero `runExport` ni lo esperaba ni lo lanzaba:
+  con `_arCache` en null, `fxModLevel` devuelve 0 en follow y en trigger y el LFO cae al bpm de emergencia con
+  otra fase. El máster salía **bien a la vista y sin la modulación que define la pieza**. Ahora hay una etapa
+  `reactive` que lo prepara y espera, y si no llega a tiempo **lo dice** por `job.warn`: mejor un máster sin
+  reactividad anunciado que uno mudo.
+- **[A9] El diamante congelaba el valor equivocado.** Al quitar el ÚLTIMO keyframe, el valor de congelado se
+  calculaba DESPUÉS de borrar el punto: con el array ya vacío, `evalP` cae al valor base y el parámetro salta
+  en pantalla. Se nota cuando el punto se creó y luego se arrastró en el editor de curvas, que escribe `k.v`
+  sin tocar `props`. Las tres rutas hermanas ya lo hacían bien.
+- **Duplicar una pista clonaba una textura rota.** `JSON.parse(JSON.stringify(clip))` convierte el
+  `WebGLTexture` de la máscara en `{}` — vacío pero **truthy** —, y el render hace `bindTexture(…, c.maskTex||ntex)`:
+  TypeError **en cada fotograma**, con el visor muerto. Y conservaba el `link`, dejando tres clips con el mismo
+  enlace y `linkPartner` eligiendo al azar. Ahora se clona con `duplicateClipAt`, que es el clon canónico y ya
+  resolvía las dos cosas (y de regalo separa la automatización agrupada).
+- **Borrar una pista de audio dejaba mudo el vídeo enlazado, para siempre.** El superviviente se quedaba con un
+  `link` que no apunta a nada y con `avRole:'v'`, que es lo que lo mantiene mudo porque su sonido lo ponía la
+  pareja recién borrada. Se le aplica lo mismo que «Desenlazar»: sin pareja no hay enlace, y el vídeo recupera
+  su voz. Es además lo recuperable — si lo que se quería era silencio, ahí está el mute; al revés no había
+  vuelta. De paso, `selLane` ya sigue a su pista cuando se borra una de índice inferior (antes la selección se
+  quedaba señalando la de al lado y «Eliminar pista» actuaba sobre la equivocada).
+- **Y los atajos de una letra, acotados a tecla desnuda.** `A`, `D`, `M`, `I`, `O` y `X` aceptaban cualquier
+  modificador — el mismo defecto que R103 midió y arregló, pero sólo para las herramientas. El que duele a
+  diario es **Ctrl+A**: con el ratón fuera de un carril de automatización caía en `toggleCurves()` y alternaba
+  la vista entera.
+
+Verificado en `scratchpad/r313-verif.mjs`, con la prueba de A10 medida **por valor y no por forma**: se
+comprueba que la curva vale lo mismo sobre el MISMO material antes y después del ripple (50,0 → 50,0). *Nota:
+el primer intento dio tres falsos fallos porque el guardián «mantén al menos una pista de audio» hacía salir a
+`removeLane` por la puerta — la sonda medía un no-cambio y lo leía como regresión.*
+
 ## ROUND 312 — Un nombre de archivo no debería poder ejecutar código
 
 Tercera tanda de la auditoría exhaustiva: los dos hallazgos de seguridad.
