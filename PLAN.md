@@ -1,5 +1,31 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 329 — Copias sueltas, Mix huérfano y las TRES listas de «qué se ve»
+
+- **Alt+arrastrar un par A/V producía dos copias sueltas.** `duplicateClipAt` nace sin `link` a propósito (dos
+  pares con el mismo enlace romperían `linkPartner`), pero nadie volvía a enlazar las copias entre sí: el par
+  copiado dejaba de moverse, recortarse y borrarse junto, y no había ninguna forma de reenlazarlo desde la
+  interfaz. Ahora, si el arrastre copia LAS DOS mitades, las copias reciben un `link` **nuevo** — el mismo patrón
+  que ya usaban la cuchilla y el pegado. Copiar una sola mitad sigue dando un clip suelto.
+- **Cambiarle el parámetro a un Motion dejaba su curva de Mix huérfana.** La curva vive en `mot:<param>:mix`, así
+  que al pasar de X a Y el modificador empezaba a leer una clave que no existía — la mezcla saltaba al 100 % de
+  golpe— y la vieja quedaba invisible (la lista de pistas sólo enseña las claves de los Motion vivos), imborrable
+  y guardada en el archivo para siempre. Ahora la curva VIAJA con el modificador. Con su control: si otro Motion
+  sigue usando el parámetro viejo, la curva es suya y no se mueve. De paso, `soltarMixSiHuerfana()` recoge esa
+  regla una sola vez para los dos caminos (borrar el Motion ya la aplicaba bien; cambiar el parámetro, nada).
+- **Había tres listas distintas de «qué se ve en el instante t»**, y sólo una miraba `disabled`. `activeClips()`
+  alimentába a los dos buscadores del visor (domo y 2D) sin filtrar clips apagados: un clip invisible encima le
+  robaba el clic al que sí se veía debajo, y como devolvía **uno por pista**, en un solape elegía el equivocado.
+  Peor: estaba **reescrita en caliente** 3900 líneas por debajo de su definición para añadirle el mute, con una
+  regla de solo más ancha que la del compositor — solear una pista de AUDIO dejaba el visor entero sin nada que
+  señalar. Y `equirectClipAt()` recorría los clips por su cuenta, así que apagar un panorama lo quitaba del
+  casquete del domo pero **no de la esfera del visor 3D**: los dos visores enseñaban cosas distintas del mismo
+  instante. Las tres son ahora `clipsVisibles(t)` = `compositeClips(t)`. Lo que se puede señalar es exactamente
+  lo que se está pintando, por definición y no por coincidencia.
+
+**Verificación:** `scratchpad/r329-verif.mjs` (cinco casos, dos de ellos controles) — **nueve redes en verde**.
+
+
 ## ROUND 328 — Deshacer muerto, Shape Box huérfana y el panel de modulación
 
 Lote de cuatro, con su medición antes de pasar al siguiente — el ritmo que sale de R327.

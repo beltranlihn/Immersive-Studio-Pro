@@ -661,10 +661,14 @@ const sphVAO=gl.createVertexArray(); let sphCount=0;
   sphCount=ix.length; gl.bindVertexArray(null); })();
 const _mvpScratch=new Float32Array(16); // [R213] buffer de módulo reusado por todos los uniformMatrix4fv(mvp) por frame — evita un `new Float32Array` por llamada (domo/sala/visor emergente/esfera equirect; se suben secuencialmente, nunca a la vez)
 /* el clip equirect que manda en el instante t: el de la pista más alta, que es el que domina el composite */
+/* [R329] Tambien desde compositeClips: apagar un clip equirect (o silenciar su pista) lo quitaba del casquete
+   del domo pero NO de la esfera del visor 3D, que seguia mostrandolo — los dos visores ensenaban cosas
+   distintas del mismo instante. De paso, «la pista mas alta manda» pasa a ser «el ultimo que se pinta», que es
+   lo que de verdad domina el composite cuando dos equirect se solapan en la misma pista. */
 function equirectClipAt(t){ let mejor=null;
-  for(const c of state.clips){ if(!c.props||!c.props.equirect)continue; if(t<c.start||t>=c.start+c.dur)continue;
+  for(const c of clipsVisibles(t)){ if(!c.props||!c.props.equirect)continue;
     const m=mediaById(c.mediaId); if(!m||m.missing||!m.tex)continue;
-    if(!mejor||c.lane>mejor.lane)mejor=c; }
+    mejor=c; }
   return mejor; }
 function drawEquirectSphere(mvp,t){ const c=equirectClipAt(t); if(!c)return false;
   const m=mediaById(c.mediaId); const tex=(m.kind==='video'&&_vinst.get(c.id)&&_vinst.get(c.id).vtex)||m.tex; if(!tex)return false;
@@ -1239,8 +1243,13 @@ function drawClip(c,m,t,xf){
   gl.drawElements(gl.TRIANGLES,meshCount,gl.UNSIGNED_INT,0);
   if(bm!=='normal') NORMAL_BLEND();
 }
-function activeClips(t){ const out=[]; for(const li of state.lanes.map((_,i)=>i)){ let best=null;
-  for(const c of state.clips) if(c.lane===li && t>=c.start && t<c.start+c.dur) best=c; if(best)out.push(best);} return out; }
+/* [R329] Lo que se puede SEÑALAR es exactamente lo que se está dibujando, así que sale de compositeClips y no de
+   una segunda lista con sus propias reglas. La que había (`activeClips`) se saltaba `disabled`, el mute y el solo
+   de pista: se podía hacer clic en el vacío del visor y seleccionar un clip apagado e invisible, o uno de una
+   pista silenciada, y el clip apagado de encima le robaba el clic al que sí se veía debajo. Además sólo devolvía
+   UNO por pista, así que en un solape elegía el equivocado. Orden de pintado (de abajo arriba) → el último que
+   coincide es el de más arriba, que es el que ya elegían los dos buscadores. */
+function clipsVisibles(t){ return compositeClips(t).map(x=>x.c); }
 /* ═══ [R300] EL TEJIDO BARAJADO, SIN SALTO AL VOLVER EL DIENTE DE SIERRA ══════════════════════════════════
    Diagnostico sobre el proyecto real de Beltran (Test.isp): cada elemento lleva un diente de sierra de
    `speed 0.3` y `amp 40`, y los elementos estan separados exactamente 40. Es el truco clasico del
@@ -5131,11 +5140,13 @@ function updIOBtns(){ const bi=$('#markIn'), bo=$('#markOut'); if(bi)bi.classLis
 /* musical grid candidates for snapping */
 function gridStep(){ const spb=60/state.tl.bpm;
   /* adaptive bar/beat grid: ~ a beat scaled so it isn't denser than ~20px */ let st=spb; while(st*state.tl.pxPerSec<20)st*=2; return st; }
-/* mute/solo affects activeClips */
-const _activeOrig=activeClips;
-activeClips=function(t){ const anySolo=state.lanes.some(l=>l.solo); const out=[];
-  for(const li of state.lanes.map((_,i)=>i)){ const lane=state.lanes[li]; if(lane.mute)continue; if(anySolo&&!lane.solo)continue;
-    let best=null; for(const c of state.clips) if(c.lane===li&&t>=c.start&&t<c.start+c.dur)best=c; if(best)out.push(best); } return out; };
+/* [R329] Aqui vivia un PARCHE EN CALIENTE de activeClips (`const _activeOrig=activeClips; activeClips=...`) que
+   volvia a escribir la funcion 3900 lineas por debajo de su definicion, para anadirle el mute y el solo. Una
+   tercera copia de «que se ve», invisible desde la definicion original y desde los dos que la llamaban: seguia
+   sin mirar `disabled`, seguia devolviendo un solo clip por pista, y su regla de solo era MAS ancha que la del
+   compositor (`some(l=>l.solo)`, sin filtrar por tipo), asi que soltar el solo de una pista de AUDIO dejaba el
+   visor entero sin nada que senalar. El original y el parche se han fundido en clipsVisibles(), que lee del
+   compositor. `_activeOrig` no lo usaba nadie. */
 
 /* ===================== INTERACTION: timeline ===================== */
 let drag=null;
@@ -5602,8 +5613,15 @@ function onTLUp(){ showSnap(null); _dragLaneRects=null; _dragLaneScrollTop=null;
     const primaryCount=drag.primaryIds?drag.primaryIds.size:(drag.items?drag.items.length:1); const single=primaryCount<=1; // [R223] ver nota en onTLMove
     const laneDelta=drag._laneDelta||0;
     const changed=drag._copy||Math.abs(applied)>1e-6||(single&&tgt!=null&&tgt!==drag.lane0)||laneDelta!==0; if(changed&&!drag._undone){pushUndo();drag._undone=true;} // only record undo if the move/copy actually changes something
-    if(drag._copy){ const newIds=[];
-      for(const it of drag.items){ const oc=clipById(it.id); if(!oc)continue; const nc=duplicateClipAt(oc, it.start0+applied, it.linked?oc.lane:(single?tgt:(oc.lane+laneDelta))); state.clips.push(nc); newIds.push(nc.id); } // [R223] la copia del partner enlazado se queda en su propia pista
+    if(drag._copy){ const newIds=[]; const nuevoDe=new Map();
+      for(const it of drag.items){ const oc=clipById(it.id); if(!oc)continue; const nc=duplicateClipAt(oc, it.start0+applied, it.linked?oc.lane:(single?tgt:(oc.lane+laneDelta))); state.clips.push(nc); newIds.push(nc.id); nuevoDe.set(oc.id,nc); } // [R223] la copia del partner enlazado se queda en su propia pista
+      /* [R329] Si se han copiado LAS DOS MITADES de un par A/V, las copias se enlazan ENTRE SÍ con un enlace
+         nuevo — igual que la cuchilla (razorClip) y que pegar. `duplicateClipAt` las hace sueltas a propósito
+         (dos pares con el mismo `link` romperían linkPartner), pero dejarlas así convertía Alt+arrastrar de un
+         par en dos clips independientes: dejaban de moverse, recortarse y borrarse juntos, y el usuario no tenía
+         forma de volver a enlazarlos. Si sólo se copió una mitad, la copia se queda suelta, como hasta ahora. */
+      for(const [oid,nc] of nuevoDe){ if(nc.link)continue; const oc=clipById(oid), op=oc&&linkPartner(oc), np=op&&nuevoDe.get(op.id);
+        if(!np||np.link)continue; const nl=uid(); nc.link=nl; nc.avRole=oc.avRole; np.link=nl; np.avRole=op.avRole; }
       if(newIds.length){ state.selIds=newIds; state.selId=newIds[newIds.length-1]; state.selGroupId=null; cutOverlapsOnDrop(newIds); }
       flashStatus(T('Copied','Copiado')+' '+drag.items.length+' '+(drag.items.length===1?T('clip','clip'):T('clips','clips')));
     } else { for(const it of drag.items){ const oc=clipById(it.id); if(oc){ oc.start=Math.max(0,it.start0+applied); if(!single&&!it.linked)oc.lane=oc.lane+laneDelta; } } // [R223] libertad vertical: el partner enlazado sólo se mueve horizontalmente, nunca cambia de pista
@@ -6143,7 +6161,7 @@ function pix2frame(px,py,P){ P=P||vpPanelAt(px,py)||vpPanels()[0];
   const st=vpState(P.surf), z=st.zoom, p=st.pan;
   const ndx=((px-P.x)/P.w*2-1), ndy=(1-(py-P.y)/P.h)*2-1; return [ndx/(z*sx)+p[0], ndy/(z*sy)+p[1]]; }
 function pickClipFlat(px,py){ const fp=pix2frame(px,py), fx=fp[0],fy=fp[1]; const A=(state.seqW||16)/(state.seqH||9), Fx=Math.min(1,A),Fy=Math.min(1,1/A), t=state.playhead; let hit=null;
-  for(const c of activeClips(t)){ const m=mediaById(c.mediaId); if(!m||m.kind==='audio')continue; const P=flatPlace(c,m,t);
+  for(const c of clipsVisibles(t)){ const m=mediaById(c.mediaId); if(!m||m.kind==='audio')continue; const P=flatPlace(c,m,t);
     const cx=P.fc[0]/Fx, cy=P.fc[1]/Fy, hax=Math.abs(P.fx[0]/Fx)+Math.abs(P.fy[0]/Fx), hay=Math.abs(P.fx[1]/Fy)+Math.abs(P.fy[1]/Fy);
     if(Math.abs(fx-cx)<=hax && Math.abs(fy-cy)<=hay) hit=c; } // topmost active clip whose rect contains the cursor
   return hit; }
@@ -6159,7 +6177,7 @@ function domeClipHit(c,px,py){ if(!c)return false; const m=mediaById(c.mediaId);
   const f=pix2f(px,py); const ae=f2azel(f[0],f[1]); const az=evalP(c,'az',t),el=evalP(c,'el',t),size=evalP(c,'size',t);
   return angDist(ae.az,ae.el,az,el) < size*0.55; }
 function pickClip(f){ const ae=f2azel(f[0],f[1]); const t=state.playhead; let hit=null;
-  for(const c of activeClips(t)){ const mm=mediaById(c.mediaId); if(!mm||mm.kind==='audio')continue; const az=evalP(c,'az',t),el=evalP(c,'el',t),size=evalP(c,'size',t); const d=angDist(ae.az,ae.el,az,el); if(d<size*0.55) hit=c; } return hit; } // audio / adjustment layers aren't selectable in the dome
+  for(const c of clipsVisibles(t)){ const mm=mediaById(c.mediaId); if(!mm||mm.kind==='audio')continue; const az=evalP(c,'az',t),el=evalP(c,'el',t),size=evalP(c,'size',t); const d=angDist(ae.az,ae.el,az,el); if(d<size*0.55) hit=c; } return hit; } // audio / adjustment layers aren't selectable in the dome
 function angDist(az1,el1,az2,el2){ const d1=dirAzEl(az1,el1),d2=dirAzEl(az2,el2); return Math.acos(Math.max(-1,Math.min(1,dot(d1,d2))))*R2D; }
 /* [A6] manual edit of a parameter (inspector drag/type/wheel, viewport move). If the param is automated,
    editing by hand OVERRIDES the envelope (Ableton-style): the curve is bypassed (kept, not deleted) and the
@@ -6763,6 +6781,16 @@ function buildPenMaskUI(host,c){ if(!c)return; const masks=c.penMasks||(c.penMas
    de sobre `a.wetKf`/`a.wet`. Con eso el Mix se comporta EXACTAMENTE como cualquier fila del inspector: `manualEdit`
    decide si el arrastre escribe keyframe (ya automatizado) o mueve el valor estático, y su curva es visible y editable
    en la línea de tiempo. `migrateMotionWet` convierte los proyectos anteriores al abrirlos. */
+/* [R329] La curva de Mix se guarda por PARÁMETRO (`mot:<param>:mix`), no por modificador: dos Motion sobre el
+   mismo parámetro la COMPARTEN. Así que al quitar un Motion —o al cambiarle el parámetro— su Mix sólo se suelta
+   si ya no queda ningún otro Motion con ese parámetro; si queda, la curva sigue siendo suya. Una implementación
+   para los dos caminos: el del borrado ya lo hacía bien y el del cambio de parámetro no lo hacía en absoluto. */
+function soltarMixSiHuerfana(c,param){ if((c.anim||[]).some(x=>x.param===param))return false;
+  const key='mot:'+param+':mix';
+  if(c.kf)delete c.kf[key]; if(c.props)delete c.props[key];
+  if(state.autoSel&&state.autoSel.cid===c.id&&state.autoSel.p===key)state.autoSel=null;
+  if(state.shapeBox&&state.shapeBox.cid===c.id&&state.shapeBox.p===key)state.shapeBox=null;
+  return true; }
 function animWetKfAt(a,c){ return kfAt(c,motKeyFor(a)); }
 function animSetWet(a,c,v){ manualEdit(c,motKeyFor(a),Math.max(0,Math.min(100,v*100))); }
 function animHasWetKf(a,c){ return !!hasKf(c,motKeyFor(a)); }
@@ -6821,15 +6849,32 @@ function buildAnimList(c){ const host=$('#animList'); if(!host)return; host.inne
         <span class="awetv" style="font-size:11px;color:var(--ink-2);width:36px;text-align:right;">${wetPct}%${hasWK?' ◆':''}</span></div>`;
     item.querySelectorAll('.anum').forEach(el=>{ el.style.background='#24272C'; el.style.border='.5px solid rgba(255,255,255,0.12)'; el.style.borderRadius='2px'; el.style.color='#E8EAED'; el.style.fontSize='11px'; }); // [U-17] .asel now styled by the shared select rule (inline background here would wipe its chevron)
     item.querySelector('.animon').onclick=()=>{ pushUndo(); a.on=!a.on; buildAnimList(selClip()); render(); renderTimeline(); startMotionPreview(); markDirty(); }; // [R320] el único de los cinco de esta fila sin `pushUndo`: apagar un movimiento cambia lo que se ve y no se podía deshacer
-    item.querySelector('.aparam').onchange=e=>{ pushUndo(); a.param=e.target.value; render(); startMotionPreview(); markDirty(); };
+    /* [R329] Cambiar el parámetro dejaba la curva del Mix HUÉRFANA en `mot:<viejo>:mix`: el modificador pasaba a
+       leer `mot:<nuevo>:mix`, que normalmente no existe, así que la mezcla saltaba al 100 % de golpe; y la curva
+       vieja quedaba invisible (la lista de pistas sólo enseña las claves de los Motion existentes), imborrable y
+       guardada en el archivo para siempre. Se MUEVE con el modificador —el usuario ha cambiado qué mueve, no su
+       mezcla—, y sólo si nadie más la reclama por los dos lados. */
+    item.querySelector('.aparam').onchange=e=>{ const viejo=a.param, nuevo=e.target.value; if(viejo===nuevo)return;
+      pushUndo(); a.param=nuevo;
+      const kv='mot:'+viejo+':mix', kn=motKeyFor(a);
+      const habia=!!((c.kf&&c.kf[kv])||(c.props&&c.props[kv]!=null));
+      const libre=!(c.kf&&c.kf[kn])&&!(c.props&&c.props[kn]!=null);
+      const huerfana=!(c.anim||[]).some(x=>x.param===viejo); // otro Motion sobre el parámetro viejo la sigue usando
+      if(huerfana&&libre){ if(c.kf&&c.kf[kv]){ c.kf[kn]=c.kf[kv]; delete c.kf[kv]; }
+        if(c.props&&c.props[kv]!=null){ c.props[kn]=c.props[kv]; delete c.props[kv]; }
+        if(state.autoSel&&state.autoSel.cid===c.id&&state.autoSel.p===kv)state.autoSel.p=kn;
+        if(state.shapeBox&&state.shapeBox.cid===c.id&&state.shapeBox.p===kv)state.shapeBox.p=kn; }
+      else soltarMixSiHuerfana(c,viejo);
+      if(habia||!libre)buildAnimList(selClip()); // el Mix de esta fila muestra otro valor: hay que repintarla
+      render(); startMotionPreview(); markDirty(); };
     item.querySelector('.amode').onchange=e=>{ pushUndo(); a.mode=e.target.value; if(a.mode==='wave'&&!a.amp)a.amp=15; buildAnimList(selClip()); render(); startMotionPreview(); markDirty(); };
     item.querySelector('.aspeed').onchange=e=>{ pushUndo(); a.speed=+e.target.value||0; render(); startMotionPreview(); markDirty(); };
     item.querySelector('.aamp').onchange=e=>{ pushUndo(); a.amp=+e.target.value||0; render(); startMotionPreview(); markDirty(); };
     /* [R224 · ítem 2] Al quitar el movimiento su automatización MUERE con él: se borra la curva del Mix (y su valor
        estático), se suelta la selección de puntos si apuntaba ahí, y cualquier pista cuya superposición fuera ese
        Mix la deja caer — como ya hacía el borrado de un efecto con sus claves `fxt:`. */
-    item.querySelector('.animdel').onclick=()=>{ pushUndo(); const key=motKeyFor(a); c.anim.splice(i,1); if(!c.anim.length)delete c.anim;
-      if(!(c.anim||[]).some(x=>x.param===a.param)){ if(c.kf)delete c.kf[key]; if(c.props)delete c.props[key]; if(state.autoSel&&state.autoSel.cid===c.id&&state.autoSel.p===key)state.autoSel=null; if(state.shapeBox&&state.shapeBox.cid===c.id&&state.shapeBox.p===key)state.shapeBox=null; }
+    item.querySelector('.animdel').onclick=()=>{ pushUndo(); const viejo=a.param; c.anim.splice(i,1); if(!c.anim.length)delete c.anim;
+      soltarMixSiHuerfana(c,viejo);
       for(const l of state.lanes){ if(l._autoP&&isMotKey(l._autoP)&&!laneMotParams(state.lanes.indexOf(l)).includes(l._autoP.split(':')[1]))delete l._autoP; }
       buildAnimList(selClip()); render(); renderTimeline(); markDirty(); if(!anyAnim())stopMotionPreview(); };
     const wetR=item.querySelector('.awet'), wetV=item.querySelector('.awetv');
