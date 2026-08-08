@@ -1,5 +1,45 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 317 — La familia «pushUndo ausente», cerrada con una red en vez de con parches
+
+El patrón 1 de la auditoría (§11): ~10 miembros vivos, todos detectables por la misma señal — **asimetría con
+un camino gemelo que sí empuja deshacer**. Se habían ido arreglando de uno en uno y en cada ronda aparecía otro.
+
+**Nueve miembros corregidos**, todos de una línea y todos con su gemelo señalando el sitio:
+- **La tecla M** no empujaba deshacer, mientras su gemelo del doble clic en la regla —y el del menú
+  contextual— sí. Pulsar M y hacer Ctrl+Z se comía la edición ANTERIOR y el localizador se quedaba.
+- **Quitar el color de una carpeta**: el `onPick` de al lado hace `pushUndo(); bumpMeta();` con un comentario
+  `[R253d]` que explica por qué, y el `onClear` —en la MISMA expresión— no hacía ninguno de los dos. Dos
+  sitios (rejilla y árbol).
+- **Renombrar una carpeta** por el camino de `appPrompt` tenía `pushUndo` pero no `bumpMeta`, así que el
+  guardado contra el pisotón de R253d no se enteraba de que el árbol había cambiado. Su gemelo inline sí.
+- **`adopt`** (adoptar el hueco de un medio ausente) cambia el estado global sin empujar deshacer: es
+  literalmente el caso que el comentario de R253d describe y para el que existe la marca de agua
+  (`bumpMeta(true)`). `replaceMedia` ya la dejaba; este camino se quedó fuera.
+- **Tamaño de máscara**, la única de su fila que no empujaba en el `pointerdown` — sus cinco hermanas sí.
+- **Los cuatro mandos de un modificador de Motion** (parámetro, modo, velocidad, amplitud): cambiar la
+  velocidad de un Flotar de 0,2 a 3 y pulsar Ctrl+Z no lo deshacía. Borrar el modificador y el diamante del
+  Mix, en la misma lista, sí lo hacen.
+
+**Y la red que cierra la familia: `scratchpad/r317-undo.mjs`.** Es para esta familia lo que
+`tests/paridad-serializacion.test.mjs` es para la de «heredar del proyecto anterior»: comprueba la REGLA, no
+el parche. La regla en una línea: *un gesto que cambia el proyecto se deshace con un Ctrl+Z.* Por cada gesto
+toma una foto, comprueba que el gesto CAMBIÓ algo, exige que haya apilado deshacer y que un solo `undo()`
+devuelva el estado a la foto. Los tres de Motion se disparan por el **DOM real** (su `<select>`/`<input>` con un
+evento `change`), que es lo único que prueba que el handler empuja; los demás reproducen la mutación y prueban
+la otra mitad — que `snapshot`/`restore` CUBRAN el campo—, y el rótulo lo distingue para no reclamar de más.
+
+**Dos trampas que costó aprender, las dos anotadas en la sonda:**
+- **`state.lanes[0]` PUEDE SER DE AUDIO** — `loadSeqIntoState` inserta la pista de audio al principio —, y con
+  el clip en una pista de audio el inspector renderiza su variante, que esconde Transform, Motion y FX. Los
+  `.aspeed`/`.aamp`/`.amode` no existían en el DOM y la sonda lo leía como fallo del código. La pista se elige
+  por `kind`, nunca por índice: es la regla que `ESTRUCTURA-DEL-CODIGO.md` ya advierte.
+- **El historial hay que vaciarlo DESPUÉS del montaje.** Al principio iba delante, y el propio montaje dejaba su
+  entrada (`_demoAddShape` empuja la suya): `undo()` consumía ESA y restauraba de rebote un estado anterior al
+  gesto, así que el caso **pasaba aunque el gesto no empujara nada**. La red mentía, y lo demostró la propia
+  verificación por reversión: con el `pushUndo` de `addMarker` quitado, la primera versión daba verde. De ahí
+  sale también la aserción directa que ahora lleva: **la pila tiene que crecer**.
+
 ## ROUND 316 — El último hallazgo del repaso: los avisos también se apilaban
 
 El noveno y último hallazgo del repaso de código, el único que quedó sin aplicar en R315.
