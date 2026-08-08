@@ -1589,6 +1589,9 @@ function raReset(){ for(const [,v] of _ra){try{gl.deleteTexture(v.tex);}catch(e)
    Si algún día hace falta separar los dos conceptos, sepárense los contadores; no se condicione éste. */
 function raInvalidate(){ _raGen++; }
 function _raFrame(t){ return Math.round(t*(state.fps||30)); }
+/* [R332] ¿sigue siendo ESTA textura la que la caché guarda para ese instante? El adelanto recicla texturas por
+   un pool (`_raPool`), así que un puntero guardado puede acabar conteniendo OTRO fotograma sin dejar rastro. */
+function raEsSuTex(t,tex){ const e=_ra.get(_raFrame(t)); return !!(e&&e.tex===tex&&e.gen===_raGen); }
 function raGet(t){ if(!_raOn)return null; const e=_ra.get(_raFrame(t)); if(e&&e.gen===_raGen){ e.last=++_raClock; return e.tex; } return null; }
 function raStore(t){ if(!_raOn)return; if(anyFeedbackFx())return; const F=_raFrame(t); const ex=_ra.get(F); if(ex&&ex.gen===_raGen){ex.last=++_raClock;return;} // feedback (Trails) is path-dependent → never cache, else scrubbing bakes temporally-wrong echoes
   if(!_raFBO)_raFBO=gl.createFramebuffer();
@@ -1772,13 +1775,22 @@ function _renderNucleo(){ if(glLost)return;
      otro tamaño de lienzo. El composite del máster no depende de la vista — sólo del cabezal —, así que
      recomponerlo una segunda vez por fotograma (prepNests + los N clips) sería trabajo tirado: se reutiliza el
      que acaba de dejar el render del editor. */
-  if(_reuseComp && _lastSrcTex){ _srcTex=_lastSrcTex; }
+  /* [R332] …pero la reutilización se COMPRUEBA. `_lastSrcTex` puede venir del adelanto, y el adelanto RECICLA
+     texturas por un pool: basta con que el trabajo de fondo (`raIdleTick`) rellene otros fotogramas — con el
+     cabezal parado, sin tocar nada — para que esa misma textura pase a contener OTRO instante. El visor
+     emergente estampaba entonces un fotograma de otro tiempo, y el repintado de restauración de la línea 2016
+     lo estampaba también EN EL EDITOR. Se exige: mismo fotograma, misma generación y —si salió del adelanto—
+     que la caché siga guardándola para ese instante. Si algo no cuadra se recompone, que es lo correcto y
+     ocurre pocas veces: lo normal es que el visor repinte justo después del editor y en el mismo cabezal. */
+  const _fAhora=_raFrame(state.playhead);
+  if(_reuseComp && _lastSrcTex && _lastSrcF===_fAhora && _lastSrcGen===_raGen
+     && (_lastSrcTex===compTex || raEsSuTex(state.playhead,_lastSrcTex))){ _srcTex=_lastSrcTex; }
   else { const _raHit=raGet(state.playhead);
     if(_raHit){ _srcTex=_raHit; }
     else { prepNests(state.clips,state.playhead,0);
       gl.bindFramebuffer(gl.FRAMEBUFFER,compFBO); composite(state.playhead,null,false,true); gl.bindFramebuffer(gl.FRAMEBUFFER,null);
       raStore(state.playhead); } }
-  _lastSrcTex=_srcTex;
+  _lastSrcTex=_srcTex; _lastSrcF=_fAhora; _lastSrcGen=_raGen;
   // [archivado 20260725] acá iba el grade máster del composite final → _backup/deprecated/20260725-master-grade-engine.js
   const W=glc.width,H=glc.height;
   if(state.view.mode==='3d' && isRoom()){ renderRoom3D(_srcTex); }
@@ -1867,7 +1879,7 @@ let _vThree='orbit', _vGrid=false, _vOverlay=false, _vFloor=true; // toggles pro
 let _vVp={};
 function vVpState(surf){ const k=surf||'_'; if(!_vVp[k])_vVp[k]={pan:[0,0],zoom:0.94}; return _vVp[k]; }
 let _vDirty=false, _vRaf=0, _vPaint=false, _vBusy=false, _vBarSig='', _viewerBar=null;
-let _reuseComp=false, _lastSrcTex=null;
+let _reuseComp=false, _lastSrcTex=null, _lastSrcF=-1, _lastSrcGen=-1; // [R332] el fotograma y la generación que contiene `_lastSrcTex`: sin ellos reutilizarla era un acto de fe
 function viewerOpen(){ return !!(_viewerWin && !_viewerWin.closed && _viewerCtx); }
 function vDirty(){ _vDirty=true; }
 /* una secuencia 2D plana no TIENE vista 3D (el editor tampoco muestra el botón): ahí no hay complementaria posible */
@@ -1955,8 +1967,13 @@ function viewerBuildDoc(w){
         const fu=anchor(); st.zoom=Math.max(0.2,Math.min(12,st.zoom*Math.exp(-ev.deltaY*0.0015))); sync();
         const af=anchor(); st.pan=[st.pan[0]+fu[0]-af[0], st.pan[1]+fu[1]-af[1]]; sync(); });
       vDirty(); },{passive:false});
-    w.addEventListener('resize',()=>vDirty());
-    w.addEventListener('beforeunload',()=>viewerClosed());
+    /* [R332] Estos dos van sobre la VENTANA, que sobrevive al `innerHTML=''` de más arriba — al contrario que
+       los del lienzo y la barra, que mueren con ellos. Cada auto-sanado añadía otro par, y el auto-sanado puede
+       dispararse en CADA fotograma si el documento se sustituye por debajo: cientos de `viewerClosed()` por un
+       solo cierre y una lista de oyentes que no para de crecer. Se instalan una vez por ventana. */
+    if(!w._ispVwHooks){ w._ispVwHooks=1;
+      w.addEventListener('resize',()=>vDirty());
+      w.addEventListener('beforeunload',()=>viewerClosed()); }
     _vDirty=true; return true;
   }catch(e){ return false; } }
 /* [R231] Ejecuta `fn` con el viewport, el modo y el encuadre de la VENTANA solo-visor puestos, y lo deja todo
@@ -12539,8 +12556,18 @@ function _soltarRecursosClips(ids){
   if(!ids||!ids.length)return; const set=new Set(ids);
   if(state.autoSel&&set.has(state.autoSel.cid))state.autoSel=null;
   for(const _id of ids){ try{freeFxHistFor(_id);}catch(e){} }              // búferes de realimentación de FX, por clip
-  const barrer=arr=>{ if(Array.isArray(arr))for(const c of arr)if(set.has(c.id)&&c.maskTex){try{gl.deleteTexture(c.maskTex);}catch(e){}} };
-  barrer(state.clips); for(const sm of state.media)if(isSeqMedia(sm))barrer(sm.nestClips); }
+  /* [R332] `_curveTex` es una textura GL viva (la rampa de las curvas de color, ver `clipCurveTex`) y nunca
+     pasaba por `deleteTexture`: una fuga pequeña pero sistemática, una por clip con curvas borrado. Va aquí,
+     con `maskTex`, porque este es EL punto por el que salen los clips — no en cada sitio que borra. */
+  const barrer=arr=>{ if(Array.isArray(arr))for(const c of arr)if(set.has(c.id)){
+    if(c.maskTex){try{gl.deleteTexture(c.maskTex);}catch(e){} c.maskTex=null;}
+    if(c._curveTex){try{gl.deleteTexture(c._curveTex);}catch(e){} c._curveTex=null; c._curveDirty=true;} } };
+  barrer(state.clips); for(const sm of state.media)if(isSeqMedia(sm))barrer(sm.nestClips);
+  /* [R332] Si se va el clip que alimenta los FX reactivos, la caché de bandas se queda AGARRADA a él: `_arCache
+     .clip` es el objeto, no un id, así que seguía vivo y todos sus consumidores (`bandLevelAt`, `fxTrigEnv`,
+     `specColAt`…) leían el `start`/`dur` de un clip que ya no está en la línea de tiempo: los efectos seguían
+     reaccionando a una canción borrada. `arRecompute` no encuentra fuente y deja la caché en null. */
+  if(_arCache&&_arCache.clip&&set.has(_arCache.clip.id)){ _arCache=null; try{arRecompute();}catch(e){} } }
 function _quitarClips(ids){
   if(!ids||!ids.length)return;
   _soltarRecursosClips(ids);

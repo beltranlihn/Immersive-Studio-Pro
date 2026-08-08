@@ -1,5 +1,30 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 332 — El visor emergente estampaba fotogramas de otro tiempo
+
+- **La reutilización del composite era un acto de fe.** El visor emergente repinta por el MISMO `render()` con
+  `_reuseComp`, reutilizando `_lastSrcTex` para no recomponer el máster dos veces por fotograma. Pero ese puntero
+  puede venir del **adelanto**, y el adelanto **recicla texturas por un pool**: basta con que el cabezal se mueva
+  entre el render del editor y el del visor — pasa en cada reproducción, son dos `requestAnimationFrame`
+  distintos — o con que el trabajo de fondo rellene otros fotogramas con el cabezal parado, para que esa misma
+  textura contenga OTRO instante. Y como al terminar se repinta el editor con la misma bandera, el fotograma
+  equivocado se estampaba **también en el editor**. Ahora se exige: mismo fotograma, misma generación y, si salió
+  del adelanto, que la caché siga guardándola para ese instante (`raEsSuTex`). Si algo no cuadra, se recompone.
+  Medido **por píxeles**: rojo en el segundo 0,5, y tras mover el cabezal al 1,5 el repintado da verde.
+  Con su control: con el cabezal quieto se sigue reutilizando, que es para lo que existe la bandera.
+- **Los oyentes de la ventana emergente se acumulaban.** `resize` y `beforeunload` van sobre la VENTANA, que
+  sobrevive al `innerHTML=''` del auto-sanado — al contrario que los del lienzo y la barra, que mueren con ellos.
+  Cada remontaje añadía otro par, y el remontaje puede dispararse **en cada fotograma** si el documento se
+  sustituye por debajo (la carrera de Chromium que documenta `viewerBuildDoc`). Se instalan una vez por ventana.
+- **`c._curveTex` nunca se soltaba**: una textura GL por clip con curvas de color, fuga pequeña y sistemática.
+- **`_arCache.clip` retenía el clip borrado.** Guarda el OBJETO, no un id: al borrar la canción que alimenta los
+  FX reactivos, `bandLevelAt`, `fxTrigEnv` y compañía seguían leyendo el `start`/`dur` de un clip que ya no está
+  en la línea de tiempo. Los dos van a `_soltarRecursosClips`, que es **el** punto por el que salen los clips —
+  no a cada sitio que borra.
+
+**Verificación:** `scratchpad/r332-verif.mjs` (cinco casos, dos controles). **Doce redes en verde.**
+
+
 ## ROUND 331 — NV12 sesgado, timecode que no cuadra y fundidos desordenados
 
 - **El empaquetado NV12 perdía columnas Y sesgaba la imagen.** `oW=W>>2` redondea hacia abajo: con un ancho que no
