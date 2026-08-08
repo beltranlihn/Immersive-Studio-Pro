@@ -8550,11 +8550,23 @@ async function exportAudioMix(t0,endT){ if(typeof OfflineAudioContext==='undefin
     const when=Math.max(0,ev.start-t0), off=Math.max(0,ev.off), len=Math.min(ev.dur*rate,(ev.buffer.duration-off)); if(len<=0)continue;
     const fi=ev.fadeIn||0, fo=Math.min(ev.fadeOut||0,ev.dur), vol=Math.max(0.0001,(ev.vol!=null?ev.vol:1)); // per-clip volume baked into the export mix
     const span=(ev.loopLen>0)?ev.dur:Math.min(ev.dur,len/rate); // [R92-T6] span is WALL-CLOCK output seconds — `len` is SOURCE seconds, so with speed≠1 the fade-out used to land at the wrong output time (diverging from the preview)
-    if(fi>0){ gain.gain.setValueAtTime(0.0001,when); gain.gain.exponentialRampToValueAtTime(vol,when+Math.min(span,fi)); } else gain.gain.setValueAtTime(vol,when); // [R92-T2 F13] exponential like startAudio — a long fade used to sound different in the exported MP4 than in the monitor
-    if(fo>0){ gain.gain.setValueAtTime(vol,Math.max(when,when+span-fo)); gain.gain.exponentialRampToValueAtTime(0.0001,when+span); }
+    programarFundidos(gain,when,span,fi,fo,vol);
     if(ev.loopLen>0){ src.loop=true; src.loopStart=ev.loopS; src.loopEnd=Math.min(ev.buffer.duration,ev.loopS+ev.loopLen); const w=ev.loopS+(((off-ev.loopS)%ev.loopLen)+ev.loopLen)%ev.loopLen; try{ src.start(when,Math.min(w,ev.buffer.duration)); src.stop(when+ev.dur); }catch(e){} } // R81 looping audio in the export mix
     else { try{ src.start(when,off,len); }catch(e){} } }
   try{ return await octx.startRendering(); }catch(e){ console.warn('audio mix',e); return null; } }
+/* [R331] Los dos fundidos de un evento de la mezcla de export, con sus eventos EN ORDEN.
+   La salida no puede empezar antes de que termine la entrada: con los dos fundidos largos sobre un clip corto
+   (fi+fo > duración) el `setValueAtTime(vol, …)` de la salida caía ANTES del final de la rampa de entrada, así
+   que el fundido de entrada se cortaba de golpe a volumen pleno y sonaba un chasquido. La previsualización ya lo
+   clampaba (ver `startAudio`: `Math.max(ctxStart+fi, ctxEnd-fo)`) — el export era el gemelo olvidado, y por eso
+   el mismo proyecto sonaba distinto en el monitor y en el archivo entregado. Exponencial como `startAudio`
+   [R92-T2 F13]: con rampa lineal un fundido largo sonaba distinto en el MP4 que en el monitor. */
+function programarFundidos(gain,ini,dur,fi,fo,vol){
+  const finEntrada=(fi>0)?(ini+Math.min(dur,fi)):ini;
+  if(fi>0){ gain.gain.setValueAtTime(0.0001,ini); gain.gain.exponentialRampToValueAtTime(vol,finEntrada); }
+  else gain.gain.setValueAtTime(vol,ini);
+  if(fo>0){ const iniSal=Math.max(ini,finEntrada,ini+dur-fo), finSal=Math.max(iniSal+0.001,ini+dur);
+    gain.gain.setValueAtTime(vol,iniSal); gain.gain.exponentialRampToValueAtTime(0.0001,finSal); } }
 async function muxAudioAAC(mux,buf){ if(typeof AudioEncoder==='undefined')return false; const sr=buf.sampleRate,ch=buf.numberOfChannels,n=buf.length; let err=null,sup;
   try{ sup=await AudioEncoder.isConfigSupported({codec:'mp4a.40.2',sampleRate:sr,numberOfChannels:ch,bitrate:192000}); }catch(e){ return false; }
   if(!sup||!sup.supported)return false;
@@ -8653,10 +8665,15 @@ function chapaLienzo(glc,opt,t,i,total,fps){
      [R292] `d.sinContador` los omite. Lo usa la ruta de FFmpeg para hornear TODO LO DEMAS una sola vez por
      export: si se rehiciera la chapa entera cada fotograma habria que subir 64 MB de lienzo a la GPU cada vez,
      que es exactamente el coste que NV12 vino a quitar. */
-  if(!d.sinContador)chapaBloque(cx2,[T('Frames: ','Fotogramas: ')+(i+1)+'F', T('Timecode: ','Timecode: ')+chapaTC(i,fps)],pxChico,1,1,W,H,margen);
+  if(!d.sinContador)chapaBloque(cx2,[T('Frames: ','Fotogramas: ')+(i+1)+'F', T('Timecode: ','Timecode: ')+chapaTC(Math.round((t||0)*(fps||30)),fps)],pxChico,1,1,W,H,margen);
   return _chapaCv; }
 /* Timecode contado en FOTOGRAMAS del export, no en segundos de reloj: si se cuenta en segundos y los fps del
-   export no son los de la secuencia, el rótulo miente justo cuando más falta hace que no mienta. */
+   export no son los de la secuencia, el rótulo miente justo cuando más falta hace que no mienta.
+   [R331] …y contado desde el ORIGEN DE LA SECUENCIA, no desde el principio del export. Con marcas de entrada y
+   salida puestas —que es como se saca cualquier revisión parcial— el rótulo empezaba en 00:00:00 aunque el
+   tramo arrancara en el minuto tres, así que no servía para lo único que sirve un timecode horneado: señalar un
+   fotograma por teléfono. Se pasa el tiempo absoluto `t`, que todos los que lo pintan ya tenían a mano.
+   «Frames: N» sigue siendo el contador del export (1..total): es el avance del render, no una posición. */
 function chapaTC(i,fps){ const f=Math.max(1,Math.round(fps||30));
   const tot=Math.max(0,Math.round(i)), ff=tot%f, ss=Math.floor(tot/f)%60, mm=Math.floor(tot/(f*60))%60, hh=Math.floor(tot/(f*3600));
   const dd=n=>String(n).padStart(2,'0');
@@ -8665,14 +8682,14 @@ function chapaTC(i,fps){ const f=Math.max(1,Math.round(fps||30));
    asi se sube un bloque de unos 100 KB por fotograma en vez de los 64 MB del lienzo entero. Devuelve tambien
    donde va colocado, en pixeles del master, para que el shader lo situe. */
 let _chapaCont=null;
-function chapaContador(W,H,i,fps){
+function chapaContador(W,H,i,fps,t){
   const cw=Math.max(64,Math.round(W*0.30)), ch=Math.max(24,Math.round(W*0.055));
   if(!_chapaCont||_chapaCont.width!==cw||_chapaCont.height!==ch){ _chapaCont=document.createElement('canvas'); _chapaCont.width=cw; _chapaCont.height=ch; }
   const cx=_chapaCont.getContext('2d'); cx.clearRect(0,0,cw,ch);
   cx.fillStyle='#FFFFFF'; cx.textBaseline='top'; cx.textAlign='right';
   const px=W*0.017, alto=px*1.32;
   cx.font=chapaFuente(px,400);
-  const L=[T('Frames: ','Fotogramas: ')+(i+1)+'F', T('Timecode: ','Timecode: ')+chapaTC(i,fps)];
+  const L=[T('Frames: ','Fotogramas: ')+(i+1)+'F', T('Timecode: ','Timecode: ')+chapaTC(Math.round((t||0)*(fps||30)),fps)];
   for(let k=0;k<L.length;k++)cx.fillText(L[k],cw-2,ch-alto*(L.length-k)+(alto-px)/2);
   const margen=Math.round(W*0.022);
   return { cv:_chapaCont, x:W-margen-cw, y:H-margen-ch, w:cw, h:ch }; }
@@ -8872,13 +8889,24 @@ let _nv12=null;
 /* ¿Cabe el FBO que hace falta? A 4096² son 1024×6144. Aquí sobra, pero se sondea: si una GPU no lo admite, el
    export tiene que poder caer al camino RGBA en vez de fallar. */
 function nv12Cabe(W,H){ try{
-  const need=Math.max(W/4, H+H/2);
+  const need=Math.max((W+3)>>2, H+(H>>1)); // [R331] el empaquetado redondea hacia arriba: la sonda tiene que medir lo mismo que se reserva
   return need<=Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE)||0, gl.getParameter(gl.MAX_RENDERBUFFER_SIZE)||0);
 }catch(e){ return false; } }
+let _nv12Prog=null,_nv12Vacia=null; // [R331] lo reutilizable, guardado FUERA del descriptor: ver abajo
 function nv12Prep(W,H){
   if(_nv12&&_nv12.W===W&&_nv12.H===H)return _nv12;
-  if(_nv12){ try{ gl.deleteFramebuffer(_nv12.fbo); gl.deleteTexture(_nv12.tex); }catch(e){} }
-  const oW=W>>2, oH=H+(H>>1);
+  /* [R331] Al cambiar de tamaño se borraban el FBO y la textura viejos, pero si el FBO nuevo no llegaba a
+     completarse se devolvía `null` DEJANDO `_nv12` apuntando a los recursos ya borrados. La siguiente llamada con
+     el tamaño anterior entraba por el atajo de la primera línea y devolvía un FBO destruido: `INVALID_OPERATION`
+     y fotogramas negros durante todo el export, sin un solo error visible. El programa y la textura vacía —lo
+     único que no depende del tamaño— viven aparte, así que soltar el descriptor no cuesta recompilar. */
+  if(_nv12){ _nv12Prog=_nv12.prog||_nv12Prog; _nv12Vacia=_nv12.vacia||_nv12Vacia;
+    try{ gl.deleteFramebuffer(_nv12.fbo); gl.deleteTexture(_nv12.tex); }catch(e){} _nv12=null; }
+  /* [R331] `W>>2` REDONDEABA HACIA ABAJO. Con un ancho que no fuera múltiplo de 4 —y los muros de una sala se
+     miden en píxeles a mano, así que es de lo más normal— cada fila del empaquetado perdía las últimas 1-3
+     columnas Y quedaba más corta que la fila NV12 que espera el codificador: la imagen entera salia sesgada en
+     diagonal, no sólo recortada. Se empaqueta redondeando hacia ARRIBA y `nv12Read` compacta las filas. */
+  const oW=(W+3)>>2, oH=H+(H>>1);
   const tex=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,tex);
   gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,oW,oH,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);
@@ -8888,12 +8916,16 @@ function nv12Prep(W,H){
   const ok=gl.checkFramebufferStatus(gl.FRAMEBUFFER)===gl.FRAMEBUFFER_COMPLETE;
   gl.bindFramebuffer(gl.FRAMEBUFFER,null);
   if(!ok){ try{ gl.deleteFramebuffer(fbo); gl.deleteTexture(tex); }catch(e){} return null; }
-  const vacia=(_nv12&&_nv12.vacia)||(()=>{ const tv=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,tv);
+  const vacia=_nv12Vacia||(()=>{ const tv=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,tv);
     gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,1,1,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array([0,0,0,0]));
     gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
     return tv; })();
-  _nv12={ prog:(_nv12&&_nv12.prog)||prog(VSQ_NV12,FSNV12), fbo, tex, W, H, oW, oH, vacia,
-          buf:new Uint8Array(W*H*3/2) };
+  _nv12Vacia=vacia; _nv12Prog=_nv12Prog||prog(VSQ_NV12,FSNV12);
+  /* `W*oH` y no `W*H*3/2`: son el mismo número con H par, pero con H impar el segundo es fraccionario y
+     `new Uint8Array` de una longitud fraccionaria lanza RangeError. Aquí cuenta FILAS, que es lo que se escribe. */
+  const relleno=(oW*4!==W); // el empaquetado lleva columnas de sobra: hay que compactar al leer
+  _nv12={ prog:_nv12Prog, fbo, tex, W, H, oW, oH, vacia, relleno,
+          buf:new Uint8Array(W*oH), pad:relleno?new Uint8Array(oW*4*oH):null };
   return _nv12; }
 /* Devuelve el búfer NV12 del contenido de `srcTex`. El búfer se REUTILIZA entre fotogramas a propósito:
    reservar 24 MB por fotograma haría trabajar al recolector justo durante el export. */
@@ -8927,7 +8959,10 @@ function nv12Read(srcTex,W,H,disco,chapa){
      Con TRIANGLE_STRIP,0,4 se dibujaba uno y medio y el resto del FBO quedaba con basura — se veia como una
      cuna diagonal verde, y el PSNR se hundia a 11 dB. */
   gl.bindVertexArray(quadVAO); gl.drawArrays(gl.TRIANGLES,0,6);
-  gl.readPixels(0,0,N.oW,N.oH,gl.RGBA,gl.UNSIGNED_BYTE,N.buf);
+  if(N.relleno){ /* [R331] ancho no múltiplo de 4: se lee el empaquetado con sus columnas de sobra y se compacta fila a fila. NV12 son `oH` filas de `W` bytes seguidas (Y arriba, UV entrelazado debajo), así que la compactación es la misma para los dos planos. Con ancho alineado —el caso normal— no se copia nada: se lee directo al búfer final. */
+    gl.readPixels(0,0,N.oW,N.oH,gl.RGBA,gl.UNSIGNED_BYTE,N.pad);
+    const paso=N.oW*4; for(let y=0;y<N.oH;y++) N.buf.set(N.pad.subarray(y*paso,y*paso+N.W), y*N.W); }
+  else gl.readPixels(0,0,N.oW,N.oH,gl.RGBA,gl.UNSIGNED_BYTE,N.buf);
   gl.bindFramebuffer(gl.FRAMEBUFFER,null);
   if(_blendPrev){ gl.enable(gl.BLEND); NORMAL_BLEND(); }   // [R301c] devuelto como estaba
   return N.buf; }
@@ -9233,7 +9268,7 @@ async function runExport(opt){
           if(cancelExport)break;
           const t=t0+i/fps; await seekExport(t); prepNests(state.clips,t,0);
           pintarFotograma(t,eW);   /* [R314 · unificado en R320] ver `pintarFotograma`: el reloj de los FX reactivos */
-          if(chapa){ const c=chapaContador(eW,eH,i,fps);
+          if(chapa){ const c=chapaContador(eW,eH,i,fps,t);
             chapa.cont=chapa.subir(c.cv,chapa.cont); chapa.x=c.x; chapa.y=c.y; chapa.w=c.w; chapa.h=c.h; }
           const buf=nv12Read(exLienzoATex(eW,eH),eW,eH,esDome,chapa);   /* [R310·A2] el LIENZO recien dibujado, no `compTex` — ver exLienzoATex */
           if(!buf)throw new Error('nv12Read');

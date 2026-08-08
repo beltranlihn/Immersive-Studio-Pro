@@ -1,5 +1,33 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 331 — NV12 sesgado, timecode que no cuadra y fundidos desordenados
+
+- **El empaquetado NV12 perdía columnas Y sesgaba la imagen.** `oW=W>>2` redondea hacia abajo: con un ancho que no
+  fuera múltiplo de 4 —y los **muros de una sala se miden en píxeles a mano**, así que es de lo más normal— cada
+  fila del empaquetado se quedaba 1-3 columnas corta. No es sólo un recorte: la fila NV12 que espera el
+  codificador mide `W` bytes, así que **cada fila se desplazaba un poco más que la anterior** y el fotograma salía
+  inclinado en diagonal. Ahora redondea hacia arriba y `nv12Read` compacta fila a fila; con ancho alineado —el
+  caso normal— **no se copia nada**, se lee directo al búfer final. Medido con un borde vertical a 1918 px: las
+  ocho filas dan la misma columna.
+- **Un fallo al cambiar de tamaño dejaba el descriptor apuntando a recursos borrados.** `nv12Prep` borra el FBO y
+  la textura viejos y, si el nuevo no llegaba a completarse, devolvía `null` **sin soltar `_nv12`**: la siguiente
+  llamada con el tamaño anterior entraba por el atajo de la primera línea y devolvía un FBO destruido. Todo el
+  export en negro y ni un solo error visible. El programa y la textura vacía viven ahora fuera del descriptor, así
+  que soltarlo no cuesta recompilar.
+- **El timecode horneado empezaba en cero aunque el tramo no.** Con marcas de entrada y salida puestas —que es
+  como se saca cualquier revisión parcial— la chapa marcaba 00:00:00 en un tramo que arranca en el minuto tres:
+  no servía para lo único que sirve un timecode horneado, que es señalar un fotograma por teléfono. Se cuenta
+  desde el origen de la secuencia. «Frames: N» se queda como está: es el avance del render, no una posición.
+- **Dos fundidos largos sobre un clip corto desordenaban los eventos de ganancia** del export: con `fi+fo` mayor
+  que la duración, el `setValueAtTime` de la salida caía **antes** del final de la rampa de entrada, y la entrada
+  se cortaba de golpe a volumen pleno — un chasquido. La previsualización ya lo clampaba; el export era el gemelo
+  olvidado, y por eso el mismo proyecto sonaba distinto en el monitor y en el archivo entregado. La programación
+  se ha extraído a `programarFundidos()` — un concepto con nombre, y además medible.
+
+**Verificación:** `scratchpad/r331-verif.mjs` (cinco casos; el de ancho alineado y el del caso normal de fundidos
+son controles de no-regresión). **Once redes en verde.**
+
+
 ## ROUND 330 — El contexto de la secuencia que se compone
 
 Los cuatro del grupo render/compositor comparten causa: **datos que describen «qué secuencia estoy componiendo»

@@ -26,6 +26,7 @@ const REDES = [
   ['r328-verif.mjs',   'deshacer muerto y Shape Box huerfana'],
   ['r329-verif.mjs',   'copias enlazadas, Mix que viaja y una sola lista de lo que se ve'],
   ['r330-verif.mjs',   'cada secuencia se compone con SU contexto, y el decodificador sigue a la fuente'],
+  ['r331-verif.mjs',   'NV12 sin sesgo, timecode de secuencia y fundidos en orden'],
 ];
 
 /* Sin app levantada no se distingue «rojo» de «no medido», y esa confusión es justo la que hace inútil una red. */
