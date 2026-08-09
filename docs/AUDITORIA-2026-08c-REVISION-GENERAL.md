@@ -468,6 +468,10 @@ Lo que sigue REALMENTE abierto, verificado a R337:
   que no) · salto atras con un vecino ≤2 fotogramas en cache: ni el reinicio ni la rama de atasco de R256
   disparan, y el export se come 10 s muertos antes de marcar `_cdFail` y degradar el medio entero.
   **No se tocan a ciegas:** hacen falta un MP4 con edit list y otro de GOP largo para medir antes y despues.
+- **Verificados en R338 y CERRADOS tambien:** el monitor con marcas invertidas (13400) — `srcRange` ya trata
+  «marcas cruzadas o pegadas» como si no hubiera marcas (`if(b-a<0.04)return null`) · el muro de ancho 0 (1092)
+  — el campo del launcher tiene minimo 16 px (`lchNum('w'+i+'pxW',w.pxW,16,16384,…)`), asi que no se alcanza
+  desde la interfaz; solo con un `.isp` editado a mano.
 - **Sin verificar todavia** (la lista los da por abiertos pero no se ha leido su codigo): el horneado de cache de
   nest y las esquinas del cuadrado en domo (8783) · dos entradas Spout compartiendo conexion (2114) · dedup de
   import por nombre+tamanyo (2596, solo afecta al camino de navegador: en Electron la clave es la ruta absoluta)
