@@ -198,12 +198,12 @@
 > con 4 capas sin proxy frente a 8 ms con proxy; la auditoría llegó a la causa: los clips de masterización tienen
 > **GOP de 250 fotogramas** (medido con ffprobe sobre `Neuro1_7196.mp4`), así que un seek exacto decodifica hasta
 > 250 fotogramas de 6,5 Mpx. No es «optimizar»: es el coste de la exactitud sobre un GOP largo.
-- [ ] **Previsualización al fotograma clave más cercano mientras se arrastra**, y seek exacto al soltar (lo que
-      hacen Resolve y Premiere en modo rápido). Decodificar 1 fotograma en vez de ≤250 → estimado **~10-40 ms por
-      muestra, 30-100× mejor**, a cambio de una imagen «a saltos de 4 s» sólo durante el arrastre. Toca
-      `vinstSeek` y el camino de scrub en caliente → **ronda propia con verificación aparte**, no se coló en R242
-      junto a los arreglos de integridad a propósito. Medir con `scratchpad/r241-medir.mjs`; objetivo: mediana
-      <50 ms sin proxy.
+- [x] ~~**Previsualización al fotograma clave más cercano mientras se arrastra**, y seek exacto al soltar.~~
+      **HECHO en R243** (`_scrubFast`, `kfTimes`/`snapKf`/`kfWorthIt`, con red de seguridad ante
+      pointerup/pointercancel/blur). Medido sobre el `.exe`/RTX con material real: 4 capas de 7196×912 pasan de
+      **1139 a 130 ms** de mediana, una capa de 178 a 16 ms. La estimación de 30-100× que decía esta línea salió
+      **9-11×** — corregida en su día en el informe y en `PLAN.md`.
+      _[R344c] Esta casilla llevaba abierta desde entonces por descuido; se tacha al releer la cola._
 - [x] ~~Opcional, complementaria: encender el caché de scrub-ahead (`_raOn`) por defecto con medios pesados~~ —
       **descartado con medida en [R258]**: no ahorra nada porque el composite es <1 ms de 1432. Detalle arriba.
 > **[R242] Ya hecho de esta zona:** el aviso al importar material pesado («clic derecho → Generar proxy»), que era
