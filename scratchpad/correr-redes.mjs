@@ -51,6 +51,11 @@ const REDES = [
      la unica que mide un EXPORT COMPLETO de un bucle al final del archivo, o sea el caso en que `passed()`
      puede dar por cerrado el archivo y devolver el vecino. Tarda ~20 s. */
   ['r261-finarchivo.mjs',         'un bucle pegado al final del archivo no escribe fotogramas equivocados'],
+  /* [R345] Las dos que la auditoria 2026-08-06 dejo marcadas como NO CONFIRMADAS. La de ids cazo un hueco real
+     (el barrido legacy no contaba grupos ni marcadores de dentro de una secuencia); la de la caja de forma
+     confirmo que la guarda de R328 cubre los cinco caminos. Ninguna necesita material externo. */
+  ['r345-ids-legacy.mjs',         'uid() reparte por encima de todo lo que trae el proyecto, tambien en legacy'],
+  ['r345-shapebox.mjs',           'la caja de forma no actua sobre puntos que ya no existen'],
 ];
 
 /* Sin app levantada no se distingue «rojo» de «no medido», y esa confusión es justo la que hace inútil una red. */

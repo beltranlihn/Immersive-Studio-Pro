@@ -55,6 +55,17 @@
 > **Lección para la próxima:** arreglar una avería puede ACTIVAR el fallo que la avería tapaba. Al cerrar algo,
 > releer qué decía esta cola sobre lo que tenía al lado — aquí el aviso llevaba tres rondas escrito.
 
+## ✅ Cerrado — las dos «no confirmadas» de la auditoría 2026-08-06 · 2026-08-09 · [R345]
+- [x] ~~**¿Se mezclan los ids de efectos entre clips?**~~ **No.** Las siete búsquedas por id están acotadas al
+      clip y nada concatena arrays de `fx`. Pero al lado había un hueco real: la re-siembra de `uid()` al abrir
+      estaba escrita DOS veces y la copia del camino legacy no contaba `nestMarkers` ni `nestGroups` → el
+      siguiente `uid()` repetía el id de un grupo. Arreglado con `maxIdEnMedio()`, una función y dos llamadas.
+      Red: `scratchpad/r345-ids-legacy.mjs`.
+- [x] ~~**¿Puede la caja de forma apuntar a algo inexistente?**~~ **No.** La guarda de R328 (`shapeBoxVivo`,
+      que valida al USARSE en vez de cerrarla en los cinco sitios que borran puntos) cubre los cinco caminos:
+      se cierra sola, sin lanzar y sin tocar la curva. Con control que exige lo contrario.
+      Red: `scratchpad/r345-shapebox.mjs`.
+
 ## 🔭 Abierto — el repliegue `<video>` del export no es fiable al fotograma (visto en R256)
 - [ ] Al medir R256 se comparó la salida del camino `<video>` **contra sí misma** y falla: de 48 parejas que deben
       repetirse, **8 no lo hacen**, a 34-51 dB (un fotograma vecino, no redondeo), y cambian de pasada en pasada.

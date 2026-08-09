@@ -1,5 +1,42 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 345 — Las dos «no confirmadas» de la auditoría 2026-08-06
+
+Eran lo único que aquella auditoría dejó abierto: *«si los ids de efectos podrían mezclarse entre clips por
+alguna ruta que no encontró, y si la caja de forma podría quedar apuntando a algo inexistente»*. Medidas las dos.
+
+- **Los ids de efecto están bien, pero al lado había un hueco de verdad.** Las siete búsquedas de un efecto por
+  id están TODAS acotadas al clip (`(c.fx||[]).find(...)`), ningún camino concatena arrays de `fx` —`pasteAttrs`
+  reemplaza el array entero— y compartir un id entre clips distintos es inocuo porque nadie busca fuera del
+  clip. Lo que sí falla es la **re-siembra de `uid()` al abrir**: es un contador plano (`let _id=1`), así que al
+  cargar hay que dejarlo por encima del id más alto del archivo. Ese barrido estaba escrito DOS veces —el
+  general y el del camino legacy (`obj.sequences`)— y las copias habían divergido: **la legacy no miraba
+  `nestMarkers` ni `nestGroups`**, y como los medios de secuencia de ese camino se crean DESPUÉS del barrido
+  general, esos ids no los contaba nadie.
+  **MEDIDO** (`r345-ids-legacy.mjs`): un `.ise`/`.rdome` cuyo último objeto creado fuera un grupo o un marcador
+  dentro de una secuencia —lo normal si agrupas unos clips y guardas— hacía que **el siguiente `uid()`
+  devolviera exactamente ese id**. Y dos grupos con el mismo id no es cosmético: `groupId` empareja clip y
+  grupo, y R278 ya midió que un miembro con `slot` fuera de rango **se elimina en silencio** al siguiente
+  re-layout. Arreglado con `maxIdEnMedio(m)`: **una función y dos llamadas**, porque tener el barrido copiado es
+  exactamente lo que produjo la divergencia. Verificado: antes repartía 12 con un marcador 12 vivo; ahora 14.
+
+- **La caja de forma está sana, y ahora medido.** R328 decidió no cerrarla en cada sitio que borra puntos —eran
+  cinco y el sexto se olvidaría— sino **comprobarla al usarse** (`shapeBoxVivo`). Probados los cinco caminos
+  (borrar el clip, limpiar la curva, reemplazar los objetos keyframe como hace deshacer, borrar parte de los
+  puntos, recargar la secuencia): en todos se cierra sola al usarla, sin lanzar y **sin tocar la curva**.
+  Con **CONTROL** que exige lo contrario —todo sano: la caja sigue viva y la curva SÍ se mueve—, porque una
+  prueba en la que el caso sano y el roto dan lo mismo no distingue nada.
+
+**Una trampa propia, anotada porque casi cuela:** la primera versión de la sonda de la caja juzgaba «¿sigue en
+`state` después de borrar?» y cantó cuatro fallos. Pero la caja es DELIBERADAMENTE perezosa: se valida al usarse,
+no al borrar. Estaba midiendo la premisa en vez de la conclusión — el mismo error que R342. Y la primera versión
+de la sonda de ids puso el id del efecto por encima del grupo, y como los `fx` sí se barren, salía limpia por el
+motivo equivocado.
+
+**Verificación:** `scratchpad/r345-ids-legacy.mjs` y `scratchpad/r345-shapebox.mjs`, las dos añadidas al
+lanzador. **28 redes en verde** y `npm test` 6/6.
+
+
 ## ROUND 344c — Quitar la avería destapó el peligro que la avería tapaba
 
 Al repasar qué quedaba abierto salió que el pendiente más viejo del decodificador —**«un bucle PEGADO AL FINAL

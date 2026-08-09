@@ -11883,6 +11883,25 @@ function loadProject(obj){ let ok=false;
     diag('error','proyecto','loadProject reventó a mitad');
   } }
 }
+/* [R345] El id más alto que hay DENTRO de un medio, en un solo sitio. `uid()` es un contador plano
+   (`let _id=1`), así que al abrir un proyecto hay que dejarlo por encima de todo lo que el archivo trae; si no,
+   el siguiente objeto que se cree repite un id que ya existe.
+   Estaba escrito DOS veces —una en el barrido general y otra en el del camino legacy (`obj.sequences`)— y las
+   dos copias habían divergido: la legacy no miraba `nestMarkers` ni `nestGroups`. Como los medios de secuencia
+   de ese camino se crean DESPUÉS del barrido general, esos ids no los contaba nadie. MEDIDO con
+   `scratchpad/r345-ids-legacy.mjs`: un `.ise` cuyo último objeto creado fuera un grupo o un marcador dentro de
+   una secuencia —lo normal si agrupas unos clips y guardas— hacía que el siguiente `uid()` devolviera
+   exactamente ese id. Dos grupos con el mismo id no es cosmético: `groupId` empareja clip y grupo, y R278 midió
+   que un miembro con `slot` fuera de rango se ELIMINA en silencio al siguiente re-layout.
+   Una función, dos llamadas: la copia no puede volver a quedarse atrás. */
+function maxIdEnMedio(m){ let x=m.id||0;
+  const fx=c=>{ if(c&&c.fx)for(const f of c.fx)x=Math.max(x,f.id||0); };
+  if(m.nestClips)for(const c of m.nestClips){ x=Math.max(x,c.id||0); fx(c); }
+  if(m.nestLanes)for(const l of m.nestLanes)x=Math.max(x,l.id||0);
+  if(m.nestMarkers)for(const k of m.nestMarkers)x=Math.max(x,k.id||0);
+  if(m.nestGroups)for(const g of m.nestGroups)x=Math.max(x,g.id||0);
+  if(m.comp&&m.comp.id)x=Math.max(x,m.comp.id);
+  return x; }
 function _loadProjectCore(obj){ relinkReset(); // [R204] el índice de reenlace es de ESTE proyecto: se tira al cargar otro
   resetProjDefaults(); // [R242·Aud-2.1] fábrica ANTES de leer `obj`: lo que el archivo no diga, no se hereda
   /* [R282] Los datos de esquina son de la OBRA, así que viajan en el .isp. `resetProjDefaults` acaba de
@@ -11918,7 +11937,7 @@ function _loadProjectCore(obj){ relinkReset(); // [R204] el índice de reenlace 
     for(const c of m.nestClips){ if(c.maskData||(c.penMasks&&c.penMasks.length))rebuildMaskTex(c); else if(c.props&&(c.props.mask==='custom'||c.props.mask==='pen'))c.props.mask='none'; } m.nestLanes=(m.nestLanes&&m.nestLanes.length)?m.nestLanes:defLanes(); m.nestMarkers=m.nestMarkers||[]; m.nestGroups=m.nestGroups||[]; m.fbo=null; m.tex=null; m.w=m.w||4096; m.h=m.h||4096; m.fps=m.fps||obj.fps||60; m.missing=false; m.ncReady=false; m.ncUrl=null; m.ncStale=false; } }
   for(const m of state.media) if(m.kind==='nest'&&m.ncPath) ncReattach(m); // [R180] los cachés de nest se re-enganchan al reabrir; la firma decide si siguen valiendo (va después del bucle: nestSig desciende a otros medios) // text/shape re-render from params; nest = a sequence (keeps its own w/h/fps)
   for(const m of state.media)if(m.missing===false)m._loading=false; // text/shape/ndi/nest are ready synchronously → not loading
-  let mx=0; const fxMx=c=>{ if(c&&c.fx)for(const f of c.fx)mx=Math.max(mx,f.id||0); }; for(const c of state.clips){mx=Math.max(mx,c.id);fxMx(c);} for(const l of state.lanes)mx=Math.max(mx,l.id); for(const m of state.media){ mx=Math.max(mx,m.id); if(m.nestClips)for(const c of m.nestClips){mx=Math.max(mx,c.id);fxMx(c);} if(m.nestLanes)for(const l of m.nestLanes)mx=Math.max(mx,l.id); if(m.nestMarkers)for(const k of m.nestMarkers)mx=Math.max(mx,k.id); if(m.nestGroups)for(const g of m.nestGroups)mx=Math.max(mx,g.id); if(m.comp&&m.comp.id)mx=Math.max(mx,m.comp.id); } for(const g of (state.groups||[]))mx=Math.max(mx,g.id); for(const k of state.markers)mx=Math.max(mx,k.id);
+  let mx=0; const fxMx=c=>{ if(c&&c.fx)for(const f of c.fx)mx=Math.max(mx,f.id||0); }; for(const c of state.clips){mx=Math.max(mx,c.id);fxMx(c);} for(const l of state.lanes)mx=Math.max(mx,l.id); for(const m of state.media)mx=Math.max(mx,maxIdEnMedio(m)); for(const g of (state.groups||[]))mx=Math.max(mx,g.id); for(const k of state.markers)mx=Math.max(mx,k.id); // [R345] `maxIdEnMedio` es el mismo barrido que usa el camino legacy: ver su nota
   /* [R311·A13] Los ids de la biblioteca de automatizacion tambien cuentan. No estaban: se crean con `uid()`
      igual que todo lo demas, pero un item puede SOBREVIVIR a los clips que lo usaban (se borran los clips, el
      item se queda en la biblioteca). Si esos clips llevaban los ids altos, `_id` quedaba por debajo del id del
@@ -11966,7 +11985,8 @@ function _loadProjectCore(obj){ relinkReset(); // [R204] el índice de reenlace 
   } else if(Array.isArray(obj.sequences)&&obj.sequences.length){ const ids=[]; let mx2=_id-1;
     for(const sq of obj.sequences){ const m=newSeqMedia(sq.name||'Sequence',obj.fps||60,obj.seqW||4096,obj.seqH||4096,(sq.clips||[]).map(c=>({...c,kf:c.kf||{},maskTex:null})),sq.lanes||defLanes());
       if(sq.id)m.id=sq.id; m.nestMarkers=sq.markers||[]; m.nestGroups=sq.groups||[]; m.nestPlayhead=sq.playhead||0; m.nestWorkIn=sq.workIn??null; m.nestWorkOut=sq.workOut??null;
-      for(const c of m.nestClips){ if((c.penMasks&&c.penMasks.length)||c.maskData)rebuildMaskTex(c); else if(c.props&&(c.props.mask==='custom'||c.props.mask==='pen'))c.props.mask='none'; mx2=Math.max(mx2,c.id); if(c.fx)for(const f of c.fx)mx2=Math.max(mx2,f.id||0); } for(const l of m.nestLanes)mx2=Math.max(mx2,l.id); mx2=Math.max(mx2,m.id);
+      for(const c of m.nestClips){ if((c.penMasks&&c.penMasks.length)||c.maskData)rebuildMaskTex(c); else if(c.props&&(c.props.mask==='custom'||c.props.mask==='pen'))c.props.mask='none'; }
+      mx2=Math.max(mx2,maxIdEnMedio(m)); // [R345] el MISMO barrido que el general: esta copia se habia quedado sin `nestMarkers` ni `nestGroups`
       state.media.push(m); ids.push(m.id); }
     _id=mx2+1; state.openSeqs=ids; state.activeSeqId=(obj.activeSeqId&&ids.includes(obj.activeSeqId))?obj.activeSeqId:ids[0]; loadSeqIntoState(activeSeq());
   } else { state.openSeqs=[]; state.activeSeqId=null; ensureSequences(); }
