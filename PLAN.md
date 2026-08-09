@@ -1,5 +1,26 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 341 — Activar el caché de un nido cambiaba la imagen
+
+- **El horneado del caché de un nido pasaba por el recorte al disco del domo y perdía las esquinas del cuadrado.**
+  `chapaLienzo` recorta al círculo siempre que la secuencia sea de domo — correcto para una ENTREGA, donde lo de
+  fuera del disco no se proyecta — pero el caché de un nido no es una entrega: es una **textura intermedia** que
+  el padre muestrea entera, porque un nido se coloca, se escala y se gira, y sus esquinas son contenido. Así que
+  **activar el caché cambiaba la imagen**, que es exactamente la regresión que R180 midió y cerró por otro lado.
+  El horneado ya se identificaba (`squareNest`); sólo había que hacerle caso.
+  Medido **por píxeles** en la esquina: con `squareNest` sobrevive (255), y sin él — una entrega de domo de
+  verdad — sigue recortándose a 0. El segundo es el control: sin él, «no recortar nunca» pasaría la prueba.
+
+**Verificación:** `scratchpad/r341-verif.mjs`. **Veintiuna redes en verde** y `npm test` 6/6.
+
+**Y una lección de la propia sonda:** la primera versión redimensionaba `glc` a 256² para medir la esquina y no lo devolvía. Las dos redes siguientes que miden PÍXELES (R319 y R332) se pusieron rojas con un «la sonda no mide nada» que no tenía nada que ver con su arreglo. Una sonda que ensucia el estado contamina a las que vienen detrás — ya había pasado en R320 y volvió a pasar. El lienzo se devuelve ahora en un `finally`.
+
+Con esto se acaba el inventario de la auditoría salvo **los dos del decodificador** (`edts/elst` y el salto atrás
+con vecino ≤2 fotogramas), que piden material de prueba real — un MP4 con edit list y otro de GOP largo — para
+medir antes y después. El panel de modulación queda fuera por decisión de producto: es un feature para más
+adelante, no un bug.
+
+
 ## ROUND 340 — Los fotogramas de Spout iban siempre a la primera entrada
 
 - **Con dos entradas Spout, una enseñaba lo de la otra y la otra se quedaba negra.** El nativo mantiene UNA

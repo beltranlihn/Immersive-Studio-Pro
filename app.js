@@ -8744,7 +8744,12 @@ function chapaLienzo(glc,opt,t,i,total,fps){
      Se hace AQUÍ porque es el único sitio por el que pasan las dos rutas de salida, PNG y MP4, y porque un
      recorte en 2D es exacto: `destination-in` deja fuera del disco alfa 0, y luego el fondo negro -si se pidió-
      lo rellena. Sin chapa y sin domo, se devuelve el lienzo tal cual y no se paga nada. */
-  const recortar=(state.seqMode==='dome');
+  /* [R341] …salvo cuando lo que se hornea es el CACHE DE UN NIDO (`squareNest`). Ese archivo no es una
+     entrega: es una textura intermedia que `prepNests` compondria en un FBO cuadrado, y el padre la muestrea
+     ENTERA — un nido se coloca, se escala y se gira, asi que sus esquinas son contenido. Recortarlas al disco
+     hacia que ACTIVAR el cache cambiara la imagen, que es exactamente la regresion que R180 midio y cerro por
+     otro lado. El recorte al circulo sigue valiendo para todo lo que SÍ se entrega. */
+  const recortar=(state.seqMode==='dome' && !(opt&&opt.squareNest));
   if((!d||!d.on)&&!recortar)return glc;
   const W=glc.width, H=glc.height;
   if(!_chapaCv||_chapaCv.width!==W||_chapaCv.height!==H){ _chapaCv=document.createElement('canvas'); _chapaCv.width=W; _chapaCv.height=H; _chapaCx=_chapaCv.getContext('2d'); }

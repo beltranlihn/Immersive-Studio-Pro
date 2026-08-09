@@ -476,8 +476,8 @@ Lo que sigue REALMENTE abierto, verificado a R337:
   «marcas cruzadas o pegadas» como si no hubiera marcas (`if(b-a<0.04)return null`) · el muro de ancho 0 (1092)
   — el campo del launcher tiene minimo 16 px (`lchNum('w'+i+'pxW',w.pxW,16,16384,…)`), asi que no se alcanza
   desde la interfaz; solo con un `.isp` editado a mano.
-- **Sin verificar todavia** (la lista los da por abiertos pero no se ha leido su codigo): el horneado de cache de
-  nest y las esquinas del cuadrado en domo (8783) · ~~dos entradas Spout compartiendo conexion (2114)~~ **[cerrado en R340]** · dedup de
+- **Sin verificar todavia** (la lista los da por abiertos pero no se ha leido su codigo): ~~el horneado de cache de
+  nest y las esquinas del cuadrado en domo (8783)~~ **[cerrado en R341]** · ~~dos entradas Spout compartiendo conexion (2114)~~ **[cerrado en R340]** · dedup de
   import por nombre+tamanyo (2596, solo afecta al camino de navegador: en Electron la clave es la ruta absoluta)
   · `attachLinkedAudio` sin reintento (3343) · mascara pen sobre nido invisible (1173) · muro de ancho 0 (1092)
   · vista previa de compose en domo con esquema plano (12879) · Escape del compose y el monitor (13072) ·
