@@ -24,8 +24,9 @@ npm run dist && powershell -NoProfile -ExecutionPolicy Bypass -File "scripts/dep
 No era una carrera con la presentación —esa hipótesis se midió y es falsa— sino la elección de fotograma en la
 frontera, en los DOS caminos. Detalle en su sección de abajo y en `PLAN.md › ROUND 346`.
 **Lo que sí conviene hacer con material de verdad:** exportar un tramo a la cadencia de la fuente y mirarlo. La
-red cubre 40 fotogramas de dos archivos de prueba; el cambio afecta a **todo máster 1:1**, así que merece una
-pasada con material de Beltrán antes de darlo por asentado en producción.
+red cubre 40 fotogramas seguidos de **dos archivos, a 24 y a 60 fps** (cada uno con la cadencia que dice su
+demuxador), por los dos caminos; el cambio afecta a **todo máster 1:1**, así que merece una pasada con material
+de Beltrán antes de darlo por asentado en producción.
 **Y una pregunta abierta que la medida deja servida:** con material NTSC (23,976 / 29,97 / 59,94) no se ha
 medido nada. La tolerancia de 2 µs no depende de la cadencia —por eso se eligió frente al centro del fotograma,
 que sí—, pero «no depende» es un argumento, no una medida.
@@ -147,6 +148,12 @@ que sí—, pero «no depende» es un argumento, no una medida.
 > entre ellos en 54 comparaciones), así que enfrentarlos sale «idéntico bit a bit» — lo que concluyó R189, y lo
 > que miden las tres redes de R344. **Comparar dos implementaciones no verifica ninguna.** Lo cazó un criterio
 > sin oráculo: en un export 1:1 los fotogramas van de uno en uno.
+- [x] ~~**Y de dónde salían las «8 de 48 parejas que cambian de pasada en pasada» de R256.**~~ Reproducida la
+      configuración de aquella sonda contra el `srcT` de entonces: **las producían los dos fallos de `srcT` que
+      R256 arregló en esa misma ronda** (pre-R256 da exactamente 8 parejas distintas de 48, cuatro de ellas un
+      fotograma vecino), y la referencia guardada se capturó **sin el arreglo** — lo dice la cabecera de
+      `scratchpad/r256-aceptacion.mjs`. El ticket se abrió DESPUÉS del commit que lo arreglaba: nació caducado,
+      y por eso nada posterior lo reprodujo. No quedaba nada que arreglar en el repliegue.
 
 ## ✅ Exportar con bucles · CERRADO [R256] — no era una optimización, eran dos fallos
 - [x] **El «×1,7 del bucle» de R254 era en realidad ×25, y por una avería.** Al envolver, el decodificador entraba

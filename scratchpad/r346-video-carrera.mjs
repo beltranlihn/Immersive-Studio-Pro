@@ -5,6 +5,12 @@
    parejas que deben repetirse no se repiten, a 34-51 dB, y cambian de pasada en pasada). Antes de tocar el
    codigo hay que saber si la hipotesis es cierta, porque el arreglo es distinto segun la causa:
 
+   [R346b] Y aquellas 8 de 48 quedaron explicadas despues: las producian los DOS fallos de `srcT` que R256
+   arreglo en su misma ronda, y la referencia con la que se comparo se habia capturado SIN el arreglo (lo dice
+   la cabecera de `r256-aceptacion.mjs`). El ticket se abrio despues del commit que lo arreglaba. O sea que el
+   sintoma citado aqui arriba nunca fue del repliegue: se cita tal cual porque es lo que decia la nota que
+   mando escribir esta sonda, no porque siga siendo cierto.
+
      (H1) PRESENTACION: `seeked` se dispara antes de que el fotograma nuevo este disponible para dibujar,
           asi que `drawImage`/`texImage2D` sube el ANTERIOR.  -> arreglo: esperar la presentacion (rVFC).
      (H2) FRONTERA DE FOTOGRAMA: el instante cae a un pelo por debajo del comienzo del fotograma que le toca

@@ -10,14 +10,28 @@
    entre ellos en 54 comparaciones-, asi que enfrentar el ClipDecoder con <video> sale "identico bit a bit", que
    es justo lo que concluyo R189. Aqui no se compara con nada: en un tramo seguido de un export 1:1 los
    fotogramas entregados tienen que ir DE UNO EN UNO.
-     · camino ClipDecoder: se lee el `timestamp` del VideoFrame que el codigo sube a la textura (se envuelve
-       `upTex`, o sea se observa la llamada de verdad; no se recalcula la regla por fuera).
-     · camino <video> (el repliegue de `_cdFail`): un VideoFrame no hay, asi que el juez son los PIXELES —
-       una fuente en movimiento no puede entregar dos fotogramas consecutivos identicos.
+
+   [R346b] Tres cosas que la revision encontro en esta red y que estaban de mas o de menos:
+
+   1) EL JUEZ DEL REPLIEGUE ERA CIEGO A LA MITAD DEL SINTOMA. Comparaba pixeles entre lecturas consecutivas, o
+      sea que sabia ver un fotograma REPETIDO y no sabia ver uno SALTADO — y el fallo medido eran 13 repetidos
+      Y 13 saltados. Una regresion que devolviera solo los saltos la dejaba verde. Ahora los dos caminos se
+      leen igual, por el fotograma que ENTREGAN: el ClipDecoder por el `timestamp` del VideoFrame que sube a la
+      textura (envolviendo `upTex`, o sea observando la llamada de verdad), y el repliegue por el `mediaTime`
+      de `requestVideoFrameCallback`, que es lo que las sondas hermanas de esta ronda ya usaban. De paso deja
+      de depender de que el material se mueva, asi que el archivo de 60 fps -que es casi estatico- entra.
+   2) EL CONTADOR NO SABIA VER UN FOTOGRAMA HACIA ATRAS. `rep` y `salt` no cubren un paso negativo, que es
+      exactamente la regresion de 28,27 dB que cerro R344c (un vecino desalojado): la sucesion 90,91,92,91,92
+      puntuaba perfecta. Se cuenta `atras` aparte, como ya hacia `r346-mapa-fotogramas.mjs`.
+   3) NO RECOGIA. Dejaba el medio, el clip, la instancia con su `<video>` y su textura, y `_cdFail` puesto si
+      algo lanzaba — y es la ultima red de la lista, asi que nadie limpiaba detras. Ahora todo va en `finally`.
+
+   Y cubre los DOS archivos, cada uno con la cadencia que dice su demuxador: el caso de 60 fps (1 repetido y 2
+   saltados antes del arreglo) no tenia red propia y los documentos decian que si.
 
    SABE FALLAR, y se comprueba en cada corrida: `vinstSeek` suma `TOL_DECOD` por dentro, asi que pedirle
    `t - TOL_DECOD` reconstruye EXACTAMENTE el estado anterior al arreglo sin tocar app.js. Si esa mitad no
-   reproduce los repetidos, la red no esta midiendo nada y lo dice (codigo 1), en vez de aprobar en vacio.
+   reproduce el fallo, la red no esta midiendo nada y lo dice (codigo 1), en vez de aprobar en vacio.
 
    Uso:  npx electron . --remote-debugging-port=9222   y luego  node scratchpad/r346-verif.mjs
    Codigos: 0 correcto · 1 fallo · 3 no medida (falta el material)
@@ -25,9 +39,11 @@
 import http from 'http';
 import { existsSync } from 'fs';
 
-const CLIP = 'C:/Users/beltr/Desktop/Alma Digital Studio/Projects/Immersive Studio Pro/scratchpad/media/tunel-control.mp4';
-if (!existsSync(CLIP)) {
-  console.log('   NO MEDIDA: falta ' + CLIP);
+const S = 'C:/Users/beltr/Desktop/Alma Digital Studio/Projects/Immersive Studio Pro/scratchpad/media/';
+const ARCHIVOS = [S + 'tunel-control.mp4', S + 'gop240-60fps.mp4'];
+const faltan = ARCHIVOS.filter(p => !existsSync(p));
+if (faltan.length) {
+  console.log('   NO MEDIDA: falta ' + faltan.join(', '));
   console.log('   Se rehace con:  node scratchpad/r344-material.mjs');
   process.exit(3);
 }
@@ -41,19 +57,20 @@ ws.onmessage = e => { const m = JSON.parse(e.data); if (m.id && pend.has(m.id)) 
 const ev = x => new Promise(r => { const i = ++id; pend.set(i, m => r(m.result && m.result.exceptionDetails ? ('EXC ' + (m.result.exceptionDetails.exception?.description || '').slice(0, 400)) : (m.result && m.result.result && m.result.result.value))); ws.send(JSON.stringify({ id: i, method: 'Runtime.evaluate', params: { expression: x, awaitPromise: true, returnByValue: true, timeout: 150000 } })); });
 const esperar = ms => new Promise(r => setTimeout(r, ms));
 
-const FPS = 24, I0 = 90, NUM = 40;
-
-await ev(`(async()=>{ await newProject('dome',1024,1024,${FPS},180,true); if(typeof hideLanding==='function')hideLanding(); })()`);
+await ev(`(async()=>{ await newProject('dome',1024,1024,30,180,true); if(typeof hideLanding==='function')hideLanding(); })()`);
 await esperar(1200);
 
-const PAGINA = `(async()=>{ let restaurar=null; try{
-  const RUTA=${JSON.stringify(CLIP)}, FPS=${FPS}, I0=${I0}, NUM=${NUM};
+const PAGINA = (ruta) => `(async()=>{ let restaurar=null; try{
+  const RUTA=${JSON.stringify(ruta)}, I0=90, NUM=40;
+  /* La cadencia sale del demuxador, no de una constante: la red cubre dos archivos de distinta cadencia. */
+  const dd=await demuxMP4(RUTA); const fps=dd.fps||24; try{dd.close();}catch(e){}
+
   /* --- el medio y su clip, como los crea la aplicacion --- */
   const url=DSP.toFileURL(RUTA);
   const v0=document.createElement('video'); v0.preload='metadata'; v0.src=url;
   await new Promise((res,rej)=>{ v0.addEventListener('loadedmetadata',()=>res()); v0.addEventListener('error',()=>rej(new Error('el medio no carga'))); });
   const m={id:uid(),name:'r346',kind:'video',el:v0,originalEl:v0,srcUrl:url,tex:newTex(),w:v0.videoWidth,h:v0.videoHeight,
-    dur:v0.duration,fps:FPS,color:clipColorFor('video'),proxyReady:false,proxyPct:0,path:RUTA,fsize:0,folder:null,missing:false,_loading:false};
+    dur:v0.duration,fps:fps,color:clipColorFor('video'),proxyReady:false,proxyPct:0,path:RUTA,fsize:0,folder:null,missing:false,_loading:false};
   state.media.push(m); renderMedia();
   addClip(m,0,0); const c=state.clips[state.clips.length-1];
   if(!c) throw new Error('no se creo el clip');
@@ -61,84 +78,108 @@ const PAGINA = `(async()=>{ let restaurar=null; try{
   /* --- observar la llamada de VERDAD: que VideoFrame sube el codigo a la textura --- */
   const upOrig=upTex; let ultimo=null, vistas=0;
   upTex=function(tex,src){ vistas++; if(src&&typeof src.timestamp==='number')ultimo=src.timestamp; return upOrig.apply(this,arguments); };
-  restaurar=()=>{ upTex=upOrig; };
+  restaurar=()=>{
+    try{ upTex=upOrig; }catch(e){}
+    try{ _exCD=false; }catch(e){}
+    try{ m._cdFail=false; }catch(e){}
+    try{ vinstDispose(c.id); }catch(e){}
+    try{ if(m.tex)gl.deleteTexture(m.tex); }catch(e){}
+    try{ const ic=state.clips.indexOf(c); if(ic>=0)state.clips.splice(ic,1); }catch(e){}
+    try{ const im=state.media.indexOf(m); if(im>=0)state.media.splice(im,1); }catch(e){}
+    try{ v0.removeAttribute('src'); v0.load(); }catch(e){}
+    try{ renderMedia(); }catch(e){}
+  };
 
-  const lienzo=document.createElement('canvas'); lienzo.width=240; lienzo.height=135;
-  const cx=lienzo.getContext('2d',{willReadFrequently:true});
-  const pixDe=(el)=>{ cx.clearRect(0,0,240,135); cx.drawImage(el,0,0,240,135); return cx.getImageData(0,0,240,135).data; };
-  const dif=(a,b)=>{ let s=0; for(let i=0;i<a.length;i+=4)s+=Math.abs(a[i]-b[i])+Math.abs(a[i+1]-b[i+1])+Math.abs(a[i+2]-b[i+2]); return s/(a.length/4*3); };
+  const kDeUs=(us)=>us==null?null:Math.round(us/1e6*fps);
+  const kDeSeg=(s)=>s==null?null:Math.round(s*fps);
 
   /* --- camino ClipDecoder, que es el del export --- */
   const porDecodificador=async(cancelarTol)=>{
-    m._cdFail=false; for(const [k] of _vinst) vinstDispose(k);
+    m._cdFail=false; vinstDispose(c.id);
     _exCD=true;
-    const sellos=[];
+    const ks=[];
     try{
       for(let i=I0;i<I0+NUM;i++){
-        const t=i/FPS; ultimo=null;
+        const t=i/fps; ultimo=null;
         await vinstSeek(c,m,cancelarTol?(t-TOL_DECOD):t);
-        sellos.push(ultimo); }
+        ks.push(kDeUs(ultimo)); }
     } finally { _exCD=false; }
-    return sellos; };
+    return ks; };
 
-  /* --- camino <video>, el repliegue: sin VideoFrame, juzgan los pixeles --- */
+  /* --- camino <video>, el repliegue: el fotograma PRESENTADO, por mediaTime --- */
   const porVideo=async(cancelarTol)=>{
-    for(const [k] of _vinst) vinstDispose(k);
+    vinstDispose(c.id);
     m._cdFail=true;                                   /* exactamente lo que marca el repliegue en produccion */
-    const vs=[];
-    for(let i=I0;i<I0+NUM;i++){
-      const t=i/FPS;
-      await vinstSeek(c,m,cancelarTol?(t-TOL_DECOD):t);
-      const vi=_vinst.get(c.id); if(!vi||!vi.vel) throw new Error('sin <video> en el repliegue');
-      if(vi.cd) throw new Error('el repliegue no se activo: sigue habiendo ClipDecoder');
-      vs.push(pixDe(vi.vel)); }
-    m._cdFail=false;
-    const difs=[]; for(let i=1;i<vs.length;i++) difs.push(dif(vs[i-1],vs[i]));
-    return difs; };
+    const ks=[]; let sinPresentar=0;
+    try{
+      /* CALENTAMIENTO, y no es un detalle: recien creado, el <video> presenta su primer fotograma por su
+         cuenta, asi que la primera llamada de rVFC de la primera vuelta traia el fotograma 0 en vez del
+         pedido — un salto de 89 que la red leia como fallo (y con I0=90 salia el mismo 90 en los dos
+         archivos, que es lo que delato que era el instrumento y no el codigo). Con una posicion previa ya
+         asentada, la unica presentacion nueva que queda es la que provoca el seek que se mide. */
+      await vinstSeek(c,m,(I0-2)/fps);
+      { const vi0=vinstEnsure(c,m); if(vi0&&vi0.vel){ let mm=null; const h0=vi0.vel.requestVideoFrameCallback((n,x)=>{mm=x;});
+          const w0=performance.now(); while(!mm && performance.now()-w0<400) await new Promise(r=>setTimeout(r,2));
+          if(!mm){ try{vi0.vel.cancelVideoFrameCallback(h0);}catch(e){} } } }
+      for(let i=I0;i<I0+NUM;i++){
+        const t=i/fps;
+        const vi=vinstEnsure(c,m); if(!vi||!vi.vel) throw new Error('sin <video> en el repliegue');
+        if(vi.cd) throw new Error('el repliegue no se activo: sigue habiendo ClipDecoder');
+        const v=vi.vel;
+        let meta=null; const h=v.requestVideoFrameCallback((now,mm)=>{ meta=mm; });
+        await vinstSeek(c,m,cancelarTol?(t-TOL_DECOD):t);
+        const t0=performance.now();
+        while(!meta && performance.now()-t0<400) await new Promise(r=>setTimeout(r,2));
+        if(!meta){ try{v.cancelVideoFrameCallback(h);}catch(e){} sinPresentar++; }
+        /* Sin presentacion nueva es que sigue en pantalla el mismo fotograma: eso ES un repetido, y se
+           arrastra el anterior para que la sucesion quede completa y el contador lo vea como tal. */
+        ks.push(meta?kDeSeg(meta.mediaTime):(ks.length?ks[ks.length-1]:null)); }
+    } finally { m._cdFail=false; }
+    return {ks:ks, sinPresentar:sinPresentar}; };
 
-  const cuentaSellos=(s)=>{ const dur=1e6/FPS; let rep=0, salt=0, nulos=0;
-    for(let i=0;i<s.length;i++){ if(s[i]==null){nulos++;continue;}
-      if(i>0&&s[i-1]!=null){ const d=(s[i]-s[i-1])/dur;
-        if(Math.abs(d)<0.5)rep++; else if(d>1.5)salt+=Math.round(d)-1; } }
-    return {rep:rep, salt:salt, nulos:nulos}; };
+  /* rep + salt + atras: las TRES maneras de romper "de uno en uno". La de atras es la de R344c. */
+  const cuenta=(ks)=>{ let rep=0, salt=0, atras=0, nulos=0;
+    for(let i=0;i<ks.length;i++){ if(ks[i]==null){ nulos++; continue; }
+      if(i>0&&ks[i-1]!=null){ const d=ks[i]-ks[i-1];
+        if(d===0)rep++; else if(d<0)atras++; else if(d>1)salt+=d-1; } }
+    return {rep:rep, salt:salt, atras:atras, nulos:nulos}; };
 
   const cdBien=await porDecodificador(false), cdMal=await porDecodificador(true);
-  const vidBien=await porVideo(false),        vidMal=await porVideo(true);
-  const iguales=(d)=>d.filter(x=>x<0.5).length;      /* dos consecutivos identicos = un fotograma repetido */
-  const movMedio=vidBien.length?(vidBien.reduce((a,b)=>a+b,0)/vidBien.length):0;
+  const vBien=await porVideo(false),          vMal=await porVideo(true);
 
-  return JSON.stringify({ vistas:vistas, tol:TOL_DECOD,
-    cd:{bien:cuentaSellos(cdBien), mal:cuentaSellos(cdMal)},
-    vid:{bien:iguales(vidBien), mal:iguales(vidMal), n:vidBien.length, mov:+movMedio.toFixed(2)} });
+  return JSON.stringify({ fps:+fps.toFixed(3), vistas:vistas, tol:TOL_DECOD,
+    cd:{bien:cuenta(cdBien), mal:cuenta(cdMal)},
+    vid:{bien:cuenta(vBien.ks), mal:cuenta(vMal.ks), sinPresentar:vBien.sinPresentar, n:vBien.ks.length} });
 }catch(e){ return 'ERR '+String((e&&e.message)||e).slice(0,300);
-} finally { try{ if(restaurar)restaurar(); }catch(e){} try{ _exCD=false; }catch(e){} } })()`;
+} finally { try{ if(restaurar)restaurar(); }catch(e){} } })()`;
 
-const r = await ev(PAGINA);
-let o = null;
 console.log('');
 console.log('R346 - un export 1:1 entrega fotogramas consecutivos, por los dos caminos');
-try { o = JSON.parse(r); } catch (e) { console.log('   *** ' + String(r).slice(0, 400)); ws.close(); process.exit(1); }
-
 const malas = [];
-if (!o.vistas) malas.push('no se observo NI UNA subida de textura: la red no ha medido nada');
-if (!(o.tol > 0)) malas.push('TOL_DECOD es ' + o.tol + ': el arreglo no esta puesto');
-if (o.vid.mov < 2) malas.push('el material no se mueve (' + o.vid.mov + '): el juez de pixeles no puede discriminar');
+for (const ruta of ARCHIVOS) {
+  const nom = ruta.replace(/^.*\//, '');
+  const r = await ev(PAGINA(ruta));
+  let o = null;
+  try { o = JSON.parse(r); } catch (e) { console.log('   *** ' + nom + ': ' + String(r).slice(0, 400)); malas.push(nom + ': la sonda no llego a medir'); continue; }
 
-console.log('   tolerancia en el codigo: ' + (o.tol * 1e6).toFixed(1) + ' us · ' + o.vistas + ' subidas de textura observadas');
-console.log('   ClipDecoder  ARREGLADO: ' + o.cd.bien.rep + ' repetidos, ' + o.cd.bien.salt + ' saltados' + (o.cd.bien.nulos ? ', ' + o.cd.bien.nulos + ' sin sello' : ''));
-console.log('   ClipDecoder  cancelando la tolerancia (estado anterior): ' + o.cd.mal.rep + ' repetidos, ' + o.cd.mal.salt + ' saltados');
-console.log('   <video>      ARREGLADO: ' + o.vid.bien + ' parejas identicas de ' + o.vid.n + '  (movimiento medio ' + o.vid.mov + ')');
-console.log('   <video>      cancelando la tolerancia (estado anterior): ' + o.vid.mal + ' parejas identicas de ' + o.vid.n);
+  const rotas = x => x.rep + x.salt + x.atras + x.nulos;
+  console.log('   ' + nom + '  (' + o.fps + ' fps · tolerancia ' + (o.tol * 1e6).toFixed(1) + ' us · ' + o.vistas + ' subidas observadas)');
+  console.log('      ClipDecoder  ARREGLADO: ' + o.cd.bien.rep + ' rep, ' + o.cd.bien.salt + ' salt, ' + o.cd.bien.atras + ' atras, ' + o.cd.bien.nulos + ' sin sello');
+  console.log('      ClipDecoder  sin tolerancia (estado anterior): ' + o.cd.mal.rep + ' rep, ' + o.cd.mal.salt + ' salt, ' + o.cd.mal.atras + ' atras');
+  console.log('      <video>      ARREGLADO: ' + o.vid.bien.rep + ' rep, ' + o.vid.bien.salt + ' salt, ' + o.vid.bien.atras + ' atras, ' + o.vid.bien.nulos + ' sin sello  (de ' + o.vid.n + ')');
+  console.log('      <video>      sin tolerancia (estado anterior): ' + o.vid.mal.rep + ' rep, ' + o.vid.mal.salt + ' salt, ' + o.vid.mal.atras + ' atras');
 
-if (o.cd.bien.rep || o.cd.bien.salt) malas.push('ClipDecoder: el tramo NO es consecutivo (' + o.cd.bien.rep + ' rep, ' + o.cd.bien.salt + ' salt)');
-if (o.cd.bien.nulos) malas.push('ClipDecoder: ' + o.cd.bien.nulos + ' instantes sin fotograma entregado');
-if (o.vid.bien) malas.push('<video>: ' + o.vid.bien + ' parejas de fotogramas consecutivos IDENTICOS sobre material en movimiento');
-/* La otra mitad: si el estado anterior no se reproduce, esta red no discrimina y no vale como red. */
-if (!(o.cd.mal.rep || o.cd.mal.salt)) malas.push('la red NO SABE FALLAR: cancelando la tolerancia el ClipDecoder sigue consecutivo');
-if (!o.vid.mal) malas.push('la red NO SABE FALLAR: cancelando la tolerancia el repliegue <video> no repite ni un fotograma');
+  if (!o.vistas) malas.push(nom + ': no se observo ni una subida de textura, la red no ha medido nada');
+  if (!(o.tol > 0)) malas.push(nom + ': TOL_DECOD es ' + o.tol + ', el arreglo no esta puesto');
+  if (rotas(o.cd.bien)) malas.push(nom + ' ClipDecoder: el tramo NO es consecutivo (' + o.cd.bien.rep + ' rep, ' + o.cd.bien.salt + ' salt, ' + o.cd.bien.atras + ' atras, ' + o.cd.bien.nulos + ' sin sello)');
+  if (rotas(o.vid.bien)) malas.push(nom + ' <video>: el tramo NO es consecutivo (' + o.vid.bien.rep + ' rep, ' + o.vid.bien.salt + ' salt, ' + o.vid.bien.atras + ' atras, ' + o.vid.bien.nulos + ' sin sello)');
+  /* La otra mitad: si el estado anterior no se reproduce, esta red no discrimina y no vale como red. */
+  if (!rotas(o.cd.mal)) malas.push(nom + ': la red NO SABE FALLAR — sin la tolerancia el ClipDecoder sigue consecutivo');
+  if (!rotas(o.vid.mal)) malas.push(nom + ': la red NO SABE FALLAR — sin la tolerancia el repliegue <video> sigue consecutivo');
+}
 
 console.log('');
 for (const x of malas) console.log('   *** ' + x);
-if (!malas.length) console.log('   OK - los dos caminos consecutivos, y los dos vuelven a fallar al cancelar la tolerancia.');
+if (!malas.length) console.log('   OK - los dos caminos consecutivos en los dos archivos, y los cuatro vuelven a fallar al cancelar la tolerancia.');
 ws.close();
 process.exitCode = malas.length ? 1 : 0;

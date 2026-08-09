@@ -6,6 +6,14 @@ Salí a cerrar el único punto de código abierto de `docs/NEXT.md` —«el repl
 fiable al fotograma»— y lo primero que hizo la medida fue **desmentir su hipótesis**, que llevaba escrita desde
 R256. Debajo había un fallo bastante mayor, en el camino principal.
 
+**De dónde salían las «8 de 48 parejas» de R256, que la nota dejaba sin explicar.** Reproducida la configuración
+de aquella sonda contra el `srcT` de entonces: las producían **los dos fallos de `srcT` que R256 arregló en la
+misma ronda** (pre-R256 da exactamente 8 parejas distintas de 48, cuatro de ellas un fotograma vecino), y la
+referencia con la que se comparó se capturó **sin el arreglo** — lo dice la cabecera de
+`scratchpad/r256-aceptacion.mjs`. El ticket se abrió *después* del commit que lo arreglaba: nació caducado, y
+por eso nada posterior lo reprodujo. Sin esta frase quedaba un síntoma medido y sin causa al lado de una casilla
+tachada — que es la forma exacta del pendiente equivocado del que sale toda esta ronda.
+
 **Lo que decía la nota y no es cierto.** Decía que `vinstSeekVideo` «fija `currentTime`, espera `seeked` y sube
 lo que haya: es una carrera con la presentación». Medido con `requestVideoFrameCallback` sobre el elemento en
 pausa (`scratchpad/r346-video-carrera.mjs`): la presentación llega **antes** de `seeked` en 8/8 posicionamientos

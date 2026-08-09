@@ -1088,7 +1088,13 @@ function srcT(c,t){ const raw=(t-c.start)*(c.speed||1); // timeline time → SOU
        mover nada real. */
     ph=Math.round(ph*1e9)/1e9;
     if(ph>=L-1e-9){ ph=0; k++; } else if(ph<0){ ph+=L; k--; }
-    if(c.loopRev&&(k&1))ph=L-ph; // R88: ping-pong — odd cycles play backward (forward, back, forward, …)
+    /* [R346b] El espejo del ping-pong se toma DESPUÉS de la envoltura, así que `ph=0` salía `ph=L` — el extremo
+       EXCLUIDO de la ventana `[inP, inP+loopLen)` que documenta esta misma función: la vuelta de ida empezaba
+       un fotograma FUERA del bucle. Es anterior a R346 (con pts en microsegundos enteros ya pasaba igual), pero
+       la tolerancia lo dejó a la vista, así que se cierra donde vive. El tope deja margen de sobra por encima
+       de `TOL_DECOD` para que la tolerancia no lo devuelva al otro lado, y sigue siendo cuatro órdenes de
+       magnitud menor que un fotograma. */
+    if(c.loopRev&&(k&1))ph=Math.min(L-ph, L-2*TOL_DECOD); // R88: ping-pong — odd cycles play backward (forward, back, forward, …)
     return (c.inP||0)+ph; }
   return raw+(c.inP||0); }
 function loopCycleSec(c){ return (c.loop&&c.loopLen>0)?(c.loopLen/(c.speed||1)):0; } // one loop cycle length in TIMELINE seconds
@@ -1114,8 +1120,20 @@ function loopCycleSec(c){ return (c.loop&&c.loopLen>0)?(c.loopLen/(c.speed||1)):
    rejilla uniforme a `fps`, y `detectFps` canoniza 59,94 a 60 — sobre material NTSC la rejilla se desvía medio
    fotograma a los ~8 s y a partir de ahí el centro cae en el fotograma equivocado, sin avisar. El daño de esta
    tolerancia está ACOTADO a 2 µs (cinco cienmilésimas de fotograma a 24 fps) pase lo que pase con la cadencia;
-   el del centro no lo está. Se aplica en el único sitio donde el instante entra al decodificador, para que los
-   dos caminos reciban el mismo número y el máster no cambie de fotograma si un medio cae al repliegue. */
+   el del centro no lo está. Comprobado aparte: `Math.floor((t+2e-6)*1e6)` deja el punto de decisión entre 1 y
+   2 µs por encima del pts, nunca más — los casos en que la ganancia entera no es 2 son exactamente aquellos en
+   que el pts ya cae en un microsegundo entero y no hacía falta tolerancia ninguna.
+   DÓNDE SE APLICA — la lista, porque la primera versión de esta nota decía «en el único sitio» y era FALSA, y
+   creérselo es justo lo que dejó cuatro sitios sin barrer en la propia ronda que la escribió:
+     · `vinstSeek` (antes de bifurcar: cubre export, arrastre y los dos caminos con el mismo número)
+     · `driveCD` y el servo de deriva de `ploop` — reproducción
+     · `play()` — el primer fotograma al arrancar
+     · `vinstSeekVideo`, sobre el salto a fotograma clave de `snapKf`, y sólo si ha saltado de verdad
+     · las tres escrituras del monitor de origen y las dos secuencias de imágenes
+     · la rejilla de seek del generador de proxys, y la clave de agrupación de `seekExport`
+   La regla, para lo que venga: **todo instante que se le pide a un decodificador pasa por aquí, una sola vez**.
+   Si añades un `currentTime=` o un `setTarget(` nuevo, va con tolerancia — y si el instante ya la trae (como en
+   el reintento de `seekCDExport`), no se suma dos veces. */
 const TOL_DECOD=2e-6;
 function instanteDecod(t){ const x=+t; return (isFinite(x)?x:0)+TOL_DECOD; }
 function audioLevelAt(t){ let lv=0; const anySolo=state.lanes.some(l=>l.kind==='audio'&&l.solo); for(const c of state.clips){ const m=mediaById(c.mediaId); if(!m||m.kind!=='audio'||!m.peaks||c.disabled)continue; const lane=state.lanes[c.lane]; if(lane&&(lane.mute||(anySolo&&!lane.solo)))continue; if(t<c.start||t>c.start+c.dur)continue; const local=srcT(c,t); const idx=Math.floor(local/(m.dur||1)*m.peaks.length); if(idx>=0&&idx<m.peaks.length)lv=Math.max(lv,m.peaks[idx]); } return lv; }
@@ -3234,7 +3252,12 @@ async function makeProxy(m){
   let _dups=0,_lastSig=null,_sigN=0; // frozen-frame detector: hash a few pixels per sampled seeked frame — a decoder that silently stops producing new frames (out-of-level bitrate, e.g. 913Mbps 4K60) yields identical frames
   { let seekFails=0;
     while(_np<total){ const i=_np;
-      if(seekFails<5){ const ok=await Promise.race([seekRaw(dec,i/fps).then(()=>true), new Promise(r=>setTimeout(()=>r(false),1500))]); if(ok)seekFails=0; else seekFails++; }
+      /* [R346b] `i/fps` es exactamente la rejilla que falla, y aquí el fotograma equivocado se HORNEA en el
+         archivo: ninguna tolerancia posterior lo recupera. Es el tercer camino (el rápido de WebCodecs va por
+         índice y es inmune, y el de rVFC se pilota por `mediaTime`), así que sólo muerde cuando el demuxador o
+         el códec fallan — pero el proxy es lo que se ve al previsualizar. Modelado el truncado de Chromium:
+         33 % de fotogramas desplazados a i−1 sin la tolerancia, 0 con ella. */
+      if(seekFails<5){ const ok=await Promise.race([seekRaw(dec,instanteDecod(i/fps)).then(()=>true), new Promise(r=>setTimeout(()=>r(false),1500))]); if(ok)seekFails=0; else seekFails++; }
       drawEnc(i); _np++;
       if((i&7)===0){ try{ const d=ox.getImageData((pw>>1)-2,(ph>>1)-2,4,4).data; let s=0; for(let k=0;k<64;k++)s=(s*31+d[k])>>>0; if(s===_lastSig)_dups++; _lastSig=s; _sigN++; }catch(e){} } // sample 1-in-8: getImageData forces a sync canvas flush (~15× slower if done per frame)
       if(enc.encodeQueueSize>4)await new Promise(r=>setTimeout(r,0)); } }
@@ -8538,10 +8561,22 @@ function vinstSeekVideo(c,m,local){ const vi=vinstEnsure(c,m); if(!vi||vi.cd)ret
        en el fotograma correcto. Fuera del arrastre —y en export, donde `exporting` manda— esto no existe. */
     /* [R346] `snapKf` devuelve el pts EXACTO de un fotograma clave, o sea justo el caso que `instanteDecod`
        existe para arreglar: sin la tolerancia, la previsualización rápida del arrastre se iba al fotograma
-       ANTERIOR al clave al que acababa de saltar. La tolerancia va después del salto, no antes. */
-    if(_scrubFast && !exporting && kfWorthIt(m)){ kfTimes(m); t=Math.max(0,Math.min((v.duration||0)-1e-3, instanteDecod(snapKf(m,t)))); }
-    if(Math.abs(v.currentTime-t)<1e-3 && v.readyState>=2){ upTex(vi.vtex,v); vi.ready=true; requestAnimationFrame(()=>res()); return; }
-    const on=()=>{ v.removeEventListener('seeked',on); upTex(vi.vtex,v); vi.ready=true; res(); }; v.addEventListener('seeked',on); try{ v.currentTime=t; }catch(e){ v.removeEventListener('seeked',on); res(); } })); }
+       ANTERIOR al clave al que acababa de saltar. La tolerancia va después del salto, no antes.
+       [R346b] Pero SÓLO si `snapKf` ha saltado de verdad. Devuelve su entrada intacta cuando la tabla todavía
+       no está (`kfTimes` es asíncrona y no se espera, y `kfWorthIt` no exige la tabla, así que ése es el estado
+       normal en los primeros fotogramas de CADA arrastre) o cuando el instante precede al primer clave — y ahí
+       `t` ya traía la tolerancia de `vinstSeek`, con lo que se sumaba dos veces. Medido: +4 µs en vez de +2.
+       No cambia el fotograma a ninguna cadencia real (haría falta pasar de 500 000 fps), pero el invariante que
+       `yaAjustado` existe para sostener —una vez por posicionamiento— no puede ser falso a cuarenta líneas. */
+    if(_scrubFast && !exporting && kfWorthIt(m)){ kfTimes(m); const tk=snapKf(m,t); if(tk!==t)t=Math.max(0,Math.min((v.duration||0)-1e-3, instanteDecod(tk))); }
+    /* [R346b] El atajo pide además que el instante lo hayamos pedido NOSOTROS. La distancia sola no basta: la
+       ventana de 1 ms es 500 veces la tolerancia, así que un elemento aparcado por `play()` o por el servo de
+       deriva en el instante CRUDO queda a 2-3 µs del que pedimos aquí, el atajo lo daba por bueno y volvía a
+       subir el fotograma equivocado sin lanzar ni un `seek` (medido 4 de 4: 55→54, 82→81, 110→109, 137→136).
+       Con la marca, un instante que no hemos posicionado nosotros se busca; y durante la reproducción el
+       elemento se ha movido, así que la distancia sigue mandando y no se atajan fotogramas viejos. */
+    if(Math.abs(v.currentTime-t)<1e-3 && vi._pedT===t && v.readyState>=2){ upTex(vi.vtex,v); vi.ready=true; requestAnimationFrame(()=>res()); return; }
+    const on=()=>{ v.removeEventListener('seeked',on); upTex(vi.vtex,v); vi.ready=true; res(); }; v.addEventListener('seeked',on); try{ vi._pedT=t; v.currentTime=t; }catch(e){ v.removeEventListener('seeked',on); res(); } })); }
 function pumpVFClip(vi){ const v=vi.vel; if(!v||!v.requestVideoFrameCallback)return; const cb=()=>{ if(!state.playing||v.paused){vi.vf=0;return;} upTex(vi.vtex,v); vi.ready=true; vi.vf=v.requestVideoFrameCallback(cb); }; vi.vf=v.requestVideoFrameCallback(cb); }
 function stopVFClip(vi){ if(vi.vf&&vi.vel&&vi.vel.cancelVideoFrameCallback){try{vi.vel.cancelVideoFrameCallback(vi.vf);}catch(e){}} vi.vf=0; }
 /* [R108·E4] drive this clip's ClipDecoder to `local` (seconds) and upload the nearest cached frame. Returns true when
@@ -8578,7 +8613,7 @@ function collectDrawnVideoClips(clips,lanes,t,depth,out,pGain,pRate){ out=out||[
 let playRaf=0,lastT=0,_phLast=null,_audioBase=0,_audioHead=0;
 let _enBucle=false;   /* [R279] esta reproduccion envuelve? Se decide al arrancar, mirando si el cabezal cae DENTRO del tramo */
 function play(){ if(state.playing)return; if(state.tl.selA!=null){ let _p=Math.min(state.tl.selA, state.tl.selB==null?state.tl.selA:state.tl.selB); state.playhead=_p; positionPlayhead(); }   /* [R279] sin encajar a la fuerza dentro del bucle: si el punto de inicio esta fuera, se reproduce desde ahi */ /* start from the timeline insert/selection (clamped into an active loop region); else resume where the playhead is */ diag('info','transport','play',{at:+state.playhead.toFixed(2)}); state.playing=true; stopMotionPreview(); _previewClock=0; $('#playBtn').innerHTML=ICO('pause'); lastT=performance.now();
-  for(const {c,m,local,gain,rate} of collectDrawnVideoClips(state.clips,state.lanes,state.playhead,0,[])){ const vi=vinstEnsure(c,m); if(vi&&vi.vel){ const eff=Math.max(0.0625,Math.min(16,rate||c.speed||1)); (vi.loadP||Promise.resolve()).then(()=>{ try{vi.vel.currentTime=local;}catch(e){} }); vi.vel.muted=true; try{vi.vel.loop=false;}catch(e){} try{vi.vel.playbackRate=eff;}catch(e){} vi.vel.play().catch(()=>{});
+  for(const {c,m,local,gain,rate} of collectDrawnVideoClips(state.clips,state.lanes,state.playhead,0,[])){ const vi=vinstEnsure(c,m); if(vi&&vi.vel){ const eff=Math.max(0.0625,Math.min(16,rate||c.speed||1)); (vi.loadP||Promise.resolve()).then(()=>{ try{vi.vel.currentTime=instanteDecod(local);}catch(e){} }); vi.vel.muted=true;   /* [R346b] la MISMA tolerancia que `vinstSeek`: sin ella, dar al play saltaba un fotograma HACIA ATRÁS respecto a lo que se veía en pausa (medido, 8 de 12 arranques) — y es el camino por defecto, porque `wcDecode` está apagado */ try{vi.vel.loop=false;}catch(e){} try{vi.vel.playbackRate=eff;}catch(e){} vi.vel.play().catch(()=>{});
     const a=vinstAudio(vi,m); if(a){ try{a.currentTime=local;}catch(e){} try{a.playbackRate=eff;}catch(e){} a.volume=Math.max(0,Math.min(1,gain==null?1:gain)); a.muted=(gain!=null&&gain<=0.001); a.play().catch(()=>{}); } } } _enBucle=(state.workIn!=null&&state.workOut!=null&&state.workOut>state.workIn
     && state.playhead>=state.workIn-1e-6 && state.playhead<state.workOut-1e-6);   /* [R279] arrancar FUERA del bucle = reproducir recto */
   startAudio(); ploop(); } // loop=false: the timeline (ploop) governs clip-bounded looping, not the element. [R92-T2 C1] the paired <audio> (original file) carries the video's sound. [R92-T6] eff = rate composed through the nest chain
@@ -8648,7 +8683,7 @@ function ploop(){ if(!state.playing)return; const now=performance.now(),dt=(now-
          El elemento de vídeo va muted (el audio es otro elemento), así que subir el rate no altera el tono. */
       if(!ra&&!cdOn){ try{v.loop=false;}catch(e){} if(v.paused)v.play().catch(()=>{}); const vd=v.currentTime-local;
         const _nw=performance.now();
-        if(Math.abs(vd)>0.6 && _nw-(vi._seekT||0)>800){ vi._seekT=_nw; try{v.currentTime=local;}catch(e){} }
+        if(Math.abs(vd)>0.6 && _nw-(vi._seekT||0)>800){ vi._seekT=_nw; try{v.currentTime=instanteDecod(local);}catch(e){} }   /* [R346b] el gemelo de `driveCD`, que está una línea más arriba y sí la llevaba. La vuelta del bucle es su disparador seguro: `ploop` pone el cabezal EXACTAMENTE en `workIn`, que está pegado a fotograma, así que sin tolerancia cada vuelta enseñaba el fotograma anterior al punto de entrada (medido, 2 de 2) */
         else { try{v.playbackRate=eff*(1-Math.max(-0.12,Math.min(0.12,vd*0.5)));}catch(e){} }
         if(HAS_RVFC){if(!vi.vf)pumpVFClip(vi);}else{upTex(vi.vtex,v);vi.ready=true;} }
       const a=vinstAudio(vi,m); const revMute=(c.loop&&c.loopRev)||c.avRole==='v'; // [R170] avRole v: su sonido lo lleva la mitad de audio enlazada, si no se oiría dos veces // [R92-T7] ping-pong reverse: the video plays backwards but audio can't → mute preview instead of stuttering (documented limitation)
@@ -8670,7 +8705,13 @@ async function seekExport(t){
   const drawn=collectDrawnVideoClips(state.clips,state.lanes,t,0,[]);
   if(drawn.length+2>_vinstCap)_vinstCap=drawn.length+2;   // [R189] ninguna instancia que este fotograma necesita puede ser desalojada mientras se la espera
   const grupos=new Map();
-  for(const d of drawn){ const k=d.m.id+'@'+Math.round((d.local||0)*1000); // milésima: dos clips en el mismo fotograma son el mismo fotograma
+  /* [R346b] La clave era la MILÉSIMA, que es 24 veces más gruesa que un fotograma: dos clips a 2,29160 y
+     2,29170 caían en la misma cesta con la frontera del fotograma (2,2916667) entre medias, y al seguidor se le
+     copiaban los píxeles del jefe — el mismo juicio «estos dos instantes son el mismo fotograma» que esta ronda
+     acaba de afinar, tomado con mil veces menos precisión y ANTES de la tolerancia. En microsegundos agrupa lo
+     que de verdad es el mismo instante, que es el caso para el que R188 lo escribió (un plano duplicado N veces
+     tiene el MISMO tiempo local, no uno parecido). */
+  for(const d of drawn){ const k=d.m.id+'@'+Math.round(instanteDecod(d.local||0)*1e6);
     let g=grupos.get(k); if(!g){ g=[]; grupos.set(k,g); } g.push(d); }
   await Promise.all([...grupos.values()].map(async g=>{
     const jefe=g[0];
@@ -14919,7 +14960,7 @@ function smMontaPic(){ const mon=_srcMon, m=mon.m, pic=mon.pic;
   if(m.kind==='video'){ const v=document.createElement('video'); v.preload='auto'; v.playsInline=true; v.src=_vinstUrl(m)||'';
     v.addEventListener('loadedmetadata',()=>{ if(!(m.dur>0)&&v.duration){ m.dur=v.duration; if(!(mon.out>0))mon.out=v.duration; } smPinta(); });
     v.addEventListener('ended',()=>smPause());
-    pic.insertBefore(v,hint); mon.vid=v; try{ v.currentTime=mon.t; }catch(e){} }
+    pic.insertBefore(v,hint); mon.vid=v; try{ v.currentTime=instanteDecod(mon.t); }catch(e){} }   /* [R346b] ver `smSeek`: las tres escrituras del monitor llevan la tolerancia, no sólo la rama de secuencia de imágenes */
   else { const cv=document.createElement('canvas'); cv.width=960; cv.height=Math.max(120,Math.round(960/((m.kind==='audio')?(16/5):smAspect(m))));
     pic.insertBefore(cv,hint); mon.cv=cv; }
   if(!smConTransporte(m)&&hint)hint.textContent=T('Drag onto a track','Arrastra a una pista'); }
@@ -14953,13 +14994,19 @@ function smPinta(){ const mon=_srcMon; if(!mon)return; const m=mon.m, d=Math.max
 
 function smSeek(t){ const mon=_srcMon; if(!mon)return; const d=Math.max(0.04,mon.m.dur||0);
   mon.t=Math.max(0,Math.min(d,t||0));
-  if(mon.vid){ try{ mon.vid.currentTime=mon.t; }catch(e){} }
+  /* [R346b] R346 barrió la rama de SECUENCIA DE IMÁGENES de este monitor y dejó cruda la de vídeo, que es la
+     que se usa a diario — y encima escribió en tres documentos que el monitor estaba barrido. Importa más aquí
+     que en la línea de tiempo: el paso con las flechas es `mon.t + 1/fps` acumulado, o sea fronteras de
+     fotograma exactas (medido: 18 de 24 entregaban el anterior; seis pulsaciones desde 0 dan
+     0,24999999999999997 contra un pts real de 0,25), y de `mon.t` salen las marcas de entrada y salida: se
+     marcaba sobre un fotograma distinto del que se estaba viendo. */
+  if(mon.vid){ try{ mon.vid.currentTime=instanteDecod(mon.t); }catch(e){} }
   if(mon.playing&&mon.m.kind==='audio'){ smPause(); smPlay(); }   // WebAudio no admite reposicionar una fuente en marcha: se relanza
   smPinta(); }
 
 function smPlay(){ const mon=_srcMon; if(!mon||!mon.conT)return; const m=mon.m, d=Math.max(0.04,m.dur||0);
   if(mon.t>=d-0.02)mon.t=mon.in;                            // al final del todo, play vuelve a la entrada
-  if(m.kind==='video'&&mon.vid){ try{ mon.vid.currentTime=mon.t; }catch(e){} mon.vid.play().catch(()=>{}); }
+  if(m.kind==='video'&&mon.vid){ try{ mon.vid.currentTime=instanteDecod(mon.t); }catch(e){} mon.vid.play().catch(()=>{}); }   /* [R346b] la tercera del monitor, ver `smSeek` */
   else if(m.kind==='audio'&&m.buffer){ const ctx=ACTX(); const s=ctx.createBufferSource(); s.buffer=m.buffer;
     s.connect(masterGain||ctx.destination); try{ s.start(0,mon.t); }catch(e){}
     mon.asrc=s; mon.abase=ctx.currentTime; mon.at0=mon.t; }

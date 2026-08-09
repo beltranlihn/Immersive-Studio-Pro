@@ -85,9 +85,13 @@ const PAGINA = (ruta) => `(async()=>{ let cd=null, v=null; try{
             difCdVid:cds.reduce((a,x,j)=>a+(x===vids[j]?0:1),0),
             ini:{cd:cds[0], vid:vids[0]}, muestraCd:cds.slice(0,12)}; };
 
-  /* Y el CONTROL de no-desbordamiento: instantes ya bien situados (centro de fotograma) no pueden cambiar. */
+  /* Y el CONTROL de no-desbordamiento: instantes ya bien situados no pueden cambiar de fotograma.
+     [R346b] Se muestrea a un CUARTO y a tres cuartos del fotograma, no en el centro. En el centro la forma
+     del centro es la identidad -floor((t+1e-9)*fps)+0,5 partido por fps devuelve la propia t-, asi que su 0
+     estaba garantizado por construccion: el control no media nada justo para la forma que mas desplaza el
+     instante (medio fotograma), que es contra la que existe. */
   const control=async(fn)=>{ let mov=0;
-    for(let i=I0;i<I0+8;i++){ const t=(i+0.5)/fps;
+    for(let i=I0;i<I0+8;i++) for(const frac of [0.25,0.75]){ const t=(i+frac)/fps;
       const a=await kCD(t*1e6), b=await kCD(fn(t)*1e6); if(a!==b)mov++; }
     return mov; };
 
