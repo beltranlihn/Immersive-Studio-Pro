@@ -2245,9 +2245,10 @@ function spoutRenderLoop(){ _spRenderRaf=0; if(!spoutMediaList().length)return;
    emisor B se subian a la textura de A — A ensenaba lo de B y B se quedaba negro, sin ningun aviso. El nativo
    dice a quien esta sirviendo (`fr.nombre`), asi que se reparte por nombre; si no lo dice, se queda el primero,
    que es el comportamiento de siempre con una sola entrada. */
+/* [R343] Sin la guarda `lista.length>1`, que no compraba nada y creaba un caso raro: con UNA sola entrada de
+   nombre 'A' y el nativo sirviendo 'B', la comprobacion se saltaba y los pixeles de B se subian a A igual. */
 function spoutDestino(lista,nombre){ if(!lista||!lista.length)return null;
-  if(nombre&&lista.length>1){ const exacto=lista.find(x=>x&&x.spoutSource===nombre); if(exacto)return exacto; }
-  return lista[0]; }
+  return (nombre&&lista.find(x=>x&&x.spoutSource===nombre))||lista[0]; }
 function spoutPump(){ if(!DSP||!DSP.spout||!DSP.spout.inFrame)return;
   const lista=spoutMediaList(); if(!lista.length)return;
   let fr=null; try{ fr=DSP.spout.inFrame(true); }catch(e){ return; }
@@ -2270,10 +2271,10 @@ function makeSpoutMedia(nombre){
     if(ya){ appAlert(T('Only one Spout input at a time. Remove "'+ya.spoutSource+'" first.','Sólo se admite una entrada Spout a la vez. Quita antes "'+ya.spoutSource+'".')); return null; } }
   const m={id:uid(),kind:'spout',spoutSource:nombre,name:'Spout · '+nombre,w:16,h:16,dur:60,fps:0,color:clipColorFor('ndi'),tex:newTex(),thumb:null,_spLive:false,_thumbT:0};
   try{ upTexRaw(m.tex,16,16,new Uint8Array(16*16*4).fill(24)); }catch(e){}
-  /* [R340] Abrir una segunda entrada RE-APUNTA la unica conexion nativa: la anterior deja de recibir. Se dice,
-     en vez de dejar al usuario mirando un panel con dos entradas de las que solo una se mueve. */
-  if(state.media.some(x=>x&&x.kind==='spout'&&x.spoutSource!==nombre))
-    try{ flashStatus(T('Spout serves one input at a time: '+nombre+' takes over and the previous one stops receiving.','Spout sirve una entrada a la vez: '+nombre+' toma el relevo y la anterior deja de recibir.'),'err'); }catch(e){}
+  /* [R340 → R343] Aqui vivia un aviso de «la segunda entrada toma el relevo» que NUNCA podia salir: la guarda de
+     R326, seis lineas mas arriba, ya rechaza el caso con `appAlert` y `return`. Ademas se contradecian: uno decia
+     que la segunda toma el relevo y el otro que no se admite una segunda. El aviso vive ahora en el unico camino
+     que de verdad acaba con dos entradas y re-apunta la conexion — abrir un `.isp` que las traiga. */
   try{ if(DSP&&DSP.spout)DSP.spout.inOpen(nombre); }catch(e){}
   state.media.push(m); renderMedia(); markDirty(); spoutStartPump(); return m; }
 function closeSpoutMedia(m){ if(!m||m.kind!=='spout')return; if(spoutMediaList().length<=1){ try{ if(DSP&&DSP.spout)DSP.spout.inClose(); }catch(e){} } }
@@ -7990,7 +7991,7 @@ async function demuxMP4(path){
     const boxes=(s,e)=>{ const out=[]; let q=s; while(q+8<=e){ let sz=dv.getUint32(q); const t=fc(mv,q+4); let hs=8;
       if(sz===1){ sz=Number(dv.getBigUint64(q+8)); hs=16; } else if(sz===0){ sz=e-q; } out.push({t,d:q+hs,e:q+sz}); if(sz<=0)break; q+=sz; } return out; };
     const kid=(b,t)=>boxes(b.d,b.e).find(x=>x.t===t);
-    let stbl=null,mdhd=null,elstMedia=0,elstVacio=0; // [R342] desfase de la edit list: tramo real y hueco inicial
+    let stbl=null,mdhd=null,elstMedia=0,elstVacio=0; // [R342] desfase de la edit list · [R343] se REINICIAN por pista, ver el bucle
     /* [R342] El timescale de la PELICULA, que hace falta para los huecos vacios de la edit list: `media_time`
        viene en unidades del medio, pero `segment_duration` en las de la pelicula. Sin el, un hueco inicial se
        convertiria mal y el desfase saldria peor que no corregirlo. */
@@ -8011,9 +8012,17 @@ async function demuxMP4(path){
          asi que un archivo con edit list real -y los hay a patadas: cualquier recorte sin recodificar deja una-
          mostraba fotogramas distintos en la previsualizacion y en el export. Medido sobre un clip de la carpeta
          de descargas: `media time: 1024` con timescale 15360 son 66,7 ms, o sea DOS fotogramas a 30 fps. */
+      /* [R343] Por PISTA: estaban declaradas fuera del bucle y no se reiniciaban, asi que la edit list de una
+         pista de video sin `stbl` -deshabilitada o de referencia, que no hace `break`- se filtraba a la pista
+         siguiente, la que de verdad aporta las muestras, y le desplazaba todos los tiempos. */
+      elstMedia=0; elstVacio=0;
       { const edts=kid(trak,'edts'), el=edts&&kid(edts,'elst');
         if(el){ const v=dv.getUint8(el.d), n=dv.getUint32(el.d+4); let o=el.d+8;
           for(let i=0;i<n;i++){
+            /* [R343] Acotado a SU caja: `entry_count` es un dato del archivo y fiarse de el hacia leer la
+               cabecera de la caja siguiente como si fuera una entrada -el ASCII de 'mdia' da un media_time de
+               1.835.102.049- o salirse del bufer y tumbar el demuxador entero, degradando el medio a <video>. */
+            if(o+((v===1)?20:12)>el.e)break;
             const durMov=(v===1)?Number(dv.getBigUint64(o)):dv.getUint32(o);
             const mt=(v===1)?Number(dv.getBigInt64(o+8)):dv.getInt32(o+4);
             o+=(v===1)?20:12;
@@ -8068,9 +8077,15 @@ function makeClipDecoder(d,ex){
      arranque real del 2 (33333,33). Cualquier otra regla desalinea uno de cada tres fotogramas — probado con dos
      variantes previas, ambas con PSNR 45-50 dB contra <video> en distintos fotogramas.
      Devuelve el `pts` REDONDEADO, que es la clave con la que el decodificador etiqueta sus fotogramas. */
-  const dispX=order.map(i=>d.samples[i].ptsExact), baseX=dispX.length?dispX[0]:0;
+  /* [R343] Sin la resta de `baseX`. La normalizacion por el primer pts hacia que el desfase de la EDIT LIST
+     que R342 aplica -uniforme sobre todas las muestras- se cancelara aqui exactamente: `dispX[mid]-baseX` daba
+     el mismo resultado antes y despues, asi que el arreglo era INERTE justo en el camino que decia cerrar, y
+     su sonda paso porque midio el desfase y el primer pts, no el fotograma elegido. Desde R342 estos valores
+     son tiempos de PRESENTACION de verdad -el mismo origen que usa <video>-, que es con lo que hay que
+     comparar el tiempo local del clip. */
+  const dispX=order.map(i=>d.samples[i].ptsExact);
   const keyForTime=(t0)=>{ const tt=Math.floor(t0); let lo=0,hi=N-1,res=0;
-    while(lo<=hi){ const mid=(lo+hi)>>1; if(dispX[mid]-baseX<=tt){ res=mid; lo=mid+1; } else hi=mid-1; } return dispPts[res]; };
+    while(lo<=hi){ const mid=(lo+hi)>>1; if(dispX[mid]<=tt){ res=mid; lo=mid+1; } else hi=mid-1; } return dispPts[res]; };
   const frameDur=Math.max(1,Math.round(1e6/(d.fps||30)));
   /* [R189] anillo CORTO en export: allí puede haber 24 decodificadores vivos a la vez y el anillo de
      previsualización (72 fotogramas) serían ~9 GB de VideoFrame. El export tampoco necesita colchón: avanza
@@ -8082,7 +8097,7 @@ function makeClipDecoder(d,ex){
   const AHEAD=(ex?6:18)*frameDur, BEHIND=(ex?2:16)*frameDur, CAP=(ex?24:72), MINC=(ex?6:0), GOP_SKIP=90; // BEHIND ~0.25s tolerates GPU-shared decode latency (NVDEC vs WebGL) so delayed frames survive eviction
   const keyBefore=(di)=>{ for(let i=di;i>=0;i--)if(d.samples[i].key)return i; return 0; };
   const decIdxForTime=(t)=>{ let lo=0,hi=N-1,res=0; while(lo<=hi){const m=(lo+hi)>>1; if(dispPts[m]<=t){res=m;lo=m+1;}else hi=m-1;} return order[res]; };
-  const cache=new Map(); let dec=null, feed=0, feedBase=0, feedBasePts=0, lastFedPts=-1, closed=false, dead=false, targetUs=0, err=null, fails=0, prevT=0;
+  const cache=new Map(); let dec=null, feed=0, feedBase=0, feedBasePts=0, lastFedPts=null, closed=false /* [R343] `null`, no `-1`: un pts negativo (edit list a mitad de GOP) chocaba con el centinela y desactivaba el antibloqueo de R256 y el reinicio por salto grande */, dead=false, targetUs=0, err=null, fails=0, prevT=0;
   /* [R194] Un VideoDecoder retiene una cola de reordenación: haberle dado la última muestra y ver
      `decodeQueueSize===0` NO significa que haya emitido todos los fotogramas. Sin `flush()`, la rama de fin de
      archivo de `passed()` daba el visto bueno antes de tiempo y `frameNear` devolvía un fotograma anterior →
@@ -8098,7 +8113,7 @@ function makeClipDecoder(d,ex){
     const data=await d.readRange(a, Math.max(s.size, READAHEAD)); if(!data)return false; bufData=data; bufStart=a; bufEnd=a+data.length; return inBuf(s); };
   const mkDec=()=>{ dec=new VideoDecoder({output:f=>{ if(closed){f.close();return;} const o=cache.get(f.timestamp); if(o&&o!==f){try{o.close();}catch(e){}} cache.set(f.timestamp,f); fails=0; }, error:e=>{ err=String((e&&e.message)||e); }}); dec.configure({codec:d.codec,description:d.description}); };
   let resets=0, atascoFirma='', atascoT0=0;
-  const resetTo=(di)=>{ resets++; if(dec){try{dec.close();}catch(e){}} for(const[,f]of cache){try{f.close();}catch(e){}} cache.clear(); mkDec(); feed=keyBefore(di); feedBase=feed; feedBasePts=d.samples[feed].pts; lastFedPts=-1; err=null; vaciando=false; vaciado=false; }; // el decodificador es NUEVO: su cola de reordenación vuelve a estar por vaciar
+  const resetTo=(di)=>{ resets++; lastFedPts=null; if(dec){try{dec.close();}catch(e){}} for(const[,f]of cache){try{f.close();}catch(e){}} cache.clear(); mkDec(); feed=keyBefore(di); feedBase=feed; feedBasePts=d.samples[feed].pts; lastFedPts=-1; err=null; vaciando=false; vaciado=false; }; // el decodificador es NUEVO: su cola de reordenación vuelve a estar por vaciar
   const evict=()=>{ const lo=targetUs-BEHIND; for(const[ts,f]of cache){ if(ts<lo){try{f.close();}catch(e){} cache.delete(ts);} }
     if(cache.size>CAP){ const ks=[...cache.keys()].sort((a,b)=>a-b); for(const k of ks){ if(cache.size<=CAP)break; if(k<targetUs-frameDur){try{cache.get(k).close();}catch(e){} cache.delete(k);} } } };
   const delay=ms=>new Promise(r=>setTimeout(r,ms));
@@ -8113,11 +8128,11 @@ function makeClipDecoder(d,ex){
        reset every GOP that flushed the ring. */
     const back=targetUs<prevT-frameDur;
     if(!dec){ resetTo(decIdxForTime(targetUs)); }
-    else if(lastFedPts>=0 && targetUs>lastFedPts+2000000){ resetTo(decIdxForTime(targetUs)); }       // fell >2s behind, or a big forward jump → restart at the target's keyframe
+    else if(lastFedPts!==null && targetUs>lastFedPts+2000000){ resetTo(decIdxForTime(targetUs)); }       // fell >2s behind, or a big forward jump → restart at the target's keyframe
     else if(back && targetUs<feedBasePts-frameDur){ let have=false; for(const ts of cache.keys()){ if(ts<=targetUs&&ts>=targetUs-2*frameDur){have=true;break;} } if(!have)resetTo(decIdxForTime(targetUs)); } // backward BEFORE our decode start → reset only if the frame isn't still cached
     prevT=targetUs;
     let n=0;
-    while(feed<N && dec.decodeQueueSize<12 && (lastFedPts<0||lastFedPts<targetUs+AHEAD||cache.size<MINC) && n<96){
+    while(feed<N && dec.decodeQueueSize<12 && (lastFedPts===null||lastFedPts<targetUs+AHEAD||cache.size<MINC) && n<96){
       const s=d.samples[feed]; if(!inBuf(s))break;                                                  // buffer exhausted → the keeper refills; resume next call
       const data=bufData.subarray(s.offset-bufStart, s.offset+s.size-bufStart);
       try{ dec.decode(new EncodedVideoChunk({type:s.key?'key':'delta',timestamp:s.pts,data})); }catch(e){ err=String(e); }
@@ -8151,7 +8166,7 @@ function makeClipDecoder(d,ex){
        bucle de 10 s da cientos de vueltas — un tope de doce habría degradado el medio al camino `<video>` a
        mitad de la exportación. Lo que impide una tormenta no es el tope, es la exigencia de 400 ms congelados:
        para volver a reiniciar, el decodificador tiene que estar otra vez inmóvil ese tiempo entero. */
-    if(n===0 && lastFedPts>=0 && targetUs<lastFedPts && !cache.has(targetUs) && cache.size>0){
+    if(n===0 && lastFedPts!==null && targetUs<lastFedPts && !cache.has(targetUs) && cache.size>0){
       let masViejo=Infinity; for(const ts of cache.keys()) if(ts<masViejo)masViejo=ts;
       if(masViejo>targetUs){
         const firma=targetUs+'|'+cache.size+'|'+feed+'|'+lastFedPts+'|'+(dec?dec.decodeQueueSize:-1);
@@ -8176,7 +8191,7 @@ function makeClipDecoder(d,ex){
       catch(e){ fin(); } }
     evict(); };
   (async function keeper(){ while(!closed){ try{
-    if(!dead && dec && feed<N && !inBuf(d.samples[feed]) && (lastFedPts<0||lastFedPts<targetUs+AHEAD||cache.size<MINC)){ await ensureBuf(feed); if(closed)break; } // misma cláusula MINC que el feed: si no, el relleno del búfer se bloquea por el mismo motivo
+    if(!dead && dec && feed<N && !inBuf(d.samples[feed]) && (lastFedPts===null||lastFedPts<targetUs+AHEAD||cache.size<MINC)){ await ensureBuf(feed); if(closed)break; } // misma cláusula MINC que el feed: si no, el relleno del búfer se bloquea por el mismo motivo
     step();
   }catch(e){ err=String(e); await delay(20); } await delay(4); } })();
   return {
@@ -8184,7 +8199,10 @@ function makeClipDecoder(d,ex){
     setTarget:(t)=>{ targetUs=keyForTime(Math.max(0,t)); },
     pump:()=>{ try{ step(); }catch(e){} },
     frameAt:(t0)=>{ const k=keyForTime(Math.max(0,t0)); const f=cache.get(k); if(f)return f;
-      let best=-1; for(const ts of cache.keys()){ if(ts<=k&&ts>best)best=ts; } return best>=0?cache.get(best):null; },
+      /* [R343] `null` de centinela, no `-1`: desde R342 un `pts` puede ser NEGATIVO (un archivo recortado a
+         mitad de GOP deja las muestras previas al inicio de la edit list por debajo de cero), asi que `-1` era
+         a la vez «no hay candidato» y un instante legitimo — y el fotograma cacheado se rechazaba. */
+      let best=null; for(const ts of cache.keys()){ if(ts<=k&&(best===null||ts>best))best=ts; } return best!==null?cache.get(best):null; },
     /* [R189] para el EXPORT, donde entregar el fotograma equivocado en silencio es inaceptable, se sabe con
        nombre y apellido QUÉ fotograma toca (`keyForTime`), así que no hay que adivinar:
        · `passed(t)` = ese fotograma exacto ya está decodificado (o se acabó el archivo y la cola está vacía).
@@ -8192,8 +8210,10 @@ function makeClipDecoder(d,ex){
     frameDurUs:frameDur,
     passed:(t0)=>{ if(cache.has(keyForTime(Math.max(0,t0))))return true; return feed>=N && vaciado; }, // [R194] `vaciado`, no `decodeQueueSize===0`: ver la nota sobre la cola de reordenación
     frameNear:(t0)=>{ const k=keyForTime(Math.max(0,t0)); const f=cache.get(k); if(f)return f;
-      let b=-1, fw=Infinity; for(const ts of cache.keys()){ if(ts<=k){ if(ts>b)b=ts; } else if(ts<fw)fw=ts; }
-      if(b>=0)return cache.get(b); return fw<Infinity?cache.get(fw):null; },
+      /* [R343] mismo centinela que `frameAt`: con `b=-1` un fotograma anterior de pts negativo no se aceptaba y
+         esto caia a `fw`, devolviendo el fotograma SIGUIENTE — justo lo que esta funcion existe para evitar. */
+      let b=null, fw=Infinity; for(const ts of cache.keys()){ if(ts<=k){ if(b===null||ts>b)b=ts; } else if(ts<fw)fw=ts; }
+      if(b!==null)return cache.get(b); return fw<Infinity?cache.get(fw):null; },
     isDead:()=>dead, stats:()=>({cache:cache.size, feed, dead, err, resets}),
     close:()=>{ closed=true; if(dec){try{dec.close();}catch(e){}} for(const[,f]of cache){try{f.close();}catch(e){}} cache.clear(); try{d.close();}catch(e){} }
   };
@@ -8773,7 +8793,7 @@ function chapaLienzo(glc,opt,t,i,total,fps){
      ENTERA — un nido se coloca, se escala y se gira, asi que sus esquinas son contenido. Recortarlas al disco
      hacia que ACTIVAR el cache cambiara la imagen, que es exactamente la regresion que R180 midio y cerro por
      otro lado. El recorte al circulo sigue valiendo para todo lo que SÍ se entrega. */
-  const recortar=(state.seqMode==='dome' && !(opt&&opt.squareNest));
+  const recortar=(state.seqMode==='dome' && !_ncSquare); // [R343] `_ncSquare`, la misma bandera que usan las otras excepciones por este hecho (8571/8575): leer `opt.squareNest` por separado dejaba que las dos divergieran en cuanto un llamador sintetiza un opt, como ya hace el de la chapa fija
   if((!d||!d.on)&&!recortar)return glc;
   const W=glc.width, H=glc.height;
   if(!_chapaCv||_chapaCv.width!==W||_chapaCv.height!==H){ _chapaCv=document.createElement('canvas'); _chapaCv.width=W; _chapaCv.height=H; _chapaCx=_chapaCv.getContext('2d'); }
@@ -9467,7 +9487,10 @@ async function runExport(opt){
           /* [R286b] En domo `chapaLienzo` SIEMPRE devuelve su propio lienzo (el recorte al circulo se aplica con
              chapa o sin ella), asi que `lienzoPng` retorna antes y este canvas no se usa nunca: eran ~67 MB
              asignados y tirados a la basura en un domo 4096, y ~268 MB a 8192, sumados a `glc` y a `_chapaCv`. */
-          if(planchar && state.seqMode!=='dome'){ cvBg=document.createElement('canvas'); cvBg.width=glc.width; cvBg.height=glc.height; ctxBg=cvBg.getContext('2d'); }
+          /* [R343] `q===glc` en vez de `state.seqMode!=='dome'`: la condicion de antes se apoyaba en que en
+             domo `chapaLienzo` SIEMPRE devuelve lienzo propio, y R341 rompio esa premisa al eximir del recorte
+             al horneado de un nido. La pregunta que aqui importa es si hay que planchar sobre OTRO lienzo. */
+          if(planchar && q===glc){ cvBg=document.createElement('canvas'); cvBg.width=glc.width; cvBg.height=glc.height; ctxBg=cvBg.getContext('2d'); }
           const lienzoPng=i=>{
             /* [R281] Con chapa, es ella quien compone -y tambien planta el negro si toca-. Sin chapa, el
                camino de siempre. En ningun caso se dibuja dos veces sobre el mismo fotograma. */
@@ -11812,7 +11835,13 @@ function _loadProjectCore(obj){ relinkReset(); // [R204] el índice de reenlace 
   for(const c of state.clips){ if((c.penMasks&&c.penMasks.length)||c.maskData)rebuildMaskTex(c); else if(c.props&&(c.props.mask==='custom'||c.props.mask==='pen'))c.props.mask='none'; }
   state.media=(obj.media||[]).map(md=>({...md,el:null,originalEl:null,tex:null,buffer:null,missing:true,_loading:true,proxyReady:false,proxyPct:0})); // _loading: file exists but is still decoding → show "loading", NOT "missing" (esp. audio, which decodes slowly)
   try{ closeAllNdi(); }catch(e){} // drop any NDI receivers from the previous project
-  for(const m of state.media){ if(m.kind==='text'){ renderTextMedia(m); m.missing=false; } else if(m.kind==='shape'){ renderShapeMedia(m); m.missing=false; } else if(m.kind==='spout'){ m.tex=newTex(); try{ upTexRaw(m.tex,16,16,new Uint8Array(16*16*4).fill(24)); }catch(e){} m.w=m.w||16; m.h=m.h||16; m.dur=m.dur||60; m._spLive=false; m._thumbT=0; m.missing=false; try{ if(m.spoutSource&&DSP&&DSP.spout)DSP.spout.inOpen(m.spoutSource); }catch(e){} spoutStartPump(); } /* [V3] al abrir un .isp: textura de relleno + reenganche al emisor si sigue vivo */
+  /* [R343] Un `.isp` puede traer VARIAS entradas Spout y este bucle las abre todas, pero el addon mantiene
+     UNA conexion: gana la ultima y las anteriores se quedan mudas. Es el unico camino que llega aqui con mas
+     de una -crear la segunda a mano ya se rechaza- y hasta ahora no decia nada. El aviso que R340 puso en
+     `makeSpoutMedia` era inalcanzable, y encima contradecia al rechazo de seis lineas mas arriba. */
+  let _spReab=0, _spVarias=false;
+  for(const m of state.media){ if(m.kind==='text'){ renderTextMedia(m); m.missing=false; } else if(m.kind==='shape'){ renderShapeMedia(m); m.missing=false; } else if(m.kind==='spout'){ m.tex=newTex(); try{ upTexRaw(m.tex,16,16,new Uint8Array(16*16*4).fill(24)); }catch(e){} m.w=m.w||16; m.h=m.h||16; m.dur=m.dur||60; m._spLive=false; m._thumbT=0; m.missing=false; try{ if(m.spoutSource&&DSP&&DSP.spout){ if(_spReab++)_spVarias=true; DSP.spout.inOpen(m.spoutSource); } }catch(e){} spoutStartPump(); } /* [V3] al abrir un .isp: textura de relleno + reenganche al emisor si sigue vivo */
+  if(_spVarias)try{ flashStatus(T('This project has several Spout inputs and Spout serves one at a time: only the last one receives.','Este proyecto trae varias entradas Spout y Spout sirve una a la vez: solo la ultima recibe.'),'err'); }catch(e){}
   else if(m.kind==='ndi'){ m.tex=newTex(); try{ upTexRaw(m.tex,16,16,new Uint8Array(16*16*4).fill(24)); }catch(e){} m.w=m.w||16; m.h=m.h||16; m.dur=m.dur||60; m._ndiLive=false; m._thumbT=0; m.missing=false; try{ if(m.ndiSource&&DSP&&DSP.ndi)DSP.ndi.recvOpen(m.ndiSource); }catch(e){} ndiStartPump(); } else if(m.kind==='nest'){ m.nestClips=(m.nestClips||[]).map(c=>({...c,maskTex:null,kf:c.kf||{}}));
     /* [R226] …||penMasks: este es el camino por el que pasan TODAS las secuencias de un `.isp` v4 (los clips de la
        secuencia activa viven en su nest), y sólo rasterizaba `maskData`. Una máscara de pluma volvía del disco con
@@ -14034,9 +14063,17 @@ function regenComposeNest(m){ if(!m||!m.comp)return false; const g=m.comp; const
    `g.count`, que es lo PEDIDO: el tejido y el relleno de domo reparten otra cantidad (la rejilla se cierra a
    filas completas, el tunel encadena por ciclos), asi que el cuadro anunciaba «6 elementos» mientras el
    esquema dibujaba otros tantos y la composicion creada tenia un tercer numero. `flashStatus` ya decia el
-   real desde R247c (`lay.length`); aqui faltaba. Devuelve null si no llego a repartir. */
+   real desde R247c (`lay.length`); aqui faltaba. [R343] Devuelve SIEMPRE un numero cuando hay lienzo (0 si el
+   reparto sale vacio, que es informacion util y no un error), y `null` solo sin lienzo — es decir, cuando el
+   cuadro no esta abierto y el rotulo da igual. El respaldo a `g.count` que habia en el llamador era muerto:
+   el `catch` de cada rama deja `lay=[]` y devuelve 0, no null, asi que nunca saltaba. */
 function drawComposePreview(g,canvas){ if(!canvas)return null; const x=canvas.getContext('2d'); const W=canvas.width,H=canvas.height,cx=W/2,cy=H/2,R=Math.min(W,H)/2-7; x.clearRect(0,0,W,H);
-  if(FLAT_COMP_KINDS.includes(g.kind)){ // flat/room composition preview: a frame with x/y positioned dots
+  /* [R343] La rama se elige como la elige `createComposition` (`flat = weave || isFlat()`), no solo por el tipo:
+     `grid`, `row`, `col` y `random` existen en las DOS listas, asi que en una secuencia de DOMO el esquema pintaba
+     un marco 16:9 con cuadrados x/y —y desde R339 el rotulo contaba ese reparto— mientras la composicion se creaba
+     por az/el con `compLayout`. El cuadro ensenaba un reparto que no se iba a crear: la misma mentira que R339
+     venia a quitar del rotulo, un nivel mas arriba. */
+  if(FLAT_COMP_KINDS.includes(g.kind) && (g.kind==='weave'||isFlat())){ // flat/room composition preview: a frame with x/y positioned dots
     const A=(state.seqW||16)/(state.seqH||9); let bw=W-14,bh=bw/A; if(bh>H-14){ bh=H-14; bw=bh*A; } const bx=(W-bw)/2, by=(H-bh)/2;
     x.fillStyle=UI.s0; x.fillRect(bx,by,bw,bh); x.strokeStyle='rgba(255,255,255,0.16)'; x.lineWidth=1; x.strokeRect(bx,by,bw,bh);
     let lay=[]; try{ ensureRand(g); lay=compLayoutFlat(g); }catch(e){}
@@ -14311,7 +14348,7 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
      Los que se rellenan por código mueven el `input` oculto sin pasar por el fader, y sin esto la barra se quedaba
      en el valor anterior aunque el número de al lado ya dijera otra cosa. */
   const preview=()=>{ try{ ov.querySelectorAll('.frow input[type="range"]').forEach(r=>{ if(r._pintaFader)r._pintaFader(); }); }catch(_){}
-    const g=readForm(); const _reparto=drawComposePreview(g,$('#cPrev')); const lbl=$('#cPrevLbl'); if(lbl)lbl.textContent=(_reparto==null?g.count:_reparto)+' '+T('elements','elementos')+' · '+kindES(kind)+(g.tile&&!g.noWarp?' · '+T('tiled','mosaico'):'')+(g.noWarp?' · '+T('flat tile','baldosa plana'):'')+(g.mediaIds.length>1?(' · '+g.mediaIds.length+' '+T('media','medios')):''); };
+    const g=readForm(); const _reparto=drawComposePreview(g,$('#cPrev')); const lbl=$('#cPrevLbl'); if(lbl&&_reparto!=null)lbl.textContent=_reparto+' '+T('elements','elementos')+' · '+kindES(kind)+(g.tile&&!g.noWarp?' · '+T('tiled','mosaico'):'')+(g.noWarp?' · '+T('flat tile','baldosa plana'):'')+(g.mediaIds.length>1?(' · '+g.mediaIds.length+' '+T('media','medios')):''); };
   const sync=()=>{ const lineRot=$('#cLineRot')&&$('#cLineRot').checked, tile=$('#cTile')&&$('#cTile').checked;
     /* [R268] El tamaño de máscara sólo se ofrece si hay máscara. Va en `sync` y no junto a su control porque el
        pre-rellenado del cuadro ocurre DESPUÉS de cablear los mandos: comprobándolo allí se leía la máscara por

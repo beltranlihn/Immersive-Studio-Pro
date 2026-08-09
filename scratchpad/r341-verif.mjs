@@ -29,9 +29,14 @@ const r=await ev(`(async()=>{ try{
   const esquina=(cv)=>{ const c2=document.createElement('canvas'); c2.width=1; c2.height=1;
     const x2=c2.getContext('2d'); x2.drawImage(cv,3,3,1,1,0,0,1,1);
     const d=x2.getImageData(0,0,1,1).data; return {r:d[0],a:d[3]}; };
-  const conNido=esquina(chapaLienzo(glc,{squareNest:true},0,0,1,30));
+  /* [R343] La excepcion vive en la bandera de modulo _ncSquare -la misma que usan las otras excepciones por
+     este hecho- y no en el opt: leerla por duplicado dejaba que las dos divergieran. La red se actualiza al
+     contrato nuevo en vez de borrar el caso. (Undecima vez: nada de acentos graves aqui dentro.) */
+  const bak=_ncSquare;
+  _ncSquare=true;  const conNido=esquina(chapaLienzo(glc,{},0,0,1,30));
   gl.clearColor(1,1,1,1); gl.clear(gl.COLOR_BUFFER_BIT);
-  const entrega=esquina(chapaLienzo(glc,{},0,0,1,30));
+  _ncSquare=false; const entrega=esquina(chapaLienzo(glc,{},0,0,1,30));
+  _ncSquare=bak;
   return JSON.stringify({conNido, entrega,
     elNidoConservaLaEsquina: conNido.a>200 && conNido.r>200,
     laEntregaSigueRecortando: entrega.a<40});

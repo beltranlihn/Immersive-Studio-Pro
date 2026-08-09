@@ -1,5 +1,34 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 343 — Las doce de la tercera revisión: R342 no arreglaba nada
+
+Tercera revisión seguida en la que **casi todo lo encontrado son arreglos míos a medias**. El principal es el peor
+de la serie:
+
+- **R342 era INERTE.** `keyForTime` normalizaba por `baseX = dispX[0]`, así que restar el mismo desfase de la edit
+  list a todas las muestras se cancelaba exactamente en la comparación: el fotograma entregado al export era
+  idéntico al de antes. Los dos fotogramas de divergencia con `<video>` seguían ahí, con un comentario y una red
+  diciendo que estaban cerrados. **Y la sonda pasó por la razón equivocada**: midió `elstOff` y `pts0` — que sí
+  cambiaron — en vez del fotograma elegido, que era lo único que el hallazgo decía. Quitada la resta de `baseX`.
+- **Y R342 empeoraba el decodificador por tres sitios.** Al volver los `pts` tiempos de presentación de verdad
+  pueden ser NEGATIVOS (un archivo recortado a mitad de GOP), y `-1` era el centinela de «no hay candidato» en
+  `frameAt`, en `frameNear` — que devolvía el fotograma SIGUIENTE, justo lo que existe para evitar — y en
+  `lastFedPts`, donde desactivaba el antibloqueo de R256 y el reinicio por salto grande. Los tres pasan a `null`.
+- **El parseo de `elst` no se acotaba a su caja** (un `entry_count` mentiroso leía la cabecera de `mdia` como una
+  entrada: `media_time` de 1.835.102.049) y **`elstMedia`/`elstVacio` no se reiniciaban por pista**.
+- **El aviso de Spout de R340 era inalcanzable** — la guarda de R326 seis líneas más arriba ya rechaza el caso, y
+  el mensaje la contradecía. Se mueve al único camino que de verdad acaba con dos entradas: abrir un `.isp`.
+- **En domo, `grid` y `random` dibujaban el esquema PLANO**: el rótulo que R339 acababa de hacer honesto contaba
+  un reparto que nunca se iba a crear. La rama se elige ahora como la elige `createComposition`.
+- Más: `lienzoPng` dependa de una premisa que R341 rompió (`q===glc` en vez de suponer el modo), la excepción del
+  recorte lee `_ncSquare` como el resto, el respaldo muerto del rótulo y la guarda inútil de `spoutDestino`.
+
+**Una red se puso ROJA con razón** — la de R341, porque la excepción cambió de `opt.squareNest` a `_ncSquare` — y
+se actualizó al contrato nuevo en vez de borrar el caso, que es la regla de R320.
+
+**Verificación:** **veintidós redes en verde** y `npm test` 6/6.
+
+
 ## ROUND 342 — El demuxador ignoraba la edit list
 
 - **`edts/elst` no se leía.** La edit list dice desde qué instante del medio empieza la presentación: `media_time`
