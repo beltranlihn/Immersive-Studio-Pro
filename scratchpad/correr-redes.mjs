@@ -117,18 +117,30 @@ const PLAZO = 180000;
 { const malas = [];
   for (const [f] of REDES) {
     const txt = fs.readFileSync(path.join(AQUI, f), 'utf8');
+    /* [R345b] Por PARIDAD, sin conocer idiomas. La versión anterior emparejaba una apertura y un cierre
+       literales (`await ev(\`` … `})()\`);`), y eso fallaba por los dos lados a la vez: las sondas que declaran
+       la plantilla aparte (`const PAGINA = \`…\``, las tres más nuevas) no se miraban EN ABSOLUTO, y cualquier
+       sonda que cerrara de otra forma —una llamada de una sola línea, o el `};1\`);` de r261— dejaba el autómata
+       creyéndose dentro para el resto del fichero y soltaba avisos falsos en cada corrida. Un aviso que siempre
+       está deja de ser un aviso, y una vigilancia que no mira los ficheros nuevos no vigila nada.
+       La regla nueva no necesita saber cómo se escribe la sonda: una línea con un número IMPAR de acentos
+       graves abre (o cierra) una plantilla; una línea con un número PAR **dentro** de una plantilla es
+       exactamente la trampa — el par que la parte en dos y produce el `SyntaxError` que ha mordido siete veces,
+       casi siempre citando código en un comentario. Y si el fichero acaba con una plantilla sin cerrar, también
+       se dice. */
     let dentro = false, ln = 0;
     for (const l of txt.split(/\r?\n/)) { ln++;
-      const abre = /await ev\(`/.test(l), cierra = /\}\)\(\)`\);/.test(l);
       /* Los acentos ESCAPADOS (`\``) son legales dentro de la plantilla y hay sondas que los usan para citar
          código en un comentario; sólo cuentan los sueltos. Sin esta línea el guardián daba un falso positivo en
          `r318-caches.mjs:97`, que lleva funcionando desde R318 — el guardián tenía el fallo, no la sonda. */
       const graves = (l.replace(/\\`/g, '').match(/`/g) || []).length;
-      const esperados = (abre ? 1 : 0) + (cierra ? 1 : 0);
-      if ((dentro || abre) && graves !== esperados) malas.push(f + ':' + ln);
-      if (abre) dentro = true;
-      if (cierra) dentro = false;
-    } }
+      if (!dentro) { if (graves % 2 === 1) dentro = true; }        // impar: se abre y no se cierra aquí
+      else if (graves === 0) { /* línea normal dentro de la plantilla */ }
+      else if (graves % 2 === 1) dentro = false;                    // impar: cierra
+      else malas.push(f + ':' + ln);                                // PAR dentro de la plantilla = el par suelto
+    }
+    if (dentro) malas.push(f + ': la plantilla no cierra');
+  }
   /* [R323] AVISA, no aborta. La maquina de estados exige que la plantilla cierre con el patron exacto
      `})()`+"`);"+`, asi que una sonda escrita de otra forma deja `dentro` puesto para el resto del fichero y todo
      lo que venga despues se marca. Con `exit(2)` un solo falso positivo dejaba las CINCO redes sin medir —y ya

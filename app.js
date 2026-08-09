@@ -8112,7 +8112,7 @@ function makeClipDecoder(d,ex){
   const ensureBuf=async(i)=>{ const s=d.samples[i]; if(inBuf(s))return true; const a=s.offset;
     const data=await d.readRange(a, Math.max(s.size, READAHEAD)); if(!data)return false; bufData=data; bufStart=a; bufEnd=a+data.length; return inBuf(s); };
   const mkDec=()=>{ dec=new VideoDecoder({output:f=>{ if(closed){f.close();return;} const o=cache.get(f.timestamp); if(o&&o!==f){try{o.close();}catch(e){}} cache.set(f.timestamp,f); fails=0; }, error:e=>{ err=String((e&&e.message)||e); }}); dec.configure({codec:d.codec,description:d.description}); };
-  let resets=0, atascoFirma='', atascoT0=0;
+  let resets=0, atascoFirma='', atascoT0=0, desalojoK=null; // [R345b] `desalojoK`: el destino para el que ya se reintento un reinicio por desalojo — un intento por destino, sin bucle
   /* [R344] `lastFedPts=null`, y LO PRIMERO. R343 cambió el centinela de `-1` a `null` en los cinco sitios que
      lo LEEN, pero en esta función dejó el `-1` del final y añadió un `null` al principio que ese `-1` pisaba —
      o sea que el valor nuevo no llegaba a leerse: como toda vida de un decodificador empieza pasando por aquí
@@ -8136,6 +8136,17 @@ function makeClipDecoder(d,ex){
      existen para impedir. Nada entre medias lee estas variables: `resetTo` es síncrono y los callbacks del
      decodificador (salida, error, el rechazo del `flush`) son tareas o microtareas. */
   const resetTo=(di)=>{ resets++; lastFedPts=null; err=null; vaciando=false; vaciado=false; if(dec){try{dec.close();}catch(e){}} for(const[,f]of cache){try{f.close();}catch(e){}} cache.clear(); mkDec(); feed=keyBefore(di); feedBase=feed; feedBasePts=d.samples[feed].pts; }; // el decodificador es NUEVO: su cola de reordenación vuelve a estar por vaciar
+  /* [R345b] EL HECHO, dicho UNA vez. «El fotograma `k` existio, se decodifico y se desalojo, y no va a volver
+     por su cuenta»: no esta en cache, el archivo entero esta alimentado y vaciado, y hay fotogramas POSTERIORES
+     cacheados (si no los hubiera, estariamos de verdad al final y replegarse al anterior seria correcto — el
+     caso de R194). R344c dedujo este hecho dentro de `passed()` y confio la recuperacion al antiatasco de R256,
+     que lo expresa con OTRO predicado (`el mas viejo > destino` Y `targetUs < lastFedPts`); entre los dos queda
+     una banda sin salida, porque con fotogramas B `lastFedPts` es la ultima muestra en orden de DECODIFICACION
+     y no el pts mayor. En esa banda no se alimenta, no se reinicia y `passed()` es falso para siempre: 10 s,
+     `_cdFail`, y el medio entero al camino `<video>` el resto de la pelicula. Ahora los tres sitios que
+     necesitan el hecho —`passed`, `frameAt` y el reinicio de `step`— leen el mismo predicado. */
+  const hayPosterior=(k)=>{ for(const ts of cache.keys()) if(ts>k) return true; return false; };
+  const desalojado=(k)=>!cache.has(k) && feed>=N && vaciado && hayPosterior(k);
   const evict=()=>{ const lo=targetUs-BEHIND; for(const[ts,f]of cache){ if(ts<lo){try{f.close();}catch(e){} cache.delete(ts);} }
     if(cache.size>CAP){ const ks=[...cache.keys()].sort((a,b)=>a-b); for(const k of ks){ if(cache.size<=CAP)break; if(k<targetUs-frameDur){try{cache.get(k).close();}catch(e){} cache.delete(k);} } } };
   const delay=ms=>new Promise(r=>setTimeout(r,ms));
@@ -8174,6 +8185,15 @@ function makeClipDecoder(d,ex){
        fotograma clave. Si el destino cae en el GOP que ya estamos decodificando, avanzar es la única forma de
        llegar — y es lo que ya hacía bien el caso corto. */
     else if(lastFedPts!==null && targetUs>lastFedPts+2000000 && keyBefore(decIdxForTime(targetUs))!==feedBase){ resetTo(decIdxForTime(targetUs)); }  // fell >2s behind, or a big forward jump → restart at the target's keyframe, but never restart where we already are
+    /* [R345b] Fin de archivo con el fotograma desalojado: se reinicia YA, sin los 400 ms de firma congelada.
+       Ese aguante (R259/R260) existe para no confundir un decodificador ATASCADO con uno LENTO a mitad de
+       archivo, donde la situacion es ambigua. Aqui no lo es: con `feed>=N && vaciado` el decodificador esta
+       terminado y esperar no puede producir nada, asi que el aguante solo cuesta — medido, 2,8 s de los 20 s
+       del caso de R261, y ~4 minutos por capa en un bucle de 1 s sobre 10 minutos (peor aun en ping-pong, donde
+       uno de cada tres fotogramas va hacia atras). `desalojoK` es el tope que impide el bucle infinito si un
+       fotograma no llega NUNCA (cola truncada): se intenta UNA vez por destino; si aun asi no aparece, se cae
+       por su propio peso al plazo de `seekCDExport` — lento pero correcto, que es el intercambio de siempre. */
+    else if(desalojado(targetUs)){ if(desalojoK!==targetUs){ desalojoK=targetUs; resetTo(decIdxForTime(targetUs)); } }
     else if(back && targetUs<feedBasePts-frameDur){ let have=false; for(const ts of cache.keys()){ if(ts<=targetUs&&ts>=targetUs-2*frameDur){have=true;break;} } if(!have)resetTo(decIdxForTime(targetUs)); } /* backward BEFORE our decode start → reset only if the frame isn't still cached.
        [R344] `have` no puede ser cierto con material de GOP CERRADO —el que produce todo codificador que usamos—:
        `resetTo` vacía la caché, así que todo lo cacheado es ≥ `feedBasePts`, y esta rama exige `targetUs` ANTERIOR
@@ -8248,7 +8268,14 @@ function makeClipDecoder(d,ex){
     width:d.codedWidth, height:d.codedHeight, fps:d.fps, codec:d.codec,
     setTarget:(t)=>{ targetUs=keyForTime(Math.max(0,t)); },
     pump:()=>{ try{ step(); }catch(e){} },
+    /* [R345b] El GEMELO que R344c no barrio. `frameAt` es la puerta de la PREVISUALIZACION (`driveCD` y el
+       posicionamiento no-export) y hacia exactamente lo que R344c arreglo en el camino de export: replegarse al
+       fotograma anterior sin mirar si el pedido existio y fue desalojado. Con `wcDecode` encendido, un clip en
+       bucle sobre el final de su fuente ensenaba el fotograma VECINO al reproducir y al arrastrar — el mismo
+       error de 28 dB, y en silencio. Devolver `null` no congela nada: el llamador simplemente no sube textura
+       ese fotograma y `step()` ya ha pedido el reinicio, asi que el correcto llega en la vuelta siguiente. */
     frameAt:(t0)=>{ const k=keyForTime(Math.max(0,t0)); const f=cache.get(k); if(f)return f;
+      if(desalojado(k))return null;
       /* [R343] `null` de centinela, no `-1`: desde R342 un `pts` puede ser NEGATIVO (un archivo recortado a
          mitad de GOP deja las muestras previas al inicio de la edit list por debajo de cero), asi que `-1` era
          a la vez «no hay candidato» y un instante legitimo — y el fotograma cacheado se rechazaba. */
@@ -8274,8 +8301,7 @@ function makeClipDecoder(d,ex){
        ir a buscarlo — devolver `false` deja que el antibloqueo de R256 reinicie en su fotograma clave. */
     passed:(t0)=>{ const k=keyForTime(Math.max(0,t0)); if(cache.has(k))return true;
       if(!(feed>=N && vaciado))return false;                                                        // [R194] `vaciado`, no `decodeQueueSize===0`: ver la nota sobre la cola de reordenación
-      for(const ts of cache.keys()) if(ts>k) return false;                                          // hay fotogramas POSTERIORES cacheados → el pedido se desalojó, no es que no exista
-      return true; },
+      return !hayPosterior(k); },                                                                   // [R345b] mismo predicado que usan `frameAt` y el reinicio de `step`: ver la nota de `desalojado`
     frameNear:(t0)=>{ const k=keyForTime(Math.max(0,t0)); const f=cache.get(k); if(f)return f;
       /* [R343] mismo centinela que `frameAt`: con `b=-1` un fotograma anterior de pts negativo no se aceptaba y
          esto caia a `fw`, devolviendo el fotograma SIGUIENTE — justo lo que esta funcion existe para evitar. */
@@ -9248,7 +9274,16 @@ async function exPrepararReactivo(job){
   }catch(e){ diag('warn','export','reactivo',{e:String(e&&e.message||e)}); }
 }
 let _ffJob=null;   /* [R291] el trabajo de FFmpeg en curso, para que Cancelar lo mate de verdad */
-async function runExport(opt){
+/* [R345b] Red de seguridad: si el export LANZA, la limpieza no corría y la aplicación se quedaba bloqueada en
+   modo export para siempre — `exporting`/`_exCD` en true, el velo `#renderMask` puesto, `powerSave` retenido y
+   el lienzo a dimensiones de export (y `resize()` es un no-op mientras `exporting` sea true, así que ni eso lo
+   devolvía). `_exportCleanup` sólo se invoca en tres salidas concretas, y está anidada dentro de `runExport`
+   —cierra sobre `oW`/`oH`/`job`/`_rsSeq`—, así que no se puede llamar desde fuera: se publica aquí al arrancar
+   y se descuelga al terminar. Envoltura fina para no tocar el cuerpo de trescientas líneas. */
+let _exportPanic=null;
+async function runExport(opt){ try{ return await _runExportCore(opt); }
+  catch(e){ const p=_exportPanic; _exportPanic=null; if(p){ try{ p(); }catch(_){} } throw e; } }
+async function _runExportCore(opt){
   /* [R325] Guarda de REENTRADA. Todo lo que sigue es estado GLOBAL —`exporting`, `_exportQuality`, `glc.width`,
      `nestSize`, `_exCD`, el `state.clips` sustituido de `isolateClips`— así que dos renders solapados se pisan:
      el segundo redimensiona el lienzo mientras el primero codifica, y el primero en terminar repone `glc` y
@@ -9325,8 +9360,10 @@ async function runExport(opt){
     try{ if(IS_ELEC&&DSP.powerSave)DSP.powerSave(false); }catch(e){}
     for(const m of state.media)if(m._exAudio)delete m._exAudio; // _exAudio freed: decoded video audio is export-only (1h ≈ 1.4GB PCM)
     if(_rsSeq)switchSeq(_rsSeq,true); resize(); try{scrubRender();}catch(_){}
+    _exportPanic=null; // [R345b] la limpieza normal ya corrio: la red de seguridad se descuelga
     job.done(doneArg);
   }
+  _exportPanic=()=>{ _exportPanic=null; _exportCleanup(false); }; // [R345b] ver la envoltura de `runExport`: publica la limpieza para que una excepcion no deje la aplicacion bloqueada en modo export
   exporting=true; _exportQuality=true; _ncSquare=!!opt.squareNest;
   try{ if(IS_ELEC&&DSP.powerSave)DSP.powerSave(true); }catch(e){} // [R212] a render can run for minutes unattended — don't let the display/system sleep interrupt it; main.js ref-counts, paired with the powerSave(false) at every exit below
   /* [R189] el export decodifica por WebCodecs secuencial, no por <video>. Se tiran las instancias de
@@ -11894,12 +11931,23 @@ function loadProject(obj){ let ok=false;
    exactamente ese id. Dos grupos con el mismo id no es cosmético: `groupId` empareja clip y grupo, y R278 midió
    que un miembro con `slot` fuera de rango se ELIMINA en silencio al siguiente re-layout.
    Una función, dos llamadas: la copia no puede volver a quedarse atrás. */
+/* [R345b] Lo de dentro de un CLIP, aparte y en un solo sitio: `fx`, `anim` y `mod` tambien nacen de `uid()` y
+   tambien viajan en el `.isp` (`serClip` es una lista NEGRA: clona el clip y borra transitorios, asi que todo
+   lo demas se guarda). `anim[].gid` importa especialmente porque SI se busca por valor —`c.anim.filter(a=>
+   a.gid===gid)`—: dos acordes del mismo clip con el mismo `gid` los movería a la vez el mando de intensidad. */
+function maxIdEnClip(c){ if(!c)return 0; let x=c.id||0;
+  if(c.fx)for(const f of c.fx)x=Math.max(x,f.id||0);
+  if(c.anim)for(const a of c.anim)x=Math.max(x,a.id||0,a.gid||0);
+  if(c.mod)for(const p in c.mod){ const l=c.mod[p]; if(Array.isArray(l))for(const o of l)x=Math.max(x,(o&&o.id)||0); }
+  return x; }
 function maxIdEnMedio(m){ let x=m.id||0;
-  const fx=c=>{ if(c&&c.fx)for(const f of c.fx)x=Math.max(x,f.id||0); };
-  if(m.nestClips)for(const c of m.nestClips){ x=Math.max(x,c.id||0); fx(c); }
+  if(m.nestClips)for(const c of m.nestClips)x=Math.max(x,maxIdEnClip(c));
   if(m.nestLanes)for(const l of m.nestLanes)x=Math.max(x,l.id||0);
   if(m.nestMarkers)for(const k of m.nestMarkers)x=Math.max(x,k.id||0);
   if(m.nestGroups)for(const g of m.nestGroups)x=Math.max(x,g.id||0);
+  /* [R345b] Los MUROS de una sala. `serMedia` persiste `room`, y cada muro lleva `id:uid()` — y al anadir un
+     rol de muro desde el dialogo de geometria ese id es lo ultimo que se crea, o sea el mas alto del archivo. */
+  if(m.room&&Array.isArray(m.room.walls))for(const w of m.room.walls)x=Math.max(x,(w&&w.id)||0);
   if(m.comp&&m.comp.id)x=Math.max(x,m.comp.id);
   return x; }
 function _loadProjectCore(obj){ relinkReset(); // [R204] el índice de reenlace es de ESTE proyecto: se tira al cargar otro
@@ -11937,13 +11985,21 @@ function _loadProjectCore(obj){ relinkReset(); // [R204] el índice de reenlace 
     for(const c of m.nestClips){ if(c.maskData||(c.penMasks&&c.penMasks.length))rebuildMaskTex(c); else if(c.props&&(c.props.mask==='custom'||c.props.mask==='pen'))c.props.mask='none'; } m.nestLanes=(m.nestLanes&&m.nestLanes.length)?m.nestLanes:defLanes(); m.nestMarkers=m.nestMarkers||[]; m.nestGroups=m.nestGroups||[]; m.fbo=null; m.tex=null; m.w=m.w||4096; m.h=m.h||4096; m.fps=m.fps||obj.fps||60; m.missing=false; m.ncReady=false; m.ncUrl=null; m.ncStale=false; } }
   for(const m of state.media) if(m.kind==='nest'&&m.ncPath) ncReattach(m); // [R180] los cachés de nest se re-enganchan al reabrir; la firma decide si siguen valiendo (va después del bucle: nestSig desciende a otros medios) // text/shape re-render from params; nest = a sequence (keeps its own w/h/fps)
   for(const m of state.media)if(m.missing===false)m._loading=false; // text/shape/ndi/nest are ready synchronously → not loading
-  let mx=0; const fxMx=c=>{ if(c&&c.fx)for(const f of c.fx)mx=Math.max(mx,f.id||0); }; for(const c of state.clips){mx=Math.max(mx,c.id);fxMx(c);} for(const l of state.lanes)mx=Math.max(mx,l.id); for(const m of state.media)mx=Math.max(mx,maxIdEnMedio(m)); for(const g of (state.groups||[]))mx=Math.max(mx,g.id); for(const k of state.markers)mx=Math.max(mx,k.id); // [R345] `maxIdEnMedio` es el mismo barrido que usa el camino legacy: ver su nota
+  /* [R345b] `maxIdEnClip`/`maxIdEnMedio` tambien AQUI: R345 unifico las dos barridas de MEDIOS y dejo la de
+     clips de primer nivel con su propia copia del recorrido de `fx` (`fxMx`), a cuarenta lineas de la otra —
+     la misma divergencia que venia a cerrar, a la mitad de distancia. Y los `||0` cubren de paso el `NaN` que
+     un objeto sin `id` metia en `mx`, que envenenaba `_id` para toda la sesion. */
+  let mx=0; for(const c of state.clips)mx=Math.max(mx,maxIdEnClip(c)); for(const l of state.lanes)mx=Math.max(mx,l.id||0); for(const m of state.media)mx=Math.max(mx,maxIdEnMedio(m)); for(const g of (state.groups||[]))mx=Math.max(mx,g.id||0); for(const k of state.markers)mx=Math.max(mx,k.id||0);
   /* [R311·A13] Los ids de la biblioteca de automatizacion tambien cuentan. No estaban: se crean con `uid()`
      igual que todo lo demas, pero un item puede SOBREVIVIR a los clips que lo usaban (se borran los clips, el
      item se queda en la biblioteca). Si esos clips llevaban los ids altos, `_id` quedaba por debajo del id del
      item y el siguiente `uid()` podia repetirlo: `ensureItems()[it.id]=it` lo sobrescribe y todos los clips con
      `kfLink` a ese id pasan a seguir una curva ajena via `poolPropagate`. */
-  for(const k in (state.autoItems||{})){ const it=state.autoItems[k]; if(it&&it.id)mx=Math.max(mx,it.id); }
+  /* [R345b] Se lee de `obj`, NO de `state`. Escrito contra `state` este barrido era INERTE: `resetProjDefaults()`
+     -segunda linea de esta funcion- deja `state.autoItems={}`, y la biblioteca del archivo no se instala hasta
+     diez lineas MAS ABAJO, asi que recorria siempre un objeto vacio y el fallo que su comentario describe
+     seguia entero. Los ids que hay que contar son los del ARCHIVO, y esos estan en `obj` desde el principio. */
+  for(const k in (obj.autoItems||{})){ const it=obj.autoItems[k]; if(it&&it.id)mx=Math.max(mx,it.id); }
   _id=mx+1;
   /* [R221] room canvas migration — AFTER _id is set (migrateRoomFloor calls uid() for new clips/lanes; doing it
      before the scan above would collide with ids the scan hasn't accounted for yet). Every pre-R221 room gets

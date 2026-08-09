@@ -42,13 +42,15 @@ const PAGINA=`(async()=>{ try{
      Se mide: (a) no lanza, (b) despues de usarla se ha cerrado sola, (c) la curva no se ha tocado.
      El CONTROL exige lo contrario -que siga viva y que la curva SI cambie-, porque una prueba en la que el
      caso sano y el roto dan lo mismo no distingue nada. */
-  const foto=(b)=>{ if(!b)return null; const c=clipById(b.cid); const arr=c&&c.kf&&c.kf[b.p];
-    return Array.isArray(arr)?JSON.stringify(arr.map(k=>[k.t,k.v])):null; };
+  /* [R345b] La foto se saca de los puntos que la caja SUJETA (b.base[].k), no de la curva del clip. Leerla a
+     traves de clipById(b.cid) dejaba el detector de fantasmas CIEGO justo en los casos que mas importan: con
+     el clip borrado o la curva limpiada, antes y despues eran los dos null y cambio no podia moverse.
+     Y son esas referencias vivas las que shapeBoxApply mutaria si actuase sobre fantasmas. */
+  const foto=(b)=>b?JSON.stringify(b.base.map(o=>[o.k.t,o.k.v])):null;
   const juzgar=(nombre)=>{
     const b=state.shapeBox;
     const antes=foto(b);
-    const cAntes=b&&clipById(b.cid);
-    let lanzo=''; try{ shapeBoxSync(); shapeBoxApply(1.1,1,0,0,0,0,0,-1e9,1e9,cAntes?cAntes.dur:6); }
+    let lanzo=''; try{ shapeBoxSync(); shapeBoxApply(1.1,1,0,0,0,0,0,-1e9,1e9,6); }
     catch(e){ lanzo=String((e&&e.message)||e).slice(0,90); }
     const viva=!!state.shapeBox;
     const despues=foto(b);
@@ -63,8 +65,13 @@ const PAGINA=`(async()=>{ try{
   { const c=await montar(); c.kf.size=c.kf.size.map(k=>({t:k.t,v:k.v})); juzgar('deshacer: los puntos se reemplazan por copias'); }
   // 4) se borran algunos de los puntos que la caja tenia cogidos
   { const c=await montar(); c.kf.size=c.kf.size.slice(2); juzgar('se borran dos de los tres puntos'); }
-  // 5) el clip se va a otra secuencia / se cambia de secuencia
-  { await montar(); if(typeof loadSeqIntoState==='function'&&activeSeq()) loadSeqIntoState(activeSeq()); juzgar('se recarga la secuencia'); }
+  /* 5) el CLIP ENTERO se reemplaza por una copia equivalente, que es lo que hace restore() al deshacer.
+        [R345b] Antes esta fila llamaba a loadSeqIntoState, y esa funcion pone state.shapeBox=null ELLA
+        MISMA: la caja llegaba cerrada a juzgar, la fila imprimia "se cierra sola (bien)" sin haber usado la
+        guarda, y seguia verde aunque shapeBoxVivo devolviera siempre true. Contaba como uno de los cinco
+        caminos y no cubria ninguno. Reemplazar el clip si deja la caja apuntando a objetos huerfanos. */
+  { const c=await montar(); state.clips=state.clips.map(x=>x.id===c.id?{...x,kf:{size:x.kf.size.map(k=>({t:k.t,v:k.v}))}}:x);
+    juzgar('deshacer: el clip entero se reemplaza por una copia'); }
   // 6) sano: nada cambia, la caja tiene que SEGUIR viva (si no, la prueba no distingue nada)
   { await montar(); juzgar('CONTROL: no se toca nada'); }
   return JSON.stringify({filas});
@@ -79,11 +86,15 @@ for(const f of o.filas){
   const ctrl=/^CONTROL/.test(f.caso);
   let veredicto;
   if(ctrl){
-    const bien=f.viva&&f.cambio&&!f.lanzo;
+    const bien=f.habia&&f.viva&&f.cambio&&!f.lanzo;
     veredicto=bien?'sigue viva y SI mueve la curva (la prueba distingue)':'*** el CONTROL falla: la prueba no distingue nada';
     if(!bien) malas.push(f.caso+': con todo sano la caja deberia seguir viva y mover la curva (viva='+f.viva+', movio='+f.cambio+(f.lanzo?', lanzo: '+f.lanzo:'')+')');
   } else {
-    if(f.lanzo){ veredicto='*** LANZA al usarla: '+f.lanzo; malas.push(f.caso+': usar la caja lanza -> '+f.lanzo); }
+    /* [R345b] `habia` se juzga: si la caja no estaba abierta al empezar la fila, esa fila no mide nada — y
+       `shapeBoxOpen` NO lanza cuando falla (avisa por pantalla y retorna), asi que un `montar()` que dejara de
+       funcionar daba habia=false/viva=false/cambio=false, byte a byte igual que un aprobado legitimo. */
+    if(!f.habia){ veredicto='*** la caja NO estaba abierta: la fila no mide nada'; malas.push(f.caso+': montar() no dejo la caja abierta, la fila no prueba nada'); }
+    else if(f.lanzo){ veredicto='*** LANZA al usarla: '+f.lanzo; malas.push(f.caso+': usar la caja lanza -> '+f.lanzo); }
     else if(f.cambio){ veredicto='*** ACTUO SOBRE FANTASMAS: la curva cambio'; malas.push(f.caso+': la caja actuo sobre puntos que ya no estaban'); }
     else if(f.viva){ veredicto='*** sigue viva tras usarla: la guarda no la cerro'; malas.push(f.caso+': tras usarla la caja sigue abierta pese a que sus puntos no estan'); }
     else veredicto='se cierra sola al usarla (bien)';

@@ -1,5 +1,52 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 345b — La revisión de R344c y R345: quince, y casi todos contra lo de hoy
+
+Segunda aplicación del ritual. Quince hallazgos; ocho eran de la misma familia que estas rondas decían cerrar.
+
+**En producción, tres veces la misma forma.**
+- **La barrida de `autoItems` era INERTE.** Leía `state.autoItems` cuando `resetProjDefaults()` acababa de
+  vaciarlo, diez líneas antes de que el archivo instalara el suyo: recorría un objeto vacío en cada carga y el
+  fallo que su propio comentario describe seguía entero (un item que sobrevive a sus clips lleva el id más alto
+  → `_id` por debajo → `uid()` lo repite → `ensureItems()` lo sobrescribe y los clips con `kfLink` a ese id
+  siguen una curva ajena). Ahora lee de `obj`. Estaba **una línea por encima** de la que R345 editó.
+- **`maxIdEnMedio` se dejaba cuatro contenedores**: `room.walls[].id` (que `serMedia` persiste, y añadir un rol
+  de muro los deja como lo último creado del archivo), `anim[].id`, `anim[].gid` y `mod[][].id`. `gid` importa:
+  se busca POR VALOR, y dos acordes con el mismo `gid` los mueve a la vez el mando de intensidad. La frase que
+  R345 escribió en `COMPONENTS.md` era falsa para cuatro casos el día que se escribió. De paso, el barrido de
+  clips de primer nivel tenía TODAVÍA su propia copia (`fxMx`) a cuarenta líneas: ahora es `maxIdEnClip`.
+- **`frameAt` era el gemelo sin barrer de R344c.** El arreglo del fotograma equivocado se aplicó al camino de
+  export y no a la puerta de la previsualización, que hacía exactamente lo mismo. Con `wcDecode` encendido, un
+  bucle sobre el final de una fuente enseñaba el vecino al reproducir y al arrastrar.
+
+**Y dos consecuencias del propio R344c**, ninguna medida en su momento: `passed()` se ensanchó y el antiatasco
+de R256 no, dejando una banda sin recuperación (con fotogramas B, `lastFedPts` es la última muestra en orden de
+DECODIFICACIÓN, no el pts mayor → la guarda `targetUs<lastFedPts` no se cumple y nada reinicia → 10 s →
+`_cdFail` para el resto de la película); y el caso de fin de archivo pasó a pagar los **400 ms** del detector de
+atasco, que ahí no compran nada porque el decodificador está demostrablemente terminado — ~4 minutos por capa en
+un bucle de 1 s sobre 10 minutos, y peor en ping-pong. Los tres sitios leen ahora **un solo predicado**,
+`desalojado(k)`, y el reinicio es inmediato con un tope de un intento por destino.
+
+**Siete de los quince eran que mis tres redes nuevas no sabían fallar.** La de ids seguía verde si alguien
+volvía a quitar `nestGroups` (el marcador tapaba al grupo — el mismo error del id del efecto, repetido), sólo
+medía el camino legacy, y no comprobaba que su material sobreviviera a la carga. Está rehecha: **una pasada por
+contenedor** con ese contenedor llevando el id más alto, en los DOS caminos, y el criterio ya no es «el próximo
+`uid()` es mayor» —que tenía holgura porque la carga gasta ids— sino **que no haya dos objetos con el mismo id**,
+contados con un recorrido GENÉRICO del estado (enumerar contenedores a mano hacía la sonda ciega justo a los que
+el código también olvidó). Verificado por reversión: quitando `nestGroups` se pone roja en los dos caminos.
+La de la caja de forma tenía una fila de cinco que era tautológica (`loadSeqIntoState` cierra la caja él mismo) y
+no juzgaba `habia`, así que un `montar()` averiado habría pasado por aprobado. La de fin de archivo aprobaba sin
+ffmpeg diciendo «idénticas», no comprobaba el número de PNG y capaba el juez a 40 parejas.
+
+**El guardián de acentos graves, rehecho por paridad.** Emparejaba una apertura y un cierre literales, así que
+no miraba EN ABSOLUTO las tres sondas más nuevas y soltaba tres avisos falsos en cada corrida — y esos avisos
+estaban en la cabecera del log de la suite que pasé y di por buena sin leer. Ahora no necesita saber cómo se
+escribe una sonda: impar abre o cierra, **par dentro de una plantilla es la trampa**. Comprobado a mano que caza
+un par metido a propósito y que no da un solo falso sobre las 28.
+
+**Verificación:** **28 redes en verde** y `npm test` 6/6.
+
+
 ## ROUND 345 — Las dos «no confirmadas» de la auditoría 2026-08-06
 
 Eran lo único que aquella auditoría dejó abierto: *«si los ids de efectos podrían mezclarse entre clips por
