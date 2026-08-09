@@ -462,8 +462,8 @@ una ronda hay que releer el codigo, no la lista — en este barrido, dos de cada
 
 Lo que sigue REALMENTE abierto, verificado a R337:
 
-- **Decodificador (los dos mas caros, y los unicos que piden material de prueba real):** el demuxador ignora
-  `edts/elst` — no hay una sola aparicion de esas cajas en `app.js`—, asi que una fuente con edit list real
+- **Decodificador (los dos mas caros, y los unicos que piden material de prueba real):** ~~el demuxador ignora `edts/elst`~~ **[cerrado en R342, medido con dos archivos reales]**
+  ~~ — no hay una sola aparicion de esas cajas en `app.js`—, asi que una fuente con edit list real
   muestra fotogramas corridos entre la previsualizacion (`<video>`, que si la respeta) y el export (WebCodecs,
   que no) · salto atras con un vecino ≤2 fotogramas en cache: ni el reinicio ni la rama de atasco de R256
   disparan, y el export se come 10 s muertos antes de marcar `_cdFail` y degradar el medio entero.

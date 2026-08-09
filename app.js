@@ -7990,7 +7990,12 @@ async function demuxMP4(path){
     const boxes=(s,e)=>{ const out=[]; let q=s; while(q+8<=e){ let sz=dv.getUint32(q); const t=fc(mv,q+4); let hs=8;
       if(sz===1){ sz=Number(dv.getBigUint64(q+8)); hs=16; } else if(sz===0){ sz=e-q; } out.push({t,d:q+hs,e:q+sz}); if(sz<=0)break; q+=sz; } return out; };
     const kid=(b,t)=>boxes(b.d,b.e).find(x=>x.t===t);
-    let stbl=null,mdhd=null;
+    let stbl=null,mdhd=null,elstMedia=0,elstVacio=0; // [R342] desfase de la edit list: tramo real y hueco inicial
+    /* [R342] El timescale de la PELICULA, que hace falta para los huecos vacios de la edit list: `media_time`
+       viene en unidades del medio, pero `segment_duration` en las de la pelicula. Sin el, un hueco inicial se
+       convertiria mal y el desfase saldria peor que no corregirlo. */
+    let movTimescale=0; { const mvhd=boxes(moov.hs,moov.size).find(b=>b.t==='mvhd');
+      if(mvhd)movTimescale=(dv.getUint8(mvhd.d)===1)?dv.getUint32(mvhd.d+20):dv.getUint32(mvhd.d+12); }
     for(const trak of boxes(moov.hs,moov.size).filter(b=>b.t==='trak')){
       const mdia=kid(trak,'mdia'); if(!mdia)continue; const hdlr=kid(mdia,'hdlr'); if(!hdlr||fc(mv,hdlr.d+8)!=='vide')continue;
       /* [R189] `<video>` aplica la matriz de presentación del contenedor; este demuxador entrega las muestras
@@ -8000,6 +8005,21 @@ async function demuxMP4(path){
       const tkhd=kid(trak,'tkhd');
       if(tkhd){ const mo=tkhd.d+4+((dv.getUint8(tkhd.d)===1)?32:20)+16; // v0: creation+modification+trackID+reserved+duration = 20 · v1 = 32 · luego reserved(8)+layer+altGroup+volume+reserved = 16
         if(mo+36<=tkhd.e && !(dv.getInt32(mo)===0x10000 && dv.getInt32(mo+4)===0 && dv.getInt32(mo+12)===0 && dv.getInt32(mo+16)===0x10000)) throw new Error('rotated track'); }
+      /* [R342] La EDIT LIST de la pista, que este demuxador ignoraba. `edts/elst` dice desde que instante del
+         medio empieza la presentacion: `media_time` en unidades del medio (se salta ese trozo del principio) y,
+         con `media_time === -1`, un hueco vacio que RETRASA el arranque. `<video>` la aplica y este camino no,
+         asi que un archivo con edit list real -y los hay a patadas: cualquier recorte sin recodificar deja una-
+         mostraba fotogramas distintos en la previsualizacion y en el export. Medido sobre un clip de la carpeta
+         de descargas: `media time: 1024` con timescale 15360 son 66,7 ms, o sea DOS fotogramas a 30 fps. */
+      { const edts=kid(trak,'edts'), el=edts&&kid(edts,'elst');
+        if(el){ const v=dv.getUint8(el.d), n=dv.getUint32(el.d+4); let o=el.d+8;
+          for(let i=0;i<n;i++){
+            const durMov=(v===1)?Number(dv.getBigUint64(o)):dv.getUint32(o);
+            const mt=(v===1)?Number(dv.getBigInt64(o+8)):dv.getInt32(o+4);
+            o+=(v===1)?20:12;
+            if(mt<0){ elstVacio+=durMov; continue; }   // hueco: retrasa (en unidades de PELICULA)
+            elstMedia=mt; break; }                     // primer tramo real: su media_time es el desfase
+        } }
       mdhd=kid(mdia,'mdhd'); const minf=kid(mdia,'minf'); const s=minf&&kid(minf,'stbl'); if(s){ stbl=s; break; } }
     if(!stbl||!mdhd) throw new Error('no video track');
     const timescale=(dv.getUint8(mdhd.d)===1)?dv.getUint32(mdhd.d+20):dv.getUint32(mdhd.d+12);
@@ -8021,9 +8041,13 @@ async function demuxMP4(path){
     /* [R189] `pts` (microsegundo entero) es lo que hay que entregarle al decodificador, pero REDONDEA: a 60 fps el
        fotograma 2 arranca en 33333,33 y se guarda como 33333. `ptsExact` conserva el valor sin redondear, que es
        el único con el que se puede reproducir la elección de fotograma de <video> (ver `keyForTime`). */
-    const samples=new Array(sc); for(let i=0;i<sc;i++){ const x=(dts[i]+cto[i])*1e6/timescale; samples[i]={offset:offs[i],size:sizes[i],key:key.has(i),pts:Math.round(x),ptsExact:x}; }
+    /* [R342] …y aqui se aplica: el tiempo de PRESENTACION es el del medio menos lo que la edit list se salta,
+       mas el hueco vacio inicial si lo hay. `elstVacio` viene en unidades de PELICULA, no del medio. Sin esto el
+       decodificador entregaba las muestras crudas y la imagen iba corrida respecto a <video>. */
+    const desf=(elstMedia/timescale) - (elstVacio/(movTimescale||timescale));
+    const samples=new Array(sc); for(let i=0;i<sc;i++){ const x=((dts[i]+cto[i])/timescale - desf)*1e6; samples[i]={offset:offs[i],size:sizes[i],key:key.has(i),pts:Math.round(x),ptsExact:x}; }
     const durSec=((dts[sc-1]||0))/timescale; const fps=(sc>1&&durSec>0)?((sc-1)/durSec):30;
-    return { path, codec, fmt, description, codedWidth, codedHeight, timescale, fps, samples,
+    return { path, codec, fmt, description, codedWidth, codedHeight, timescale, fps, samples, elstOff:desf, /* [R342] el desfase de la edit list, en segundos: 0 si no hay o si no aporta nada. Se expone para poder AFIRMARLO en una sonda — con un archivo recortado sin recodificar, el `ctts` inicial y el `media_time` se cancelan y la presentacion arranca en 0, igual que en <video> */
              readSample:(i)=>rd(samples[i].offset,samples[i].size), readRange:(pos,len)=>rd(pos,len), close:()=>{ try{ DSP.closeRead(id); }catch(e){} } };
   }catch(e){ try{ await DSP.closeRead(id); }catch(_){}; throw e; }
 }

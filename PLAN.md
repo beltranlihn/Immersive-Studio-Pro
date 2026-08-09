@@ -1,5 +1,27 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 342 — El demuxador ignoraba la edit list
+
+- **`edts/elst` no se leía.** La edit list dice desde qué instante del medio empieza la presentación: `media_time`
+  en unidades del medio (se salta ese trozo del principio) y, con `media_time === -1`, un hueco vacío que RETRASA
+  el arranque. `<video>` la aplica y este camino no, así que un archivo con edit list real — **y la tiene
+  cualquier recorte hecho sin recodificar** — mostraba fotogramas distintos en la previsualización y en el export.
+  Se aplica ahora al construir los tiempos de presentación, con el `mvhd` parseado aparte porque los huecos
+  vacíos vienen en unidades de PELÍCULA y el `media_time` en las del MEDIO — mezclarlos sería peor que no corregir.
+- **Medido con dos archivos REALES de la carpeta de descargas**, no con material sintético:
+  `futuristic-circular-…utc.mp4` lleva `elst` con `media_time 1024` y timescale 15360 — 66,7 ms, o sea **dos
+  fotogramas a 30 fps** — y el demuxador devuelve ahora ese desfase exacto y una presentación que arranca en 0,
+  igual que `<video>` (el `ctts` inicial y el `media_time` se cancelan: para eso existe la edit list).
+  `typewriter-…mp4` es el CONTROL: su `elst` tiene `media_time 0` y no cambia nada. Sin él, «aplicar siempre un
+  desfase» habría pasado la prueba.
+  La red se salta sola si el material no está (`existsSync`), así que no se pone roja en otra máquina.
+
+**Verificación:** `scratchpad/r342-verif.mjs`. **Veintidós redes en verde** y `npm test` 6/6.
+
+Del inventario queda **uno**: el salto atrás con un vecino ≤2 fotogramas en caché (7472). Pide un MP4 de GOP
+largo y medir el atasco de 10 s en el `.exe` — no se cierra leyendo código.
+
+
 ## ROUND 341 — Activar el caché de un nido cambiaba la imagen
 
 - **El horneado del caché de un nido pasaba por el recorte al disco del domo y perdía las esquinas del cuadrado.**

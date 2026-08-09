@@ -37,6 +37,7 @@ const REDES = [
   ['r339-verif.mjs',   'el rotulo cuenta lo que hay en el esquema'],
   ['r340-verif.mjs',   'cada entrada Spout recibe lo suyo'],
   ['r341-verif.mjs',   'el cache conserva el cuadrado y la entrega sigue siendo un disco'],
+  ['r342-verif.mjs',   'la edit list se aplica, y el archivo sin ella no cambia'],
 ];
 
 /* Sin app levantada no se distingue «rojo» de «no medido», y esa confusión es justo la que hace inútil una red. */
