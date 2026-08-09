@@ -1,5 +1,63 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 346 — Un máster a la cadencia de la fuente repetía un fotograma de cada tres
+
+Salí a cerrar el único punto de código abierto de `docs/NEXT.md` —«el repliegue `<video>` del export no es
+fiable al fotograma»— y lo primero que hizo la medida fue **desmentir su hipótesis**, que llevaba escrita desde
+R256. Debajo había un fallo bastante mayor, en el camino principal.
+
+**Lo que decía la nota y no es cierto.** Decía que `vinstSeekVideo` «fija `currentTime`, espera `seeked` y sube
+lo que haya: es una carrera con la presentación». Medido con `requestVideoFrameCallback` sobre el elemento en
+pausa (`scratchpad/r346-video-carrera.mjs`): la presentación llega **antes** de `seeked` en 8/8 posicionamientos
+y el píxel no cambia después en ninguno; cuatro elementos posicionándose a la vez —lo que hace `seekExport`—
+dan los 24 iguales, y tres pasadas en distinto orden repiten los 16. No hay carrera.
+
+**Lo que sí había.** El bucle del export pide `t = t0 + i/fps` (los tres sitios: MP4, PNG y HAP) y `srcT` lo
+pasa a tiempo local, así que en un máster a la cadencia del material el instante cae en el comienzo **exacto**
+de cada fotograma. Y ahí los dos caminos entregaban el ANTERIOR: `keyForTime` compara contra `Math.floor(t_µs)`
+y Chromium trunca igual por dentro, mientras el pts de verdad tiene microsegundos fraccionarios
+(55/24 s = 2291666,667 µs). Con `i/fps` la cuenta acierta cuando el cociente es exacto en binario
+(21/24 = 0,875) y falla cuando no. **MEDIDO** en un tramo seguido de 40 fotogramas: **13 repetidos y 13
+saltados** a 24 fps —la sucesión entregada era `90,90,91,93,93,94,96,96,97,99,99,100…`— y 1 y 2 a 60 fps. Un
+tirón cada tres fotogramas en un máster que debería ser fotograma a fotograma.
+
+**Por qué había sobrevivido ochenta rondas.** Porque los dos caminos se equivocan **en lo mismo**: 0 diferencias
+entre ellos en 54 comparaciones. Cualquier verificación que enfrente el ClipDecoder con `<video>` sale «idéntico
+bit a bit» —que es literalmente lo que concluyó R189— y las tres redes de R344 comparan justo eso. Sólo lo caza
+un criterio **sin oráculo**: en un export 1:1 los fotogramas entregados tienen que ir de uno en uno. No hace
+falta saber cuál es el correcto; basta con que la sucesión sea consecutiva.
+
+**El arreglo: `TOL_DECOD` = 2 µs, sumados UNA vez.** `instanteDecod(t)` vive junto a `srcT`, donde ya vive la
+conversión de tiempo, y se aplica en `vinstSeek` **antes de bifurcar** — así los dos caminos reciben el mismo
+número por construcción y el máster no cambia de fotograma si un medio cae al repliegue. Dos microsegundos es
+la suma de las dos cuantizaciones a microsegundo entero del camino (la nuestra y la de Chromium) más el ruido
+de `i/fps`; medido, con 1 µs todavía se cuela un repetido a 60 fps y los caminos discrepan en dos instantes.
+
+**Y por qué no el centro del fotograma**, que en el banco salió igual de limpio (0 de 0 en los tres archivos):
+pedir `(k+0,5)/fps` exige una rejilla uniforme a `fps`, y `detectFps` canoniza 59,94 a 60 — sobre material NTSC
+la rejilla se desvía medio fotograma a los ~8 s y a partir de ahí el centro cae en el fotograma equivocado, sin
+avisar. El daño de la tolerancia está **acotado a 2 µs** pase lo que pase con la cadencia; el del centro no lo
+está. Se eligió por daño acotado, no por resultado en el banco.
+
+**Los gemelos, barridos en el mismo commit:** `snapKf` (devuelve el pts EXACTO de un fotograma clave, o sea el
+mismo caso — sin la tolerancia la previsualización rápida del arrastre se iba al fotograma anterior al clave al
+que acababa de saltar), `driveCD` (reproducción: sin esto, lo que se ve y lo que sale serían dos fotogramas
+distintos en un tercio de los instantes) y las **dos secuencias de imágenes** (`drawClip` y el monitor de
+origen), que elegían con `Math.floor(srcT·fps)` y `55/24·24` da 54,99999999999999.
+
+**Red: `scratchpad/r346-verif.mjs`**, la número 29. Mide la conclusión —qué VideoFrame sube el código a la
+textura, envolviendo `upTex`, y en el repliegue los píxeles, porque allí no hay VideoFrame— y **sabe fallar sin
+tocar app.js**: `vinstSeek` suma la tolerancia por dentro, así que pedirle `t − TOL_DECOD` reconstruye el estado
+anterior exacto. Cada corrida comprueba las dos mitades: 0 repetidos y 0 saltados con el arreglo, 13 y 13 al
+cancelarlo. Las 29 en verde, `npm test` 6/6.
+
+**De paso, un aprobado vacío mío, cazado por el propio banco.** La primera versión de `r346-video-carrera.mjs`
+medía el movimiento entre vecinos con `t + 1/fps`, y `1 + 1/24 = 1.0416666666666665` cae **un ULP por debajo**
+de `25/24`: comparaba un fotograma consigo mismo, daba 0 de diferencia y concluía «ninguna hipótesis se
+reproduce». El mismo error de frontera que estaba investigando, dentro de la sonda que lo investigaba. Lo cazó
+la comprobación del banco (`r346-check.mjs`), que existe justo para eso: si el material no discrimina, la sonda
+no prueba nada.
+
 ## ROUND 345b — La revisión de R344c y R345: quince, y casi todos contra lo de hoy
 
 Segunda aplicación del ritual. Quince hallazgos; ocho eran de la misma familia que estas rondas decían cerrar.

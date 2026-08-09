@@ -56,6 +56,12 @@ const REDES = [
      confirmo que la guarda de R328 cubre los cinco caminos. Ninguna necesita material externo. */
   ['r345-ids-legacy.mjs',         'uid() reparte por encima de todo lo que trae el proyecto, tambien en legacy'],
   ['r345-shapebox.mjs',           'la caja de forma no actua sobre puntos que ya no existen'],
+  /* [R346] La que ninguna comparacion entre los dos caminos podia dar: los DOS elegian mal el mismo fotograma
+     en un export a la cadencia de la fuente (13 repetidos y 13 saltados de 40), asi que enfrentarlos salia
+     "identico bit a bit" -lo que concluyo R189-. El criterio no tiene oraculo: un tramo seguido de un export
+     1:1 va de uno en uno. Se comprueba a si misma cancelando la tolerancia (`t - TOL_DECOD`), que reconstruye
+     el estado anterior sin tocar app.js. */
+  ['r346-verif.mjs',              'un export 1:1 entrega fotogramas consecutivos, por los dos caminos'],
 ];
 
 /* Sin app levantada no se distingue «rojo» de «no medido», y esa confusión es justo la que hace inútil una red. */

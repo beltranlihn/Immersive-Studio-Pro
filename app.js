@@ -1092,6 +1092,32 @@ function srcT(c,t){ const raw=(t-c.start)*(c.speed||1); // timeline time → SOU
     return (c.inP||0)+ph; }
   return raw+(c.inP||0); }
 function loopCycleSec(c){ return (c.loop&&c.loopLen>0)?(c.loopLen/(c.speed||1)):0; } // one loop cycle length in TIMELINE seconds
+/* [R346] EL INSTANTE QUE SE LE PIDE A UN DECODIFICADOR, con dos microsegundos de tolerancia.
+   El bucle del export pide `t = t0 + i/fps` y `srcT` lo pasa a tiempo local, así que cuando la cadencia de
+   salida es la de la fuente —un máster a la cadencia del material, o sea lo normal— el instante cae EXACTAMENTE
+   en el comienzo de un fotograma. Y ahí los dos caminos entregaban el ANTERIOR: `keyForTime` compara contra
+   `Math.floor(t_µs)` y Chromium trunca igual por dentro, mientras que el pts de verdad tiene microsegundos
+   fraccionarios (55/24 s = 2291666,667 µs). Con `i/fps` la cuenta acierta cuando el cociente es exacto en
+   binario (21/24 = 0,875) y falla cuando no (55/24 = 2,2916666666666665 → 2291666 → fotograma 54).
+   MEDIDO en un tramo seguido de 40 fotogramas de un export 1:1: **13 repetidos y 13 saltados** con material de
+   24 fps y 1 y 2 con el de 60 — o sea un tirón de repetido+saltado cada tres fotogramas en un máster que
+   debería ser fotograma a fotograma. Sondas: `scratchpad/r346-mapa-fotogramas.mjs` y `r346-quien-elige.mjs`.
+   POR QUÉ NO SE VIO ANTES: los dos caminos se equivocan EN LO MISMO (miden 0 diferencias entre sí en 54
+   comparaciones), así que toda verificación que enfrente el ClipDecoder con `<video>` sale «idéntico bit a
+   bit», que es literalmente lo que concluyó R189. Sólo lo caza un criterio sin oráculo: en un export 1:1 los
+   fotogramas entregados tienen que ir de uno en uno.
+   POR QUÉ DOS MICROSEGUNDOS: es la suma de las dos cuantizaciones a microsegundo entero que hay en el camino
+   —la nuestra (`keyForTime`) y la de Chromium—, más el ruido de coma flotante de `i/fps`, que es ~1e-15 s.
+   Medido: con 1 µs todavía se cuela un repetido en el material de 60 fps y los dos caminos discrepan en dos
+   instantes; con 2 µs, cero en los tres archivos y los caminos coinciden en todo.
+   Y POR QUÉ NO EL CENTRO DEL FOTOGRAMA, que también salió perfecto en el banco: pedir `(k+0,5)/fps` exige una
+   rejilla uniforme a `fps`, y `detectFps` canoniza 59,94 a 60 — sobre material NTSC la rejilla se desvía medio
+   fotograma a los ~8 s y a partir de ahí el centro cae en el fotograma equivocado, sin avisar. El daño de esta
+   tolerancia está ACOTADO a 2 µs (cinco cienmilésimas de fotograma a 24 fps) pase lo que pase con la cadencia;
+   el del centro no lo está. Se aplica en el único sitio donde el instante entra al decodificador, para que los
+   dos caminos reciban el mismo número y el máster no cambie de fotograma si un medio cae al repliegue. */
+const TOL_DECOD=2e-6;
+function instanteDecod(t){ const x=+t; return (isFinite(x)?x:0)+TOL_DECOD; }
 function audioLevelAt(t){ let lv=0; const anySolo=state.lanes.some(l=>l.kind==='audio'&&l.solo); for(const c of state.clips){ const m=mediaById(c.mediaId); if(!m||m.kind!=='audio'||!m.peaks||c.disabled)continue; const lane=state.lanes[c.lane]; if(lane&&(lane.mute||(anySolo&&!lane.solo)))continue; if(t<c.start||t>c.start+c.dur)continue; const local=srcT(c,t); const idx=Math.floor(local/(m.dur||1)*m.peaks.length); if(idx>=0&&idx<m.peaks.length)lv=Math.max(lv,m.peaks[idx]); } return lv; }
 function detectBeats(ab){ const ch=ab.getChannelData(0), sr=ab.sampleRate, win=Math.max(1,Math.floor(sr*0.02)); const en=[]; for(let i=0;i<ch.length;i+=win){ let e=0; for(let j=0;j<win&&i+j<ch.length;j++){const v=ch[i+j];e+=v*v;} en.push(e/win); }
   const beats=[]; let last=-99; for(let k=1;k<en.length;k++){ let avg=0,cnt=0; for(let m2=Math.max(0,k-8);m2<k;m2++){avg+=en[m2];cnt++;} avg/=Math.max(1,cnt); if(en[k]>avg*1.5&&en[k]>0.0004&&(k-last)>5){ beats.push(k*win/sr); last=k; } } return beats; }
@@ -1206,7 +1232,11 @@ function drawClipFlat(c,m,t,xf,ntex,op){ const SR=clipSurfaceRect(c); let P;
   if(bm!=='normal')NORMAL_BLEND(); gl.bindVertexArray(null); }
 function drawClip(c,m,t,xf){
   if(!m) return; let ntex; if(isSeqMedia(m)) ntex=(c._ntex||m.tex); else if(m.kind==='video'){ const vi=_vinst.get(c.id); ntex=(vi&&vi.ready&&vi.vtex)?vi.vtex:m.tex; } else ntex=m.tex; if(!ntex) return; // nests sample their per-clip pool tex; videos sample their PER-CLIP decode tex so duplicated clips show different frames (fallback m.tex until the private decoder has its first frame) — [R220] this readiness branching is mirrored by clipTexReady(), keep both in sync
-  if(m.kind==='sequence'&&m.frames&&m.frames.length){ const idx=Math.max(0,Math.min(m.frames.length-1,Math.floor(srcT(c,t)*(m.fps||24)))); if(idx!==m._curFrame&&m.frames[idx]){ upTex(m.tex,m.frames[idx]); m._curFrame=idx; } }
+  /* [R346] El mismo fallo, en la familia de al lado: una secuencia de imágenes elige su fotograma con un
+     `Math.floor` sobre `srcT·fps`, y `55/24·24` da 54,99999999999999 → el fotograma 54. Aquí no hay
+     microsegundos de por medio, sólo el ruido del cociente, pero el síntoma es idéntico (repetido + saltado) y
+     la decisión es la misma, así que se toma en el mismo sitio. */
+  if(m.kind==='sequence'&&m.frames&&m.frames.length){ const idx=Math.max(0,Math.min(m.frames.length-1,Math.floor(instanteDecod(srcT(c,t))*(m.fps||24)))); if(idx!==m._curFrame&&m.frames[idx]){ upTex(m.tex,m.frames[idx]); m._curFrame=idx; } }
   /* [R301] Con cantidad 0 el pase no deforma NADA: lo unico que hacia era remuestrear y ablandar. */
   /* [R301b] El valor AUSENTE vale 60, que es lo que asumen `applyFisheye` y el inspector. Mi guarda leia
      `+undefined||0` = 0 y apagaba el ojo de pez en cualquier proyecto viejo con `fisheye:true` y sin cantidad
@@ -8462,7 +8492,12 @@ function reconcileVinst(){ if(!_vinst.size)return;
   if(sig===_vinstSig)return; _vinstSig=sig; // [R213] la lista de ids no cambió desde la última llamada → se salta el Set + el barrido de disposeGL
   const live=new Set(); for(const c of state.clips)live.add(c.id); for(const s of state.media)if(s.kind==='nest'&&s.nestClips)for(const c of s.nestClips)live.add(c.id);
   for(const id of [..._vinst.keys()])if(!live.has(id))vinstDispose(id); }
-function vinstSeek(c,m,local){ const vi=vinstEnsure(c,m); if(!vi)return Promise.resolve();
+/* [R346] `yaAjustado` = «este instante ya lleva la tolerancia». Lo usa el reintento de `seekCDExport` cuando le
+   cambian el decodificador debajo: sin él, volver a entrar por esta puerta la sumaba OTRA vez, y cada reintento
+   sumaría dos microsegundos más. Sigue siendo mucho menos que un fotograma, pero la tolerancia se aplica UNA
+   vez por posicionamiento y eso tiene que ser verdad también en el camino de reintento. */
+function vinstSeek(c,m,local,yaAjustado){ const vi=vinstEnsure(c,m); if(!vi)return Promise.resolve();
+  if(!yaAjustado)local=instanteDecod(local);   /* [R346] ANTES de bifurcar: es la única puerta por la que pasan los dos caminos, así que así reciben el mismo número por construcción. Ver la nota de `instanteDecod`. */
   if(vi.cd||vi.cdPending){ // [R108·E5] WebCodecs scrub: point the decoder at the target and wait (briefly) for the frame
     const seekCD=()=>{ if(vi.cd&&vi.cd.isDead()){ try{vi.cd.close();}catch(e){} vi.cd=null; m._cdFail=true; } // [R108-rev M2] a decoder that died while paused/scrubbing must be torn down + flagged for <video> fallback (driveCD only runs while playing)
       if(!vi.cd)return _exCD?vinstSeekVideo(c,m,local):Promise.resolve();
@@ -8481,7 +8516,7 @@ function seekCDExport(vi,c,m,local){
   const cd=vi.cd, tus=Math.max(0,(local||0)*1e6); cd.setTarget(tus); const t0=performance.now();
   const rendirse=(res)=>{ try{cd.close();}catch(e){} if(vi.cd===cd)vi.cd=null; m._cdFail=true; res(vinstSeekVideo(c,m,local)); };
   return new Promise(res=>{ const tick=()=>{
-    if(vi.cd!==cd){ res(vinstSeek(c,m,local)); return; }                      // el decodificador fue reemplazado bajo nuestros pies → reintentar por la puerta principal (vinstSeekVideo no serviría: se desentiende si hay un decodificador vivo)
+    if(vi.cd!==cd){ res(vinstSeek(c,m,local,true)); return; }                 // el decodificador fue reemplazado bajo nuestros pies → reintentar por la puerta principal (vinstSeekVideo no serviría: se desentiende si hay un decodificador vivo) · [R346] `true`: este `local` ya lleva la tolerancia
     try{ cd.pump(); }catch(e){}
     if(cd.isDead()){ rendirse(res); return; }
     /* La ÚNICA condición de aceptación es `passed`. Se intentó además un atajo por cercanía ("si el fotograma
@@ -8501,7 +8536,10 @@ function vinstSeekVideo(c,m,local){ const vi=vinstEnsure(c,m); if(!vi||vi.cd)ret
     /* [R243] Mientras se ARRASTRA el cabezal, el instante se lleva al fotograma clave anterior: el decodificador
        decodifica UNO en vez de hasta 250 (GOP del material real). Al soltar, el gesto pide el exacto y se acaba
        en el fotograma correcto. Fuera del arrastre —y en export, donde `exporting` manda— esto no existe. */
-    if(_scrubFast && !exporting && kfWorthIt(m)){ kfTimes(m); t=Math.max(0,Math.min((v.duration||0)-1e-3, snapKf(m,t))); }
+    /* [R346] `snapKf` devuelve el pts EXACTO de un fotograma clave, o sea justo el caso que `instanteDecod`
+       existe para arreglar: sin la tolerancia, la previsualización rápida del arrastre se iba al fotograma
+       ANTERIOR al clave al que acababa de saltar. La tolerancia va después del salto, no antes. */
+    if(_scrubFast && !exporting && kfWorthIt(m)){ kfTimes(m); t=Math.max(0,Math.min((v.duration||0)-1e-3, instanteDecod(snapKf(m,t)))); }
     if(Math.abs(v.currentTime-t)<1e-3 && v.readyState>=2){ upTex(vi.vtex,v); vi.ready=true; requestAnimationFrame(()=>res()); return; }
     const on=()=>{ v.removeEventListener('seeked',on); upTex(vi.vtex,v); vi.ready=true; res(); }; v.addEventListener('seeked',on); try{ v.currentTime=t; }catch(e){ v.removeEventListener('seeked',on); res(); } })); }
 function pumpVFClip(vi){ const v=vi.vel; if(!v||!v.requestVideoFrameCallback)return; const cb=()=>{ if(!state.playing||v.paused){vi.vf=0;return;} upTex(vi.vtex,v); vi.ready=true; vi.vf=v.requestVideoFrameCallback(cb); }; vi.vf=v.requestVideoFrameCallback(cb); }
@@ -8511,7 +8549,7 @@ function stopVFClip(vi){ if(vi.vf&&vi.vel&&vi.vel.cancelVideoFrameCallback){try{
    decoder is dropped and the media flagged for permanent <video> fallback. */
 function driveCD(vi,c,m,local){ if(!vi)return false;
   if(vi.cd){ if(vi.cd.isDead()){ try{vi.cd.close();}catch(e){} vi.cd=null; m._cdFail=true; return false; }
-    const tus=Math.max(0,(local||0)*1e6); vi.cd.setTarget(tus); vi.cd.pump(); const f=vi.cd.frameAt(tus); if(f){ upTex(vi.vtex,f); vi.ready=true; } return true; } // [R108·E7] pump() feeds synchronously in-frame → never starved by the render loop
+    const tus=Math.max(0,instanteDecod(local)*1e6); vi.cd.setTarget(tus); vi.cd.pump(); const f=vi.cd.frameAt(tus); if(f){ upTex(vi.vtex,f); vi.ready=true; } return true; }   /* [R346] el gemelo de reproducción: misma decisión, misma tolerancia (si no, lo que se ve al reproducir y lo que sale al exportar serían dos fotogramas distintos en un tercio de los instantes) */ // [R108·E7] pump() feeds synchronously in-frame → never starved by the render loop
   return !!vi.cdPending; } // pending → suppress <video>; the clip shows its poster (m.tex) until the first frame lands
 /* clips (top-level + inside active nests, including crossfade pairs) whose VIDEO the compositor will draw at t.
    [R92-T2 C1] each entry carries `gain` = clip volume × fades × track mute, composed through the nest chain — the preview audio elements follow it.
@@ -14890,7 +14928,7 @@ function smMontaPic(){ const mon=_srcMon, m=mon.m, pic=mon.pic;
    (la onda, con el tramo marcado encendido) y las fijas (foto/texto/forma), que se dibujan una vez. */
 function smPintaLienzo(){ const mon=_srcMon, m=mon.m, cv=mon.cv; if(!cv)return; const x=cv.getContext('2d');
   const W=cv.width, H=cv.height; x.clearRect(0,0,W,H);
-  if(m.kind==='sequence'&&m.frames&&m.frames.length){ const i=Math.max(0,Math.min(m.frames.length-1,Math.floor(mon.t*(m.fps||24))));
+  if(m.kind==='sequence'&&m.frames&&m.frames.length){ const i=Math.max(0,Math.min(m.frames.length-1,Math.floor(instanteDecod(mon.t)*(m.fps||24))));   /* [R346] el tercer gemelo: el monitor de origen elegía el fotograma con el mismo `Math.floor` que la línea de tiempo */
     const f=m.frames[i]; if(f){ const a=(f.naturalWidth||f.width||16)/(f.naturalHeight||f.height||9); let w=W,h=W/a; if(h>H){h=H;w=H*a;} x.drawImage(f,(W-w)/2,(H-h)/2,w,h); } return; }
   if(m.kind==='audio'){ const pk=m.peaks||[]; const d=Math.max(0.04,m.dur||0);
     const a=mon.in/d*W, b=mon.out/d*W;

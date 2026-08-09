@@ -6,17 +6,14 @@
 
 ---
 
-# ⏭️ EMPEZAR POR AQUÍ — estado a 2026-08-09, cierre de R345b
+# ⏭️ EMPEZAR POR AQUÍ — estado a 2026-08-09, cierre de R346
 
 Escrito para retomar sin contexto previo. Lo de abajo (secciones con fecha) es historia; esto es lo que queda.
 
 ## 1. ⚠️ DESPLEGAR — es lo único con consecuencia hoy
-El repositorio va por **`05bf397` (R345b)** y el `.exe` instalado corre **R345**. Entre medias hay tres cosas de
-producción que la revisión encontró y que la instalación NO tiene:
-- `frameAt` devolvía el fotograma VECINO en previsualización (el gemelo que R344c no barrió),
-- una banda en la que `passed()` decía «no» y nada reiniciaba → 10 s → `_cdFail` → el medio entero al camino
-  `<video>` a ~900 ms/fotograma el resto de la película,
-- 400 ms de espera muerta por vuelta de bucle al final de un archivo.
+R345b **ya está desplegado y empujado** (las tres instalaciones verificadas por sha1 el 2026-08-09). Lo que la
+instalación NO tiene es **R346**, que es un arreglo de máster: un export a la cadencia del material repetía y
+saltaba un fotograma de cada tres, por los dos caminos.
 ```bash
 npm run dist && powershell -NoProfile -ExecutionPolicy Bypass -File "scripts/deploy-verificado.ps1" && git push
 ```
@@ -24,16 +21,15 @@ npm run dist && powershell -NoProfile -ExecutionPolicy Bypass -File "scripts/dep
 > despliegue sin comprobar no está hecho: está supuesto.** Y después conviene medirlo EN el `.exe`, que corre
 > en la RTX: `npx electron .` sólo sirve para comportamiento, no para rendimiento.
 
-## 2. 🔭 El repliegue `<video>` del export no es fiable al fotograma — la pieza grande que queda
-Es el único punto de CÓDIGO abierto. Detalle completo más abajo, en su propia sección (visto en R256).
-Resumen: de 48 parejas que deben repetirse, **8 no lo hacen, a 34-51 dB**, y cambian de pasada en pasada.
-`vinstSeekVideo` fija `currentTime`, espera `seeked` y sube lo que haya: es una carrera con la presentación.
-**La trampa de método:** el camino de referencia ES el que falla, así que no se puede comparar contra `<video>`.
-El criterio tiene que ser INTRÍNSECO — comparar la salida contra sí misma, como hace `scratchpad/r256-periodo2.mjs`
-(dos instantes que son el mismo fotograma de fuente deben dar el mismo PNG). El gate está en
-`scratchpad/r256-aceptacion.mjs`.
-Hoy ya casi no se alcanza (desde R256 un bucle no cae ahí, y menos aún tras R344b/c), pero mientras exista el
-repliegue existe la posibilidad de un fotograma equivocado en un máster.
+## 2. ✅ El punto de código que quedaba abierto está CERRADO (R346), pero deja una comprobación pendiente
+No era una carrera con la presentación —esa hipótesis se midió y es falsa— sino la elección de fotograma en la
+frontera, en los DOS caminos. Detalle en su sección de abajo y en `PLAN.md › ROUND 346`.
+**Lo que sí conviene hacer con material de verdad:** exportar un tramo a la cadencia de la fuente y mirarlo. La
+red cubre 40 fotogramas de dos archivos de prueba; el cambio afecta a **todo máster 1:1**, así que merece una
+pasada con material de Beltrán antes de darlo por asentado en producción.
+**Y una pregunta abierta que la medida deja servida:** con material NTSC (23,976 / 29,97 / 59,94) no se ha
+medido nada. La tolerancia de 2 µs no depende de la cadencia —por eso se eligió frente al centro del fotograma,
+que sí—, pero «no depende» es un argumento, no una medida.
 
 ## 3. 🐢 Dos optimizaciones MEDIDAS, dejadas fuera a propósito
 - **El bucle se re-decodifica entero en cada vuelta.** `BEHIND` son 2 fotogramas (`app.js`, constantes de
@@ -62,9 +58,13 @@ repliegue existe la posibilidad de un fotograma equivocado en un máster.
   se ponen rojas en los dos caminos de carga); las que no se validaron así resultaron ser aprobados vacíos.
 - **Medir la CONCLUSIÓN, no la premisa.** R342 vivió dos rondas dado por bueno porque su sonda medía que el
   demuxador leía la edit list, no que el fotograma entregado fuese el correcto.
-- `npm run redes` = 28 redes; `npm test` = 6. Las dos deben pasar antes de compilar. El guardián de acentos
-  graves de `correr-redes.mjs` funciona ahora por PARIDAD y vigila las 28: **mirar su cabecera**, que una vez
+- `npm run redes` = 29 redes; `npm test` = 6. Las dos deben pasar antes de compilar. El guardián de acentos
+  graves de `correr-redes.mjs` funciona ahora por PARIDAD y vigila las 29: **mirar su cabecera**, que una vez
   se dieron por buenos tres avisos sin leerlos.
+- **[R346] Comparar dos implementaciones no verifica ninguna.** El fallo de máster de R346 —un fotograma de cada
+  tres repetido— vivió ochenta rondas porque el ClipDecoder y `<video>` se equivocan EN LO MISMO, así que
+  enfrentarlos salía «idéntico bit a bit». Cuando exista, el criterio tiene que ser **sin oráculo**: aquí, que
+  un export 1:1 entregue fotogramas consecutivos.
 
 ---
 
@@ -131,14 +131,23 @@ repliegue existe la posibilidad de un fotograma equivocado en un máster.
       se cierra sola, sin lanzar y sin tocar la curva. Con control que exige lo contrario.
       Red: `scratchpad/r345-shapebox.mjs`.
 
-## 🔭 Abierto — el repliegue `<video>` del export no es fiable al fotograma (visto en R256)
-- [ ] Al medir R256 se comparó la salida del camino `<video>` **contra sí misma** y falla: de 48 parejas que deben
-      repetirse, **8 no lo hacen**, a 34-51 dB (un fotograma vecino, no redondeo), y cambian de pasada en pasada.
-      Es el fallo que R189 documentó y dio por cerrado en el camino WebCodecs, vivo en el de repliegue
-      (`vinstSeekVideo`: fija `currentTime`, espera `seeked` y sube lo que haya — carrera con la presentación).
-      **Ya no toca la película** (desde R256 un bucle no cae ahí, y era la única vía que lo forzaba), pero mientras
-      exista el repliegue existe la posibilidad. Repro: `scratchpad/r256-periodo2.mjs` sobre una salida del
-      camino `<video>`; el gate correcto está en `scratchpad/r256-aceptacion.mjs`.
+## ✅ Cerrado — no era el repliegue `<video>`: era la FRONTERA del fotograma, en los dos caminos · 2026-08-09 · [R346]
+- [x] ~~**«El repliegue `<video>` no es fiable al fotograma: carrera con la presentación».**~~ **La hipótesis era
+      falsa.** Medido con `requestVideoFrameCallback` sobre el elemento en pausa: la presentación llega **antes**
+      de `seeked` en 8/8 posicionamientos y el píxel no cambia después en ninguno; cuatro elementos a la vez —lo
+      que hace `seekExport`— dan los 24 iguales, y tres pasadas en distinto orden repiten los 16. No hay carrera.
+      Sonda: `scratchpad/r346-video-carrera.mjs`.
+- [x] ~~**Lo que sí había, y es mayor: un máster a la cadencia de la fuente repetía un fotograma de cada tres.**~~
+      El export pide `t = t0 + i/fps`, así que en un máster 1:1 el instante cae en el comienzo EXACTO de cada
+      fotograma — y ahí los dos caminos entregaban el ANTERIOR (`keyForTime` compara contra `Math.floor(t_µs)` y
+      Chromium trunca igual; el pts real tiene microsegundos fraccionarios). **MEDIDO: 13 repetidos y 13 saltados
+      de 40** a 24 fps, 1 y 2 a 60. Arreglado con `TOL_DECOD` = 2 µs sumados **una vez, en `vinstSeek`, antes de
+      bifurcar**, más los cuatro gemelos (`snapKf`, `driveCD` y las dos secuencias de imágenes).
+      Red: `scratchpad/r346-verif.mjs` (0 y 0 con el arreglo; 13 y 13 al cancelar la tolerancia).
+> **Por qué duró ochenta rondas, que es la lección:** los dos caminos se equivocan **en lo mismo** (0 diferencias
+> entre ellos en 54 comparaciones), así que enfrentarlos sale «idéntico bit a bit» — lo que concluyó R189, y lo
+> que miden las tres redes de R344. **Comparar dos implementaciones no verifica ninguna.** Lo cazó un criterio
+> sin oráculo: en un export 1:1 los fotogramas van de uno en uno.
 
 ## ✅ Exportar con bucles · CERRADO [R256] — no era una optimización, eran dos fallos
 - [x] **El «×1,7 del bucle» de R254 era en realidad ×25, y por una avería.** Al envolver, el decodificador entraba
