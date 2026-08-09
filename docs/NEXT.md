@@ -10,10 +10,9 @@
 
 Escrito para retomar sin contexto previo. Lo de abajo (secciones con fecha) es historia; esto es lo que queda.
 
-## 1. ⚠️ DESPLEGAR — es lo único con consecuencia hoy
-R345b **ya está desplegado y empujado** (las tres instalaciones verificadas por sha1 el 2026-08-09). Lo que la
-instalación NO tiene es **R346**, que es un arreglo de máster: un export a la cadencia del material repetía y
-saltaba un fotograma de cada tres, por los dos caminos.
+## 1. ✅ Nada pendiente de desplegar
+El repositorio y las **tres instalaciones** van por **R346** (`3d37b65`), verificadas por sha1 el 2026-08-09;
+R345b se desplegó y empujó el mismo día. Cuando vuelva a haber código nuevo:
 ```bash
 npm run dist && powershell -NoProfile -ExecutionPolicy Bypass -File "scripts/deploy-verificado.ps1" && git push
 ```
