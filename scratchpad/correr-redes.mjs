@@ -46,6 +46,11 @@ const REDES = [
   ['r344-fotograma-vs-video.mjs', 'el ClipDecoder entrega el MISMO fotograma que <video>'],
   ['r344-atasco-7472.mjs',        'un salto cuesta un reinicio, no una tormenta; y el bucle sigue entero'],
   ['r344-gop-mayor-2s.mjs',       'un destino a mas de 2 s de su clave tambien llega, sin reiniciar en bucle'],
+  /* [R344c] Deja de ser una sonda de una ronda y pasa a red: mientras el decodificador se rendia, tapaba el
+     sintoma y no discriminaba nada; al cerrar esa rendicion canto 10 fotogramas equivocados en el master. Es
+     la unica que mide un EXPORT COMPLETO de un bucle al final del archivo, o sea el caso en que `passed()`
+     puede dar por cerrado el archivo y devolver el vecino. Tarda ~20 s. */
+  ['r261-finarchivo.mjs',         'un bucle pegado al final del archivo no escribe fotogramas equivocados'],
 ];
 
 /* Sin app levantada no se distingue «rojo» de «no medido», y esa confusión es justo la que hace inútil una red. */

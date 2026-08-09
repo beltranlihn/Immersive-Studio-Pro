@@ -8258,7 +8258,24 @@ function makeClipDecoder(d,ex){
        · `passed(t)` = ese fotograma exacto ya está decodificado (o se acabó el archivo y la cola está vacía).
        · `frameNear(t)` = ese fotograma; los repliegues sólo entran si el archivo se terminó. */
     frameDurUs:frameDur,
-    passed:(t0)=>{ if(cache.has(keyForTime(Math.max(0,t0))))return true; return feed>=N && vaciado; }, // [R194] `vaciado`, no `decodeQueueSize===0`: ver la nota sobre la cola de reordenación
+    /* [R344c] El atajo de fin de archivo no vale si el fotograma pedido EXISTIÓ y fue desalojado.
+       `feed>=N && vaciado` significa «no va a salir nada más del decodificador», y R194 lo añadió para que los
+       instantes POSTERIORES al último fotograma no colgaran el export: ahí el repliegue al anterior es correcto,
+       porque no hay otro. Pero un BUCLE que da la vuelta cerca del final pide un fotograma ANTERIOR a lo que
+       queda en caché — uno que ya se decodificó y se desalojó—, y con el atajo a secas `passed()` daba el visto
+       bueno y `frameNear` devolvía el vecino: el fotograma equivocado escrito en silencio en el máster.
+       Esto no se veía porque el decodificador se rendía antes (10 s → `_cdFail` → repliegue `<video>`, lento
+       pero correcto). Al cerrar R344b esa rendición, el peligro latente pasó a real: MEDIDO sobre el caso de
+       R261 (bucle de 0,4 s pegado al final de un archivo de 50 s), **10 fotogramas equivocados de 72 parejas,
+       el peor a 28,27 dB**. La nota de `docs/NEXT.md` lo predijo con todas las letras: «lo que nos protege es
+       una avería».
+       La discriminación es exacta y no toca el caso de R194: si NO hay nada cacheado por delante del pedido,
+       es que estamos de verdad al final y el repliegue es legítimo; si lo hay, ese fotograma ya pasó y hay que
+       ir a buscarlo — devolver `false` deja que el antibloqueo de R256 reinicie en su fotograma clave. */
+    passed:(t0)=>{ const k=keyForTime(Math.max(0,t0)); if(cache.has(k))return true;
+      if(!(feed>=N && vaciado))return false;                                                        // [R194] `vaciado`, no `decodeQueueSize===0`: ver la nota sobre la cola de reordenación
+      for(const ts of cache.keys()) if(ts>k) return false;                                          // hay fotogramas POSTERIORES cacheados → el pedido se desalojó, no es que no exista
+      return true; },
     frameNear:(t0)=>{ const k=keyForTime(Math.max(0,t0)); const f=cache.get(k); if(f)return f;
       /* [R343] mismo centinela que `frameAt`: con `b=-1` un fotograma anterior de pts negativo no se aceptaba y
          esto caia a `fw`, devolviendo el fotograma SIGUIENTE — justo lo que esta funcion existe para evitar. */

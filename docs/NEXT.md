@@ -37,18 +37,23 @@
       Red: `scratchpad/r344-gop-mayor-2s.mjs`. **Mirar si esto explica el pendiente de aquí abajo** (el bucle
       pegado al final del archivo): el perfil es el mismo — destino lejos de su clave, 10 s, rendición.
 
-## 🔭 Abierto — un bucle PEGADO AL FINAL del archivo se sale del camino rápido (visto en R261)
-- [ ] Medido con un bucle de 0,4 s cuyo tramo son los últimos 0,4 s de la fuente: el decodificador **se rinde**
-      y la exportación entera de ese medio cae al repliegue — **84 fotogramas en 100-138 s** (1,2-1,6 s cada uno)
-      frente a los ~35 ms del camino rápido. Los fotogramas salieron **correctos** (0 equivocados de 72 parejas
-      *k*/*k+12*, el peor a 102 dB = un píxel), así que hoy es un problema de tiempo, no de imagen.
-- [ ] **Pero hay un peligro latente ahí mismo, y conviene mirarlo antes de que alguien confíe en ese caso.** Con
-      `feed>=N` y el vaciado hecho, `passed()` da por cerrado el archivo para **cualquier** instante (rama de
-      R194, deliberada: es como terminan los últimos fotogramas de un clip). Si en ese estado el bucle da la
-      vuelta y el fotograma pedido ya fue desalojado, `frameNear()` devolvería **el vecino**, en silencio. Hoy no
-      se llega porque el decodificador se rinde antes — o sea que lo que nos protege es una avería.
-      Reproducción: `scratchpad/r261-finarchivo.mjs`. Ojo: **esa sonda no discrimina el arreglo de R261**,
-      precisamente porque la rendición tapa el síntoma; hace falta un caso que llegue a `feed>=N` **sin** rendirse.
+## ✅ Cerrado — un bucle PEGADO AL FINAL del archivo · 2026-08-09 · [R344b + R344c]
+- [x] ~~**El problema de TIEMPO.**~~ Era el mismo fallo que R344b: el último fotograma clave del material está en
+      45,27 s y el bucle cae en 49,71 s, o sea **4,9 s por detrás de su clave**, y la rama de salto grande
+      reiniciaba donde ya estaba. Ahora **84 fotogramas en 20-21 s** frente a los 100-138 s medidos en R261, y el
+      decodificador ya no se rinde (`_cdFail` no se marca).
+- [x] ~~**El peligro latente.**~~ **Se volvió real en cuanto se quitó la rendición**, exactamente como avisaba la
+      nota: al cerrar R344b la primera corrida dio **10 fotogramas equivocados de 72 parejas, el peor a 28,27 dB**.
+      Cerrado en R344c haciendo honesto el atajo de fin de archivo de `passed()`: sólo vale si NO hay nada
+      cacheado por delante del pedido; si lo hay, ese fotograma existió, se desalojó, y hay que ir a buscarlo
+      (el antibloqueo de R256 reinicia en su clave). No toca el caso de R194 —instantes posteriores al último
+      fotograma—, que es para lo que el atajo se añadió. Verificado: 0 equivocados, el peor a 102,32 dB (un píxel).
+- [x] ~~**«Esa sonda no discrimina el arreglo».**~~ Ya sí: `scratchpad/r261-finarchivo.mjs` es **red** en
+      `npm run redes`. Lo que la volvía ciega era precisamente la rendición; quitada, es la que cazó el fallo de
+      arriba con las otras 25 redes en verde.
+
+> **Lección para la próxima:** arreglar una avería puede ACTIVAR el fallo que la avería tapaba. Al cerrar algo,
+> releer qué decía esta cola sobre lo que tenía al lado — aquí el aviso llevaba tres rondas escrito.
 
 ## 🔭 Abierto — el repliegue `<video>` del export no es fiable al fotograma (visto en R256)
 - [ ] Al medir R256 se comparó la salida del camino `<video>` **contra sí misma** y falla: de 48 parejas que deben

@@ -3,7 +3,17 @@
    daba por bueno cualquier fotograma. Sintoma: fotogramas equivocados en el master, en silencio.
    Prueba corta: 7 vueltas, 256 px. El criterio es INTRINSECO: k y k+12 son el mismo instante de fuente.
    Se corre igual contra el .exe (sin el arreglo) y contra dev (con el arreglo). */
+/* [R344c] ESTA SONDA YA DISCRIMINA, y por eso pasa a ser una RED.
+   La nota de `docs/NEXT.md` decia que no servia para distinguir el arreglo de R261 «precisamente porque la
+   rendicion tapa el sintoma»: el decodificador se rendia a los 10 s, el export caia al repliegue `<video>` —
+   lento pero correcto— y los fotogramas salian bien por el camino equivocado. R344b quito esa rendicion, y en
+   la primera corrida esta sonda canto **10 fotogramas equivocados de 72 parejas, el peor a 28,27 dB**: el
+   peligro latente que la misma nota anunciaba («lo que nos protege es una averia»). R344c lo cerro haciendo
+   honesto el atajo de fin de archivo de `passed()`.
+   Como ahora SI se pone roja cuando toca, entra en `npm run redes`. Codigo 3 si falta el material. */
 import http from 'http'; import fs from 'fs'; import path from 'path'; import crypto from 'crypto'; import cp from 'child_process';
+const VID='C:/Users/beltr/Desktop/Alma Digital Studio/Code/Alma Digital Portfolio/Asset/Reel Portfolio/Reel Portfolio.mp4';
+if(!fs.existsSync(VID)){ console.log('   NO MEDIDA: falta el material -> '+VID); process.exit(3); }
 const t=await new Promise((res,rej)=>{http.get({host:'127.0.0.1',port:9222,path:'/json/list'},r=>{let b='';r.on('data',c=>b+=c);r.on('end',()=>res(JSON.parse(b)));}).on('error',rej);});
 const pg=t.find(x=>x.type==='page'&&x.webSocketDebuggerUrl&&/index\.html/.test(x.url));
 const ws=new WebSocket(pg.webSocketDebuggerUrl); await new Promise(r=>ws.onopen=r);
@@ -12,7 +22,7 @@ const cmd=(m,q={})=>new Promise((res,rej)=>{const i=++id;p.set(i,x=>x.error?rej(
 const ev=async x=>{const r=await cmd('Runtime.evaluate',{expression:x,awaitPromise:true,returnByValue:true,timeout:900000});if(r.exceptionDetails)throw new Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);return r.result.value;};
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
 const FASE=process.argv[2]||'x';
-const VID='C:/Users/beltr/Desktop/Alma Digital Studio/Code/Alma Digital Portfolio/Asset/Reel Portfolio/Reel Portfolio.mp4';
+
 const N=84, FPS=30, LOOP=0.4, RES=256;
 await ev(`(async()=>{ await newProject('dome',1024,1024,30,180,true); if(typeof hideLanding==='function')hideLanding(); })()`); await wait(1400);
 await ev(`window.__vid=function(ruta,nombre){ return new Promise(res=>{ const url=DSP.toFileURL(ruta); const v=document.createElement("video"); v.preload="metadata"; v.src=url;
@@ -49,4 +59,7 @@ console.log('   parejas k/k+12 distintas: '+dif.length+' de '+(h.length-12)
   +'  ·  de ellas, FOTOGRAMA EQUIVOCADO (<90 dB): '+malos
   +(dif.length?('  · el peor: '+(peor===Infinity?'identicas':peor.toFixed(2)+' dB')):''));
 console.log('   veredicto: '+(malos? '*** MAL: '+malos+' fotogramas equivocados en el master' : 'OK, ninguno equivocado'));
-ws.close();
+/* [R344c] Una red tiene que poder ponerse ROJA: sin codigo de salida, el lanzador la contaba como pasada
+   aunque el veredicto dijera «MAL». Se anade tambien la rendicion, que ya no debe ocurrir en este caso. */
+if(r.rendido) console.log('   *** el decodificador se RINDIO (_cdFail): el export cae al repliegue <video>');
+ws.close(); process.exitCode = (malos || r.rendido) ? 1 : 0;

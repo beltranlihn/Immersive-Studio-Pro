@@ -1,5 +1,39 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 344c — Quitar la avería destapó el peligro que la avería tapaba
+
+Al repasar qué quedaba abierto salió que el pendiente más viejo del decodificador —**«un bucle PEGADO AL FINAL
+del archivo se sale del camino rápido»**, abierto desde R261— tenía el perfil exacto de lo que R344b acababa de
+arreglar. Comprobado con ffprobe sobre su material: el último fotograma clave está en 45,27 s y el bucle cae en
+49,71 s, o sea **4,9 s por detrás de su clave**. Se midió, y salieron las dos mitades a la vez:
+
+- **La mitad buena: el problema de TIEMPO está cerrado.** 84 fotogramas en **4,5 s**, frente a los 100-138 s que
+  R261 midió, y `se rindió: no` — el decodificador ya no agota los 10 s ni marca `_cdFail`.
+- **La mitad mala: el peligro latente se volvió real.** **10 fotogramas EQUIVOCADOS de 72 parejas, el peor a
+  28,27 dB.** Y estaba escrito con todas las letras en `docs/NEXT.md` desde R261: *«Hoy no se llega porque el
+  decodificador se rinde antes — o sea que lo que nos protege es una avería»*. R344b quitó la avería.
+
+**La causa, y el arreglo.** El atajo de fin de archivo de `passed()` (`feed>=N && vaciado`) lo añadió R194 para
+que los instantes POSTERIORES al último fotograma no colgaran el export: ahí replegarse al anterior es correcto,
+porque no hay otro. Pero un bucle que da la vuelta cerca del final pide un fotograma **anterior** a lo que queda
+en caché —uno que ya se decodificó y se desalojó—, y el atajo lo daba por bueno: `frameNear` devolvía el vecino.
+Ahora el atajo exige que **no haya nada cacheado por delante del pedido**: si lo hay, ese fotograma existió y hay
+que ir a buscarlo, así que `passed()` devuelve `false` y el antibloqueo de R256 reinicia en su fotograma clave.
+La discriminación es exacta y no toca el caso de R194.
+
+**Verificación:** el mismo caso pasa a **20-21 s con 0 fotogramas equivocados** (la única pareja que difiere está
+a 102,32 dB — un píxel, la misma línea base que R261 anotó). Sigue siendo **5-7× más rápido** que antes de R344b,
+y ahora además es correcto. **26 redes en verde** y `npm test` 6/6.
+
+**Y la sonda de R261 pasa a ser RED.** `docs/NEXT.md` decía que no servía para distinguir el arreglo «precisamente
+porque la rendición tapa el síntoma»; cerrada la rendición, discrimina — de hecho es la que cazó esto, con 25
+redes en verde a su lado. Entra en `npm run redes` con su código 3 y su código de salida, que no tenía.
+
+**La lección, que es de método:** arreglar una avería puede ACTIVAR un fallo que la avería tapaba, y el aviso
+llevaba tres rondas escrito en la cola de pendientes. Al cerrar algo, releer qué decía la cola sobre lo que
+tenía al lado.
+
+
 ## ROUND 344b — La revisión de R344, y lo que R344 había dado por cerrado sin estarlo
 
 Primera aplicación del ritual nuevo: `/code-review` al cerrar la ronda, en vez de cada tres o cuatro. Diez
