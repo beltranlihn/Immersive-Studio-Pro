@@ -468,6 +468,10 @@ Lo que sigue REALMENTE abierto, verificado a R337:
   que no) · salto atras con un vecino ≤2 fotogramas en cache: ni el reinicio ni la rama de atasco de R256
   disparan, y el export se come 10 s muertos antes de marcar `_cdFail` y degradar el medio entero.
   **No se tocan a ciegas:** hacen falta un MP4 con edit list y otro de GOP largo para medir antes y despues.
+- **Verificados en R339 y CERRADOS:** el undo muerto de la herramienta T (4938) — ya empuja la foto en el
+  primer MOVIMIENTO, no al agarrar. **Arreglado en R339:** el rotulo «6 elementos» del cuadro de composicion
+  (13137), que contaba lo PEDIDO (`g.count`) y no lo repartido; `drawComposePreview` devuelve ahora lo que
+  dibuja por sus CINCO salidas (una por rama: plana, anillo, espiral, tunel y girasol).
 - **Verificados en R338 y CERRADOS tambien:** el monitor con marcas invertidas (13400) — `srcRange` ya trata
   «marcas cruzadas o pegadas» como si no hubiera marcas (`if(b-a<0.04)return null`) · el muro de ancho 0 (1092)
   — el campo del launcher tiene minimo 16 px (`lchNum('w'+i+'pxW',w.pxW,16,16384,…)`), asi que no se alcanza
@@ -477,8 +481,7 @@ Lo que sigue REALMENTE abierto, verificado a R337:
   import por nombre+tamanyo (2596, solo afecta al camino de navegador: en Electron la clave es la ruta absoluta)
   · `attachLinkedAudio` sin reintento (3343) · mascara pen sobre nido invisible (1173) · muro de ancho 0 (1092)
   · vista previa de compose en domo con esquema plano (12879) · Escape del compose y el monitor (13072) ·
-  monitor con marcas invertidas (13400) · rotulo «6 elementos» del tejido (13137) · undo muerto de la
-  herramienta T (4938).
+  monitor con marcas invertidas (13400) · y ahi se acaba la lista.
 - **Decision de producto:** el panel de modulacion sigue sin puerta (`openModPanel`, 0 llamadores). El motor esta
   vivo y desde R333 el dibujo lo respeta en TODOS los parametros, y desde R336 su selector de espectro se
   deshace como el resto: o se le da entrada, o se retira con un ADR.

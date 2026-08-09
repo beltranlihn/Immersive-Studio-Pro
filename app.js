@@ -13988,7 +13988,12 @@ function regenComposeNest(m){ if(!m||!m.comp)return false; const g=m.comp; const
   if(flat && g.infinite) for(const cc of m.nestClips) _pon(cc,[{id:uid(),param:'x',mode:'linear',speed:(g.scrollSpeed!=null?g.scrollSpeed:12),amp:0,phase:0,on:true,_lay:1}]); // 360 infinite extension scroll
   m.dur=dur; if(m.id===state.activeSeqId)loadSeqIntoState(m); raInvalidate(); return true; }
 /* dome schematic: plot the composition's elements on a fisheye disc (front=bottom, right=right) so you can see what the layout will do */
-function drawComposePreview(g,canvas){ if(!canvas)return; const x=canvas.getContext('2d'); const W=canvas.width,H=canvas.height,cx=W/2,cy=H/2,R=Math.min(W,H)/2-7; x.clearRect(0,0,W,H);
+/* [R339] Devuelve cuantos elementos ha repartido DE VERDAD. El rotulo de debajo del esquema los sacaba de
+   `g.count`, que es lo PEDIDO: el tejido y el relleno de domo reparten otra cantidad (la rejilla se cierra a
+   filas completas, el tunel encadena por ciclos), asi que el cuadro anunciaba «6 elementos» mientras el
+   esquema dibujaba otros tantos y la composicion creada tenia un tercer numero. `flashStatus` ya decia el
+   real desde R247c (`lay.length`); aqui faltaba. Devuelve null si no llego a repartir. */
+function drawComposePreview(g,canvas){ if(!canvas)return null; const x=canvas.getContext('2d'); const W=canvas.width,H=canvas.height,cx=W/2,cy=H/2,R=Math.min(W,H)/2-7; x.clearRect(0,0,W,H);
   if(FLAT_COMP_KINDS.includes(g.kind)){ // flat/room composition preview: a frame with x/y positioned dots
     const A=(state.seqW||16)/(state.seqH||9); let bw=W-14,bh=bw/A; if(bh>H-14){ bh=H-14; bw=bh*A; } const bx=(W-bw)/2, by=(H-bh)/2;
     x.fillStyle=UI.s0; x.fillRect(bx,by,bw,bh); x.strokeStyle='rgba(255,255,255,0.16)'; x.lineWidth=1; x.strokeRect(bx,by,bw,bh);
@@ -13996,7 +14001,7 @@ function drawComposePreview(g,canvas){ if(!canvas)return; const x=canvas.getCont
     lay.forEach((p,i)=>{ const px=bx+bw*(p.x/200+0.5), py=by+bh*(0.5-p.y/200); const sz=Math.max(4,Math.min(bw*0.5,bw*(p.scale/300)));
       x.globalAlpha=0.92; x.fillStyle=CLIP_COLORS[i%CLIP_COLORS.length]; x.strokeStyle='rgba(0,0,0,0.55)'; x.lineWidth=1; x.beginPath(); x.rect(px-sz/2,py-sz/2,sz,sz); x.fill(); x.stroke();
       x.globalAlpha=1; x.fillStyle=textOn(CLIP_COLORS[i%CLIP_COLORS.length]); x.font='700 11px Inter'; x.textAlign='center'; x.textBaseline='middle'; if(sz>=11)x.fillText(String(i+1),px,py); });
-    x.globalAlpha=1; return; }
+    x.globalAlpha=1; return lay.length; }
   x.fillStyle=UI.s0; x.beginPath(); x.arc(cx,cy,R,0,7); x.fill();
   x.strokeStyle='rgba(255,255,255,0.16)'; x.lineWidth=1; x.beginPath(); x.arc(cx,cy,R,0,7); x.stroke();
   x.strokeStyle='rgba(255,255,255,0.06)'; for(const f of [0.33,0.66]){ x.beginPath(); x.arc(cx,cy,R*f,0,7); x.stroke(); }
@@ -14013,7 +14018,7 @@ function drawComposePreview(g,canvas){ if(!canvas)return; const x=canvas.getCont
       for(let s=steps;s>=0;s--){ const a=a0+(a1-a0)*s/steps; x.lineTo(cx+rIn*Math.sin(a), cy+rIn*Math.cos(a)); } x.closePath();
       x.globalAlpha=0.9; x.fillStyle=CLIP_COLORS[i%CLIP_COLORS.length]; x.fill(); x.globalAlpha=1; x.lineWidth=0.6; x.strokeStyle='rgba(0,0,0,0.55)'; x.stroke();
       const am=(a0+a1)/2, rm=(rIn+rOut)/2; if(rOut-rIn>11){ x.fillStyle=textOn(CLIP_COLORS[i%CLIP_COLORS.length]); x.font='700 11px Inter'; x.textAlign='center'; x.textBaseline='middle'; x.fillText(String(i+1), cx+rm*Math.sin(am), cy+rm*Math.cos(am)); } });
-    x.globalAlpha=1; return; }
+    x.globalAlpha=1; return lay.length; }
   /* [R246] TÚNEL: los elementos no se reparten por el disco —todos ocupan el disco entero— así que dibujar puntos
      por az/el no diría nada. Se dibuja lo que de verdad se va a ver: un anillo por elemento, con el radio que le
      toca en SU instante del ciclo (la misma curva de perspectiva que usa el motor), y la opacidad del fundido.
@@ -14034,7 +14039,7 @@ function drawComposePreview(g,canvas){ if(!canvas)return; const x=canvas.getCont
       const hx=tunnelHelix(g), ha=f*2*Math.PI, ex=hx?R*hx*(sz/55)*Math.cos(ha):0, ey=hx?R*hx*(sz/55)*Math.sin(ha):0;
       x.beginPath(); x.arc(cx+ex,cy+ey,Math.min(r,R*1.25),0,7); x.stroke();
       if(r<R*0.98&&r>R*0.16){ x.globalAlpha=1; x.fillStyle=CLIP_COLORS[i%CLIP_COLORS.length]; x.font='700 10px Inter'; x.textAlign='center'; x.textBaseline='middle'; x.fillText(String(i+1),cx,cy-r); } });
-    x.globalAlpha=1; return; }
+    x.globalAlpha=1; return lay.length; }
   /* [R247c] TEJIDO: el esquema es del PLANO 1:1 donde se monta, no del disco — que es la idea entera. Se dibuja
      cada clip como el rectángulo que va a ocupar, con su proporción real, y encima el círculo del domo para que se
      vea qué parte del plano quedará dentro. Un punto no diría si el clip cruza la tira o va tumbado en ella, que es
@@ -14060,11 +14065,11 @@ function drawComposePreview(g,canvas){ if(!canvas)return; const x=canvas.getCont
     x.restore();
     x.globalAlpha=0.85; x.strokeStyle='rgba(255,255,255,0.55)'; x.setLineDash([4,4]); x.lineWidth=1.2;
     x.beginPath(); x.arc(cx,cy,S,0,7); x.stroke(); x.setLineDash([]);  // lo de fuera del círculo no llega al domo
-    x.globalAlpha=1; return; }
+    x.globalAlpha=1; return lay.length; }
   lay.forEach((p,i)=>{ const r=R*Math.max(0,Math.min(1,(90-p.el)/90)), a=p.az*D2R; const px=cx+r*Math.sin(a), py=cy+r*Math.cos(a); const sz=Math.max(5,Math.min(R*0.9,R*(p.size/170)));
     x.globalAlpha=0.92; x.fillStyle=CLIP_COLORS[i%CLIP_COLORS.length]; x.strokeStyle='rgba(0,0,0,0.55)'; x.lineWidth=1; x.beginPath(); x.arc(px,py,sz/2,0,7); x.fill(); x.stroke();
     x.globalAlpha=1; x.fillStyle=textOn(CLIP_COLORS[i%CLIP_COLORS.length]); x.font='700 11px Inter'; x.textAlign='center'; x.textBaseline='middle'; if(sz>=11)x.fillText(String(i+1),px,py); });
-  x.globalAlpha=1; }
+  x.globalAlpha=1; return lay.length; }
 function selectGroup(id){ state.selGroupId=id; state.selId=null; renderTimeline(); renderInspector(); }
 function deleteGroup(id,keepClips){ pushUndo(); const g=groupById(id); if(!g)return;
   if(keepClips){ for(const c of groupMembers(g)) delete c.groupId; } else { state.clips=state.clips.filter(c=>c.groupId!==id); }
@@ -14264,7 +14269,7 @@ function openCompose(initialKind,editGroup,nestMedia,scopeClip,preselIds){
      Los que se rellenan por código mueven el `input` oculto sin pasar por el fader, y sin esto la barra se quedaba
      en el valor anterior aunque el número de al lado ya dijera otra cosa. */
   const preview=()=>{ try{ ov.querySelectorAll('.frow input[type="range"]').forEach(r=>{ if(r._pintaFader)r._pintaFader(); }); }catch(_){}
-    const g=readForm(); drawComposePreview(g,$('#cPrev')); const lbl=$('#cPrevLbl'); if(lbl)lbl.textContent=g.count+' '+T('elements','elementos')+' · '+kindES(kind)+(g.tile&&!g.noWarp?' · '+T('tiled','mosaico'):'')+(g.noWarp?' · '+T('flat tile','baldosa plana'):'')+(g.mediaIds.length>1?(' · '+g.mediaIds.length+' '+T('media','medios')):''); };
+    const g=readForm(); const _reparto=drawComposePreview(g,$('#cPrev')); const lbl=$('#cPrevLbl'); if(lbl)lbl.textContent=(_reparto==null?g.count:_reparto)+' '+T('elements','elementos')+' · '+kindES(kind)+(g.tile&&!g.noWarp?' · '+T('tiled','mosaico'):'')+(g.noWarp?' · '+T('flat tile','baldosa plana'):'')+(g.mediaIds.length>1?(' · '+g.mediaIds.length+' '+T('media','medios')):''); };
   const sync=()=>{ const lineRot=$('#cLineRot')&&$('#cLineRot').checked, tile=$('#cTile')&&$('#cTile').checked;
     /* [R268] El tamaño de máscara sólo se ofrece si hay máscara. Va en `sync` y no junto a su control porque el
        pre-rellenado del cuadro ocurre DESPUÉS de cablear los mandos: comprobándolo allí se leía la máscara por

@@ -1,5 +1,21 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 339 — El rótulo que contaba lo pedido en vez de lo repartido
+
+- **El cuadro de composición anunciaba «6 elementos» sobre un esquema que tenía otros tantos.** El rótulo salía de
+  `g.count` — lo que el usuario teclea — mientras el esquema lo dibuja `compLayout`, que reparte por su cuenta:
+  la rejilla se cierra a filas completas, el túnel encadena por ciclos, el tejido tiene su propio reparto.
+  `flashStatus` ya decía el número real desde R247c; el rótulo del cuadro se había quedado atrás.
+  `drawComposePreview` devuelve ahora lo que dibuja — y eran **CINCO salidas**, una por rama (plana, anillo,
+  espiral, túnel y girasol), no una: la aserción del parche lo cazó antes de tocar nada.
+  Medido: con una rejilla de 6 pedidos el reparto da otro número, y el rótulo ahora lo dice.
+- **Y dos más del inventario verificados y CERRADOS sin tocar nada:** el undo muerto de la herramienta T (ya
+  empuja la foto en el primer movimiento) y — en el commit anterior — el monitor con marcas invertidas y el muro
+  de ancho 0.
+
+**Verificación:** `scratchpad/r339-verif.mjs`. **Diecinueve redes en verde** y `npm test` 6/6.
+
+
 ## ROUND 338 — Las diez de la segunda revisión: arreglos que se quedaron a medias
 
 Segunda revisión a máximo esfuerzo, esta vez sobre R336-R337. **Nueve de los diez hallazgos eran arreglos míos
