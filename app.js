@@ -2240,10 +2240,19 @@ function spoutStartPump(){ if(!_spPumpTimer){ _spPumpTimer=setInterval(()=>{ if(
 function spoutRenderLoop(){ _spRenderRaf=0; if(!spoutMediaList().length)return;
   if(_spDirty && !state.playing && spoutClipOnScreen()){ _spDirty=false; render(); }
   _spRenderRaf=requestAnimationFrame(spoutRenderLoop); }
+/* [R340] A quien le tocan ESTOS pixeles. El nativo mantiene UNA conexion y `inOpen` la re-apunta al ultimo
+   emisor abierto, pero el bombeo cogia siempre `spoutMediaList()[0]`: con dos entradas Spout, los fotogramas del
+   emisor B se subian a la textura de A — A ensenaba lo de B y B se quedaba negro, sin ningun aviso. El nativo
+   dice a quien esta sirviendo (`fr.nombre`), asi que se reparte por nombre; si no lo dice, se queda el primero,
+   que es el comportamiento de siempre con una sola entrada. */
+function spoutDestino(lista,nombre){ if(!lista||!lista.length)return null;
+  if(nombre&&lista.length>1){ const exacto=lista.find(x=>x&&x.spoutSource===nombre); if(exacto)return exacto; }
+  return lista[0]; }
 function spoutPump(){ if(!DSP||!DSP.spout||!DSP.spout.inFrame)return;
-  const m=spoutMediaList()[0]; if(!m)return;                       // una conexión a la vez (ver cabecera)
+  const lista=spoutMediaList(); if(!lista.length)return;
   let fr=null; try{ fr=DSP.spout.inFrame(true); }catch(e){ return; }
   if(!fr||!fr.nuevo||!fr.data||!(fr.w>0&&fr.h>0))return;           // sondeo sin novedad: ni una copia
+  const m=spoutDestino(lista,fr.nombre); if(!m)return;
   m.w=fr.w; m.h=fr.h; m._spLive=true; if(fr.nombre)m._spReal=fr.nombre;
   ndiUpload(m,fr.w,fr.h,fr.data); _spDirty=true;                   // misma subida: texSubImage2D sin realojar
   const ahora=performance.now();
@@ -2261,6 +2270,10 @@ function makeSpoutMedia(nombre){
     if(ya){ appAlert(T('Only one Spout input at a time. Remove "'+ya.spoutSource+'" first.','Sólo se admite una entrada Spout a la vez. Quita antes "'+ya.spoutSource+'".')); return null; } }
   const m={id:uid(),kind:'spout',spoutSource:nombre,name:'Spout · '+nombre,w:16,h:16,dur:60,fps:0,color:clipColorFor('ndi'),tex:newTex(),thumb:null,_spLive:false,_thumbT:0};
   try{ upTexRaw(m.tex,16,16,new Uint8Array(16*16*4).fill(24)); }catch(e){}
+  /* [R340] Abrir una segunda entrada RE-APUNTA la unica conexion nativa: la anterior deja de recibir. Se dice,
+     en vez de dejar al usuario mirando un panel con dos entradas de las que solo una se mueve. */
+  if(state.media.some(x=>x&&x.kind==='spout'&&x.spoutSource!==nombre))
+    try{ flashStatus(T('Spout serves one input at a time: '+nombre+' takes over and the previous one stops receiving.','Spout sirve una entrada a la vez: '+nombre+' toma el relevo y la anterior deja de recibir.'),'err'); }catch(e){}
   try{ if(DSP&&DSP.spout)DSP.spout.inOpen(nombre); }catch(e){}
   state.media.push(m); renderMedia(); markDirty(); spoutStartPump(); return m; }
 function closeSpoutMedia(m){ if(!m||m.kind!=='spout')return; if(spoutMediaList().length<=1){ try{ if(DSP&&DSP.spout)DSP.spout.inClose(); }catch(e){} } }

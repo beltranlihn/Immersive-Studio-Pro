@@ -35,6 +35,7 @@ const REDES = [
   ['r337-verif.mjs',   'un destino por tamanyo: sin churn de VRAM'],
   ['r338-verif.mjs',   'las diez de la segunda revision, medidas'],
   ['r339-verif.mjs',   'el rotulo cuenta lo que hay en el esquema'],
+  ['r340-verif.mjs',   'cada entrada Spout recibe lo suyo'],
 ];
 
 /* Sin app levantada no se distingue «rojo» de «no medido», y esa confusión es justo la que hace inútil una red. */

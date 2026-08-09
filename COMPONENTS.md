@@ -228,7 +228,7 @@
 | macOS · activate (Dock) [R242] | Reabrir desde el Dock con la app viva sin ventana: se rearma `bootDone=false` antes de `createWindow()` — sin eso la ventana nueva (show:false) esperaba un `finishBoot()` que el guard `bootDone` se tragaba y no se mostraba NUNCA (hallazgo estático 4.2 de la auditoría 2026-08; pendiente de verificar en un Mac real) | main.js · `app.on('activate')` | ✅ | R242 |
 | DSP bridge | API segura `window.dsp` renderer↔main | preload.js · (~L48) | ✅ | — |
 | Wrapper NDI | `dsp-ndi-send` salida+entrada | preload.js · `ndiApi` (~L8) | ✅ | — |
-| Wrapper Spout | `dsp-spout-send` share GPU local | preload.js · `spoutApi` (~L40) | ✅ | [V3] |
+| Wrapper Spout | `dsp-spout-send` share GPU local. **[R340]** el nativo mantiene UNA conexión de ENTRADA y `inOpen` la re-apunta al último emisor abierto, pero el bombeo subía los píxeles a `spoutMediaList()[0]`: con dos entradas, la primera enseñaba lo de la segunda y la segunda se quedaba negra. `spoutDestino(lista,nombre)` reparte por el emisor que el propio nativo declara (`fr.nombre`), y abrir una segunda entrada **avisa** de que la anterior deja de recibir | preload.js · `spoutApi` (~L40) · app.js · `spoutPump`/`spoutDestino`/`addSpoutMedia` | ✅ | R340 |
 | Salida NDI/Spout | Broadcast del máster de domo limpio | app.js · `startNDI`/`startSpout` (~L1028) · desde #outputBtn | ✅ | — |
 | Dropdown Output | Consolida Full performance · Viewer window · NDI · Spout (4 botones sueltos → 1 menú, punto pulsante si emite) | app.js · `refreshOutputInd` + wiring `#outputBtn`→`openMenu` (~L5769-5770) | ✅ | Rev1 §3 |
 | Entrada NDI | NDI en vivo como clip de media | app.js · `addNdiInput`/`makeNdiMedia` (~L1089) | ✅ | [V3] |

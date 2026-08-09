@@ -1,5 +1,20 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 340 — Los fotogramas de Spout iban siempre a la primera entrada
+
+- **Con dos entradas Spout, una enseñaba lo de la otra y la otra se quedaba negra.** El nativo mantiene UNA
+  conexión y `inOpen` la re-apunta al último emisor abierto, pero `spoutPump` subía los píxeles a
+  `spoutMediaList()[0]` — siempre la primera. Así que abrir una segunda entrada hacía que la PRIMERA mostrara el
+  contenido de la SEGUNDA, sin un solo aviso. El nativo ya decía a quién estaba sirviendo (`fr.nombre`): ahora se
+  reparte por ese nombre. Sin nombre declarado, o con una sola entrada, se comporta como siempre.
+- **Y se dice en voz alta.** Abrir una segunda entrada re-apunta la conexión y la anterior deja de recibir: eso
+  es una limitación real del nativo, no un fallo — pero callarla dejaba al usuario mirando un panel con dos
+  entradas de las que sólo una se mueve.
+
+**Verificación:** `scratchpad/r340-verif.mjs` — se mide el REPARTO (`spoutDestino`), que es la decisión; el camino
+completo pide dos emisores Spout reales. **Veinte redes en verde** y `npm test` 6/6.
+
+
 ## ROUND 339 — El rótulo que contaba lo pedido en vez de lo repartido
 
 - **El cuadro de composición anunciaba «6 elementos» sobre un esquema que tenía otros tantos.** El rótulo salía de
