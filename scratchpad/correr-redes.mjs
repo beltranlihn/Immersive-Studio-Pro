@@ -38,6 +38,14 @@ const REDES = [
   ['r340-verif.mjs',   'cada entrada Spout recibe lo suyo'],
   ['r341-verif.mjs',   'el cache conserva el cuadrado y la entrega sigue siendo un disco'],
   ['r342-verif.mjs',   'la edit list se aplica, y el archivo sin ella no cambia'],
+  /* [R344] Las tres que hacen falta porque r342-verif midio la premisa y no la conclusion: una comprueba el
+     FOTOGRAMA entregado (y se comprueba a si misma reconstruyendo el estado pre-R342), otra que un salto no
+     cueste mas de un reinicio del decodificador, y la tercera que un destino LEJOS de su fotograma clave
+     tambien llegue — ese caso necesita GOP mayor de 2 s y por eso no lo veia ninguna de las otras dos.
+     Su material se rehace con `node scratchpad/r344-material.mjs`; sin el salen con codigo 3 (NO MEDIDA). */
+  ['r344-fotograma-vs-video.mjs', 'el ClipDecoder entrega el MISMO fotograma que <video>'],
+  ['r344-atasco-7472.mjs',        'un salto cuesta un reinicio, no una tormenta; y el bucle sigue entero'],
+  ['r344-gop-mayor-2s.mjs',       'un destino a mas de 2 s de su clave tambien llega, sin reiniciar en bucle'],
 ];
 
 /* Sin app levantada no se distingue «rojo» de «no medido», y esa confusión es justo la que hace inútil una red. */
@@ -87,7 +95,10 @@ await new Promise(res => { const ws = new WebSocket(pg.webSocketDebuggerUrl);
 
 /* [R322] Con PLAZO. Sin él, una sonda cuyo WebSocket no se abre —la app ocupada en un `spawnSync` de FFmpeg, un
    cuelgue de GL, un `#exOv` comiéndose el teclado— dejaba `npm run redes` bloqueado para siempre, sin una línea
-   de salida y sin decir en qué red se había quedado. 180 s es holgado: la más lenta de las cinco tarda ~25 s. */
+   de salida y sin decir en qué red se había quedado. 180 s es holgado: la más lenta (`r344-fotograma-vs-video`,
+   que posiciona un `<video>` decenas de veces) tarda ~27 s medidos. **Las sondas tienen que fijar su propio
+   plazo de CDP por debajo de éste**: si el lanzador mata antes, el diagnóstico de la sonda no llega a salir y
+   un fallo concreto se lee como «quedó colgada». */
 const PLAZO = 180000;
 /* [R322] Un acento grave dentro de la plantilla que se manda por CDP la cierra a media expresión y la sonda muere
    con un `SyntaxError` que no dice nada del código bajo prueba. Me ha pasado SIETE veces, las últimas tres
@@ -131,7 +142,7 @@ const sigueViva = () => new Promise(r => {
   req.on('error', () => r(false)); req.on('timeout', () => { req.destroy(); r(false); });
 });
 
-let rojas = 0, sinMedir = 0;
+let rojas = 0, sinMedir = 0, saltadas = 0;
 for (const [f, que] of REDES) {
   const { code, sal, cortada } = await correr(f);
   /* [R322] «Rojo» y «no medido» son cosas distintas, y confundirlas es lo que hace inútil una red. Estas sondas
@@ -144,13 +155,27 @@ for (const [f, que] of REDES) {
     console.log('        (se abandona: las ' + (sinMedir - 1) + ' restantes tampoco se pueden medir)');
     break;
   }
+  /* [R344] CODIGO 3 = «no medida por falta de material», el cuarto estado. Antes una sonda que se saltaba por
+     no encontrar sus archivos salia con 0 y esto la pintaba OK: el resumen decia «en verde» habiendo medido
+     menos redes de las que contaba. Es la misma confusion «rojo vs no medido» que el bloque de arriba explica,
+     colada por la puerta del codigo de salida — y muerde justo donde mas duele, porque el material de las
+     redes de R344 no se versiona (se rehace con `node scratchpad/r344-material.mjs`), asi que en un clon
+     nuevo, en el Mac, o tras limpiar la carpeta, se saltaban TODAS en verde. */
+  if (code === 3) {
+    saltadas++;
+    console.log('  --    ' + f.padEnd(30) + '  NO MEDIDA: ' + que);
+    console.log(sal.split(/\r?\n/).filter(l => l.trim()).map(l => '        ' + l.trim()).join('\n'));
+    continue;
+  }
   const ok = code === 0;
   if (!ok) rojas++;
-  console.log((ok ? '  OK  ' : cortada ? '  PLAZO' : '  ROJA') + '  ' + f.padEnd(18) + '  ' + que);
+  console.log((ok ? '  OK  ' : cortada ? '  PLAZO' : '  ROJA') + '  ' + f.padEnd(30) + '  ' + que);
   if (cortada) console.log('        se agoto el plazo de ' + (PLAZO / 1000) + ' s: la sonda quedo colgada');
   else if (!ok) console.log(sal.split(/\r?\n/).filter(l => /\*\*\*/.test(l)).map(l => '        ' + l.trim()).join('\n'));
 }
+const medidas = REDES.length - saltadas;
 console.log('\n' + (sinMedir ? '*** corrida ABANDONADA: la aplicacion murio a mitad, ' + sinMedir + ' red(es) sin medir'
-                  : rojas ? '*** ' + rojas + ' de ' + REDES.length + ' redes en ROJO (detalle: corre la sonda suelta)'
-                          : 'las ' + REDES.length + ' redes en verde'));
+                  : rojas ? '*** ' + rojas + ' de ' + medidas + ' redes medidas en ROJO (detalle: corre la sonda suelta)'
+                          : 'las ' + medidas + ' redes medidas, en verde')
+           + (saltadas ? '\n*** ' + saltadas + ' red(es) NO MEDIDAS por falta de material: no cuentan como verdes' : ''));
 process.exit(rojas || sinMedir ? 1 : 0);

@@ -1,5 +1,127 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 344b — La revisión de R344, y lo que R344 había dado por cerrado sin estarlo
+
+Primera aplicación del ritual nuevo: `/code-review` al cerrar la ronda, en vez de cada tres o cuatro. Diez
+ángulos independientes sobre el diff. **Quince hallazgos, y el principal es un fallo de PRODUCCIÓN que R344 no
+había tocado y que su propio material podía haber cazado.**
+
+- **La rama de salto grande reiniciaba DONDE YA ESTABA — y eso sigue arruinando exportaciones.** Comparaba sólo
+  `targetUs > lastFedPts + 2 s`, sin mirar si el reinicio movía el arranque de decodificación. Como `resetTo`
+  crea el decodificador y el bucle de alimentación se corta al llegar `decodeQueueSize` a 12 (~0,2 s a 60 fps),
+  con el destino a más de 2 s de su fotograma clave `lastFedPts` no lo alcanza nunca: reinicia en el MISMO
+  fotograma clave, vuelta tras vuelta, para siempre.
+  **MEDIDO** (`r344-gop-mayor-2s.mjs`, GOP de 4 s): destinos a 2,5 · 3,9 y 3,9 s de su clave dan **3794, 3802 y
+  3658 reinicios y agotan los 10 s de `seekCDExport` sin entregar fotograma** → `_cdFail` → el medio entero al
+  camino `<video>`. En el mismo archivo, un destino a 0,5 s de su clave resuelve en 64 ms.
+  Con la guarda `keyBefore(decIdxForTime(targetUs))!==feedBase`: **645, 1062 y 1098 ms, con 0-1 reinicios.**
+  Es anterior a R343 — lo tapaba el material, porque con GOP de 2 s la distancia destino→clave nunca llega al
+  umbral. **R344 fabricó el `gop240` y ninguna sonda lo abría**, que es exactamente la regla que esa misma ronda
+  acababa de escribir en el contrato. Fuerte candidato al pendiente del bucle pegado al final del archivo.
+
+- **Una afirmación mía, ya escrita en tres documentos, era falsa.** Dije que una edit list de 2 fotogramas «por
+  construcción no puede desplazar nada» y que por eso el archivo del inventario servía de control y no de caso.
+  **MEDIDO** (`r344-comprueba-2frames.mjs`) sobre `tunel-control`: reconstruido el estado pre-R342, el fotograma
+  entregado cae en **t−1f con 0,232 de diferencia frente a 18,7-21,9 del segundo candidato**. Lo que el `ctts`
+  cancela es el ARRANQUE, no la correspondencia instante→fotograma. Corregido en `PLAN`, `COMPONENTS` y `NEXT`.
+
+- **Y el comentario de trece líneas de R344 exageraba.** Decía que `lastFedPts` valía `-1` «durante toda la vida
+  del decodificador»; valía `-1` desde cada reinicio **hasta la primera muestra alimentada**. La exageración no
+  era inocua: es la que ocultaba el fallo de arriba, porque si de verdad hubiera valido `-1` siempre, ninguna
+  exportación pasada del segundo 2 podría completarse.
+
+- **Dos gemelos barridos en el mismo commit**, como manda la regla: `prevT=0` tenía el mismo defecto de
+  centinela que `lastFedPts` (desde R342 un `targetUs` puede ser negativo) → pasa a `null` con su guarda; y
+  `lastFedPts=null` se mueve al PRINCIPIO de `resetTo`, porque detrás hay dos llamadas que pueden lanzar y una
+  excepción tragada dejaría `vaciado` de la generación anterior — con `vaciado` en `true`, `passed()` acepta
+  cualquier instante, que es el fotograma equivocado en silencio que R194/R261 impiden.
+
+- **Seis maneras en que las redes nuevas podían pasar sin medir nada**, todas cerradas: salían con **código 0
+  cuando faltaba el material** y el lanzador las pintaba OK (ahora **código 3 = NO MEDIDA**, con su fila propia
+  y fuera del recuento de verdes); la tabla principal comparaba sólo ±2 fotogramas cuando la regresión que
+  vigila son **14**, así que un fallo real salía «no concluyente», o sea verde (ahora se prueba también el
+  desplazamiento exacto que delataría perder R342); la autocomprobación exigía «desplazado» en vez de
+  «desplazado −14» (ahora el valor exacto); el mapa de caché se consultaba con el `pts` REDONDEADO y `keyForTime`
+  compara contra el `ptsExact`, así que un tercio de los fotogramas resolvía al anterior (ahora `Math.ceil`); el
+  barrido —que sostiene la conclusión del 7472— no llevaba la guarda de fiabilidad del bloque B (ahora sí, y
+  además exige 0 huecos antes de concluir); y el bucle contaba fotogramas ENTREGADOS sin mirar **cuál**, con lo
+  que un bucle que devolviera el vecino en cada vuelta puntuaba perfecto (ahora compara el `timestamp` contra el
+  que manda `keyForTime`, que es justo el fallo silencioso de R194).
+  Más: `try/finally` en las tres sondas —una excepción dejaba vivo en la app un `keeper` despertando cada 4 ms
+  para siempre, contaminando los tiempos de las redes siguientes—, el plazo de CDP por debajo del del lanzador,
+  la tabla de «fotogramas a decodificar» calculada en vez de escrita a mano, y las referencias de línea de
+  `COMPONENTS.md` puestas al día (decían `~L7140` y `~L4026` para algo que vive en `L8069`).
+
+**Verificación:** **veinticinco redes en verde** —las tres de R344 más la nueva de GOP largo— y `npm test` 6/6.
+La red del fotograma **se puso roja una vez durante el endurecimiento**, y con razón: al mover el primer
+instante al 5 % de la duración, el desplazamiento de −14 fotogramas pedía un tiempo negativo. Se corrigió el
+rango, no la asercion.
+
+**Lo que deja esta ronda como método:** la revisión encontró un fallo de producción, dos afirmaciones mías
+falsas y seis redes que podían aprobar sin medir. Ninguna la habría visto yo solo — la sonda que probó el fallo
+del GOP largo se escribió porque un ángulo lo razonó primero.
+
+
+## ROUND 344 — El centinela que R343 se dejó puesto, y R342 medido por fin donde importa
+
+Ronda de cerrar lo que quedaba abierto del decodificador. Se hizo primero el material que faltaba —**GOP largo
+fabricado con ffmpeg desde los clips de `Rito Movie`** (`-g 120`/`-g 240 -sc_threshold 0`, comprobado: fotogramas
+clave exactamente en 0/2/4/6/8 s y en 0/4/8 s)— porque los tres puntos pendientes se apoyaban en él.
+
+- **R343 no dejó un arreglo inerte: dejó una REGRESIÓN.** Cambió el centinela de `lastFedPts` de `-1` a `null` en
+  los cinco sitios que lo LEEN, pero en `resetTo` dejó el `-1` del final y añadió un `null` al principio que ese
+  `-1` pisaba. Como la primera llamada a `step()` siempre pasa por `resetTo` (`dec` nace en `null`), **el valor
+  nuevo no llegaba a leerse nunca**. Y con `-1` la guarda `lastFedPts!==null` de la rama de salto grande da
+  verdadero, así que `targetUs > -1+2000000` se cumple para cualquier destino pasado el segundo 2: tras cada
+  reinicio, mientras el búfer de 4 MB se rellena y no hay nada que alimentar, **cada vuelta de `step()` vuelve a
+  reiniciar** — y el bucle del export (`setTimeout(tick,0)`) llama a `step()` sin descanso.
+  **MEDIDO: 10 `VideoDecoder` recreados por salto a 2,1 s y a 7,5 s, contra 1 a 0,5 s y a 1,9 s.** El contraste
+  está elegido para que no quepa otra lectura: el salto a 2,1 s decodifica SEIS fotogramas y el de 1,9 s ciento
+  catorce, o sea que el que más reinicia es el que menos trabaja → la causa es el umbral de 2 s, no la carga. Es
+  exactamente la tormenta de reinicios que R259 midió tirando el contexto gráfico a mitad de exportación.
+  Tras el arreglo: **0-1 reinicios por salto**, y el caso gemelo (el BUCLE de R256/R260) sigue entero —
+  300/300 fotogramas entregados, peor espera 689 ms, muy lejos de los 10 s que marcan `_cdFail`.
+
+- **R342 verificado por fin donde importa: en el FOTOGRAMA.** La sonda anterior medía `elstOff` y `pts0` —la
+  premisa, no la conclusión— y por eso R342 vivió dos rondas dado por bueno siendo inerte. La nueva coge el
+  fotograma por el camino EXACTO del export (`passed` y luego `frameNear`) y lo compara píxel a píxel contra
+  `<video>` en `t±1f` y `t±2f`. Gana `t` en todos los instantes, con **0,23 de diferencia frente a 19-34 de los
+  vecinos**: cien veces de margen.
+  Dos cosas que faltaban y ahora están: **la sonda sabe decir «no se puede afirmar»** (si los candidatos empatan,
+  el instante es NO CONCLUYENTE, no un aprobado — y un empate tampoco se lee como fallo, que sería inventárselo),
+  y **se comprueba a sí misma**: reconstruye el estado pre-R342 sobre los sellos de tiempo, sin tocar `app.js`, y
+  exige cazarlo. Lo caza en `t−14f`, clavado en los 14 fotogramas que predice la edit list. Una sonda que no sabe
+  fallar no demuestra nada, que es justo como pasó R342.
+
+- **El material del inventario no podía MEDIRSE, que no es lo mismo que no valer.** Leída la caja `elst` con un
+  parser independiente del demuxador de la app (si el juez y el acusado son el mismo código, la prueba no vale),
+  el `media_time 1024/15360` del `futuristic-…utc.mp4` son los **2 fotogramas del retardo de reordenación**.
+  ⚠️ **[R344b] Aquí escribí que «por construcción no desplaza nada», y es FALSO** — lo que el `ctts` cancela es
+  el ARRANQUE de la presentación, no la correspondencia instante→fotograma. Medido sobre `tunel-control`, que
+  lleva esa misma edit list de 2 fotogramas: sin R342 el fotograma entregado cae en **t−1f**, con 0,232 de
+  diferencia frente a 18,7-21,9 del segundo candidato. O sea que es un caso REAL; lo que pasa es que ese archivo
+  concreto es casi estático (0,1 de diferencia entre fotogramas frente a 14,0 del túnel) y **ninguna comparación
+  de vecinos discrimina con él**. Por eso el caso hay que fabricarlo, y se fabricó: `Tunel 1` de `Rito Movie`
+  recortado **sin recodificar** → edit list de 14 fotogramas y movimiento de sobra.
+
+- **El atasco 7472 no se cierra arreglándolo: se cierra porque su premisa es falsa.** Decía que el reinicio no
+  dispara porque la guarda `have` encuentra un vecino a ≤2 fotogramas. Pero `resetTo` **vacía la caché**, así que
+  todo lo cacheado es ≥ `feedBasePts`, y el atasco exige un destino ANTERIOR a `feedBasePts` con algo cacheado
+  por detrás de él: imposible a la vez. Medido desde seis puntos de asentamiento: caché siempre CONTIGUA (0
+  huecos), siempre ≥ `feedBasePts`, **0 candidatos**. O sea que `have` es código inalcanzable. Queda la salvedad
+  teórica del GOP ABIERTO, que ningún codificador de los que se usan aquí produce.
+
+**Verificación:** `scratchpad/r344-fotograma-vs-video.mjs` y `scratchpad/r344-atasco-7472.mjs`, las dos añadidas
+al lanzador de redes. El material se rehace con `scratchpad/r344-material.mjs` y se comprueba con
+`scratchpad/r344-lee-elst.mjs`. **Veinticuatro redes en verde** y `npm test` 6/6.
+
+**Y un cambio de MÉTODO, que es lo que de verdad hacía falta.** Tres revisiones seguidas en las que la mayoría de
+lo encontrado eran arreglos a medias míos; escribirlo en la memoria no bastó. A partir de aquí `/code-review` al
+cerrar CADA ronda, no cada tres o cuatro (queda en `CLAUDE.md`, en el contrato). Cuesta bastante menos que un
+arreglo inerte documentado como cerrado: R342 vivió dos rondas dando por buena una corrección que no hacía nada,
+y el `-1` de R343 llegó a producción convertido en regresión.
+
+
 ## ROUND 343 — Las doce de la tercera revisión: R342 no arreglaba nada
 
 Tercera revisión seguida en la que **casi todo lo encontrado son arreglos míos a medias**. El principal es el peor
@@ -49,6 +171,8 @@ se actualizó al contrato nuevo en vez de borrar el caso, que es la regla de R32
 
 Del inventario queda **uno**: el salto atrás con un vecino ≤2 fotogramas en caché (7472). Pide un MP4 de GOP
 largo y medir el atasco de 10 s en el `.exe` — no se cierra leyendo código.
+_(**[R344]** hecho el material y medido: su premisa es falsa — `resetTo` vacía la caché, así que el vecino que
+supuestamente impide el reinicio no puede existir. Cerrado, y de paso salió la regresión del centinela de R343.)_
 
 
 ## ROUND 341 — Activar el caché de un nido cambiaba la imagen

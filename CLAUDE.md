@@ -10,6 +10,18 @@ Antes de re-escanear `app.js`, consultá el **mapa vivo** (evita quemar tokens):
 - **Anti-pudrición:** al cambiar código, actualizá la fila de `COMPONENTS.md` **en el mismo commit**.
 - **`docs/NEXT.md`** = cola de trabajo activa (checklist rápido→complejo); tachar `[x]` a medida que se cierra.
 
+## Al cerrar CADA ronda: `/code-review` — [R344]
+No cada tres o cuatro rondas: **cada una**. Tres revisiones seguidas (R320, R338, R343) encontraron que la
+mayoría de lo que había que arreglar eran **arreglos anteriores a medias**, y anotarlo en la memoria no bastó
+para evitar el siguiente. Sale mucho más barato revisar al cerrar que dejar un arreglo inerte documentado como
+cerrado: **R342 vivió dos rondas dando por buena una corrección que no hacía nada**, y el centinela que R343
+dejó a medias llegó a producción **convertido en regresión** (10 `VideoDecoder` recreados por salto).
+Junto con la revisión, las dos preguntas que más fallos han cazado:
+1. **¿La sonda mide la CONCLUSIÓN o sólo la premisa?** La de R342 medía que la edit list se leía, no que el
+   fotograma entregado fuese el correcto — y por eso aprobó un arreglo inerte.
+2. **¿Sabe fallar?** Una red que no se ha visto roja no prueba nada. Reconstruir el estado anterior al arreglo
+   y exigir que la sonda lo cace (ejemplo: `scratchpad/r344-fotograma-vs-video.mjs`).
+
 ## Convenciones (obligatorias)
 - **Idioma:** en el chat y en el software, **castellano neutro — PROHIBIDO el voseo/argentinismos**. La **UI del software va en inglés** (con `T('EN','ES')` para strings nuevos); botones en **infinitivo**.
 - **Higgsfield / billing:** NUNCA ejecutar compras, top-ups ni checkouts; sólo consultar saldo/costes.

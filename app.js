@@ -8097,7 +8097,7 @@ function makeClipDecoder(d,ex){
   const AHEAD=(ex?6:18)*frameDur, BEHIND=(ex?2:16)*frameDur, CAP=(ex?24:72), MINC=(ex?6:0), GOP_SKIP=90; // BEHIND ~0.25s tolerates GPU-shared decode latency (NVDEC vs WebGL) so delayed frames survive eviction
   const keyBefore=(di)=>{ for(let i=di;i>=0;i--)if(d.samples[i].key)return i; return 0; };
   const decIdxForTime=(t)=>{ let lo=0,hi=N-1,res=0; while(lo<=hi){const m=(lo+hi)>>1; if(dispPts[m]<=t){res=m;lo=m+1;}else hi=m-1;} return order[res]; };
-  const cache=new Map(); let dec=null, feed=0, feedBase=0, feedBasePts=0, lastFedPts=null, closed=false /* [R343] `null`, no `-1`: un pts negativo (edit list a mitad de GOP) chocaba con el centinela y desactivaba el antibloqueo de R256 y el reinicio por salto grande */, dead=false, targetUs=0, err=null, fails=0, prevT=0;
+  const cache=new Map(); let dec=null, feed=0, feedBase=0, feedBasePts=0, lastFedPts=null, closed=false /* [R343] `null`, no `-1`: un pts negativo (edit list a mitad de GOP) chocaba con el centinela y desactivaba el antibloqueo de R256 y el reinicio por salto grande */, dead=false, targetUs=0, err=null, fails=0, prevT=null /* [R344b] `null`, no `0`: mismo motivo que `lastFedPts` — un pts puede ser negativo desde R342 */;
   /* [R194] Un VideoDecoder retiene una cola de reordenación: haberle dado la última muestra y ver
      `decodeQueueSize===0` NO significa que haya emitido todos los fotogramas. Sin `flush()`, la rama de fin de
      archivo de `passed()` daba el visto bueno antes de tiempo y `frameNear` devolvía un fotograma anterior →
@@ -8113,7 +8113,29 @@ function makeClipDecoder(d,ex){
     const data=await d.readRange(a, Math.max(s.size, READAHEAD)); if(!data)return false; bufData=data; bufStart=a; bufEnd=a+data.length; return inBuf(s); };
   const mkDec=()=>{ dec=new VideoDecoder({output:f=>{ if(closed){f.close();return;} const o=cache.get(f.timestamp); if(o&&o!==f){try{o.close();}catch(e){}} cache.set(f.timestamp,f); fails=0; }, error:e=>{ err=String((e&&e.message)||e); }}); dec.configure({codec:d.codec,description:d.description}); };
   let resets=0, atascoFirma='', atascoT0=0;
-  const resetTo=(di)=>{ resets++; lastFedPts=null; if(dec){try{dec.close();}catch(e){}} for(const[,f]of cache){try{f.close();}catch(e){}} cache.clear(); mkDec(); feed=keyBefore(di); feedBase=feed; feedBasePts=d.samples[feed].pts; lastFedPts=-1; err=null; vaciando=false; vaciado=false; }; // el decodificador es NUEVO: su cola de reordenación vuelve a estar por vaciar
+  /* [R344] `lastFedPts=null`, y LO PRIMERO. R343 cambió el centinela de `-1` a `null` en los cinco sitios que
+     lo LEEN, pero en esta función dejó el `-1` del final y añadió un `null` al principio que ese `-1` pisaba —
+     o sea que el valor nuevo no llegaba a leerse: como toda vida de un decodificador empieza pasando por aquí
+     (`dec` nace en `null`), `lastFedPts` valía `-1` **desde cada reinicio hasta la primera muestra alimentada**,
+     que es la ventana en la que se rellena el búfer de 4 MB. (Sólo esa ventana: la alimentación lo sobrescribe
+     con el `pts` real unas líneas más abajo.)
+     No era sólo un arreglo inerte: era una REGRESIÓN. Con `-1`, la guarda `lastFedPts!==null` de la rama de
+     salto grande da verdadero, y `targetUs > -1+2000000` se cumple para CUALQUIER destino pasado el segundo 2.
+     Como tras un reinicio el búfer todavía no cubre la muestra del nuevo fotograma clave, no se alimenta nada
+     y la vuelta siguiente vuelve a reiniciar — y el bucle del export (`setTimeout(tick,0)`) llama a `step()`
+     sin descanso mientras el búfer se rellena. MEDIDO sobre GOP largo: 10 recreaciones de `VideoDecoder` por
+     salto a 2,1 s y a 7,5 s, contra 1 a 0,5 s y a 1,9 s. El contraste señala la causa sin lugar a dudas: el
+     salto a 2,1 s decodifica SEIS fotogramas y el de 1,9 s ciento catorce, así que lo que dispara la tormenta
+     es el umbral de los 2 s, no la carga. Es la tormenta de reinicios que R259 midió tirando el contexto
+     gráfico entero a mitad de exportación.
+     [R344b] Va la PRIMERA, no la última, y esto no es estética: detrás hay dos llamadas que pueden lanzar
+     (`mkDec()` → `dec.configure`, y `d.samples[feed].pts` con una pista sin muestras). Si una lanza y el
+     `catch` vacío de `pump()` o el del keeper se la traga, el resto de banderas se quedan con el valor de la
+     generación ANTERIOR sobre un decodificador nuevo — y `vaciado` en `true` hace que `passed()` acepte
+     CUALQUIER instante, que es el fotograma equivocado escrito en silencio en el máster que R194 y R261
+     existen para impedir. Nada entre medias lee estas variables: `resetTo` es síncrono y los callbacks del
+     decodificador (salida, error, el rechazo del `flush`) son tareas o microtareas. */
+  const resetTo=(di)=>{ resets++; lastFedPts=null; err=null; vaciando=false; vaciado=false; if(dec){try{dec.close();}catch(e){}} for(const[,f]of cache){try{f.close();}catch(e){}} cache.clear(); mkDec(); feed=keyBefore(di); feedBase=feed; feedBasePts=d.samples[feed].pts; }; // el decodificador es NUEVO: su cola de reordenación vuelve a estar por vaciar
   const evict=()=>{ const lo=targetUs-BEHIND; for(const[ts,f]of cache){ if(ts<lo){try{f.close();}catch(e){} cache.delete(ts);} }
     if(cache.size>CAP){ const ks=[...cache.keys()].sort((a,b)=>a-b); for(const k of ks){ if(cache.size<=CAP)break; if(k<targetUs-frameDur){try{cache.get(k).close();}catch(e){} cache.delete(k);} } } };
   const delay=ms=>new Promise(r=>setTimeout(r,ms));
@@ -8126,10 +8148,38 @@ function makeClipDecoder(d,ex){
     /* reset decision is TIME-based (NOT decode-index based) — with HEVC B-frames decode order ≠ display order, so the
        decode index for a time is non-monotonic and an index test (feedBase>tgtDec / keyBefore-feed) fired a spurious
        reset every GOP that flushed the ring. */
-    const back=targetUs<prevT-frameDur;
+    /* [R344b] El gemelo del centinela que R344 arregló, barrido en el mismo commit: `prevT` empezaba en `0`
+       para decir «todavía no hay destino anterior», pero desde R342 un `targetUs` puede ser NEGATIVO (un archivo
+       recortado a mitad de GOP deja muestras por debajo de cero), así que `0` no era un valor imposible sino uno
+       legítimo. Hoy sólo lo tapaba el orden de las ramas —la primera vuelta entra por `!dec` y `back` no llega a
+       usarse—; quien reordenara la cadena se llevaba un reinicio de más por clip. Con `null` no hay que confiar
+       en el orden. Ojo con quitar la guarda: `targetUs < null-frameDur` coacciona a `targetUs < -frameDur`, que
+       es CIERTO justo para los pts negativos que motivaron el cambio. */
+    const back=prevT!==null && targetUs<prevT-frameDur;
     if(!dec){ resetTo(decIdxForTime(targetUs)); }
-    else if(lastFedPts!==null && targetUs>lastFedPts+2000000){ resetTo(decIdxForTime(targetUs)); }       // fell >2s behind, or a big forward jump → restart at the target's keyframe
-    else if(back && targetUs<feedBasePts-frameDur){ let have=false; for(const ts of cache.keys()){ if(ts<=targetUs&&ts>=targetUs-2*frameDur){have=true;break;} } if(!have)resetTo(decIdxForTime(targetUs)); } // backward BEFORE our decode start → reset only if the frame isn't still cached
+    /* [R344b] «…y NO estamos ya decodificando desde ese mismo fotograma clave». Sin esa segunda mitad, esta rama
+       reiniciaba DONDE YA ESTABA: `resetTo` crea el decodificador y el bucle de alimentación de tres líneas más
+       abajo se corta en cuanto `decodeQueueSize` llega a 12 (la cola sólo se vacía de forma asíncrona), o sea que
+       una vuelta avanza ~12 muestras — 0,2 s a 60 fps. Con el destino a más de 2 s de su fotograma clave,
+       `lastFedPts` nunca lo alcanza, la vuelta siguiente vuelve a cumplir la condición, y el ciclo es estable:
+       un `VideoDecoder` nuevo y doce decodificaciones tiradas por vuelta, para siempre.
+       MEDIDO con `scratchpad/r344-gop-mayor-2s.mjs` sobre material de GOP de 4 s: destinos a 2,5 · 3,9 y 3,9 s de
+       su clave dan 3794, 3802 y 3658 reinicios y AGOTAN los 10 s de `seekCDExport` sin entregar fotograma → se
+       marca `_cdFail` y la exportación entera de ese medio cae al camino `<video>` (~900 ms/fotograma frente a
+       35). Un destino a 0,5 s de su clave, en el mismo archivo, resuelve en 64 ms.
+       No es un fallo nuevo: con el `-1` de R343 pasaba igual en cuanto se alimentaba la primera muestra, y antes
+       de R343 también. Lo tapaba el material: con GOP de 2 s la distancia destino→clave nunca llega al umbral,
+       así que era inalcanzable por construcción en todo lo que se había medido hasta ahora.
+       La comparación correcta es de PROVECHO: reiniciar sólo si mueve el arranque de decodificación a otro
+       fotograma clave. Si el destino cae en el GOP que ya estamos decodificando, avanzar es la única forma de
+       llegar — y es lo que ya hacía bien el caso corto. */
+    else if(lastFedPts!==null && targetUs>lastFedPts+2000000 && keyBefore(decIdxForTime(targetUs))!==feedBase){ resetTo(decIdxForTime(targetUs)); }  // fell >2s behind, or a big forward jump → restart at the target's keyframe, but never restart where we already are
+    else if(back && targetUs<feedBasePts-frameDur){ let have=false; for(const ts of cache.keys()){ if(ts<=targetUs&&ts>=targetUs-2*frameDur){have=true;break;} } if(!have)resetTo(decIdxForTime(targetUs)); } /* backward BEFORE our decode start → reset only if the frame isn't still cached.
+       [R344] `have` no puede ser cierto con material de GOP CERRADO —el que produce todo codificador que usamos—:
+       `resetTo` vacía la caché, así que todo lo cacheado es ≥ `feedBasePts`, y esta rama exige `targetUs` ANTERIOR
+       a `feedBasePts`; no cabe un fotograma cacheado ≤ targetUs. Medido desde seis puntos de asentamiento: caché
+       siempre contigua y 0 candidatos. La guarda se queda porque con GOP ABIERTO sí puede haber muestras por
+       debajo del fotograma clave, y cuesta ≤24 vueltas. Era la premisa del pendiente 7472, que resultó falsa. */
     prevT=targetUs;
     let n=0;
     while(feed<N && dec.decodeQueueSize<12 && (lastFedPts===null||lastFedPts<targetUs+AHEAD||cache.size<MINC) && n<96){

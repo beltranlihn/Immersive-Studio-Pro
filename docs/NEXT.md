@@ -12,6 +12,31 @@
       desvío 0, ninguna fuente ausente; el resto de composes, intactos.
       _Ojo: un tejido guardado con «Aleatorio» se rebaraja UNA vez al reabrirlo (el mapa viejo tenía otro tamaño)._
 
+## ✅ Cerrado — el salto atrás con un vecino ≤2 fotogramas en caché (7472) · 2026-08-09 · [R344]
+- [x] ~~**Reproducir y arreglar el atasco 7472.**~~ **Su premisa es falsa.** Decía que el reinicio hacia atrás no
+      dispara porque la guarda `have` encuentra un vecino cacheado a ≤2 fotogramas; pero `resetTo` **vacía la
+      caché**, así que todo lo cacheado es ≥ `feedBasePts`, y el atasco necesita a la vez un destino ANTERIOR a
+      `feedBasePts` y algo cacheado por DETRÁS de ese destino. Medido con GOP largo desde seis puntos de
+      asentamiento: caché siempre contigua (0 huecos), siempre ≥ `feedBasePts`, **0 candidatos** → `have` es
+      código inalcanzable. Salvedad teórica: GOP ABIERTO, que ningún codificador de los que usamos produce.
+      Red: `scratchpad/r344-atasco-7472.mjs`.
+- [x] ~~**Material de GOP largo.**~~ Fabricado desde los clips de `Rito Movie` y comprobado (clave cada 2 s y
+      cada 4 s). Se rehace con `node scratchpad/r344-material.mjs`; los `.mp4` no se versionan.
+- [x] ~~**Verificar R342 de verdad.**~~ Sonda al FOTOGRAMA (`r344-fotograma-vs-video.mjs`): gana `t` en todos los
+      instantes con 0,23 contra 19-34 de los vecinos, y la propia sonda caza el estado pre-R342 en `t−14f`
+      exacto (no «en algún sitio distinto de cero», que era como lo comprobaba al principio).
+      **[R344b] Corrección:** una edit list de 2 fotogramas **SÍ desplaza** — medido, `t−1f` con 80× de margen.
+      Lo que el `ctts` cancela es el ARRANQUE, no la correspondencia instante→fotograma. El archivo del
+      inventario es un caso real; lo que no se puede es MEDIRLO con él, porque es casi estático.
+- [x] ~~**Buscado de paso y arreglado:**~~ el `-1` que R343 dejó en `resetTo` no era un arreglo inerte sino una
+      **regresión**: 10 `VideoDecoder` recreados por salto (medido). Ahora 0-1.
+- [x] ~~**[R344b] Y lo que la revisión encontró debajo:**~~ la rama de salto grande **reiniciaba donde ya
+      estaba**, así que un destino a más de 2 s de su fotograma clave no llegaba NUNCA: 3658-3802 reinicios,
+      10 s agotados, `_cdFail` y el medio entero al camino `<video>`. Anterior a R343; lo tapaba el material.
+      Arreglado con `keyBefore(decIdxForTime(targetUs))!==feedBase` → 645-1098 ms con 0-1 reinicios.
+      Red: `scratchpad/r344-gop-mayor-2s.mjs`. **Mirar si esto explica el pendiente de aquí abajo** (el bucle
+      pegado al final del archivo): el perfil es el mismo — destino lejos de su clave, 10 s, rendición.
+
 ## 🔭 Abierto — un bucle PEGADO AL FINAL del archivo se sale del camino rápido (visto en R261)
 - [ ] Medido con un bucle de 0,4 s cuyo tramo son los últimos 0,4 s de la fuente: el decodificador **se rinde**
       y la exportación entera de ese medio cae al repliegue — **84 fotogramas en 100-138 s** (1,2-1,6 s cada uno)
