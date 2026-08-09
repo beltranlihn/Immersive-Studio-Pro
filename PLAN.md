@@ -114,7 +114,7 @@ porque la rendición tapa el síntoma»; cerrada la rendición, discrimina — d
 redes en verde a su lado. Entra en `npm run redes` con su código 3 y su código de salida, que no tenía.
 
 **La lección, que es de método:** arreglar una avería puede ACTIVAR un fallo que la avería tapaba, y el aviso
-llevaba tres rondas escrito en la cola de pendientes. Al cerrar algo, releer qué decía la cola sobre lo que
+llevaba desde R261 escrito en la cola de pendientes — ochenta y tantas rondas, 114 commits. Al cerrar algo, releer qué decía la cola sobre lo que
 tenía al lado.
 
 

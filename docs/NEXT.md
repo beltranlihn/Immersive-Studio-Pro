@@ -2,7 +2,71 @@
 
 > Tareas ordenadas de **más rápido de resolver → más complejo**. Marcá `[x]` a medida que se cierran (y actualizá la fila
 > en `COMPONENTS.md` + una entrada en `PLAN.md` en el mismo commit, como manda el ritual de `/commit`).
-> Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: 2026-08-04.
+> Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: **2026-08-09** (R345b).
+
+---
+
+# ⏭️ EMPEZAR POR AQUÍ — estado a 2026-08-09, cierre de R345b
+
+Escrito para retomar sin contexto previo. Lo de abajo (secciones con fecha) es historia; esto es lo que queda.
+
+## 1. ⚠️ DESPLEGAR — es lo único con consecuencia hoy
+El repositorio va por **`05bf397` (R345b)** y el `.exe` instalado corre **R345**. Entre medias hay tres cosas de
+producción que la revisión encontró y que la instalación NO tiene:
+- `frameAt` devolvía el fotograma VECINO en previsualización (el gemelo que R344c no barrió),
+- una banda en la que `passed()` decía «no» y nada reiniciaba → 10 s → `_cdFail` → el medio entero al camino
+  `<video>` a ~900 ms/fotograma el resto de la película,
+- 400 ms de espera muerta por vuelta de bucle al final de un archivo.
+```bash
+npm run dist && powershell -NoProfile -ExecutionPolicy Bypass -File "scripts/deploy-verificado.ps1" && git push
+```
+> El script compara el sha1 de las tres instalaciones; si alguna no cuadra, sale con error. **[R253] Un
+> despliegue sin comprobar no está hecho: está supuesto.** Y después conviene medirlo EN el `.exe`, que corre
+> en la RTX: `npx electron .` sólo sirve para comportamiento, no para rendimiento.
+
+## 2. 🔭 El repliegue `<video>` del export no es fiable al fotograma — la pieza grande que queda
+Es el único punto de CÓDIGO abierto. Detalle completo más abajo, en su propia sección (visto en R256).
+Resumen: de 48 parejas que deben repetirse, **8 no lo hacen, a 34-51 dB**, y cambian de pasada en pasada.
+`vinstSeekVideo` fija `currentTime`, espera `seeked` y sube lo que haya: es una carrera con la presentación.
+**La trampa de método:** el camino de referencia ES el que falla, así que no se puede comparar contra `<video>`.
+El criterio tiene que ser INTRÍNSECO — comparar la salida contra sí misma, como hace `scratchpad/r256-periodo2.mjs`
+(dos instantes que son el mismo fotograma de fuente deben dar el mismo PNG). El gate está en
+`scratchpad/r256-aceptacion.mjs`.
+Hoy ya casi no se alcanza (desde R256 un bucle no cae ahí, y menos aún tras R344b/c), pero mientras exista el
+repliegue existe la posibilidad de un fotograma equivocado en un máster.
+
+## 3. 🐢 Dos optimizaciones MEDIDAS, dejadas fuera a propósito
+- **El bucle se re-decodifica entero en cada vuelta.** `BEHIND` son 2 fotogramas (`app.js`, constantes de
+  `makeClipDecoder`), así que la cabeza del bucle se desaloja antes de que el cabezal dé la vuelta: en el caso
+  de R261 son **~133 fotogramas re-decodificados por vuelta para un bucle de 12**, y es la mayor parte de los
+  20 s que tarda ese export. Arreglo propuesto: cuando el clip está en bucle y `loopLen*fps <= CAP`, ensanchar
+  `BEHIND` para que el bucle entero quepa (un `cd.setBehind(us)` desde `vinstSeek`). **Hay que acotarlo por
+  tamaño de fotograma**: 12 VideoFrames a 4096² son ~300 MB por decodificador, y con 24 decodificadores vivos
+  eso es exactamente lo que R189 dimensionó el anillo para evitar.
+- **`scratchpad/r345-shapebox.mjs` hace seis `newProject` completos** para seis casos que sólo necesitan un clip
+  nuevo: ~4-8 s de `npm run redes` en cada corrida.
+
+## 4. 🍎 Lo que necesita tu mano (no lo puedo cerrar yo)
+- **El Mac.** Los dos arreglos de macOS —reapertura desde el Dock y las rutas de `ncBuild`— se escribieron **a
+  ciegas** y siguen sin confirmar, más el techo de H.264 con VideoToolbox, que no se ha medido en ningún
+  sistema. Pasos exactos en `docs/MACOS.md` › «Pendiente de verificar EN un Mac».
+- **El solver de la sala** contra una sala real medida a mano (sección de la sala 360, más abajo).
+- **Arrastrar de verdad** un archivo desde el explorador a una carpeta del panel: no se puede simular.
+- **Dos decisiones menores** sobre volver a entrar en un nido ya visitado.
+
+## 5. 🧭 Cómo trabaja esto ahora (leer antes de abrir ronda)
+- **`/code-review` al cerrar CADA ronda**, no cada tres o cuatro. Está en el contrato (`CLAUDE.md`). Las dos
+  aplicaciones que lleva han encontrado, cada una, más fallos en el trabajo del día que en el código viejo.
+- **Una red no vale hasta que se la ha visto ROJA.** La regla que faltaba y que ahora es obligatoria: revertir
+  el arreglo y comprobar que la red canta. Las dos de R345 se validaron así (quitando `nestGroups` del barrido
+  se ponen rojas en los dos caminos de carga); las que no se validaron así resultaron ser aprobados vacíos.
+- **Medir la CONCLUSIÓN, no la premisa.** R342 vivió dos rondas dado por bueno porque su sonda medía que el
+  demuxador leía la edit list, no que el fotograma entregado fuese el correcto.
+- `npm run redes` = 28 redes; `npm test` = 6. Las dos deben pasar antes de compilar. El guardián de acentos
+  graves de `correr-redes.mjs` funciona ahora por PARIDAD y vigila las 28: **mirar su cabecera**, que una vez
+  se dieron por buenos tres avisos sin leerlos.
+
+---
 
 ## 🧵 Revisión desde el Mac de R255→R265 — 2026-08-05 · [R265b]
 - [x] ~~**«Aleatorio» del tejido se comía un clip.**~~ El mapa de barajado se dimensionaba por el número de
@@ -53,7 +117,8 @@
       arriba con las otras 25 redes en verde.
 
 > **Lección para la próxima:** arreglar una avería puede ACTIVAR el fallo que la avería tapaba. Al cerrar algo,
-> releer qué decía esta cola sobre lo que tenía al lado — aquí el aviso llevaba tres rondas escrito.
+> releer qué decía esta cola sobre lo que tenía al lado — aquí el aviso llevaba desde **R261 (2026-08-05): ochenta y tantas rondas y 114 commits** — lo comprobé con
+> `git log -S`, porque la primera versión de esta lección decía «tres rondas» y el número es toda su fuerza.
 
 ## ✅ Cerrado — las dos «no confirmadas» de la auditoría 2026-08-06 · 2026-08-09 · [R345]
 - [x] ~~**¿Se mezclan los ids de efectos entre clips?**~~ **No.** Las siete búsquedas por id están acotadas al
@@ -212,7 +277,7 @@
 - [x] ~~**Previsualización al fotograma clave más cercano mientras se arrastra**, y seek exacto al soltar.~~
       **HECHO en R243** (`_scrubFast`, `kfTimes`/`snapKf`/`kfWorthIt`, con red de seguridad ante
       pointerup/pointercancel/blur). Medido sobre el `.exe`/RTX con material real: 4 capas de 7196×912 pasan de
-      **1139 a 130 ms** de mediana, una capa de 178 a 16 ms. La estimación de 30-100× que decía esta línea salió
+      **1137 a 128 ms** de mediana (8,9×), una capa de 178 a 16 ms. La estimación de 30-100× que decía esta línea salió
       **9-11×** — corregida en su día en el informe y en `PLAN.md`.
       _[R344c] Esta casilla llevaba abierta desde entonces por descuido; se tacha al releer la cola._
 - [x] ~~Opcional, complementaria: encender el caché de scrub-ahead (`_raOn`) por defecto con medios pesados~~ —
