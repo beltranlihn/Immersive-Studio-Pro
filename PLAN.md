@@ -1,5 +1,50 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 348 — Las dos optimizaciones aparcadas, cerradas con medida: las dos partían de una cifra falsa
+
+Ronda sin una línea de código de producción. Las dos optimizaciones que la cola guardaba «medidas y dejadas
+fuera a propósito» llevaban ahí unas noventa rondas, y al ir a implementarlas resultó que **ninguna de las dos
+tenía detrás la medida que decía tener**.
+
+**1. Ensanchar `BEHIND` para que el bucle quepa en la caché: IMPOSIBLE, y ya estaba medido.** La cola proponía
+«cuando el clip está en bucle y `loopLen*fps <= CAP`, ensanchar `BEHIND` para que el bucle entero quepa». Eso es
+literalmente lo que R257 implementó y midió que fallaba: *«retener los fotogramas del tramo volvió a producir la
+rendición, 980 ms/fotograma; cada `VideoFrame` retenido ocupa una plaza del fondo de salida del decodificador»*.
+O sea que la cola llevaba noventa rondas invitando a reimplementar algo ya descartado con medida, en el mismo
+repositorio que lo documentaba.
+
+Antes de cerrarlo se comprobó la equivalencia en vez de suponerla, porque ensanchar `BEHIND` retiene los
+fotogramas en la caché del ClipDecoder y R257 los retenía en un conjunto aparte. La medida que lo zanja es la
+**capacidad del fondo de salida**, y no depende de nada de la app: se alimenta un `VideoDecoder` crudo y se
+cuentan los fotogramas que llegan sin cerrarlos (`scratchpad/r348-fondo-salida.mjs`, con el control de la misma
+alimentación cerrándolos, que llega a 40+ en los tres archivos):
+
+| archivo | resolución | retenidos antes de pararse |
+|---|---|---|
+| `tunel-control.mp4` | 960×960 | **9** |
+| `gop240-60fps.mp4` | 2560×1440 | **16** |
+| `o1.mp4` (material real) | 2560×1440 | **6** |
+
+El ciclo de R261 son 12 fotogramas: **no caben** en dos de los tres, y sobre material real caben la mitad. Y lo
+que remata la propuesta es que **el límite no escala con el tamaño de fotograma** —16 en un 1440p y 6 en otro
+1440p—, así que la guarda que la propia nota exigía («hay que acotarlo por tamaño de fotograma») no es
+implementable: no hay una función del tamaño que prediga el límite. Es un detalle del driver y del perfil.
+De paso queda una cifra útil para ese subsistema: el anillo de export vive en 2 detrás + 6 delante ≈ 8 en caché,
+o sea **pegado al límite del fondo**, que es por qué `MINC` es imprescindible y por qué esto no tiene holgura.
+La respuesta para un clip muy loopeado sigue siendo la que ya existe: hornearlo (*Render in place*).
+
+**2. Los seis `newProject` de `r345-shapebox.mjs`: no cuestan 4-8 s, cuestan 11 ms.** La cola decía «~4-8 s de
+`npm run redes` en cada corrida». Medido, tres corridas de cada versión: **133 ms la de los seis `newProject`,
+122 ms con uno solo**. La cifra de la cola era una estimación mía que nunca se midió, equivocada por tres
+órdenes de magnitud — en esa sonda no hay material que cargar, así que `newProject` es reinicio de estado y
+repintados, ~2 ms cada uno. Se implementó la optimización, se midió, y **se revirtió**: once milisegundos no
+justifican meterle a una red verde el acoplamiento de limpiar el estado a mano entre casos, y esta sesión ya
+lleva dos regresiones de cambios que parecían inocuos.
+
+**Lo que queda anotado como método:** una cifra escrita en la cola sin sonda detrás es una hipótesis, exactamente
+igual que una escrita en un comentario. Las dos de este punto lo eran, y las dos estaban mal en la dirección que
+hacía la tarea atractiva.
+
 ## ROUND 347b — La revisión de R347: el estimador no daba para la pregunta que le hice
 
 Segunda ronda seguida en la que **el arreglo del día introduce una regresión y la revisión la caza midiendo**.

@@ -42,16 +42,21 @@ milisegundos que cazan la regresión y el PAL de 25 —que se detectaba como 24 
 Queda dicho también que medio argumento de R346 contra el centro del fotograma se cae con esto: lo que sostiene
 la decisión es el daño acotado y el VFR, no ya la canonización.
 
-## 3. 🐢 Dos optimizaciones MEDIDAS, dejadas fuera a propósito
-- **El bucle se re-decodifica entero en cada vuelta.** `BEHIND` son 2 fotogramas (`app.js`, constantes de
-  `makeClipDecoder`), así que la cabeza del bucle se desaloja antes de que el cabezal dé la vuelta: en el caso
-  de R261 son **~133 fotogramas re-decodificados por vuelta para un bucle de 12**, y es la mayor parte de los
-  20 s que tarda ese export. Arreglo propuesto: cuando el clip está en bucle y `loopLen*fps <= CAP`, ensanchar
-  `BEHIND` para que el bucle entero quepa (un `cd.setBehind(us)` desde `vinstSeek`). **Hay que acotarlo por
-  tamaño de fotograma**: 12 VideoFrames a 4096² son ~300 MB por decodificador, y con 24 decodificadores vivos
-  eso es exactamente lo que R189 dimensionó el anillo para evitar.
-- **`scratchpad/r345-shapebox.mjs` hace seis `newProject` completos** para seis casos que sólo necesitan un clip
-  nuevo: ~4-8 s de `npm run redes` en cada corrida.
+## 3. ✅ Las dos optimizaciones aparcadas: CERRADAS con medida [R348] — las dos partían de una cifra falsa
+- [x] ~~**Ensanchar `BEHIND` para que el bucle quepa en la caché.**~~ **Imposible, y ya estaba medido en R257.**
+      La propuesta era retener el ciclo entero, que es exactamente lo que R257 implementó y midió que producía la
+      rendición (980 ms/fotograma) porque cada `VideoFrame` retenido ocupa una plaza del **fondo de salida** del
+      decodificador. Medida que lo zanja (`scratchpad/r348-fondo-salida.mjs`, con control que llega a 40+):
+      el fondo se agota en **9** retenidos a 960², **16** en un 1440p y **6** en otro 1440p de material real.
+      El ciclo de R261 son 12: no caben. Y el límite **no escala con el tamaño de fotograma**, así que la guarda
+      que la propia nota exigía no es implementable. La respuesta para un clip muy loopeado es la que ya existe:
+      hornearlo (*Render in place*). El diagnóstico sí valía —el bucle se re-decodifica— pero el arreglo no.
+- [x] ~~**Los seis `newProject` de `r345-shapebox.mjs`.**~~ La cola decía «~4-8 s por corrida»: son **11 ms**
+      (medido, tres corridas de cada versión: 133 ms contra 122). Se implementó, se midió y **se revirtió** —
+      once milisegundos no justifican meterle a una red verde el acoplamiento de limpiar el estado a mano.
+> **Lo que deja esto como regla:** una cifra escrita en la cola sin sonda detrás es una hipótesis, igual que una
+> escrita en un comentario. Las dos de este punto lo eran, y las dos estaban mal **en la dirección que hacía la
+> tarea atractiva** (una prometía «la mayor parte de 20 s», la otra «4-8 s»).
 
 ## 4. 🍎 Lo que necesita tu mano (no lo puedo cerrar yo)
 - **El Mac.** Los dos arreglos de macOS —reapertura desde el Dock y las rutas de `ncBuild`— se escribieron **a
