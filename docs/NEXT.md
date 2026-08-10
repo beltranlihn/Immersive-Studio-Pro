@@ -10,10 +10,10 @@
 
 Escrito para retomar sin contexto previo. Lo de abajo (secciones con fecha) es historia; esto es lo que queda.
 
-## 1. ⚠️ DESPLEGAR R346c
-Las **tres instalaciones** corren **R346b** (`a9bce14`), que lleva una **regresión**: el tope del espejo del
-ping-pong congelaba un fotograma durante tres en cada giro del bucle, horneado en el export. **R346c la
-revierte** y cierra los otros catorce hallazgos de la revisión. Hasta desplegarlo, la regresión está en producción.
+## 1. ✅ Nada pendiente de desplegar
+El repositorio y las **tres instalaciones** van por **R346c** (`8b5d5c8`), verificadas por sha1 el 2026-08-10.
+R346c revierte la regresión que R346b había desplegado (el tope del espejo del ping-pong, que congelaba un
+fotograma durante tres en cada giro) y cierra los otros catorce hallazgos de aquella revisión.
 ```bash
 npm run dist && powershell -NoProfile -ExecutionPolicy Bypass -File "scripts/deploy-verificado.ps1" && git push
 ```
