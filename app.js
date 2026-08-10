@@ -1127,10 +1127,14 @@ function loopCycleSec(c){ return (c.loop&&c.loopLen>0)?(c.loopLen/(c.speed||1)):
    Medido: con 1 µs todavía se cuela un repetido en el material de 60 fps y los dos caminos discrepan en dos
    instantes; con 2 µs, cero en los tres archivos y los caminos coinciden en todo.
    Y POR QUÉ NO EL CENTRO DEL FOTOGRAMA, que también salió perfecto en el banco: pedir `(k+0,5)/fps` exige una
-   rejilla uniforme a `fps`, y `detectFps` canoniza 59,94 a 60 — sobre material NTSC la rejilla se desvía medio
-   fotograma a los ~8 s y a partir de ahí el centro cae en el fotograma equivocado, sin avisar. El daño de esta
-   tolerancia está ACOTADO a 2 µs (cinco cienmilésimas de fotograma a 24 fps) pase lo que pase con la cadencia;
-   el del centro no lo está. Comprobado aparte: `Math.floor((t+2e-6)*1e6)` deja el punto de decisión entre 1 y
+   rejilla uniforme a `fps`, y un archivo VFR no la tiene. El daño de esta tolerancia está ACOTADO a 2 µs (cinco
+   cienmilésimas de fotograma a 24 fps) pase lo que pase con la cadencia; el del centro no lo está.
+   [R347b] Esta nota decía además que «`detectFps` canoniza 59,94 a 60, y sobre material NTSC el centro cae en
+   el fotograma equivocado a partir de los ~8 s». Las dos mitades eran falsas y se corrigen aquí, que es donde
+   R346b puso la nota de referencia de esta familia: la canonización se arregló en R347/R347b (`detectFps` lee
+   ahora la cadencia del demuxador cuando puede), y los «~8 s» son el número del CENTRO del fotograma — sobre la
+   rejilla de FRONTERA, que es la que pide el export y el generador de proxys, una cadencia equivocada desplaza
+   ya el fotograma 1. Lo que sostiene la decisión es sólo el daño acotado y el VFR. Comprobado aparte: `Math.floor((t+2e-6)*1e6)` deja el punto de decisión entre 1 y
    2 µs por encima del pts, nunca más — los casos en que la ganancia entera no es 2 son exactamente aquellos en
    que el pts ya cae en un microsegundo entero y no hacía falta tolerancia ninguna.
    DÓNDE SE APLICA — la primera versión de esta nota decía «en el único sitio» y era FALSA, y creérselo es justo
@@ -3112,12 +3116,43 @@ function makeThumb(m){const c=document.createElement('canvas');c.width=108;c.hei
    Se puede distinguir: `mediaTime` es el pts exacto del fotograma, así que la mediana de los intervalos vale
    1001/30000 clavado, y 59,94 dista 0,06 de 60 — mil veces más que el ruido de esa medida. */
 function detectFps(v,m,done){let fin=false;
-  const FPS_CANON=[24000/1001,24,25,30000/1001,30,48,50,60000/1001,60,120];
-  const canon=f=>{ let mejor=f, dd=Infinity; for(const cc of FPS_CANON){ const x=Math.abs(f-cc); if(x<dd){ dd=x; mejor=cc; } } return dd<=1.2?mejor:f; };
+  /* [R347b] DOS ESTIMADORES, y cada uno responde sólo lo que su dato permite. R347 le pidió a la medida por
+     `requestVideoFrameCallback` que distinguiera 59,94 de 60 —una diferencia del 0,1 %— y no puede: `mediaTime`
+     no es «el pts exacto» sino el pts EN EL TIMEBASE DEL CONTENEDOR. Matroska fija ese timebase en milisegundos
+     (y `ffmpeg -i x.mkv -c copy out.mp4` lo arrastra), así que un archivo de 24 fps EXACTOS da intervalos de
+     42,41,42,42,41… ms, la mediana es 42 y `1/md` = 23,8095 — que cae MÁS CERCA de 23,976 que de 24. Lo
+     decisivo: en ese timebase un archivo de 24 exactos y uno de 23,976 dan la MISMA mediana, así que ahí no hay
+     nada que resolver; quitar el `Math.round` no afinó la medida, sólo hizo que adivinara, y adivinaba NTSC en
+     los dos. Medido en la app con WebM reales: 24 → 23,976 y 60 → 59,94, o sea el fallo de R347 con el signo
+     cambiado, sobre material corriente.
+     · CAMINO FINO — el demuxador. `demuxMP4` saca la cadencia de la tabla de muestras `(sc-1)/durSec`, que
+       promedia el archivo entero y por tanto CANCELA el redondeo del timebase: medido 24,000669 / 60,001669 /
+       29,969113 / 23,976608, las cuatro del lado correcto. Sólo con ese dato se decide entre NTSC y entero.
+     · CAMINO BASTO — la reproducción, para lo que el demuxador no lee (WebM/MKV/AVI, o un moov ilegible).
+       Vuelve a redondear a entero ANTES de canonizar, como antes de R347: si no se puede distinguir, la
+       respuesta conservadora es el entero. Eso devuelve además su valor exacto a las cadencias no canónicas
+       (12, 15, 16 fps daban 12,048 / 14,925 / 15,873 sin el redondeo) y quita la dependencia del orden en el
+       camino del plazo vencido (con 3 muestras, [41,42,42] daba 23,976 y [41,41,42] daba 24: el mismo archivo,
+       dos cadencias según qué intervalos se capturaran).
+     El juego fino lleva ya las CINCO NTSC —faltaban 119,88, la de deriva más rápida (medio fotograma en 4,2 s),
+     y 47,952—, y en cada pareja el ENTERO va primero: `x<dd` es estricto, así que un empate cae del lado del
+     entero, que es la respuesta segura. */
+  const ENTEROS=[24,25,30,48,50,60,120];
+  const FINAS=[24,24000/1001,25,30,30000/1001,48,48000/1001,50,60,60000/1001,120,120000/1001];
+  const cerca=(f,lista)=>{ let mejor=f, dd=Infinity; for(const cc of lista){ const x=Math.abs(f-cc); if(x<dd){ dd=x; mejor=cc; } } return dd<=1.2?mejor:f; };
   const calc=arr=>{ if(arr.length<3)return 0; const e=arr.slice().sort((a,b)=>a-b); const md=e[Math.floor(e.length/2)]||0;
-    return md>0?canon(1/md):0; };
+    return md>0?cerca(Math.round(1/md),ENTEROS):0; };
   let _to=null,_onEnd=null;   /* [R327] el oyente se RETIRA al terminar. Con `{once:true}` solo se autodesregistra si llega a dispararse, y en el camino normal la medida acaba en el fotograma 10: quedaba colgado del `<video>` del medio —que es de larga vida— y cada reproduccion posterior que llegara al final ejecutaba un `v.pause()` inesperado sobre un elemento que puede estar sirviendo al visor. */
-  const fn=f=>{if(fin)return;fin=true;if(_to)clearTimeout(_to);if(_onEnd){try{v.removeEventListener('ended',_onEnd);}catch(_){}_onEnd=null;}if(f>0)m.fps=f;if(done)done();};
+  const fn=f=>{if(fin)return;fin=true;if(_to)clearTimeout(_to);if(_onEnd){try{v.removeEventListener('ended',_onEnd);}catch(_){}_onEnd=null;}if(f>0){m.fps=f;proxyRevisaFps(m);}if(done)done();};
+  /* El camino fino primero: si el demuxador lee el archivo, su cadencia manda y no hace falta reproducir nada. */
+  if(IS_ELEC && m && m.path && /\.(mp4|m4v|mov)$/i.test(m.path)){
+    let d0=null;
+    demuxMP4(m.path).then(dd=>{ d0=dd; const f=dd&&dd.fps; if(f>0){ fn(cerca(f,FINAS)); return true; } return false; })
+      .catch(()=>false)
+      .then(ok=>{ try{ if(d0)d0.close(); }catch(e){} if(!ok&&!fin)porReproduccion(); });
+    return; }
+  porReproduccion();
+  function porReproduccion(){
   if(!v.requestVideoFrameCallback){fn(0);return;} let last=null,d=[],n=0;
   const onf=(now,meta)=>{if(last!=null&&meta.mediaTime>last)d.push(meta.mediaTime-last);last=meta.mediaTime;n++;
    if(n<10)v.requestVideoFrameCallback(onf);else{v.pause();v.currentTime=0;fn(calc(d));}};
@@ -3129,7 +3164,25 @@ function detectFps(v,m,done){let fin=false;
      para entonces podía estar reproduciéndose en el visor. */
   _to=setTimeout(()=>{ try{v.pause();}catch(_){ } fn(calc(d)); },plazo); // al vencer, se usa lo medido hasta ahora
   _onEnd=()=>{ try{v.pause();}catch(_){ } fn(calc(d)); }; v.addEventListener('ended',_onEnd);
-  v.muted=true; v.play().then(()=>v.requestVideoFrameCallback(onf)).catch(()=>fn(0)); }
+  v.muted=true; v.play().then(()=>v.requestVideoFrameCallback(onf)).catch(()=>fn(0)); } }
+/* [R347b] Un proxy horneado con OTRA cadencia no vale, y hasta ahora nada lo notaba: su identidad es
+   `hash(path|fsize)` —sin cadencia ni marca de generación—, `bindProxyFile` sólo comprueba la duración con un
+   margen de `max(1 s, 3 %)` (un proxy NTSC de 10 min horneado a 60 son 599,4 s contra 600: pasa con treinta
+   veces de holgura) y `proxyScanDir` rescata además cualquier hermano por nombre. Así que al arreglar la
+   detección, el material ya proxyficado seguía previsualizándose con la rejilla vieja —~36 fotogramas de
+   desfase al final de un clip de 10 minutos— sin un solo aviso.
+   Se comprueba en el ÚNICO punto donde la cadencia pasa a ser de fiar: al cerrar `detectFps`. `proxyFps` es la
+   cadencia con la que se horneó (se guarda en el `.isp`); si no está, el proxy es anterior a R347b, y entonces
+   sólo es sospechoso cuando la cadencia real NO es entera —que es exactamente el caso que el régimen viejo
+   horneaba mal—. Se suelta el proxy en vez de repararlo: previsualizar por el original es lento pero correcto,
+   y el aviso dice qué hacer. */
+function proxyRevisaFps(m){ if(!m||!m.proxyReady||!(m.fps>0))return;
+  const pf=m.proxyFps; const desfasado = pf>0 ? Math.abs(pf-m.fps)>1e-6*Math.max(1,m.fps)
+                                              : Math.abs(m.fps-Math.round(m.fps))>1e-6;
+  if(!desfasado)return;
+  m.proxyReady=false; m.proxyUrl=null; m.proxyPath=null; m.proxyFps=null;
+  try{ renderMedia(); }catch(e){}
+  flashStatus(T('Proxy was built at a different frame rate — regenerate it: ','El proxy se generó con otra cadencia — regenéralo: ')+m.name,'err'); }
 /* proxies — persistent DISK cache (R78): the proxy MP4 streams to userData/proxies while encoding
    (RAM stays flat regardless of clip length — the old in-memory target held ~12Mbps × duration, multi-GB
    for long clips) and is REUSED across sessions/projects (keyed by source path+size → reopening a project
@@ -3317,7 +3370,7 @@ async function makeProxy(m){
      el que esté puesto cuando el medio se destruye, así que cada regeneración dejaba atrás el blob completo del
      proxy viejo — decenas o cientos de MB por vuelta, y regenerar es justo lo que se hace cuando algo no cuadra. */
   if(m.proxyUrl&&m.proxyUrl!==purl){ try{URL.revokeObjectURL(m.proxyUrl);}catch(_){} }
-  m.proxyEl=pv;m.el=pv;m.pw=pw;m.ph=ph;m.proxyUrl=purl;m.proxyReady=true;m.proxyPct=100;renderMedia();updProxyUI(m);scrubRender();
+  m.proxyEl=pv;m.el=pv;m.pw=pw;m.ph=ph;m.proxyUrl=purl;m.proxyReady=true;m.proxyPct=100;m.proxyFps=fps;/* [R347b] la cadencia con la que se horneó: sin ella no hay forma de saber si un proxy de disco es del régimen viejo — ver `proxyRevisaFps` */renderMedia();updProxyUI(m);scrubRender();
 }
 function updProxyUI(m){const it=document.querySelector('.mitem[data-id="'+m.id+'"]');if(it){const b=it.querySelector('.pbar>i');if(b)b.style.width=Math.max(0,m.proxyPct||0)+'%'; const tx=it.querySelector('.pbar .pbtxt');if(tx)tx.textContent=m.proxyReady?'':(m.proxyPct>0?(m.proxyPct+'%'):'…');}
   document.querySelectorAll('.pdot[data-mid="'+m.id+'"]').forEach(el=>{ el.style.background=m.proxyReady?'#B4BAC1':'#5E646C'; el.title=m.proxyReady?T('Proxy ready','Proxy listo'):T('No proxy yet / generating','Sin proxy aún / generando'); });
@@ -11041,7 +11094,7 @@ let currentPath=null;
 function markDirty(){ state.dirty=true; projTitle(); raInvalidate(); ncTouch(); } // [R180] toda mutación pasa por aquí → es el único enganche que necesita la invalidación del caché de nests
 function currentTitle(){ return (currentPath&&IS_ELEC)?DSP.basename(currentPath).replace(/\.(isp|ise|rdome)$/i,''):T('Untitled project','Proyecto sin título'); }
 function projTitle(){ const md=(activeSeq()&&activeSeq().mode)||state.seqMode; const pre=md==='flat'?'2D':md==='room'?T('360 Room','Sala 360'):T('Immersive Dome','Domo inmersivo'); const t=$('#projTitle'); if(t)t.textContent=pre+' · '+currentTitle()+(state.dirty?' *':''); if(IS_ELEC){try{DSP.setTitle('Immersive Studio Pro — '+currentTitle()+(state.dirty?' *':''));}catch(e){} try{if(DSP.setUiState)DSP.setUiState({dirty:!!state.dirty,lang:state.lang});}catch(e){}} }
-function serMedia(m){ return {id:m.id,name:m.name,kind:m.kind,w:m.w,h:m.h,mode:m.mode||null,cov:m.cov||null,room:m.room||null,roomFloorOf:m.roomFloorOf||null,dur:m.dur,fps:m.fps,color:m.color,path:m.path||null,fsize:m.fsize||0,folder:m.folder||null,framePaths:m.framePaths||null,srcIn:(m.srcIn!=null?m.srcIn:null),srcOut:(m.srcOut!=null?m.srcOut:null),/* [R249] las marcas del monitor son del MATERIAL, no de la ventana: viajan con el proyecto */ndiSource:m.ndiSource||null,spoutSource:m.spoutSource||null,/* [V3] serMedia es una LISTA BLANCA: sin esta línea el .isp guardaba el medio Spout sin su emisor y al reabrir enganchaba al que estuviera activo — parecía funcionar por casualidad */
+function serMedia(m){ return {id:m.id,name:m.name,kind:m.kind,w:m.w,h:m.h,mode:m.mode||null,cov:m.cov||null,room:m.room||null,roomFloorOf:m.roomFloorOf||null,dur:m.dur,fps:m.fps,proxyFps:(m.proxyFps||null),/* [R347b] la cadencia con la que se horneo el proxy: viaja en el .isp porque el proxy tambien sobrevive a la sesion */color:m.color,path:m.path||null,fsize:m.fsize||0,folder:m.folder||null,framePaths:m.framePaths||null,srcIn:(m.srcIn!=null?m.srcIn:null),srcOut:(m.srcOut!=null?m.srcOut:null),/* [R249] las marcas del monitor son del MATERIAL, no de la ventana: viajan con el proyecto */ndiSource:m.ndiSource||null,spoutSource:m.spoutSource||null,/* [V3] serMedia es una LISTA BLANCA: sin esta línea el .isp guardaba el medio Spout sin su emisor y al reabrir enganchaba al que estuviera activo — parecía funcionar por casualidad */
   text:m.text,tfontSize:m.tfontSize,tweight:m.tweight,tfont:m.tfont,talign:m.talign,tlineH:m.tlineH,titalic:m.titalic,tcolor:m.tcolor,tbg:m.tbg,tstroke:m.tstroke,tstrokeColor:m.tstrokeColor,
   shape:m.shape,fill:m.fill,stroke:m.stroke,strokeW:m.strokeW,sw:m.sw,sh:m.sh,
   ncPath:(m.kind==='nest'?(m.ncPath||null):null), ncSig:(m.kind==='nest'?(m.ncSig||null):null), ncW:(m.kind==='nest'?(m.ncW||null):null), ncH:(m.kind==='nest'?(m.ncH||null):null), ncFps:(m.kind==='nest'?(m.ncFps||null):null), /* [R180] el caché sobrevive al cierre: al reabrir, ncReattach compara la firma y decide si sigue valiendo */

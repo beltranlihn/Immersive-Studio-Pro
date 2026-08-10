@@ -10,11 +10,13 @@
 
 Escrito para retomar sin contexto previo. Lo de abajo (secciones con fecha) es historia; esto es lo que queda.
 
-## 1. ✅ Nada pendiente de desplegar
-El repositorio y las **tres instalaciones** van por **R347** (`1cec486`), verificadas por sha1 el 2026-08-10.
-R347 cierra el último fallo de producción conocido: `detectFps` redondeaba las cadencias NTSC al entero
-(59,94 → 60) y, como `m.fps` manda en la rejilla de seek del generador de proxys, el proxy de un clip NTSC
-derivaba un fotograma cada 16,7 s — en uno de 10 minutos, ~36 fotogramas al final.
+## 1. ⚠️ DESPLEGAR R347b
+Las **tres instalaciones** corren **R347** (`1cec486`), que lleva una **regresión**: al quitar el redondeo a
+entero de `detectFps`, un archivo de 24 o 60 fps EXACTOS en un contenedor de timebase de milisegundos —cualquier
+WebM/MKV, y cualquier MP4 remuxeado de uno— se detecta como 23,976 o 59,94, y de ahí sale la cadencia con la que
+se hornea el proxy. **R347b lo revierte al estimador correcto** (el demuxador decide NTSC vs entero; la
+reproducción vuelve a redondear) y cierra los otros catorce hallazgos de la revisión, entre ellos que **todo
+material de 25p se detectaba como 24 desde el commit inicial**.
 ```bash
 npm run dist && powershell -NoProfile -ExecutionPolicy Bypass -File "scripts/deploy-verificado.ps1" && git push
 ```
@@ -29,14 +31,17 @@ frontera, en los DOS caminos. Detalle en su sección de abajo y en `PLAN.md › 
 red cubre 40 fotogramas seguidos de **dos archivos, a 24 y a 60 fps** (cada uno con la cadencia que dice su
 demuxador), por los dos caminos; el cambio afecta a **todo máster 1:1**, así que merece una pasada con material
 de Beltrán antes de darlo por asentado en producción.
-**[R347] Y la pregunta NTSC que quedaba servida: MEDIDA, y con dos resultados opuestos.** Fabricado material
+**[R347·b] Y la pregunta NTSC que quedaba servida: MEDIDA, y con dos resultados opuestos.** Fabricado material
 exacto de 30 s en las tres cadencias (`r347-material-ntsc.mjs`). La **tolerancia aguanta**: 0 repetidos,
 0 saltados y 0 desplazados por los dos caminos, al 60 % del archivo, en 23,976 / 29,97 / 59,94. La **cadencia
-detectada no**: `detectFps` redondeaba a entero antes de canonizar, y con la rejilla canonizada salían **40 de
-40 fotogramas desplazados**. Arreglado, con la red 31 (`r347-ntsc.mjs`) vigilando las dos direcciones —que no
-redondee NTSC al entero, y que no baje a NTSC un material de 24 o 60 exactos, que es el riesgo del propio
-arreglo—. Queda dicho también que medio argumento de R346 contra el centro del fotograma se cae con esto: lo que
-sostiene la decisión es el daño acotado, no ya la canonización.
+detectada no**, y su arreglo costó dos rondas: R347 quitó el redondeo a entero y con eso rompió el caso
+simétrico —un 24 o 60 EXACTOS en timebase de milisegundos pasaba a detectarse como 23,976 o 59,94—, porque
+`mediaTime` no es el pts exacto sino el pts en el timebase del contenedor. **R347b** pone dos estimadores: el
+demuxador (que promedia el archivo y sí distingue) decide NTSC vs entero, y la reproducción vuelve a redondear
+para lo que el demuxador no lee. Red 31 (`r347-ntsc.mjs`) con **ocho** archivos, incluidos los dos de
+milisegundos que cazan la regresión y el PAL de 25 —que se detectaba como 24 desde el commit inicial—.
+Queda dicho también que medio argumento de R346 contra el centro del fotograma se cae con esto: lo que sostiene
+la decisión es el daño acotado y el VFR, no ya la canonización.
 
 ## 3. 🐢 Dos optimizaciones MEDIDAS, dejadas fuera a propósito
 - **El bucle se re-decodifica entero en cada vuelta.** `BEHIND` son 2 fotogramas (`app.js`, constantes de
@@ -68,6 +73,13 @@ sostiene la decisión es el daño acotado, no ya la canonización.
 - `npm run redes` = 31 redes; `npm test` = 6. Las dos deben pasar antes de compilar. El guardián de acentos
   graves de `correr-redes.mjs` funciona ahora por PARIDAD y vigila las 31: **mirar su cabecera**, que una vez
   se dieron por buenos tres avisos sin leerlos (y en R346b cantó dos veces, las dos con razón).
+- **[R347b] Una medida sólo contesta lo que su resolución permite.** El fallo de esta ronda no fue un descuido:
+  le pedí a la mediana de `requestVideoFrameCallback` que distinguiera el 0,1 % que separa 59,94 de 60, y su dato
+  —el pts en el timebase del contenedor— no da para eso. Antes de apoyar una decisión en una medida, preguntar
+  **cuál es su resolución y de qué depende**; si no llega, buscar otro estimador (aquí, el demuxador) en vez de
+  afinar el criterio sobre un dato grueso. Y el banco tiene que contener la clase de entrada que el ARREGLO
+  puede romper, no sólo la que el fallo rompía: los cinco archivos de R347 tenían timebases exactos, así que los
+  controles pasaban por construcción y la red seguía verde con la regresión viva.
 - **[R347] Nunca reescribir un documento con `Get-Content`/`Set-Content` de PowerShell.** Al actualizar la
   cuenta de redes con un `-replace` se recodificó `docs/NEXT.md` entero a mojibake (720 líneas, todos los
   acentos) y encima el reemplazo no llegó a aplicarse. `CLAUDE.md` ya avisa de esto para los `.ps1`; vale para

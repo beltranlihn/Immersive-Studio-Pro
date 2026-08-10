@@ -1,5 +1,62 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 347b — La revisión de R347: el estimador no daba para la pregunta que le hice
+
+Segunda ronda seguida en la que **el arreglo del día introduce una regresión y la revisión la caza midiendo**.
+Esta vez el fallo es de método, no de descuido: le pedí a una medida una precisión que no tiene.
+
+**La regresión.** R347 quitó el `Math.round(1/md)` de `detectFps` creyendo que era el error. No lo era: era el
+**filtro contra la cuantización del timebase del contenedor**. `mediaTime` no es «el pts exacto del fotograma»
+—como escribí— sino el pts EN EL TIMEBASE DEL CONTENEDOR, y Matroska lo fija en milisegundos (que
+`ffmpeg -i x.mkv -c copy out.mp4` arrastra al MP4). Ahí un archivo de **24 fps exactos** da intervalos
+42,41,42,42,41… ms, la mediana es 42 y `1/md` = 23,8095 — que cae **más cerca de 23,976 que de 24**. Medido en
+la app con WebM reales: **24 → 23,976 y 60 → 59,94**, o sea el mismo fallo que R347 cerraba, con el signo
+cambiado y sobre material corriente. Y lo decisivo: en ese timebase un archivo de 24 exactos y uno de 23,976
+dan la **misma** mediana, así que ahí no hay nada que resolver — quitar el redondeo no afinó la medida, sólo
+hizo que adivinara, y adivinaba NTSC en los dos.
+
+**El arreglo: dos estimadores, cada uno respondiendo sólo lo que su dato permite.** El fino es el
+**demuxador** (`(sc-1)/durSec` promedia el archivo entero y cancela el redondeo del timebase: medido 24,000669 /
+60,001669 / 29,969113 / 23,976608, las cuatro del lado correcto), y es el único que decide entre NTSC y entero.
+El basto es la reproducción, para lo que el demuxador no lee, y **vuelve a redondear a entero**: si no se puede
+distinguir, la respuesta conservadora es el entero. Eso arregla de paso tres cosas más que la revisión encontró:
+las cadencias no canónicas recuperan su valor exacto (12/15/16 fps daban 12,048 / 14,925 / 15,873), el camino
+del plazo vencido deja de depender del orden (con 3 muestras, [41,42,42] daba 23,976 y [41,41,42] daba 24 — el
+mismo archivo, dos cadencias), y el juego fino se completa con las **cinco** NTSC (faltaban 119,88, la de deriva
+más rápida, y 47,952), con el entero primero en cada pareja para que un empate caiga del lado seguro.
+
+**Y un fallo mayor que el de NTSC, que llevaba desde el commit inicial.** El `canon` anterior devolvía el PRIMER
+candidato dentro de 1,2 y 24 precede a 25, así que `|25−24| = 1` disparaba antes de probar el 25: **todo material
+de 25p se detectaba como 24** — un 4 % de error, cuarenta veces el de NTSC. Con `fps=24`, el proxy de un 25p de
+10 minutos contenía sólo los primeros 9,6 minutos estirados sobre 10, y la comprobación de duración lo daba por
+bueno. R347 lo arregló de rebote al pasar a «el más cercano» y no lo documentó ni lo cubrió; ahora hay
+`pal-25.mp4` en el banco para que no vuelva. (El material de Beltrán es 60/1 y 24/1: no le afecta.)
+
+**Los proxies del régimen viejo ya no se adoptan en silencio.** Su identidad es `hash(path|fsize)` —sin
+cadencia— y `bindProxyFile` sólo mira la duración con un margen de `max(1 s, 3 %)`, que un desfase de 1/1001 se
+pasa con treinta veces de holgura. Ahora se guarda `proxyFps` al hornear (viaja en el `.isp`) y
+`proxyRevisaFps` suelta el proxy y avisa cuando no cuadra, en el único punto donde la cadencia es de fiar: al
+cerrar `detectFps`. Si falta —proxy anterior— sólo es sospechoso cuando la cadencia real no es entera, que es
+justo lo que el régimen viejo horneaba mal.
+
+**Tres afirmaciones mías, corregidas donde estaban.** (a) «`mediaTime` es el pts exacto» es falsa, y era la
+premisa de todo R347. (b) El «medio fotograma a los 8,3 s» con el que justifiqué que el banco necesitara 30 s es
+el número del **centro** del fotograma; sobre la rejilla de **frontera** —la que piden el export y el proxy— una
+cadencia equivocada desplaza ya el fotograma 1, así que un banco de 8 s habría discriminado igual y la
+auto-comprobación que puse por eso no podía dispararse nunca. (c) El «40 de 40 desplazados» iba etiquetado como
+MEDIDO sobre `makeProxy` y es un **modelo** de su tercer camino; el mecanismo que muerde en el camino por defecto
+es otro (`drawEncFrame` sella `Math.round(idx*us)` con `us=1e6/fps`, así que el proxy queda escrito a la cadencia
+equivocada) y R347 lo arregló sin medirlo. Queda dicho así.
+
+**El banco, que era el agujero de fondo.** Los cinco archivos de R347 tenían timebases múltiplos exactos de su
+fotograma, así que los dos controles de cadencia entera pasaban **por construcción** y la red seguía verde con la
+regresión viva. Ahora son ocho e incluyen los dos de milisegundos que la cazan, el PAL, y ffprobe comprobando
+cada archivo dentro del propio guion (PLAN.md decía «comprobado con ffprobe» de una comprobación que se había
+hecho a mano una vez). La red arregla además tres agujeros propios: el testigo arrancaba en 30 —un resultado
+válido, así que «no se pudo medir» y «midió 30» eran la misma lectura—, su plazo de 6 s quedaba por debajo del de
+`detectFps` con material de 6,5 Mpx, y un fallo de la pasada de control se tragaba en un `null` dejando la red
+en verde con su propio control desactivado.
+
 ## ROUND 347 — NTSC: la tolerancia aguanta, la cadencia detectada no
 
 Las dos preguntas que R346 dejó escritas en la cola y nadie había medido. Fabricado material NTSC exacto de

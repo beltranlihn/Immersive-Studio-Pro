@@ -26,20 +26,40 @@ import http from 'http';
 import { existsSync } from 'fs';
 
 const S = 'C:/Users/beltr/Desktop/Alma Digital Studio/Projects/Immersive Studio Pro/scratchpad/media/';
-/* Los tres NTSC son el caso; los dos ULTIMOS son el CONTROL en el otro sentido, y no son un adorno: el riesgo
-   del arreglo de R347 es justo el contrario del fallo que cierra — que al dejar de redondear a entero, un
-   material de 24 o 60 EXACTOS pase a detectarse como 23,976 o 59,94 y la rejilla derive al reves. */
+/* Los tres NTSC son el caso; los CUATRO ultimos son el CONTROL en el otro sentido, y no son un adorno: el
+   riesgo del arreglo es justo el contrario del fallo que cierra — que un material de 24 o 60 EXACTOS pase a
+   detectarse como 23,976 o 59,94 y la rejilla derive al reves.
+   [R347b] Y los dos de TIMEBASE GRUESO son los que hacian falta. Los otros dos controles tienen timebases que
+   son multiplos exactos de su fotograma (12288/24=512, 15360/60=256), asi que la medida cae a 60 y 25 veces
+   dentro de la frontera de decision y pasan POR CONSTRUCCION: no podian ponerse rojos. En milisegundos -lo que
+   trae cualquier WebM/MKV y cualquier MP4 remuxeado de uno- un 24 exacto da mediana 42 ms y `1/md` = 23,8095,
+   que cae MAS CERCA de 23,976 que de 24. Con estos dos dentro, la red se ponia roja el dia que se escribio. */
 const ARCHIVOS = [
   { n: 'ntsc-2397.mp4  (24000/1001 = 23,976)', p: S + 'ntsc-2397.mp4', canon: 24, ntsc: true },
   { n: 'ntsc-2997.mp4  (30000/1001 = 29,970)', p: S + 'ntsc-2997.mp4', canon: 30, ntsc: true },
   { n: 'ntsc-5994.mp4  (60000/1001 = 59,940)', p: S + 'ntsc-5994.mp4', canon: 60, ntsc: true },
-  { n: 'tunel-control.mp4  (24 EXACTOS, control)', p: S + 'tunel-control.mp4', canon: 24, ntsc: false },
-  { n: 'gop240-60fps.mp4   (60 EXACTOS, control)', p: S + 'gop240-60fps.mp4', canon: 60, ntsc: false },
+  /* `soloFps`: en estos dos el criterio de sucesion consecutiva NO aplica, y no por conveniencia. Un timebase de
+     milisegundos no puede representar 1/24 ni 1/60, asi que los pts REALES del archivo no son uniformes (41/42
+     ms alternos): el fotograma i no empieza en i/fps para ningun fps, luego ninguna rejilla uniforme puede dar
+     1:1 y medirlo seria exigirle al codigo algo que el material no permite. Medido: sobre la cadencia media del
+     demuxador salen 13 repetidos y 13 saltados, que es el archivo, no el arreglo. Lo que si es exigible -y es
+     lo que protege la rejilla del proxy- es que la cadencia detectada sea el ENTERO. */
+  { n: 'ms-24.mp4  (24 EXACTOS, timebase de ms — el caso que rompia)', p: S + 'ms-24.mp4', canon: 24, ntsc: false, soloFps: true },
+  { n: 'ms-60.mp4  (60 EXACTOS, timebase de ms — el caso que rompia)', p: S + 'ms-60.mp4', canon: 60, ntsc: false, soloFps: true },
+  /* [R347b] El PAL: hasta R347 se detectaba como 24 porque el `canon` viejo devolvia el PRIMER candidato dentro
+     de 1,2 y 24 precede a 25. Un 4 % de error —cuarenta veces el de NTSC— y desde el commit inicial. Se arreglo
+     de rebote al pasar a "el mas cercano", y sin este archivo nada impide que vuelva. */
+  { n: 'pal-25.mp4  (25 EXACTOS: el que se detectaba como 24)', p: S + 'pal-25.mp4', canon: 25, ntsc: false },
+  { n: 'tunel-control.mp4  (24 EXACTOS, timebase fino)', p: S + 'tunel-control.mp4', canon: 24, ntsc: false },
+  { n: 'gop240-60fps.mp4   (60 EXACTOS, timebase fino)', p: S + 'gop240-60fps.mp4', canon: 60, ntsc: false },
 ];
 const faltan = ARCHIVOS.filter(a => !existsSync(a.p));
 if (faltan.length) {
-  console.log('   NO MEDIDA: falta ' + faltan.map(a => a.p).join(', '));
-  console.log('   Se fabrica con:  node scratchpad/r347-material-ntsc.mjs');
+  console.log('   NO MEDIDA: falta ' + faltan.map(a => a.p.replace(/^.*\//, '')).join(', '));
+  /* [R347b] Las instrucciones, correctas: dos de los siete archivos NO salen del guion de R347. Decirlo mal
+     dejaba al operador corriendo el guion que se le nombra y volviendo a sacar codigo 3, indefinidamente. */
+  console.log('   Se fabrican con:  node scratchpad/r347-material-ntsc.mjs   (ntsc-* y ms-*)');
+  console.log('                y:  node scratchpad/r344-material.mjs        (tunel-control.mp4, gop240-60fps.mp4)');
   process.exit(3);
 }
 
@@ -62,11 +82,19 @@ const PAGINA = (ruta, rejilla) => `(async()=>{ let cd=null, v=null, vd=null; try
   /* --- que dice detectFps, que es de donde sale la rejilla del generador de proxys --- */
   vd=document.createElement('video'); vd.src=DSP.toFileURL(RUTA); vd.muted=true; vd.playsInline=true; vd.preload='auto';
   await new Promise((res,rej)=>{ vd.onloadeddata=()=>res(); vd.onerror=()=>rej(new Error('no carga')); });
-  const mm={fps:30};
+  /* [R347b] El testigo arranca en -1, no en 30. Con 30, "no se pudo medir" y "midio 30" eran LA MISMA lectura,
+     porque 30 es un resultado valido -y detectFps deja m.fps intacto cuando calc devuelve 0-. Y el plazo sube
+     por encima del suyo: el suyo es min(8000, 2500+mpx*800), que con el material de Beltran (7196x912 =
+     6,56 Mpx) son 7748 ms, o sea que un plazo de 6000 leia el testigo antes de tiempo, mataba la medida en
+     vuelo con un pause() y acusaba al codigo de un fallo que no tenia. */
+  /* [R347b] CON la ruta puesta, como el medio de verdad: detectFps decide por el demuxador cuando la tiene, y un
+     testigo sin ruta caia siempre al camino de reproduccion. La primera version de este control media el camino
+     que no es y daba por roto el arreglo. */
+  const mm={fps:-1, path:RUTA};
   const detectado=await new Promise(res=>{ let listo=false;
     try{ detectFps(vd,mm,()=>{ if(!listo){listo=true;res(mm.fps);} }); }catch(e){ res(null); return; }
     vd.play().catch(()=>{});
-    setTimeout(()=>{ if(!listo){listo=true;res(mm.fps);} }, 6000); });
+    setTimeout(()=>{ if(!listo){listo=true;res(null);} }, 12000); });
   try{ vd.pause(); }catch(e){}
 
   cd=makeClipDecoder(d,true);
@@ -98,7 +126,7 @@ const PAGINA = (ruta, rejilla) => `(async()=>{ let cd=null, v=null, vd=null; try
       for(let j=0;j<arr.length;j++){ if(arr[j]!==I0+j)desf++;
         if(j>0&&arr[j]!=null&&arr[j-1]!=null){ const dd=arr[j]-arr[j-1];
           if(dd===0)rep++; else if(dd<0)atras++; else if(dd>1)salt+=dd-1; } }
-      return {rep:rep,salt:salt,atras:atras,desf:desf}; };
+      return {rep:rep,salt:salt,atras:atras,desf:desf,n:arr.length}; };
     return {cd:cuenta(cds), vid:cuenta(vids), muestraCd:cds.slice(0,10),
             difCdVid:cds.reduce((a,x,j)=>a+(x===vids[j]?0:1),0)}; };
 
@@ -120,13 +148,19 @@ for (const a of ARCHIVOS) {
   let o = null;
   try { o = JSON.parse(rE); } catch (e) { console.log('   ' + a.n); console.log('   *** ' + String(rE).slice(0, 400)); malas.push(a.n + ': la sonda no llego a medir'); continue; }
   /* El control con la rejilla entera solo tiene sentido en NTSC: en un material de cadencia entera esa rejilla
-     ES la real, asi que pedirle que desplace seria pedirle que fallara. */
+     ES la real, asi que pedirle que desplace seria pedirle que fallara.
+     [R347b] Y si esa segunda pasada FALLA, se dice. Antes el error se tragaba en `c = null` y todas las
+     comprobaciones que dependen de el se saltaban con un `if (c)`, asi que la red imprimia OK y salia con 0
+     habiendo desactivado en silencio su propio control de discriminacion. */
   let c = null;
-  if (a.ntsc) { const rC = await ev(PAGINA(a.p, a.canon)); try { c = JSON.parse(rC); } catch (e) { c = null; } }
+  if (a.ntsc) {
+    const rC = await ev(PAGINA(a.p, a.canon));
+    try { c = JSON.parse(rC); } catch (e) { malas.push(a.n + ': la pasada de control (rejilla entera) no llego a medir -> ' + String(rC).slice(0, 160)); }
+  }
 
-  const detOk = Math.abs(o.detectado - o.fps) < 0.01;
+  const detOk = o.detectado != null && Math.abs(o.detectado - o.fps) < 0.01;
   console.log('   ' + a.n + '   demuxador: ' + o.fps + ' fps · ' + o.N + ' fotogramas · tramo desde el ' + o.I0);
-  console.log('      detectFps devuelve: ' + (Math.round(o.detectado * 1000) / 1000) + (detOk ? '   (la real)' : '   <<< CANONIZADO A ENTERO, el real es ' + o.fps));
+  console.log('      detectFps devuelve: ' + (o.detectado == null ? 'NO MIDIO (plazo agotado)' : (Math.round(o.detectado * 1000) / 1000)) + (detOk ? '   (la real)' : '   <<< NO ES LA REAL, que es ' + o.fps));
   console.log('      P1 la tolerancia sobre la rejilla REAL:      cd ' + fila(o.res));
   console.log('         entregados, deberian ser ' + o.I0 + '..: ' + o.res.muestraCd.join(','));
   if (c) {
@@ -134,19 +168,24 @@ for (const a of ARCHIVOS) {
     console.log('         entregados, deberian ser ' + c.I0 + '..: ' + c.res.muestraCd.join(','));
   }
 
-  /* P1 — lo que se afirma: la tolerancia no depende de la cadencia. */
+  /* P1 — lo que se afirma: la tolerancia no depende de la cadencia. Sólo donde el material tiene una rejilla
+     uniforme que la pueda sostener (ver `soloFps`). */
   const r = o.res;
-  if (r.cd.rep + r.cd.salt + r.cd.atras + r.cd.desf) malas.push(a.n + ' ClipDecoder: con la rejilla real el tramo no sale limpio (' + r.cd.rep + ' rep, ' + r.cd.salt + ' salt, ' + r.cd.atras + ' atras, ' + r.cd.desf + ' desplazados)');
-  if (r.vid.rep + r.vid.salt + r.vid.desf) malas.push(a.n + ' <video>: con la rejilla real el tramo no sale limpio (' + r.vid.rep + ' rep, ' + r.vid.salt + ' salt, ' + r.vid.desf + ' desplazados)');
-  if (r.difCdVid) malas.push(a.n + ': los dos caminos entregan fotogramas distintos en ' + r.difCdVid + ' instantes');
+  if (!a.soloFps) {
+    if (r.cd.rep + r.cd.salt + r.cd.atras + r.cd.desf) malas.push(a.n + ' ClipDecoder: con la rejilla real el tramo no sale limpio (' + r.cd.rep + ' rep, ' + r.cd.salt + ' salt, ' + r.cd.atras + ' atras, ' + r.cd.desf + ' desplazados)');
+    if (r.vid.rep + r.vid.salt + r.vid.desf) malas.push(a.n + ' <video>: con la rejilla real el tramo no sale limpio (' + r.vid.rep + ' rep, ' + r.vid.salt + ' salt, ' + r.vid.desf + ' desplazados)');
+    if (r.difCdVid) malas.push(a.n + ': los dos caminos entregan fotogramas distintos en ' + r.difCdVid + ' instantes');
+  }
   /* Lo que arregla R347, y en los DOS sentidos: la cadencia detectada es la de verdad. En NTSC, que no la
      redondee al entero (la rejilla del proxy derivaria); en material de cadencia entera, que no se pase de
      listo y la baje a la NTSC vecina, que es el riesgo que introduce el propio arreglo. */
   if (!detOk) malas.push(a.n + ': detectFps devuelve ' + o.detectado + ' y la cadencia real es ' + o.fps +
-    (a.ntsc ? ' — redondeada al entero: la rejilla del proxy deriva' : ' — el arreglo de R347 se ha pasado y estropea una cadencia ENTERA'));
-  /* Y la comprobacion de que este banco DISCRIMINA: con la rejilla entera el desplazamiento tiene que verse.
-     Si no se ve, el tramo medido no esta bastante lejos del principio y lo de arriba no prueba nada. */
-  if (a.ntsc && c && !c.res.cd.desf) malas.push(a.n + ': el banco NO DISCRIMINA — ni con la rejilla entera aparece desplazamiento, el tramo medido esta demasiado cerca del principio');
+    (a.ntsc ? ' — redondeada al entero: la rejilla del proxy deriva' : ' — se ha pasado de listo y estropea una cadencia ENTERA'));
+  /* [R347b] La comprobacion de que este banco DISCRIMINA. Antes exigia que el desplazamiento apareciera "lejos
+     del principio", razonando con los `1001/(2*fps)` s del CENTRO del fotograma; sobre la rejilla de FRONTERA
+     -que es la que se mide aqui- el desplazamiento empieza en el fotograma 1, asi que esa condicion no podia
+     fallar nunca. Lo que si prueba algo: con la rejilla entera TODO el tramo tiene que salir desplazado. */
+  if (a.ntsc && c && c.res.cd.desf < c.res.cd.n) malas.push(a.n + ': el banco NO DISCRIMINA — con la rejilla entera solo ' + c.res.cd.desf + ' de ' + c.res.cd.n + ' fotogramas salen desplazados, se esperaban todos');
 }
 
 console.log('');
