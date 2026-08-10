@@ -29,9 +29,21 @@ El ciclo de R261 son 12 fotogramas: **no caben** en dos de los tres, y sobre mat
 que remata la propuesta es que **el límite no escala con el tamaño de fotograma** —16 en un 1440p y 6 en otro
 1440p—, así que la guarda que la propia nota exigía («hay que acotarlo por tamaño de fotograma») no es
 implementable: no hay una función del tamaño que prediga el límite. Es un detalle del driver y del perfil.
-De paso queda una cifra útil para ese subsistema: el anillo de export vive en 2 detrás + 6 delante ≈ 8 en caché,
-o sea **pegado al límite del fondo**, que es por qué `MINC` es imprescindible y por qué esto no tiene holgura.
 La respuesta para un clip muy loopeado sigue siendo la que ya existe: hornearlo (*Render in place*).
+
+**[R348b] Dos correcciones a esta ronda, de su propia revisión.** (a) La medida se tomó con un decodificador
+configurado con cuatro claves que la app nunca pasa (`codedWidth`, `codedHeight`, `hardwareAcceleration`,
+`optimizeForLatency`) — precisamente las que eligen la implementación y los búferes de salida. Repetida con
+`{codec, description}` a secas, que es lo que pasan los tres decodificadores reales: **los mismos 9 / 16 / 6**,
+así que la conclusión aguanta, ahora con juez y acusado configurados igual. (b) La frase «el anillo vive en ≈8 en
+caché, pegado al límite» era una comparación inválida y está retirada: medido el pico real de `cache.size`
+recorriendo un tramo como el export (`r348-pico-anillo.mjs`), el anillo llega a **7 · 5 · 15**, o sea que con
+`o1.mp4` retiene **15 donde la pasada de retención se estancaba en 6** — y el export funciona igual. Son dos
+regímenes: la pasada no suelta nunca, y el anillo **recicla** (al avanzar el objetivo, `evict` cierra los de
+detrás y los búferes vuelven al fondo). Lo que cierra la optimización es el **mecanismo**, no el número.
+Y la revisión se equivocó en un punto: dio por hecho que ninguna red vigilaría un futuro ensanchamiento de
+`BEHIND`, cuando `r261-finarchivo.mjs` lee `m._cdFail` desde R344c y lo mete en su código de salida — el
+estancamiento se manifiesta como rendición, así que la pone roja.
 
 **2. Los seis `newProject` de `r345-shapebox.mjs`: no cuestan 4-8 s, cuestan 11 ms.** La cola decía «~4-8 s de
 `npm run redes` en cada corrida». Medido, tres corridas de cada versión: **133 ms la de los seis `newProject`,

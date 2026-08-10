@@ -22,6 +22,12 @@
    Control en el mismo banco: la misma alimentacion CERRANDO cada fotograma tiene que seguir hasta el final. Si
    tambien se para, el que falla es el arnes y la medida no dice nada del fondo.
 
+   [R348b] AVISO, y sale de una corrida real: esta sonda RETIENE superficies de GPU a proposito, y despues de
+   pasarla varias veces sobre la misma instancia `npm run redes` dio DOS rojos (`r346-verif` roja y `r347-ntsc`
+   agotando su plazo de 180 s) que desaparecieron los dos al reiniciar la app. No es de las que se pueden dejar
+   corriendo antes de las redes: se pasa en una instancia recien levantada, y se reinicia despues. Por eso NO
+   esta en `correr-redes.mjs` — y no debe entrar.
+
    Uso:  npx electron . --remote-debugging-port=9222   y luego  node scratchpad/r348-fondo-salida.mjs
 */
 import http from 'http';
@@ -53,35 +59,50 @@ const PAGINA = (ruta) => `(async()=>{ let d=null; const abiertos=[]; try{
      ningun fotograma; si no, se cierra en cuanto llega (el control). Se para cuando pasan QUIETO ms sin una
      salida nueva habiendo entrada pendiente, o al llegar a TOPE. */
   const pasada=async(retener)=>{
-    let salidas=0, ultima=performance.now(), err=null, dec=null;
-    const mios=[];
+    let salidas=0, ultima=performance.now(), err=null, dec=null, motivo='';
     dec=new VideoDecoder({ output:(f)=>{ salidas++; ultima=performance.now();
-        if(retener){ mios.push(f); } else { try{f.close();}catch(e){} } },
+        /* [R348b] Los retenidos van a la lista exterior AL LLEGAR, no al final de la pasada. Antes se
+           acumulaban en un array local y se entregaban a la limpieza despues del bucle: si readSample rechazaba
+           a mitad -un descriptor cerrado, una lectura pasado el final, un error de disco-, la excepcion salia de
+           aqui y el finally cerraba una lista vacia, dejando abiertas hasta 16 superficies de GPU para el resto
+           de la sesion, justo las que la app necesita despues. */
+        if(retener){ abiertos.push(f); } else { try{f.close();}catch(e){} } },
       error:(e)=>{ err=String(e&&e.message||e); } });
-    dec.configure({codec:d.codec, description:d.description, codedWidth:d.codedWidth, codedHeight:d.codedHeight,
-      hardwareAcceleration:'no-preference', optimizeForLatency:false});
+    /* [R348b] EXACTAMENTE la configuracion de la app -codec y description, nada mas-, que es lo que pasan los
+       tres decodificadores que existen (el mkDec del ClipDecoder, el vdec de makeProxy y el del cache de
+       fotogramas). La version anterior anadia codedWidth/codedHeight, hardwareAcceleration y
+       optimizeForLatency, y son precisamente las pistas que eligen la implementacion y cuantos buferes de salida
+       reserva: la cifra podia ser de un decodificador que la app no instancia nunca. Juez y acusado tienen que
+       estar configurados igual. */
+    dec.configure({codec:d.codec, description:d.description});
     let i=0, alimentadas=0;
     while(salidas<TOPE && i<orden.length && !err){
       /* No se alimenta a ciegas: si la cola de entrada esta llena, se espera. Asi el estancamiento que se mide
          es del fondo de SALIDA, no de haber saturado la de entrada. */
       if(dec.decodeQueueSize>8){ await new Promise(r=>setTimeout(r,4));
-        if(performance.now()-ultima>QUIETO) break; continue; }
+        if(performance.now()-ultima>QUIETO){ motivo='estancado'; break; } continue; }
       const idx=orden[i]; const s=d.samples[idx]; i++;
       const buf=await d.readSample(idx);
       try{ dec.decode(new EncodedVideoChunk({type:s.key?'key':'delta', timestamp:Math.round(s.ptsExact), data:buf})); alimentadas++; }
       catch(e){ err='decode: '+String(e&&e.message||e); break; }
     }
+    /* [R348b] POR QUE termino el bucle, dicho aparte. Con solo el numero de salidas no se distinguia "el fondo
+       se agoto" de "se acabaron las muestras": inocuo con el banco de hoy (193/600/600 contra un tope de 40),
+       pero esta sonda esta escrita para reusarse y es el artefacto que una ronda futura citara para no tocar
+       BEHIND. */
+    if(!motivo){ if(err)motivo='error'; else if(salidas>=TOPE)motivo='tope'; else if(i>=orden.length)motivo='sin mas muestras'; }
     /* Se le da tiempo a vaciar la cola antes de declarar el estancamiento. */
     while(!err && salidas<TOPE && performance.now()-ultima<QUIETO) await new Promise(r=>setTimeout(r,10));
-    const res={salidas:salidas, alimentadas:alimentadas, cola:dec.decodeQueueSize, err:err,
+    if(salidas>=TOPE)motivo='tope'; else if(motivo!=='error'&&motivo!=='sin mas muestras')motivo='estancado';
+    const res={salidas:salidas, alimentadas:alimentadas, cola:dec.decodeQueueSize, err:err, motivo:motivo,
                llegoAlTope:salidas>=TOPE};
-    if(retener) abiertos.push(...mios); else { for(const f of mios){ try{f.close();}catch(e){} } }
     try{ dec.close(); }catch(e){}
     return res; };
 
   const conRetener=await pasada(true);
   /* Los retenidos se sueltan ANTES del control: si no, el control mediria un fondo ya ocupado. */
   for(const f of abiertos){ try{f.close();}catch(e){} } abiertos.length=0;
+  await new Promise(r=>setTimeout(r,200));
   await new Promise(r=>setTimeout(r,200));
   const control=await pasada(false);
 
@@ -100,11 +121,12 @@ for (const a of ARCHIVOS) {
   console.log('');
   console.log('   ' + a.n + '   ' + o.w + 'x' + o.h + ' · ' + o.codec + ' · ' + o.muestras + ' muestras');
   const R = o.retener, C = o.control;
-  console.log('      RETENIENDO (sin cerrar): ' + R.salidas + ' fotogramas emitidos' + (R.llegoAlTope ? ' (llego al tope de la prueba, 40)' : ' y SE PARO') +
-    '  · alimentadas ' + R.alimentadas + ' · cola ' + R.cola + (R.err ? ' · error: ' + R.err : ''));
-  console.log('      CONTROL (cerrando):      ' + C.salidas + ' fotogramas emitidos' + (C.llegoAlTope ? ' (llego al tope)' : ' y SE PARO') +
-    '  · alimentadas ' + C.alimentadas + ' · cola ' + C.cola + (C.err ? ' · error: ' + C.err : ''));
-  if (!C.llegoAlTope) malas.push(a.n + ': el CONTROL tambien se paro — el arnes no mide el fondo de salida, la cifra de arriba no dice nada');
+  console.log('      RETENIENDO (sin cerrar): ' + R.salidas + ' fotogramas emitidos · termino por: ' + R.motivo +
+    ' · alimentadas ' + R.alimentadas + ' · cola ' + R.cola + (R.err ? ' · error: ' + R.err : ''));
+  console.log('      CONTROL (cerrando):      ' + C.salidas + ' fotogramas emitidos · termino por: ' + C.motivo +
+    ' · alimentadas ' + C.alimentadas + ' · cola ' + C.cola + (C.err ? ' · error: ' + C.err : ''));
+  if (!C.llegoAlTope) malas.push(a.n + ': el CONTROL no llego al tope (' + C.motivo + ') — el arnes no mide el fondo de salida, la cifra de arriba no dice nada');
+  else if (R.motivo === 'sin mas muestras') malas.push(a.n + ': la pasada de retener se quedo sin muestras antes del tope — no se ha medido ningun limite, hace falta material mas largo');
   else if (R.llegoAlTope) console.log('      -> el fondo aguanta al menos 40 retenidos: la propuesta NO muere por aqui');
   else console.log('      -> el fondo se agota en ' + R.salidas + ' retenidos' + (R.salidas < 12 ? '  <<< POR DEBAJO del ciclo de 12 que la propuesta necesita' : ''));
 }
