@@ -3598,7 +3598,14 @@ function openMediaCtx(e,m){ e.preventDefault(); const seq=isSeqMedia(m); const i
   items.push({label:T('Properties…','Propiedades…'),ico:'panel',fn:()=>mediaProperties(m)}); // R90: resolution / fps / size / bitrate / path
   if(IS_ELEC&&m.path&&DSP.revealPath) items.push({label:T('Reveal in Explorer','Mostrar en el Explorador'),ico:'folder',fn:()=>{ try{DSP.revealPath(m.path);}catch(e){} }}); // R90: locate media on disk
   if(m.kind==='video'){ const selVids=((selIds.includes(m.id)?selIds.map(mediaById):[m]).filter(x=>x&&x.kind==='video')); const many=selVids.length>1; // proxies are manual now: generate for the whole (shift-)selection
-    items.push({label:many?(T('Generate proxies (','Generar proxys (')+selVids.length+')'):(m.proxyReady?T('Regenerate proxy','Regenerar proxy'):T('Generate proxy','Generar proxy')),ico:'video',fn:()=>{ if(!HAS_WC){flashStatus(T('Proxies need WebCodecs (browser build)','Los proxys requieren WebCodecs'));return;} for(const v of selVids){ v.proxyReady=false; v.proxyPct=0; v._pxGen=true; if(v.proxyPath)v._proxyForce=true; enqProxy(v); } renderMedia(); flashStatus(many?(T('Generating ','Generando ')+selVids.length+T(' proxies…',' proxys…')):T('Generating proxy…','Generando proxy…')); }}); }
+  /* [R349] Aquí NO se toca `_pxGen`. Esta entrada la marcaba a mano antes de encolar —una costumbre anterior a
+     R326, de cuando la propiedad no la miraba nadie—, y R326 escribió justo encima la guarda de `enqProxy`
+     (`if(m._pxGen)return`) sin ver que ya había un llamador poniéndola: desde entonces el medio JAMÁS entraba en
+     la cola y «Generar proxy» no generaba nada. R327 remató el enredo poniendo la marca también en `pumpProxy`
+     —que es su sitio, porque significa «se está generando AHORA»— y tampoco miró este llamador. El síntoma era
+     mudo: la barra se queda a 0 % con «…», idéntico a un proxy que acaba de empezar. Medido en
+     `scratchpad/r349-cola-proxy.mjs`, que reconstruye el estado anterior y lo ve rojo (120 s sin un solo %). */
+    items.push({label:many?(T('Generate proxies (','Generar proxys (')+selVids.length+')'):(m.proxyReady?T('Regenerate proxy','Regenerar proxy'):T('Generate proxy','Generar proxy')),ico:'video',fn:()=>{ if(!HAS_WC){flashStatus(T('Proxies need WebCodecs (browser build)','Los proxys requieren WebCodecs'));return;} for(const v of selVids){ v.proxyReady=false; v.proxyPct=0; if(v.proxyPath)v._proxyForce=true; enqProxy(v); } renderMedia(); flashStatus(many?(T('Generating ','Generando ')+selVids.length+T(' proxies…',' proxys…')):T('Generating proxy…','Generando proxy…')); }}); }
   /* [R192] REPUESTO. R186 lo retiró por una supuesta discrepancia de encuadre (PSNR 26,6 · 7 px sobre 32) que
      resultó ser un fallo de MI arnés de medida, no del programa: capturaba siempre el mismo fotograma porque
      escribía `state.t`, que no existe, en vez de `state.playhead`. Medido de nuevo con un arnés que se valida a
@@ -5734,7 +5741,15 @@ let _dragLaneRects=null,_dragLaneScrollTop=null; // [R213] rects de #tracks .lan
 function getDragLaneRects(){ const sc=$('#tlscroll'); const st=sc?sc.scrollTop:0;
   if(_dragLaneRects&&_dragLaneScrollTop===st)return _dragLaneRects; // sólo recalcula si el scroll vertical cambió (autoscroll durante el drag)
   _dragLaneRects=$$('#tracks .lane').map(r=>{const rc=r.getBoundingClientRect();return {li:+r.dataset.lane,top:rc.top,bottom:rc.bottom};}); _dragLaneScrollTop=st; return _dragLaneRects; }
-function onTLMove(e){ if(!drag)return; const c=clipById(drag.id);if(!c)return; const dt=(e.clientX-drag.x0)/state.tl.pxPerSec; let snap=null;
+/* [R349] Umbral de arrastre. Seleccionar un clip y moverlo eran el MISMO gesto desde el primer píxel: no había
+   umbral en ninguna parte, así que el temblor normal de la mano al hacer clic —o el micro-desplazamiento que
+   suelta cualquier ratón al pulsar— ya empezaba a mover el clip, y con la línea de tiempo apretada un píxel puede
+   ser varios fotogramas. Hasta que el puntero no se aleja `TL_UMBRAL`, este manejador no hace nada: el clic queda
+   como clic. Es el mismo umbral que ya usaban a mano el editor de curvas (3-4 px) y el arrastre de carpetas (5). */
+const TL_UMBRAL=6;
+function onTLMove(e){ if(!drag)return;
+  if(!drag._umbral){ if(Math.hypot(e.clientX-drag.x0,e.clientY-drag.y0)<TL_UMBRAL)return; drag._umbral=true; }
+  const c=clipById(drag.id);if(!c)return; const dt=(e.clientX-drag.x0)/state.tl.pxPerSec; let snap=null;
   const m=mediaById(c.mediaId); const srcLim=!!(m&&(m.kind==='video'||m.kind==='audio'||isSeqMedia(m))); const srcDur=(m&&isSeqMedia(m))?seqDur(m):(m?m.dur:Infinity); // a nest clip can't exceed its inner content (live seqDur, not the possibly-stale m.dur)
   if(drag.mode==='move'){ let ns=Math.max(0,drag.start0+dt); const sn=applySnap(ns,c.id); const durMv=(drag.dur0!=null?drag.dur0:c.dur);
     const snE=applySnap(ns+durMv,c.id); // Premiere-style: the clip's END edge snaps to other clips/playhead/markers too — pick whichever edge is closer
@@ -7028,7 +7043,7 @@ function animToggleWetKf(a,c){ const key=motKeyFor(a), cur=Math.max(0,Math.min(1
   if(ex){ c.kf[key]=c.kf[key].filter(k=>k!==ex); if(!c.kf[key].length){ delete c.kf[key]; c.props[key]=cur; } } // al quitar el último punto el valor se congela donde estaba (mismo trato que el diamante del inspector)
   else setKf(c,key,state.playhead,cur,curEase()); }
 /* keep the Mix sliders / keyframe dots in sync with the playhead (called from refreshInspector on scrub) */
-function refreshMotionWet(){ const c=selClip(); const host=$('#animList'); if(!c||!c.anim||!host)return; /* [R278b] escribir .value NO dispara `input`: hay que repintar a mano o el relleno se queda clavado */ host.querySelectorAll('[data-ai]').forEach(it=>{ const a=c.anim[+it.dataset.ai]; if(!a)return; const p=Math.round(Math.max(0,Math.min(1,evalWet(c,a,state.playhead)))*100); const r=it.querySelector('.awet'), v=it.querySelector('.awetv'), kb=it.querySelector('.awetkf'); const hasWK=animHasWetKf(a,c); if(r&&document.activeElement!==r){ r.value=p; faderFill(r); } if(v)v.textContent=p+'%'+(hasWK?' ◆':''); if(kb){ const kfHere=!!animWetKfAt(a,c); kb.style.color=hasWK?(kfHere?'#FFFFFF':'#C9CDD3'):'#5A6069'; } }); } // [R224] `hasWK` lee el parámetro mot:…:mix (antes a.wetKf, y la variable local se llamaba `hasKf` — tapaba la función global del mismo nombre)
+function refreshMotionWet(){ const c=selClip(); const host=$('#animList'); if(!c||!c.anim||!host)return; /* [R278b] escribir .value NO dispara `input`: hay que repintar a mano o el relleno se queda clavado */ host.querySelectorAll('[data-ai]').forEach(it=>{ const a=c.anim[+it.dataset.ai]; if(!a)return; const p=Math.round(Math.max(0,Math.min(1,evalWet(c,a,state.playhead)))*100); const r=it.querySelector('.awet'), v=it.querySelector('.awetv'), kb=it.querySelector('.awetkf'); const hasWK=animHasWetKf(a,c); if(r&&document.activeElement!==r){ r.value=p; faderFill(r); } if(v)v.textContent=p; const fila=it.querySelector('.awrow'); if(fila)fila.classList.toggle('auto',!!hasWK); if(kb)kb.classList.toggle('on',!!animWetKfAt(a,c)); }); }   /* [R349] mismas señales que el resto del inspector: `.prow.auto` para «lleva automatización» y `.kf.on` para «el cabezal está sobre un punto» */ // [R224] `hasWK` lee el parámetro mot:…:mix (antes a.wetKf, y la variable local se llamaba `hasKf` — tapaba la función global del mismo nombre)
 /* [R253] Refresca EN SU SITIO las cifras de amplitud de los modificadores, sin rehacer la lista. Lo usa el maestro
    de intensidad mientras se arrastra: reconstruir el DOM ahí destruiría el propio deslizador que se está usando.
    Se respeta el campo que tenga el foco, para no pisarle a nadie lo que está escribiendo. */
@@ -7042,13 +7057,20 @@ function buildAnimList(c){ const host=$('#animList'); if(!host)return; host.inne
      vez. Es la diferencia entre un mando y una caja negra. */
   for(const g of animGroups(c)){
     const et=(ANIM_PRESETS.concat(ANIM_PRESETS_FLAT).find(x=>x.key===g.grp)||{label:[g.grp,g.grp]}).label;
-    const gr=document.createElement('div');
-    gr.style.cssText='display:flex;align-items:center;gap:8px;background:#20242b;border:.5px solid rgba(255,255,255,0.12);border-radius:3px;padding:6px 8px;';
-    gr.innerHTML=`<span style="font-size:11px;color:var(--ink);font-weight:600;white-space:nowrap;">${T(et[0],et[1])}</span>`
-      +`<span style="font-size:10px;color:var(--ink-dim);white-space:nowrap;">${T('Intensity','Intensidad')}</span>`
-      +`<input type="range" min="0" max="300" value="${Math.round(g.int*100)}" style="flex:1;height:18px;min-width:70px;">`
-      +`<span class="tnum" style="width:42px;text-align:right;color:var(--ink-2);">${Math.round(g.int*100)}%</span>`;
-    const sl=gr.querySelector('input'), out=gr.querySelector('.tnum');
+    /* [R349] El maestro también se pinta como una tarjeta de efecto: cabecera con el nombre del acorde y una fila
+       `.prow` para su intensidad, con el recuadro de valor del inspector. Antes era una tercera caja con sus
+       propios grises (`#20242b`), distinta de los modificadores que gobierna y distinta de los efectos. */
+    const grTono=autoColor('mot:'+g.grp+':mix');
+    const gr=document.createElement('div'); gr.className='fxcard';
+    gr.style.cssText='border:.5px solid rgba(255,255,255,0.10);border-radius:2px;background:var(--s0);overflow:hidden;';
+    gr.innerHTML=`<div class="fxhdr" style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:var(--s1);border-left:2px solid ${grTono};">
+        <span style="font-size:11px;color:var(--ink);font-weight:600;white-space:nowrap;">${T(et[0],et[1])}</span></div>
+      <div class="fxbody"><div class="prow" style="--pc:${grTono};">
+        <span class="lab">${T('Intensity','Intensidad')}</span>
+        <input type="range" min="0" max="300" value="${Math.round(g.int*100)}">
+        <span class="box"><span class="num gint">${Math.round(g.int*100)}</span><span class="u">%</span></span>
+      </div></div>`;
+    const sl=gr.querySelector('input'), out=gr.querySelector('.gint');
     sl.onpointerdown=()=>pushUndo();
     /* [R253] `oninput` NO puede reconstruir la lista: se destruye a sí mismo. `buildAnimList` hace
        `host.innerHTML=''`, así que el propio deslizador que se está arrastrando desaparece del DOM al primer paso
@@ -7058,26 +7080,47 @@ function buildAnimList(c){ const host=$('#animList'); if(!host)return; host.inne
        flecha sobre el deslizador dispara `input` Y `change`, asi que rehacerla en `change` destruia igualmente el
        control con el foco tras un solo paso y las flechas siguientes se iban a los atajos globales. Lo unico que
        cambia ahi abajo son las cifras de amplitud, y esas se refrescan en su sitio. */
-    sl.oninput=()=>{ const cc=selClip(); if(!cc)return; out.textContent=sl.value+'%';
+    sl.oninput=()=>{ const cc=selClip(); if(!cc)return; out.textContent=sl.value;
       setAnimGroupInt(cc,g.gid,(+sl.value)/100); refreshAnimAmps(cc); render(); startMotionPreview(); };
     sl.onchange=()=>markDirty();
     host.appendChild(gr); }
-  c.anim.forEach((a,i)=>{ const item=document.createElement('div'); item.dataset.ai=i; item.style.cssText='display:flex;flex-direction:column;gap:4px;background:#1b1e24;border:.5px solid rgba(255,255,255,0.09);border-radius:2px;padding:5px 6px;';
+  /* [R349] Un modificador de Motion se pinta como un EFECTO, con las mismas clases (`fxcard`/`fxhdr`/`fxbody`/
+     `prow`), no con una caja propia de grises inventados. Antes era la única zona del inspector con su propio
+     lenguaje: fondo `#1b1e24` a mano, botón de encendido como un punto redondo, la papelera escrita `×`, el Mix
+     con la cifra suelta al lado en vez de en su recuadro, y sin el color del parámetro por ninguna parte — con
+     tres o cuatro modificadores no había forma de distinguirlos de un vistazo. El tono sale de `autoColor` sobre
+     la MISMA clave que usa su curva en la línea de tiempo (`mot:<param>:mix`), así que el modificador se reconoce
+     por color en los dos sitios, exactamente como ya pasaba con los efectos desde R270. Los manejadores no
+     cambian: siguen colgando de `.animon`/`.aparam`/`.amode`/`.aspeed`/`.aamp`/`.animdel`/`.awet`/`.awetkf`. */
+  const _ib='width:16px;height:16px;display:flex;align-items:center;justify-content:center;border-radius:2px;padding:0;cursor:pointer;';
+  c.anim.forEach((a,i)=>{ const item=document.createElement('div'); item.dataset.ai=i;
     const isWave=a.mode==='wave'; const wetPct=Math.round(Math.max(0,Math.min(1,evalWet(c,a,state.playhead)))*100);
     const hasWK=animHasWetKf(a,c), kfHere=!!animWetKfAt(a,c); // [R224] ídem: sin sombra sobre la función global hasKf
-    item.innerHTML=`<div style="display:flex;align-items:center;gap:6px;">
-        <button class="animon" title="${T('On/off','Activar/desactivar')}" style="width:15px;height:15px;border-radius:50%;border:none;cursor:pointer;background:${a.on?'#C9CDD3':'#3a3f47'};flex-shrink:0;"></button>
-        <select class="asel aparam" style="height:18px;flex:1;min-width:58px;">${ANIM_PARAMS.map(([v,en,es])=>`<option value="${v}" ${a.param===v?'selected':''}>${T(en,es)}</option>`).join('')}</select>
-        <select class="asel amode" style="height:18px;width:56px;"><option value="linear" ${!isWave?'selected':''}>${T('Loop','Bucle')}</option><option value="wave" ${isWave?'selected':''}>${T('Wave','Onda')}</option></select>
-        <input class="anum aspeed" type="number" step="0.05" value="${a.speed}" title="${T('Speed (°/s or Hz)','Velocidad (°/s o Hz)')}" style="width:48px;height:24px;text-align:center;">
-        <input class="anum aamp" type="number" step="1" value="${a.amp}" title="${T('Amount','Amplitud')}" style="width:42px;height:24px;text-align:center;${isWave?'':'visibility:hidden;'}">
-        <button class="animdel" title="${T('Remove','Quitar')}" style="width:15px;height:22px;border:none;background:none;color:var(--ink-2);cursor:pointer;font-size:13px;line-height:1;">×</button></div>
-      <div style="display:flex;align-items:center;gap:6px;">
-        <button class="awetkf" title="${T('Keyframe the mix at the playhead — define when it ramps in','Fotograma del mix en el cabezal — define cuándo entra')}" style="width:16px;height:16px;border:none;background:none;cursor:pointer;color:${hasWK?(kfHere?'#FFFFFF':'#C9CDD3'):'#5A6069'};font-size:11px;line-height:1;flex-shrink:0;">◆</button>
-        <span style="font-size:11px;color:var(--ink-3);width:22px;">${T('Mix','Mix')}</span>
-        <input class="awet" type="range" min="0" max="100" value="${wetPct}" title="${T('Dry/wet 0–100% (multiplier)','Dry/wet 0–100% (multiplicador)')}" style="flex:1;height:15px;">
-        <span class="awetv" style="font-size:11px;color:var(--ink-2);width:36px;text-align:right;">${wetPct}%${hasWK?' ◆':''}</span></div>`;
-    item.querySelectorAll('.anum').forEach(el=>{ el.style.background='#24272C'; el.style.border='.5px solid rgba(255,255,255,0.12)'; el.style.borderRadius='2px'; el.style.color='#E8EAED'; el.style.fontSize='11px'; }); // [U-17] .asel now styled by the shared select rule (inline background here would wipe its chevron)
+    const tono=autoColor(motKeyFor(a));
+    item.className='fxcard'+(a.on?'':' fxoff');
+    item.style.cssText='border:.5px solid rgba(255,255,255,0.10);border-radius:2px;background:var(--s0);overflow:hidden;'+(a.on?'':'opacity:.5;');
+    /* Cabecera = qué mueve (y encender/quitar). Cuerpo = una fila `.prow` por mando, con su etiqueta a la
+       izquierda, como cualquier otro parámetro del inspector. Meter modo, velocidad y amplitud EN la cabecera
+       (que es donde estaban) deja cinco controles en 280 px: los desplegables salían con el texto cortado
+       («Slide ↔ (do…») y los números a medio dígito. */
+    item.innerHTML=`<div class="fxhdr" style="display:flex;align-items:center;gap:4px;padding:3px 5px 3px 0;background:var(--s1);border-left:2px solid ${a.on?tono:'#3A3F47'};">
+        <button class="animon" title="${a.on?T('Bypass motion','Omitir movimiento'):T('Enable motion','Activar movimiento')}" style="${_ib}color:${a.on?'#C9CDD3':'#565C66'};">${ICO('power',11)}</button>
+        <select class="asel aparam" title="${T('Parameter it moves','Parámetro que mueve')}" style="flex:1;min-width:0;">${ANIM_PARAMS.map(([v,en,es])=>`<option value="${v}" ${a.param===v?'selected':''}>${T(en,es)}</option>`).join('')}</select>
+        <button class="animdel" title="${T('Remove','Quitar')}" style="${_ib}color:var(--ink-3);">${ICO('trash',11)}</button></div>
+      <div class="fxbody">
+        <div class="prow"><span class="lab">${T('Mode','Modo')}</span>
+          <select class="asel amode" title="${T('Loop = keeps going · Wave = back and forth','Bucle = sigue sin fin · Onda = va y vuelve')}" style="flex:1;min-width:0;"><option value="linear" ${!isWave?'selected':''}>${T('Loop','Bucle')}</option><option value="wave" ${isWave?'selected':''}>${T('Wave','Onda')}</option></select></div>
+        <div class="prow"><span class="lab">${T('Speed','Velocidad')}</span>
+          <input class="anum aspeed" type="number" step="0.05" value="${a.speed}" title="${T('Degrees per second, or cycles per second in Wave','Grados por segundo, o ciclos por segundo en Onda')}" style="flex:1;min-width:0;"></div>
+        <div class="prow amprow" ${isWave?'':'style="display:none;"'}><span class="lab">${T('Amount','Amplitud')}</span>
+          <input class="anum aamp" type="number" step="1" value="${a.amp}" title="${T('How far it swings','Cuánto se aparta')}" style="flex:1;min-width:0;"></div>
+        <div class="prow awrow${hasWK?' auto':''}" style="--pc:${tono};">
+          <span class="lab">${T('Mix','Mix')}</span>
+          <input class="awet" type="range" min="0" max="100" value="${wetPct}" title="${T('Dry/wet 0–100% (multiplier)','Dry/wet 0–100% (multiplicador)')}">
+          <span class="box"><span class="num awetv">${wetPct}</span><span class="u">%</span></span>
+          <div class="nav"><button class="awetkf kf${kfHere?' on':''}" data-kf title="${T('Keyframe the mix at the playhead — define when it ramps in','Fotograma del mix en el cabezal — define cuándo entra')}">${ICO('diamond',12)}</button></div>
+        </div></div>`;
+    item.querySelectorAll('.anum').forEach(el=>{ el.style.height='18px'; el.style.textAlign='right'; el.style.padding='0 6px'; el.style.background='var(--s0)'; el.style.border='.5px solid rgba(255,255,255,0.1)'; el.style.borderRadius='2px'; el.style.color='var(--ink)'; el.style.fontSize='11px'; el.style.fontVariantNumeric='tabular-nums'; }); // [U-17] .asel now styled by the shared select rule (inline background here would wipe its chevron)
     item.querySelector('.animon').onclick=()=>{ pushUndo(); a.on=!a.on; buildAnimList(selClip()); render(); renderTimeline(); startMotionPreview(); markDirty(); }; // [R320] el único de los cinco de esta fila sin `pushUndo`: apagar un movimiento cambia lo que se ve y no se podía deshacer
     /* [R329] Cambiar el parámetro dejaba la curva del Mix HUÉRFANA en `mot:<viejo>:mix`: el modificador pasaba a
        leer `mot:<nuevo>:mix`, que normalmente no existe, así que la mezcla saltaba al 100 % de golpe; y la curva
@@ -7133,7 +7176,7 @@ function buildAnimList(c){ const host=$('#animList'); if(!host)return; host.inne
     let wetPushed=false; const wetArmar=()=>{ wetPushed=false; };
     wetR.addEventListener('pointerdown',()=>{ wetArmar(); focusAutoParam(c,motKeyFor(a)); }); // [R224 · ítem 4] tocar el Mix pone SU curva a la vista
     wetR.addEventListener('pointerup',wetArmar); wetR.addEventListener('blur',wetArmar);      // soltar o salir del control cierra el gesto aunque el valor no haya cambiado
-    wetR.oninput=()=>{ if(!wetPushed){ pushUndo(); wetPushed=true; } animSetWet(a,c,(+wetR.value)/100); wetV.textContent=(+wetR.value)+'%'+(animHasWetKf(a,c)?' ◆':''); raInvalidate(); render(); startMotionPreview(); };
+    wetR.oninput=()=>{ if(!wetPushed){ pushUndo(); wetPushed=true; } animSetWet(a,c,(+wetR.value)/100); wetV.textContent=(+wetR.value); const fila=wetR.closest('.awrow'); if(fila)fila.classList.toggle('auto',!!animHasWetKf(a,c)); raInvalidate(); render(); startMotionPreview(); };   /* [R349] la cifra va sola en su recuadro; que haya automatización lo dice la fila resaltada (`.prow.auto`) y el rombo, como en cualquier otro parámetro */
     wetR.onchange=()=>markDirty();   // sin rearmar: ver el punto 2 de arriba
     item.querySelector('.awetkf').onclick=()=>{ pushUndo(); animToggleWetKf(a,c); focusAutoParam(c,motKeyFor(a)); buildAnimList(selClip()); render(); renderTimeline(); startMotionPreview(); markDirty(); };
     host.appendChild(item); });
@@ -8713,6 +8756,13 @@ function collectDrawnVideoClips(clips,lanes,t,depth,out,pGain,pRate){ out=out||[
   return out; }
 let playRaf=0,lastT=0,_phLast=null,_audioBase=0,_audioHead=0;
 let _enBucle=false;   /* [R279] esta reproduccion envuelve? Se decide al arrancar, mirando si el cabezal cae DENTRO del tramo */
+/* [R349] …y esta reproducción, ¿tiene que PARAR en `workOut`? También se decide al arrancar, y por la misma
+   razón. R286b repuso la parada mirando sólo `playhead>=workOut`, que es cierto desde el primer fotograma cuando
+   se arranca DETRÁS del tramo: dar al play más allá del bucle —o más allá del último clip, que es donde suele
+   quedar el cabezal— devolvía el cabezal a `workOut` y pausaba en el acto. Eso es justo lo que R279 vino a quitar
+   («el bucle ya no confina la reproducción»), reintroducido por el otro extremo. Parar al SALIR del tramo sigue
+   teniendo sentido: es un límite puesto a propósito y se cruza yendo hacia adelante. Volver a él desde fuera, no. */
+let _paraEnOut=false;
 function play(){ if(state.playing)return; if(state.tl.selA!=null){ let _p=Math.min(state.tl.selA, state.tl.selB==null?state.tl.selA:state.tl.selB); state.playhead=_p; positionPlayhead(); }   /* [R279] sin encajar a la fuerza dentro del bucle: si el punto de inicio esta fuera, se reproduce desde ahi */ /* start from the timeline insert/selection (clamped into an active loop region); else resume where the playhead is */ diag('info','transport','play',{at:+state.playhead.toFixed(2)}); state.playing=true; stopMotionPreview(); _previewClock=0; $('#playBtn').innerHTML=ICO('pause'); lastT=performance.now();
   for(const {c,m,local,gain,rate} of collectDrawnVideoClips(state.clips,state.lanes,state.playhead,0,[])){ const vi=vinstEnsure(c,m); if(vi&&vi.vel){ const eff=Math.max(0.0625,Math.min(16,rate||c.speed||1)); vi.vel.muted=true;   /* [R346b] la MISMA tolerancia que `vinstSeek`: sin ella, dar al play arrancaba un fotograma por detrás de lo que se veía en pausa — y es el camino por defecto, porque `wcDecode` está apagado */ try{vi.vel.loop=false;}catch(e){} try{vi.vel.playbackRate=eff;}catch(e){}
     /* [R346c] POSICIONAR Y LUEGO ARRANCAR, en el mismo `then`. Antes el `currentTime` iba en una microtarea y
@@ -8724,6 +8774,7 @@ function play(){ if(state.playing)return; if(state.tl.selA!=null){ let _p=Math.m
     (vi.loadP||Promise.resolve()).then(()=>{ try{vi.vel.currentTime=instanteDecod(local);}catch(e){} vi.vel.play().catch(()=>{}); });
     const a=vinstAudio(vi,m); if(a){ try{a.currentTime=local;}catch(e){} try{a.playbackRate=eff;}catch(e){} a.volume=Math.max(0,Math.min(1,gain==null?1:gain)); a.muted=(gain!=null&&gain<=0.001); a.play().catch(()=>{}); } } } _enBucle=(state.workIn!=null&&state.workOut!=null&&state.workOut>state.workIn
     && state.playhead>=state.workIn-1e-6 && state.playhead<state.workOut-1e-6);   /* [R279] arrancar FUERA del bucle = reproducir recto */
+  _paraEnOut=(state.workIn!=null&&state.workOut!=null&&state.workOut>state.workIn && state.playhead<state.workOut-1e-6); // [R349] arrancar DETRÁS del tramo = correr libre, sin parada que ya está cruzada
   startAudio(); ploop(); } // loop=false: the timeline (ploop) governs clip-bounded looping, not the element. [R92-T2 C1] the paired <audio> (original file) carries the video's sound. [R92-T6] eff = rate composed through the nest chain
 /* ===================== [R97] J / K / L — the universal shuttle =====================
    The one standard every NLE shares (Premiere, Avid, Resolve, FCP) and the clearest "this is a real NLE" signal:
@@ -8788,7 +8839,7 @@ function ploop(){ if(!state.playing)return; const now=performance.now(),dt=(now-
      indefinidamente -la linea de tiempo crecia en el DOM y `state.playhead` se guardaba en el .isp con un
      valor arbitrario-. Se repone lo que el propio comentario de R279 promete: para al final del tramo de
      trabajo, que es un limite puesto a proposito. Poder correr por encima de la nada SIN tramo se conserva. */
-  else if(hasWork && state.playhead>=state.workOut){ state.playhead=state.workOut; pause(); }
+  else if(hasWork && _paraEnOut && state.playhead>=state.workOut){ state.playhead=state.workOut; pause(); }   // [R349] `_paraEnOut`: sólo para quien ARRANCÓ antes del final del tramo
   { const ra=raHas(state.playhead); const drawn=collectDrawnVideoClips(state.clips,state.lanes,state.playhead,0,[]); const act=new Set(); // [R92-T6] the drawn pass runs EVERY frame now: with render-ahead serving cached frames, the per-clip <audio> used to go orphan (kept playing stale volume/position)
     for(const {c,m,local,gain,rate} of drawn){ act.add(c.id); const vi=vinstEnsure(c,m); if(!vi||!vi.vel)continue; const v=vi.vel; const eff=Math.max(0.0625,Math.min(16,rate||c.speed||1)); const cdOn=driveCD(vi,c,m,local); // [R108·E4] ClipDecoder owns VIDEO when active; <video> below is skipped, audio still runs
       /* [R104] TORMENTA DE SEEKS. R92 metió el servo de velocidad pero dejó el seek duro a 0.2s de deriva.
@@ -9800,7 +9851,15 @@ async function _runExportCore(opt){
           /* [R343] `q===glc` en vez de `state.seqMode!=='dome'`: la condicion de antes se apoyaba en que en
              domo `chapaLienzo` SIEMPRE devuelve lienzo propio, y R341 rompio esa premisa al eximir del recorte
              al horneado de un nido. La pregunta que aqui importa es si hay que planchar sobre OTRO lienzo. */
-          if(planchar && q===glc){ cvBg=document.createElement('canvas'); cvBg.width=glc.width; cvBg.height=glc.height; ctxBg=cvBg.getContext('2d'); }
+          /* [R349] El lienzo de planchado se crea la PRIMERA vez que de verdad hace falta, no antes. R343 puso
+             aquí `if(planchar && q===glc)` y `q` no existe en este ámbito: es el `const q` de dentro de
+             `renderFrame`/`lienzoPng`, dos funciones más abajo. O sea que exportar una secuencia PNG con fondo
+             negro moría en el acto con `ReferenceError: q is not defined`, antes del primer fotograma —el
+             «error, undefined q» que vio Beltrán—. Y la pregunta que R343 quería hacer («¿devuelve `chapaLienzo`
+             OTRO lienzo?») sólo se puede responder llamándola, así que se responde donde se llama. */
+          const bgListo=()=>{ if(!ctxBg){ cvBg=document.createElement('canvas'); ctxBg=cvBg.getContext('2d'); }
+            if(cvBg.width!==glc.width||cvBg.height!==glc.height){ cvBg.width=glc.width; cvBg.height=glc.height; }   // el lienzo de GL lo dimensiona `pintarFotograma`, que corre DESPUÉS de esta línea en el primer fotograma
+            return ctxBg; };
           const lienzoPng=i=>{
             /* [R281] Con chapa, es ella quien compone -y tambien planta el negro si toca-. Sin chapa, el
                camino de siempre. En ningun caso se dibuja dos veces sobre el mismo fotograma. */
@@ -9810,8 +9869,8 @@ async function _runExportCore(opt){
             const q=chapaLienzo(glc,opt,t0+i/fps,i,total,fps);
             if(q!==glc)return q;
             if(!planchar)return glc;
-            ctxBg.globalCompositeOperation='source-over'; ctxBg.fillStyle='#000'; ctxBg.fillRect(0,0,cvBg.width,cvBg.height);
-            ctxBg.drawImage(glc,0,0); return cvBg; };
+            const cx=bgListo(); cx.globalCompositeOperation='source-over'; cx.fillStyle='#000'; cx.fillRect(0,0,cvBg.width,cvBg.height);
+            cx.drawImage(glc,0,0); return cvBg; };
           const comprimirYEscribir=i=>new Promise((res,rej)=>{ lienzoPng(i).toBlob(async b=>{ try{
               if(!b)throw new Error(T('PNG encoding failed.','Falló la codificación PNG.'));
               if(job.wrote)job.wrote(b.size);
@@ -10547,6 +10606,12 @@ function exPx(S){
 }
 function exFmtDur(s){ s=Math.max(0,Math.round(s)); const m=Math.floor(s/60); return (m<10?'0':'')+m+':'+((s%60)<10?'0':'')+(s%60); }
 
+/* [R349] Traduce un códec que NO viene de la lista del panel — el recordado de la última sesión y el de un
+   preajuste guardado — al que hoy se ofrece. Sin esto, quitar `mp4`/`hevc` de la lista dejaba `S.codec` con un
+   valor que el desplegable no contiene: `sel.value` caía a vacío, `filas.find` no encontraba fila y `S.codecOk`
+   se quedaba en `true` por el `!mio`, así que Exportar seguía pulsable y arrancaba un trabajo con un formato que
+   el usuario no podía ver ni cambiar. Se traduce a su equivalente por FFmpeg, que es lo que sustituye a cada uno. */
+function exCodecNorm(v){ return v==='mp4'?'ffh264':v==='hevc'?'ffhevc':v; }
 function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the timeline first.','Primero añade clips a la línea de tiempo.'));return;}
   if(document.getElementById('exOv'))return; // [R102·rev] nunca dos hojas: `$()` es querySelector y el cableado se enganchaba a la vieja y oculta
   const as=activeSeq()||{}, dome=!isFlat(), room=isRoom();
@@ -10558,7 +10623,7 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
     /* [R281] Se recuerdan los DATOS, no el interruptor: que la chapa haya que encenderla a proposito
        cada vez evita entregar un master con rotulos sin darse cuenta. */
     /* [R282] obra/autor/logo ya NO se guardan aqui: viven en el proyecto (state.slate) y se guardan con el .isp */   /* [R279] la carpeta elegida sobrevive a cerrar la app */
-    if(L.codec)S.codec=L.codec; if(L.fps)S.fps=+L.fps; if(L.br)S.br=+L.br; // [R191] H.265 vuelve a la lista, así que una memoria vieja con 'hevc' ya es válida
+    if(L.codec)S.codec=exCodecNorm(L.codec); if(L.fps)S.fps=+L.fps; if(L.br)S.br=+L.br; // [R191] H.265 vuelve a la lista, así que una memoria vieja con 'hevc' ya es válida · [R349] y se traduce si es de los dos retirados
       if(L.res){ S.szMode='preset'; S.szPreset=+L.res; } } } // [R102·D-T4] abre con lo último que usaste, no con valores de fábrica
 
   const ov=document.createElement('div'); ov.className='exs-scrim'; ov.id='exOv';
@@ -10758,8 +10823,14 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
        depender de un binario externo. */
     {v:'ffh264',kind:null, ff:true, lbl:()=>T('MP4 H.264 · GPU, up to 4096','MP4 H.264 · GPU, hasta 4096')},
     {v:'ffhevc',kind:null, ff:true, lbl:()=>T('MP4 H.265 · GPU, up to 8192, 10-bit','MP4 H.265 · GPU, hasta 8192, 10 bits')},   /* [R279] ya no dice «alfa»: el alfa es ahora una eleccion de la fila Fondo */
-    {v:'mp4',  kind:'h264', lbl:()=>'MP4 · H.264'},
-    {v:'hevc', kind:'hevc', lbl:()=>'MP4 · H.265 / HEVC'},
+    /* [R349·Beltrán] Fuera de la lista los dos de WebCodecs (`mp4` = H.264 hasta 3072², `hevc` = H.265 hasta
+       1080p). No es un juicio sobre el codificador: es que las dos filas de FFmpeg que van justo arriba hacen lo
+       mismo con techos de 4096 y 8192, así que lo único que aportaban era ofrecer un formato que se rinde a la
+       resolución con la que se trabaja aquí y gastarle al usuario un render entero para descubrirlo.
+       El CÓDIGO que las exporta NO se retira (`runExport` sigue tratando 'mp4'/'hevc', y de él dependen
+       `render in place` y el horneado de proxys de composición): lo que se retira es la ELECCIÓN. Un preajuste
+       guardado o una memoria de sesión con esos valores se traduce a su equivalente por FFmpeg — ver
+       `exCodecNorm`, que es el único sitio donde entra un códec que no eligió esta lista. */
     {v:'hap',  kind:null,   lbl:()=>'MOV · HAP'},
     {v:'hapq', kind:null,   lbl:()=>'MOV · HAP Q'},
     {v:'still',kind:null,   lbl:()=>T('Still frame · PNG','Fotograma · PNG')},
@@ -10946,7 +11017,7 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
      Ahora viaja el modo entero (y el alto, para los personalizados). Los preajustes viejos, sin `szMode`,
      se siguen leyendo como antes. */
   ps.onchange=()=>{ const p=(state.exportPresets||[])[+ps.value]; if(!p)return;
-    S.codec=p.codec; S.fps=+p.fps;
+    S.codec=exCodecNorm(p.codec); S.fps=+p.fps;   // [R349] un preajuste guardado con `mp4`/`hevc` sigue siendo aplicable: se traduce al equivalente por FFmpeg
     if(p.szMode==='match')      S.szMode='match';
     else if(p.szMode==='custom'){ S.szMode='custom'; S.szW=+p.res||S.szW; S.szH=+p.szH||S.szH; }
     else if(p.res){ S.szMode='preset'; S.szPreset=+p.res; }
@@ -11794,8 +11865,16 @@ function renderSeqBar(){ const bar=$('#seqTabs'); if(!bar)return; const _sl=bar.
      recorre con la rueda. Se engancha UNA vez (`_seqWheel`), no en cada repintado, y sólo se traga el evento
      cuando de verdad hay algo que desplazar — si no, la rueda dejaría de funcionar sobre una barra que cabe entera. */
   if(!bar._seqWheel){ bar._seqWheel=1;
+    /* [R349] La rueda avanza DESPACIO, para poder pararse en la pestaña que se quiere. Se pasaba el delta crudo a
+       `scrollLeft`: un ratón de rueda libre (el MX Master) suelta cientos de píxeles por gesto y la tira se iba
+       varias pestañas de golpe. Se amortigua y, sobre todo, se ACOTA por evento a media pestaña (60 px): el tope
+       es lo que convierte un golpe de rueda en un paso, y la amortiguación deja el ajuste fino al trackpad, que
+       manda deltas pequeños. `deltaMode` 1 (algunos ratones informan en LÍNEAS, no en píxeles) se convierte
+       antes: sin eso, un delta de 3 se quedaba en un píxel y la barra parecía muerta. */
     bar.addEventListener('wheel',e=>{ if(bar.scrollWidth<=bar.clientWidth)return;
-      const d=(Math.abs(e.deltaX)>Math.abs(e.deltaY))?e.deltaX:e.deltaY; if(!d)return;
+      let d=(Math.abs(e.deltaX)>Math.abs(e.deltaY))?e.deltaX:e.deltaY; if(!d)return;
+      if(e.deltaMode===1)d*=16; else if(e.deltaMode===2)d*=bar.clientWidth;
+      d=Math.max(-60,Math.min(60,d*0.35));
       e.preventDefault(); bar.scrollLeft+=d; },{passive:false}); } // [R242c] sin `seqTabsOvf`: el borde va a hueso (ver el archivado)
   bar.scrollLeft=_sl; seqTabsReveal(); } // [R239] el repintado no mueve la vista… salvo lo justo para que la pestaña activa se vea
 function serProject(){ saveActiveSeq(); return { app:'DomeStudioPro', v:4, slate:state.slate||null,   /* [R282] los datos de esquina se guardan CON el proyecto: son de la obra, no del ordenador */
@@ -13722,7 +13801,19 @@ function openMenu(x,y,items){
     else if(e.key==='Home'){ e.preventDefault(); bs[0].focus(); }
     else if(e.key==='End'){ e.preventDefault(); bs[bs.length-1].focus(); }
     else if(e.key==='Escape'){ e.preventDefault(); closeMenu(); } });
-  document.body.appendChild(m); const r=m.getBoundingClientRect(); if(r.right>innerWidth)m.style.left=(x-r.width)+'px'; if(r.bottom>innerHeight)m.style.top=(y-r.height)+'px'; _menu=m;
+  /* [R349] Un menú más alto que la ventana se recorta y se desplaza; nunca se sale por arriba. Antes sólo se
+     miraba el borde de ABAJO (`top = y - alto`), y con una lista larga —la de efectos son 25 entradas, ~560 px—
+     ese cálculo da un valor NEGATIVO: el menú se colocaba con la cabeza fuera de la pantalla y las primeras
+     entradas quedaban ilegibles, que es justo lo que pasaba al añadir un efecto. Los dos ejes se acotan ahora a
+     un mínimo de 4 px, y si aun así no cabe de alto se le pone tope y barra propia. */
+  document.body.appendChild(m);
+  { let r=m.getBoundingClientRect();
+    if(r.height>innerHeight-8){ m.style.maxHeight=(innerHeight-8)+'px'; m.style.overflowY='auto'; r=m.getBoundingClientRect(); }
+    let L=x, Y=y;
+    if(L+r.width>innerWidth)L=x-r.width;   L=Math.max(4,Math.min(L,innerWidth-r.width-4));
+    if(Y+r.height>innerHeight)Y=y-r.height; Y=Math.max(4,Math.min(Y,innerHeight-r.height-4));
+    m.style.left=L+'px'; m.style.top=Y+'px'; }
+  _menu=m;
   { const fb=m.querySelector('button:not(:disabled)'); if(fb)fb.focus(); } } // [R94-UT5·U-10a] focus lands on the first enabled item on open
 /* [R172] Segundo clic en el MISMO botón = cerrar el desplegable.
    Los botones de la barra de menús ya se alternaban solos (miran su clase `on`), y por eso este manejador los
@@ -14391,7 +14482,14 @@ function regenComposeNest(m){ if(!m||!m.comp)return false; const g=m.comp; const
   m.nestClips=lay.map((p,i)=>{ const src=srcs[compMediaIndex(g,(p._src!=null?p._src:i),srcs.length)]; const layP=compElProps(g,p); const ex=prev[i]; // [R247] ídem al recomponer
     if(ex && ex.mediaId===src.id){ // [N4] keep this element's manual tweaks (opacity/mask/fades/keyframes/fx) AND apply the new layout RELATIVE to the user's delta, so a hand-scaled item doesn't snap back to 0
       const base=ex._layBase||{};
-      for(const k in layP){ if(typeof layP[k]==='number'){ const d=(typeof ex.props[k]==='number'&&typeof base[k]==='number')?(ex.props[k]-base[k]):0; ex.props[k]=layP[k]+d; } } // numeric positional props carry the user's offset; mask (string) is left as the user set it
+      for(const k in layP){ if(typeof layP[k]==='number'){ const d=(typeof ex.props[k]==='number'&&typeof base[k]==='number')?(ex.props[k]-base[k]):0; ex.props[k]=layP[k]+d; } } // numeric positional props carry the user's offset
+      /* [R349] La MÁSCARA es una cadena, así que el bucle de arriba —que sólo copia números— nunca la tocaba: al
+         reabrir la configuración de una composición ya creada y cambiar la forma, los elementos existentes se
+         quedaban con la de antes y sólo los NUEVOS (los que aparecían al subir la cantidad) salían con la nueva.
+         Se aplica cuando el CUADRO la ha cambiado —comparando contra `_layBase`, que es lo que el reparto puso la
+         vez anterior—, y sólo entonces: si el usuario eligió una máscara a mano en un elemento suelto y en el
+         cuadro no ha tocado nada, ese retoque sobrevive, igual que sobreviven los numéricos por su delta. */
+      if(layP.mask!=null && base.mask!==layP.mask) ex.props.mask=layP.mask;
       for(const k of ['warp','secAz','secEl','weaveCells','weavePar']){ if(layP[k]!=null)ex.props[k]=layP[k]; else delete ex.props[k]; } // [N5] warp/sector props are layout-controlled (not user tweaks) → follow the layout (e.g. Flat tiles removes them) · [R247c] la rejilla del entrelazado tampoco es un retoque: es geometría, y además no es un número (el bucle de arriba sólo copia números)
       ex._layBase={...layP}; ex.lane=i; ex.slot=i; ex.dur=dur; if(g.scopeInP!=null)ex.inP=g.scopeInP; if(g.scopeSpeed)ex.speed=g.scopeSpeed; return ex; }
     const c=makeClip(src,i,0,layP,{name:src.name+' ['+(i+1)+']',color:CLIP_COLORS[i%CLIP_COLORS.length]}); c.dur=dur; c.slot=i; c._layBase={...layP}; if(g.scopeInP!=null)c.inP=g.scopeInP; if(g.scopeSpeed)c.speed=g.scopeSpeed; return c; }); // R88: re-apply the persisted cut in-point (don't revert to the source's frame 0)
@@ -15898,11 +15996,14 @@ function fxEditVal(host,fx,k,field,reRender){ const mn=+field.dataset.mn,mx=+fie
    tono estable a las claves `fx:`/`fxt:`/`mot:` desde R92; simplemente no se le preguntaba aquí.
    La clase `.auto` la usa el inspector para resaltar el nombre de un parámetro que lleva automatización: misma
    señal, mismo sitio. */
-function fxFaderRow(host,fx,k,label,mn,mx,unit,showKf){ const v=fxParamVal(fx,k), pct=Math.max(0,Math.min(100,(v-mn)/((mx-mn)||1)*100)), kfOn=showKf&&fxHasKf(host,fx,k);
+/* [R349] `tip` = explicación de qué hace el parámetro, en el `title` de la fila entera (etiqueta + fader). Lo
+   pidió Beltrán por Intensidad/Reactividad, que sin explicación se leen como lo mismo. Opcional: sin él la fila
+   queda como estaba. */
+function fxFaderRow(host,fx,k,label,mn,mx,unit,showKf,tip){ const v=fxParamVal(fx,k), pct=Math.max(0,Math.min(100,(v-mn)/((mx-mn)||1)*100)), kfOn=showKf&&fxHasKf(host,fx,k);
   const tono=autoColor(fxKey(fx,k));
   /* Mismo ORDEN que las filas del inspector: etiqueta · fader · rombo A LA DERECHA (bloque `.nav`). El rombo
      estaba a la izquierda, así que las dos zonas del panel leían al revés la una de la otra. */
-  return `<div class="prow fxrow${kfOn?' auto':''}" data-k="${k}" style="--pc:${tono};">
+  return `<div class="prow fxrow${kfOn?' auto':''}" data-k="${k}" style="--pc:${tono};"${tip?` title="${esc(tip)}"`:''}>
     <span class="lab">${label}</span>
     <div class="field" data-k="${k}" data-mn="${mn}" data-mx="${mx}" data-lbl="${label}"><div class="track"><i style="width:${pct}%"></i></div><div class="box"><span class="num">${Math.round(v*10)/10}</span><span class="u">${unit}</span></div></div>
     <div class="nav">${showKf?`<button class="kf ${kfOn?'on':''}" data-kf title="${T('Animate','Animar')}">${ICO('diamond',12)}</button>`:`<span class="kf" style="cursor:default;visibility:hidden;"></span>`}</div>
@@ -15933,14 +16034,17 @@ function fxCardHtml(c,f,reactive){ reactive=(reactive!==false); const def=FXBY[f
         <select class="fxdiv selsel" title="${T('Cycle length (synced to BPM)','Duración del ciclo (sincronizado al BPM)')}" style="flex:1;height:18px;">${divs.map(b=>`<option value="${b[0]}" ${f.lfoDiv===b[0]?'selected':''}>${b[1]}</option>`).join('')}</select>
       </div>`:''}
       <div class="fxsec">${T('Response','Respuesta')}</div>
-      ${fxFaderRow(c,f,'int',T('Intensity','Intensidad'),0,100,'%',true)}
-      ${fxFaderRow(c,f,'amt',T('Reactivity','Reactividad'),0,100,'%',true)}
+      <!-- [R349] Los dos mandos se leian como el mismo, y sin la cuenta que hay detras no hay forma de saber cual
+           tocar. La cuenta es literal, la de fxIntensity: efecto = Intensity + Reactivity x senal. -->
+      <div style="padding:0 10px 4px;font-size:10px;color:var(--ink-dim);line-height:1.45;">${T('Effect = Intensity + Reactivity × audio.','Efecto = Intensidad + Reactividad × audio.')}</div>
+      ${fxFaderRow(c,f,'int',T('Intensity','Intensidad'),0,100,'%',true,T('Always-on base level: what the effect does with no audio at all. Leave it at 0 for an effect that exists only while the music drives it.','Nivel base, siempre presente: lo que hace el efecto sin audio ninguno. Déjalo en 0 para un efecto que sólo existe mientras lo empuja la música.'))}
+      ${fxFaderRow(c,f,'amt',T('Reactivity','Reactividad'),0,100,'%',true,T('How much the audio ADDS on top of Intensity. It does not replace it: both are summed and the total is capped at 100%.','Cuánto SUMA el audio por encima de la Intensidad. No la sustituye: se suman los dos y el total se acota al 100%.'))}
       ${!isLfo?fxFaderRow(c,f,'atk',T('Attack','Ataque'),0,400,'ms',false)+fxFaderRow(c,f,'rel',T('Release','Caída'),10,1500,'ms',false):''}
       ${fxFaderRow(c,f,'curve',T('Curve','Curva'),0,100,'',false)}
       ${isFollow?fxFaderRow(c,f,'spring',T('Bounce','Rebote'),0,100,'',false):''}
       ${paramsHtml}
     </div>` : `<div class="fxbody">
-      ${fxFaderRow(c,f,'int',T('Intensity','Intensidad'),0,100,'%',true)}
+      ${fxFaderRow(c,f,'int',T('Intensity','Intensidad'),0,100,'%',true,T('Effect strength. Static here — in the Reactive FX tab the audio can add on top of it.','Fuerza del efecto. Aquí es estática — en la pestaña de FX Reactivos el audio puede sumar por encima.'))}
       ${paramsHtml}
     </div>`; // Motion view: static intensity + params only (all keyframable)
   const ib='width:16px;height:16px;display:flex;align-items:center;justify-content:center;border-radius:2px;padding:0;cursor:pointer;';
@@ -16061,7 +16165,11 @@ function openFxMenu(e,motion){ const c=selClip(); if(!c){ flashStatus(T('Select 
   const items=[]; let first=true;
   for(const cat of ['distort','stylize','color','feedback','dome']){ const defs=FXTYPES.filter(d=>d.cat===cat); if(!defs.length)continue; if(!first)items.push('sep'); first=false;
     for(const d of defs) items.push({label:T(d.label[0],d.label[1]), fn:()=>addFxToClip(c,d.key,motion)}); }
-  const r=e.target.getBoundingClientRect(); openMenu(r.left, Math.max(46, r.top-8-Math.min(items.length,20)*22), items); }
+  /* [R349] Se ancla en el BOTÓN y la colocación la decide `openMenu`, que es quien sabe cuánto mide el menú ya
+     construido. La cuenta que había aquí (`r.top - 8 - min(items,20)*22`) adivinaba la altura con un alto de
+     entrada supuesto y sin contar los cuatro separadores, se quedaba corta, y el `Math.max(46,…)` remataba
+     poniendo el menú arriba del todo: con 25 efectos las primeras entradas caían fuera de la pantalla. */
+  const r=e.target.getBoundingClientRect(); openMenu(r.left, r.bottom+4, items); }
 /* drag-reorder an effect card by its grip — in the reactive chain OR the Motion section (sel + reRender) */
 function fxDragHandle(e,host,fxId,sel,reRender){ sel=sel||'#arChain'; reRender=reRender||renderReactivePanel; e.preventDefault(); const chain=$(sel); if(!chain)return; const card=[...chain.querySelectorAll('.fxcard')].find(cc=>+cc.dataset.fx===fxId); if(!card)return;
   card.style.opacity='0.4'; chain.style.position='relative';

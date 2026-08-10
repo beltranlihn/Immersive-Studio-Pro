@@ -290,7 +290,10 @@
   .selname{font-size:13px;font-weight:600;letter-spacing:-0.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink);}
   .selmeta{font-family:'Geist',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;letter-spacing:0.04em;color:var(--ink-2);margin-top:2px;text-transform:uppercase;} /* [AUDITORÍA Rev1] 11→10px (RevDomo:275 — el uppercase se tolera SÓLO a este tamaño) */ /* [R92-T5] informational text lifted to ~4.5:1 (long dark-room sessions) */
   .sechead{width:100%;display:flex;align-items:center;gap:6px;height:24px;padding:0 12px;border:none;background:transparent;cursor:pointer;} /* [AUDITORÍA R154] 20→24px (RevDomo:278) */
-  .fxhdr .fxtog,.fxhdr .fxcol,.fxhdr .fxdel{background:none;border:none;} .fxhdr .fxtog:hover,.fxhdr .fxcol:hover,.fxhdr .fxdel:hover{background:var(--surface-3);} .fxhdr .fxdel:hover{color:var(--ink-2) !important;}
+  /* [R349] `.animon`/`.animdel` entran en la regla: son los mismos dos botones de la cabecera de una tarjeta,
+     ahora que un modificador de Motion se pinta como un efecto. Sin ellos heredaban el fondo por defecto del
+     `<button>` y salían como dos recuadros claros en medio de la cabecera. */
+  .fxhdr .fxtog,.fxhdr .fxcol,.fxhdr .fxdel,.fxhdr .animon,.fxhdr .animdel{background:none;border:none;} .fxhdr .fxtog:hover,.fxhdr .fxcol:hover,.fxhdr .fxdel:hover,.fxhdr .animon:hover,.fxhdr .animdel:hover{background:var(--surface-3);} .fxhdr .fxdel:hover,.fxhdr .animdel:hover{color:var(--ink-2) !important;}
   /* [X2] reactive-FX card body: grouped into labelled sections (Routing / Response / Parameters) so each effect box reads as ordered blocks, not a flat stack */
   /* [R270] El cuerpo de un efecto se rige por las MISMAS medidas del inspector. Antes tenía sangría propia (8px
      frente a 12), separación propia y subtítulos de 8.5px cuando los títulos de sección del inspector son de 11:

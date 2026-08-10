@@ -72,6 +72,14 @@ const REDES = [
      es el riesgo que introdujo el propio arreglo. Su material se fabrica con `r347-material-ntsc.mjs`; sin el
      sale con codigo 3 (NO MEDIDA). */
   ['r347-ntsc.mjs',               'NTSC: la tolerancia aguanta y la cadencia detectada es la real'],
+  /* [R349] Las dos de la prueba de Beltran. La primera vigila lo que mas caro salio: «Generar proxy» llevaba
+     rondas sin generar nada porque el manejador del menu ponia `_pxGen` ANTES de encolar y la guarda que R326
+     escribio sobre esa misma propiedad cerraba la puerta — y el sintoma (barra a 0 % con «…») es identico al de
+     un proxy que acaba de empezar, asi que nadie lo veia. Mide la CONCLUSION (¿hay proxy en disco?) y trae su
+     caso rojo. La segunda barre los otros ocho puntos de esa prueba; la de la colocacion del menu tambien
+     reconstruye el estado anterior y lo ve rojo (6 de 20 alturas de boton, la peor a -528 px). */
+  ['r349-cola-proxy.mjs',         'el menu «Generar proxy» genera un proxy de verdad'],
+  ['r349-revision.mjs',           'los puntos de la prueba de Beltran: codecs, PNG, menu, transporte, mascara, arrastre y rueda'],
 ];
 
 /* Sin app levantada no se distingue «rojo» de «no medido», y esa confusión es justo la que hace inútil una red. */

@@ -34,8 +34,7 @@ const f = await ev(`(async()=>{ try{
   const bruto=await (await fetch('app.js')).text();
   const t=bruto.replace(/\\/\\*[\\s\\S]*?\\*\\//g,' ').replace(/\\/\\/[^\\n]*/g,' ');
   return {
-    rombo   : /\\$\\{wetPct\\}%\\$\\{hasWK\\?/.test(t) && !/\\$\\{wetPct\\}%\\$\\{hasKf\\?/.test(t),
-    hap     : /Math\\.ceil\\(p\\.w\\/4\\)\\*Math\\.ceil\\(p\\.h\\/4\\)\\*F\\.bpb\\*n\\*0\\.85/.test(t),
+    hap     :/Math\\.ceil\\(p\\.w\\/4\\)\\*Math\\.ceil\\(p\\.h\\/4\\)\\*F\\.bpb\\*n\\*0\\.85/.test(t),
     /* [R320] Ahora se sondea POR FILA: ffh264 y ffhevc no dependen del mismo codificador, y comprobar solo
        que el binario exista ofrecia H.265 en un FFmpeg compilado sin libx265.
        (Sin acentos graves aqui dentro: cierran la plantilla de la sonda.) */
@@ -54,14 +53,52 @@ const f = await ev(`(async()=>{ try{
 }catch(e){ return {err:String(e&&e.message||e)}; } })()`);
 if(f.err) mal('no se pudo leer el fuente: '+f.err);
 else{
-  const casos=[['rombo','el rombo del Mix usa la local hasWK, no la funcion global'],
-               ['hap','la estimacion HAP ya no multiplica por 16'],
+  const casos=[['hap','la estimacion HAP ya no multiplica por 16'],
                ['ffProbe','el panel sondea FFmpeg antes de ofrecer sus codecs'],
                ['spLive','el punto en vivo distingue Spout de NDI'],
                ['psNdi','startNDI para la salida anterior antes de relanzar'],
                ['psSpout','startSpout hace lo mismo'],
                ['openTry','abrir por el menu captura el fallo y se queda SIN ruta (R320: reponer la anterior permitia pisarla con Ctrl+S)']];
   for(const [k,txt] of casos){ if(f[k])bien(txt); else mal('NO aplicado: '+txt); }
+}
+
+/* ── 1 ── El rombo del Mix. [R349] Antes esto era un patron de texto sobre el FUENTE
+   (el trozo de plantilla que pintaba el rombo), o sea la premisa: comprobaba como estaba ESCRITO el sitio donde vivia la senal, no que
+   la senal fuera correcta — y en cuanto R349 rehizo la fila de Motion con la estetica del inspector, la fila
+   dejo de existir tal cual y la red se puso roja sin que nada se hubiera roto. Ahora se mide la CONCLUSION: sin
+   curva de Mix el rombo esta apagado y la fila no aparece automatizada; con curva, encendido. Eso caza el fallo
+   original de R224 (el rombo pintado SIEMPRE porque se leia `hasKf`, la funcion global, que devuelve `undefined`
+   y no `false`) y tambien su inverso, y no depende de como este escrita la plantilla. */
+console.log('\n── el rombo del Mix sigue a la curva, no esta siempre puesto ──');
+const e1 = await ev(`(async()=>{ try{
+  await newProject('dome',1024,1024,30,180,true); if(typeof hideLanding==='function')hideLanding();
+  _demoAddShape('rect','#888',0,0,4,{az:0,el:45,size:40});
+  const c=state.clips[state.clips.length-1]; state.selId=c.id; state.selIds=[c.id];
+  c.anim=[]; addAnimPreset(c,'spin');
+  state.insCol=state.insCol||{}; state.insCol.motion=false;
+  renderInspector(); await new Promise(z=>setTimeout(z,150));
+  const trasRender=document.querySelectorAll('#animList [data-ai]').length;
+  buildAnimList(c);   /* explicito: renderInspector puede haber repintado despues por otro camino */
+  const leer=()=>{ const it=document.querySelector('#animList [data-ai]'); if(!it)return null;
+    const kb=it.querySelector('.awetkf'); const fila=it.querySelector('.awrow')||it;
+    if(!kb)return null;
+    return {rombo:kb.classList.contains('on')||/#FFFFFF|#C9CDD3/i.test(kb.style.color||''),
+            auto:fila.classList.contains('auto')}; };
+  const sin=leer(); if(!sin)return {err:'no encuentro la fila del Mix · anim='+((c.anim||[]).length)
+    +' lista='+(!!document.getElementById('animList'))+' items='+document.querySelectorAll('#animList [data-ai]').length
+    +' sel='+(selClip()===c)+' trasRender='+trasRender};
+  const a=c.anim[0]; state.playhead=c.start+0.5;
+  animToggleWetKf(a,c); buildAnimList(c); await new Promise(z=>setTimeout(z,120));
+  const con=leer();
+  return {sin,con};
+}catch(e){ return {err:String(e&&e.message||e)}; } })()`);
+if(e1.err) mal('no se pudo evaluar: '+e1.err);
+else{
+  console.log('   sin curva: '+JSON.stringify(e1.sin)+'  ·  con curva: '+JSON.stringify(e1.con));
+  if(e1.sin.rombo) mal('el rombo aparece ENCENDIDO sin ninguna curva de Mix (el fallo de R224, de vuelta)');
+  else if(!e1.con.rombo) mal('con una curva de Mix en el cabezal el rombo sigue apagado');
+  else if(!e1.con.auto) mal('la fila no se marca como automatizada teniendo curva');
+  else bien('el rombo y el resaltado de la fila siguen a la curva del Mix');
 }
 
 /* ── 6 ── La escala 0, medida sobre el render real. */

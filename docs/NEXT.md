@@ -2,20 +2,41 @@
 
 > Tareas ordenadas de **más rápido de resolver → más complejo**. Marcá `[x]` a medida que se cierran (y actualizá la fila
 > en `COMPONENTS.md` + una entrada en `PLAN.md` en el mismo commit, como manda el ritual de `/commit`).
-> Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: **2026-08-10** (R347b).
+> Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: **2026-08-10** (R349).
 
 ---
 
-# ⏭️ EMPEZAR POR AQUÍ — estado a 2026-08-10, cierre de R347b
+# ⏭️ EMPEZAR POR AQUÍ — estado a 2026-08-10, cierre de R349
 
 Escrito para retomar sin contexto previo. Lo de abajo (secciones con fecha) es historia; esto es lo que queda.
 
+## 0. 🔴 R349 — los diez puntos de la prueba de Beltrán, y la lección que dejan
+Beltrán probó la aplicación y trajo diez puntos con una advertencia: *«varias de estas cosas antes funcionaban
+bien»*. **Tenía razón en tres, y los tres son arreglos anteriores que se pisaron entre sí.** Detalle en
+`PLAN.md › ROUND 349`; lo que hay que llevarse:
+
+- **«Generar proxy» llevaba rondas sin generar nada.** Dos guardas escritas sobre la misma propiedad se
+  anulaban: el manejador del menú ponía `_pxGen=true` **antes** de encolar (costumbre anterior a R326) y R326
+  escribió justo encima la guarda `if(m._pxGen)return` de `enqProxy` sin ver que ya había un llamador
+  poniéndola. R327 la puso además en `pumpProxy` —su sitio— y tampoco miró el llamador.
+- **Lo que lo hizo invisible es que el fallo era MUDO.** `pumpProxy` traga la excepción y deja `proxyPct=-1`,
+  que la interfaz pinta como barra a 0 % con «…»: **exactamente igual que un proxy que acaba de empezar**.
+  Regla nueva: si un camino puede fallar, su estado de fallo no puede parecerse a su estado normal.
+- **Y el segundo: lo anotado como «no verificable» se pudre igual.** La secuencia PNG con fondo negro moría con
+  `ReferenceError: q is not defined` desde R343, y nadie lo vio porque `COMPONENTS.md` decía que ese camino no
+  se podía probar por CDP. Se podía: `opt.outDir` salta su diálogo desde R188. Ahora se exporta de punta a
+  punta en cada pasada de redes.
+- **`r319-verif.mjs` medía la PREMISA** (una expresión regular sobre cómo estaba escrita la plantilla del rombo
+  del Mix) y se puso roja al rediseñar la fila sin que nada se hubiera roto. Reescrita para medir la conclusión.
+  Merece un barrido: puede haber más redes que vigilan texto en vez de comportamiento.
+
 ## 1. ✅ Nada pendiente de desplegar
-El repositorio y las **tres instalaciones** van por **R347b** (`54852cd`), verificadas por sha1 el 2026-08-10.
-R347b arregla la regresión que R347 había desplegado (al quitar el redondeo a entero, un 24 o 60 EXACTOS en un
-contenedor de timebase de milisegundos se detectaba como 23,976 o 59,94) poniendo dos estimadores: el demuxador
-decide NTSC vs entero, la reproducción vuelve a redondear. Y cierra los otros catorce hallazgos de la revisión,
-entre ellos que **todo material de 25p se detectaba como 24 desde el commit inicial**.
+El repositorio y las **tres instalaciones** van por **R349**, verificadas por sha1 el 2026-08-10.
+R349 cierra los diez puntos de la prueba de Beltrán. Antes, R347b arregló la regresión que R347 había desplegado
+(al quitar el redondeo a entero, un 24 o 60 EXACTOS en un contenedor de timebase de milisegundos se detectaba
+como 23,976 o 59,94) poniendo dos estimadores: el demuxador decide NTSC vs entero, la reproducción vuelve a
+redondear. Y cerró los otros catorce hallazgos de su revisión, entre ellos que **todo material de 25p se
+detectaba como 24 desde el commit inicial**.
 ```bash
 npm run dist && powershell -NoProfile -ExecutionPolicy Bypass -File "scripts/deploy-verificado.ps1" && git push
 ```
@@ -74,9 +95,15 @@ la decisión es el daño acotado y el VFR, no ya la canonización.
   se ponen rojas en los dos caminos de carga); las que no se validaron así resultaron ser aprobados vacíos.
 - **Medir la CONCLUSIÓN, no la premisa.** R342 vivió dos rondas dado por bueno porque su sonda medía que el
   demuxador leía la edit list, no que el fotograma entregado fuese el correcto.
-- `npm run redes` = 31 redes; `npm test` = 6. Las dos deben pasar antes de compilar. El guardián de acentos
-  graves de `correr-redes.mjs` funciona ahora por PARIDAD y vigila las 31: **mirar su cabecera**, que una vez
-  se dieron por buenos tres avisos sin leerlos (y en R346b cantó dos veces, las dos con razón).
+- `npm run redes` = **33 redes**; `npm test` = 6. Las dos deben pasar antes de compilar. El guardián de acentos
+  graves de `correr-redes.mjs` funciona ahora por PARIDAD y vigila las 33: **mirar su cabecera**, que una vez
+  se dieron por buenos tres avisos sin leerlos (y en R346b cantó dos veces, las dos con razón; en R349, tres).
+- **[R349] Una red que se apoya en el proyecto que dejó la anterior no mide lo suyo.** `r349-revision.mjs`
+  reutilizaba «el proyecto que hubiera», y dentro de `npm run redes` eso es material ajeno y arbitrario: tardaba
+  **6 min 40 s** —pasándose del plazo de 180 s del lanzador— frente a 4 s sobre instancia limpia, y su bloque de
+  transporte medía la selección de tiempo que le había dejado puesta otra red, no el transporte. Cada red monta
+  su propio banco mínimo. Y si algo sale rojo en la tanda pero verde suelto, sospechar del ORDEN antes que del
+  código: varias sondas dejan superficies de GPU retenidas (aviso en las cabeceras de `r348-*`).
 - **[R347b] Una medida sólo contesta lo que su resolución permite.** El fallo de esta ronda no fue un descuido:
   le pedí a la mediana de `requestVideoFrameCallback` que distinguiera el 0,1 % que separa 59,94 de 60, y su dato
   —el pts en el timebase del contenedor— no da para eso. Antes de apoyar una decisión en una medida, preguntar

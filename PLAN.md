@@ -1,5 +1,84 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 349 — Los diez de la prueba de Beltrán: dos guardas que se anulaban entre sí, un `q` fuera de ámbito y una sección con estética propia
+
+Beltrán probó la aplicación y trajo diez puntos, con una advertencia: *«varias de estas cosas antes funcionaban
+bien»*. Tenía razón en tres de ellos, y los tres son **arreglos que se pisaron entre sí**, que es exactamente el
+patrón que el ritual de `/code-review` viene persiguiendo desde R344.
+
+**1 · «Generar proxy» llevaba rondas sin generar nada.** El manejador del menú contextual hacía
+`v._pxGen=true` antes de llamar a `enqProxy(v)`, una costumbre anterior a R326 de cuando esa propiedad no la
+miraba nadie. **R326 escribió justo encima la guarda `if(m._pxGen)return`** sin ver que ya había un llamador
+poniéndola: desde entonces el medio nunca entraba en la cola. **R327** remató el enredo poniendo la marca
+además en `pumpProxy` —que es su sitio, porque ahí significa «se está generando AHORA»— y tampoco miró este
+llamador. Lo que hizo el fallo invisible es que **es mudo**: `pumpProxy` traga la excepción y pinta `proxyPct`,
+y una barra a 0 % con «…» se ve igual esté generando o esté muerta. Medido en
+`scratchpad/r349-cola-proxy.mjs`, que reconstruye el estado anterior y lo ve rojo: 120 s sin un solo por ciento.
+`makeProxy` en sí estaba bien — se comprobó aparte, de punta a punta y también con material real pesado
+(`Baile 3.mp4`, 338 MB, 4,3 s).
+
+**3 · La secuencia PNG con fondo negro moría con `ReferenceError: q is not defined`.** [R343] escribió
+`if(planchar && q===glc)` en el cuerpo del `else`, donde `q` no existe: es el `const q` de dentro de
+`renderFrame`/`lienzoPng`, dos funciones más abajo. La pregunta que R343 quería hacer («¿`chapaLienzo` devuelve
+OTRO lienzo?») sólo se puede responder llamándola, así que ahora se responde donde se la llama y el lienzo de
+planchado se crea perezosamente (y se redimensiona con `glc`, que hasta ese punto del primer fotograma todavía
+no tiene su tamaño de export).
+
+**6 · No se podía dar al play más allá del bucle ni más allá del último clip.** [R279] quitó las dos ataduras
+a propósito; **[R286b] repuso la parada mirando sólo `playhead >= workOut`**, y eso es cierto desde el primer
+fotograma cuando se arranca DETRÁS del tramo: el cabezal volvía a `workOut` y pausaba en el acto. Ahora la
+decisión se toma al arrancar (`_paraEnOut`), igual que `_enBucle`: para quien cruza el final del tramo yendo
+hacia adelante, no quien ya está fuera.
+
+**2 · Fuera de la lista los dos códecs que se rinden a la resolución de trabajo** — `mp4` (H.264 por WebCodecs,
+tope medido 3072²) y `hevc` (H.265 por WebCodecs, tope ~1080p). Las dos filas de FFmpeg que van encima hacen lo
+mismo hasta 4096 y 8192. **El código que los exporta NO se retira**: de él dependen *Render in place* y el
+horneado de proxys de composición; lo que se retira es la elección. Un preajuste guardado o una memoria de
+sesión con esos valores se traduce a su equivalente por FFmpeg (`exCodecNorm`) — sin eso, `S.codec` quedaba con
+un valor que el desplegable no contiene, `S.codecOk` se quedaba en `true` por el `!mio`, y Exportar seguía
+pulsable con un formato invisible. **Consecuencia asumida:** en una máquina SIN FFmpeg ya no hay MP4 de
+respaldo; queda PNG/HAP. En ésta FFmpeg está y las dos filas se ofrecen.
+
+**5 · El menú de «Añadir efecto» se salía por arriba.** `openFxMenu` adivinaba la altura del menú
+(`min(items,20)*22`, sin contar separadores) para abrirlo por encima del botón, y `openMenu` sólo miraba el
+borde de ABAJO: `top = y - alto` da negativo con 30 entradas. Ahora el ancla es el botón y la colocación la
+decide `openMenu`, que acota los dos ejes a un mínimo de 4 px y, si el menú no cabe de alto, le pone tope y
+barra. Medido barriendo veinte alturas de botón: **6 de 20 se salían con la colocación anterior** (la peor a
+−528 px); 0 de 20 con la de ahora.
+
+**4 · La sección Motion tenía lenguaje visual propio** — fondo `#1b1e24` a mano, encendido como un punto
+redondo, la papelera escrita `×`, la cifra del Mix suelta al lado y sin el color del parámetro por ningún sitio.
+Ahora un modificador se pinta como un EFECTO, con las mismas clases (`fxcard`/`fxhdr`/`fxbody`/`prow`) y con su
+tono de `autoColor` sobre la MISMA clave que usa su curva en la línea de tiempo, así que se reconoce por color
+en los dos sitios. Modo, velocidad y amplitud bajan de la cabecera al cuerpo, cada uno en su fila con etiqueta:
+en cabecera eran cinco controles en 280 px y salían con el texto cortado («Slide ↔ (do…») y los números a medio
+dígito. El maestro de acorde (Float) sigue el mismo patrón. Volcado en `scratchpad/r349-motion.mjs`.
+
+**7 · Intensidad y Reactividad se leían como el mismo mando.** No lo son: `fxIntensity` es literalmente
+`clamp01(int + amt × señal)`. La cuenta pasa a estar escrita bajo «Respuesta», y cada fila lleva su explicación
+en el `title` — Intensidad es el suelo siempre presente, Reactividad lo que el audio SUMA por encima.
+
+**8 · Cambiar la máscara de una composición ya creada no llegaba a sus elementos.** El bucle que reaplica el
+reparto sólo copia NÚMEROS (para poder respetar el desplazamiento manual del usuario como delta), y la máscara
+es una cadena: se quedaba fuera, y por eso sólo la estrenaban los elementos nuevos al subir la cantidad. Ahora se
+aplica cuando el cuadro la ha cambiado —comparando contra `_layBase`, que es lo que el reparto puso la vez
+anterior—, así que un retoque a mano en un elemento suelto sobrevive si en el cuadro no se ha tocado nada.
+
+**9 · No había umbral de arrastre en la línea de tiempo.** Seleccionar y mover eran el mismo gesto desde el
+primer píxel; con la línea apretada, un píxel son varios fotogramas. `TL_UMBRAL` = 6 px, el mismo orden que ya
+usaban a mano el editor de curvas (3-4) y el arrastre de carpetas (5).
+
+**10 · La rueda sobre las pestañas de secuencia pasaba el delta crudo** a `scrollLeft`. Se amortigua (×0,35),
+se acota a media pestaña por evento (60 px) y se convierte `deltaMode` 1/2, que llegaban en líneas y páginas y
+se quedaban en un píxel.
+
+**Verificación.** Dos redes nuevas (33 en total, todas verdes) y las dos saben fallar: `r349-cola-proxy.mjs`
+reconstruye la marca puesta antes de encolar, y `r349-revision.mjs` reaplica la colocación anterior del menú
+sobre el mismo nodo. De paso, **`r319-verif.mjs` medía la premisa**: comprobaba con una expresión regular cómo
+estaba ESCRITA la plantilla del rombo del Mix, así que se puso roja al rediseñar la fila sin que nada se hubiera
+roto. Se ha reescrito para medir la conclusión —sin curva el rombo está apagado, con curva encendido—, que es lo
+que R224 quería vigilar y además caza el fallo original y su inverso.
+
 ## ROUND 348 — Las dos optimizaciones aparcadas, cerradas con medida: las dos partían de una cifra falsa
 
 Ronda sin una línea de código de producción. Las dos optimizaciones que la cola guardaba «medidas y dejadas
