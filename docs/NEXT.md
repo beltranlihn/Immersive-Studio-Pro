@@ -29,6 +29,13 @@ bien»*. **Tenía razón en tres, y los tres son arreglos anteriores que se pisa
 - **`r319-verif.mjs` medía la PREMISA** (una expresión regular sobre cómo estaba escrita la plantilla del rombo
   del Mix) y se puso roja al rediseñar la fila sin que nada se hubiera roto. Reescrita para medir la conclusión.
   Merece un barrido: puede haber más redes que vigilan texto en vez de comportamiento.
+- **[R349b] Y su revisión encontró que el arreglo del punto 9 abría una puerta a perder material.** El umbral de
+  arrastre es correcto, pero `cutOverlapsOnDrop` —destructivo— vivía FUERA de la condición que gobierna el
+  `pushUndo`: un clic con 3 px de temblor sobre un clip solapado recortaba 2 s al vecino sin foto de deshacer, y
+  el Ctrl+Z siguiente lo borraba entero. Y el `_paraEnOut` del punto 6 era una **decisión congelada en `play()`**
+  que estrenaba el caso simétrico (marcar el tramo mientras suena → ya no paraba nunca). Los dos cerrados, los
+  dos con red. **La lección: un cambio pequeño hereda las guardas que ya había alrededor — hay que mirarlas, y
+  desconfiar de resolver «cuándo» con una bandera que se decide una sola vez.**
 
 ## 1. ✅ Nada pendiente de desplegar
 El repositorio y las **tres instalaciones** van por **R349**, verificadas por sha1 el 2026-08-10.

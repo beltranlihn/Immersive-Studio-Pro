@@ -5871,7 +5871,14 @@ function onTLUp(){ showSnap(null); _dragLaneRects=null; _dragLaneScrollTop=null;
       flashStatus(T('Copied','Copiado')+' '+drag.items.length+' '+(drag.items.length===1?T('clip','clip'):T('clips','clips')));
     } else { for(const it of drag.items){ const oc=clipById(it.id); if(oc){ oc.start=Math.max(0,it.start0+applied); if(!single&&!it.linked)oc.lane=oc.lane+laneDelta; } } // [R223] libertad vertical: el partner enlazado sólo se mueve horizontalmente, nunca cambia de pista
       if(single){ const oc=clipById(drag.id); if(oc&&tgt!=null)oc.lane=tgt; }
-      cutOverlapsOnDrop(drag.items.map(it=>it.id)); } }
+      /* [R349b] SÓLO si el gesto ha cambiado algo. `cutOverlapsOnDrop` es destructivo —recorta o elimina al
+         vecino solapado— y la foto de deshacer va detrás de `changed`, así que un gesto que no mueve nada lo
+         ejecutaba SIN historial: el Ctrl+Z siguiente devuelve un estado anterior y el material recortado no se
+         recupera. Medido: con dos clips solapados 2 s, un clic con 3 px de temblor sobre uno recortaba al otro
+         de `start 2, dur 4` a `start 4, dur 2`, la pila no crecía (2→2) y deshacer BORRABA el clip entero.
+         El agujero existía para un clic de 0 px exactos; el umbral de arrastre de R349 lo abrió a todo clic de
+         ≤6 px, que es el caso normal. Y el nombre lo decía: «on drop» — si no se ha soltado nada, no hay drop. */
+      if(changed)cutOverlapsOnDrop(drag.items.map(it=>it.id)); } }
   else if(drag&&(drag.mode==='trimL'||drag.mode==='trimR')){ cutOverlapsOnDrop(drag.items.map(it=>it.id)); } // [R223] crecer con el handle de resize hacia un vecino también corta, no funde
   clearMoveGhosts(); drag=null; window.removeEventListener('pointermove',onTLMove); window.removeEventListener('pointerup',onTLUp); renderTimeline(); renderInspector(); render(); updStatus(); reschedAudio(); }
 /* [R223] vecino de crossfade para `which`: el clip de la misma pista que cc ya TOCA o ya SOLAPA por ese lado
@@ -7052,6 +7059,14 @@ function refreshAnimAmps(c){ const host=$('#animList'); if(!c||!c.anim||!host)re
     const f=it.querySelector('.aamp'); if(f&&document.activeElement!==f)f.value=(Math.round(a.amp*1000)/1000); }); }
 function buildAnimList(c){ const host=$('#animList'); if(!host)return; host.innerHTML='';
   if(!c||!c.anim||!c.anim.length){ host.innerHTML=`<span style="font-size:11px;color:#4d525a;">${T('No motion yet.','Sin movimiento aún.')}</span>`; return; }
+  const _ib='width:16px;height:16px;display:flex;align-items:center;justify-content:center;border-radius:2px;padding:0;cursor:pointer;';
+  /* [R349b] El hueco del rombo, reservado en las filas que no lo tienen. Sin él, Modo/Velocidad/Amplitud —y la
+     Intensidad del maestro— llegaban 20 px más a la derecha que la fila de Mix (el ancho del bloque `.nav`) y la
+     tarjeta quedaba desalineada por dentro, que es justo lo contrario de lo que buscaba el rediseño. Es como el
+     propio inspector reserva ese hueco en sus filas sin automatización (`fxFaderRow` con `showKf` falso).
+     El ancho va EXPLÍCITO, no con un `.kf` vacío: la regla `.prow .kf:not([data-kf]){display:none}` de R143
+     esconde ese relleno, así que el `.nav` se quedaría a cero y no reservaría nada. 20 px = `.prow .nav button`. */
+  const _hueco='<div class="nav" style="width:20px;"></div>';
   /* [R252b] Maestro de cada ACORDE (hoy, Flotar): un solo mando para el conjunto. Va ARRIBA de los modificadores
      que gobierna, y ellos siguen abajo enteros — el maestro no los esconde ni los sustituye, sólo los mueve a la
      vez. Es la diferencia entre un mando y una caja negra. */
@@ -7068,7 +7083,7 @@ function buildAnimList(c){ const host=$('#animList'); if(!host)return; host.inne
       <div class="fxbody"><div class="prow" style="--pc:${grTono};">
         <span class="lab">${T('Intensity','Intensidad')}</span>
         <input type="range" min="0" max="300" value="${Math.round(g.int*100)}">
-        <span class="box"><span class="num gint">${Math.round(g.int*100)}</span><span class="u">%</span></span>
+        <span class="box"><span class="num gint">${Math.round(g.int*100)}</span><span class="u">%</span></span>${_hueco}
       </div></div>`;
     const sl=gr.querySelector('input'), out=gr.querySelector('.gint');
     sl.onpointerdown=()=>pushUndo();
@@ -7092,7 +7107,6 @@ function buildAnimList(c){ const host=$('#animList'); if(!host)return; host.inne
      la MISMA clave que usa su curva en la línea de tiempo (`mot:<param>:mix`), así que el modificador se reconoce
      por color en los dos sitios, exactamente como ya pasaba con los efectos desde R270. Los manejadores no
      cambian: siguen colgando de `.animon`/`.aparam`/`.amode`/`.aspeed`/`.aamp`/`.animdel`/`.awet`/`.awetkf`. */
-  const _ib='width:16px;height:16px;display:flex;align-items:center;justify-content:center;border-radius:2px;padding:0;cursor:pointer;';
   c.anim.forEach((a,i)=>{ const item=document.createElement('div'); item.dataset.ai=i;
     const isWave=a.mode==='wave'; const wetPct=Math.round(Math.max(0,Math.min(1,evalWet(c,a,state.playhead)))*100);
     const hasWK=animHasWetKf(a,c), kfHere=!!animWetKfAt(a,c); // [R224] ídem: sin sombra sobre la función global hasKf
@@ -7109,11 +7123,11 @@ function buildAnimList(c){ const host=$('#animList'); if(!host)return; host.inne
         <button class="animdel" title="${T('Remove','Quitar')}" style="${_ib}color:var(--ink-3);">${ICO('trash',11)}</button></div>
       <div class="fxbody">
         <div class="prow"><span class="lab">${T('Mode','Modo')}</span>
-          <select class="asel amode" title="${T('Loop = keeps going · Wave = back and forth','Bucle = sigue sin fin · Onda = va y vuelve')}" style="flex:1;min-width:0;"><option value="linear" ${!isWave?'selected':''}>${T('Loop','Bucle')}</option><option value="wave" ${isWave?'selected':''}>${T('Wave','Onda')}</option></select></div>
+          <select class="asel amode" title="${T('Loop = keeps going · Wave = back and forth','Bucle = sigue sin fin · Onda = va y vuelve')}" style="flex:1;min-width:0;"><option value="linear" ${!isWave?'selected':''}>${T('Loop','Bucle')}</option><option value="wave" ${isWave?'selected':''}>${T('Wave','Onda')}</option></select>${_hueco}</div>
         <div class="prow"><span class="lab">${T('Speed','Velocidad')}</span>
-          <input class="anum aspeed" type="number" step="0.05" value="${a.speed}" title="${T('Degrees per second, or cycles per second in Wave','Grados por segundo, o ciclos por segundo en Onda')}" style="flex:1;min-width:0;"></div>
+          <input class="anum aspeed" type="number" step="0.05" value="${a.speed}" title="${T('Degrees per second, or cycles per second in Wave','Grados por segundo, o ciclos por segundo en Onda')}" style="flex:1;min-width:0;">${_hueco}</div>
         <div class="prow amprow" ${isWave?'':'style="display:none;"'}><span class="lab">${T('Amount','Amplitud')}</span>
-          <input class="anum aamp" type="number" step="1" value="${a.amp}" title="${T('How far it swings','Cuánto se aparta')}" style="flex:1;min-width:0;"></div>
+          <input class="anum aamp" type="number" step="1" value="${a.amp}" title="${T('How far it swings','Cuánto se aparta')}" style="flex:1;min-width:0;">${_hueco}</div>
         <div class="prow awrow${hasWK?' auto':''}" style="--pc:${tono};">
           <span class="lab">${T('Mix','Mix')}</span>
           <input class="awet" type="range" min="0" max="100" value="${wetPct}" title="${T('Dry/wet 0–100% (multiplier)','Dry/wet 0–100% (multiplicador)')}">
@@ -8756,13 +8770,7 @@ function collectDrawnVideoClips(clips,lanes,t,depth,out,pGain,pRate){ out=out||[
   return out; }
 let playRaf=0,lastT=0,_phLast=null,_audioBase=0,_audioHead=0;
 let _enBucle=false;   /* [R279] esta reproduccion envuelve? Se decide al arrancar, mirando si el cabezal cae DENTRO del tramo */
-/* [R349] …y esta reproducción, ¿tiene que PARAR en `workOut`? También se decide al arrancar, y por la misma
-   razón. R286b repuso la parada mirando sólo `playhead>=workOut`, que es cierto desde el primer fotograma cuando
-   se arranca DETRÁS del tramo: dar al play más allá del bucle —o más allá del último clip, que es donde suele
-   quedar el cabezal— devolvía el cabezal a `workOut` y pausaba en el acto. Eso es justo lo que R279 vino a quitar
-   («el bucle ya no confina la reproducción»), reintroducido por el otro extremo. Parar al SALIR del tramo sigue
-   teniendo sentido: es un límite puesto a propósito y se cruza yendo hacia adelante. Volver a él desde fuera, no. */
-let _paraEnOut=false;
+/* [R349b] La parada en `workOut` NO es una bandera: ver la nota junto a la condición, dentro de `ploop`. */
 function play(){ if(state.playing)return; if(state.tl.selA!=null){ let _p=Math.min(state.tl.selA, state.tl.selB==null?state.tl.selA:state.tl.selB); state.playhead=_p; positionPlayhead(); }   /* [R279] sin encajar a la fuerza dentro del bucle: si el punto de inicio esta fuera, se reproduce desde ahi */ /* start from the timeline insert/selection (clamped into an active loop region); else resume where the playhead is */ diag('info','transport','play',{at:+state.playhead.toFixed(2)}); state.playing=true; stopMotionPreview(); _previewClock=0; $('#playBtn').innerHTML=ICO('pause'); lastT=performance.now();
   for(const {c,m,local,gain,rate} of collectDrawnVideoClips(state.clips,state.lanes,state.playhead,0,[])){ const vi=vinstEnsure(c,m); if(vi&&vi.vel){ const eff=Math.max(0.0625,Math.min(16,rate||c.speed||1)); vi.vel.muted=true;   /* [R346b] la MISMA tolerancia que `vinstSeek`: sin ella, dar al play arrancaba un fotograma por detrás de lo que se veía en pausa — y es el camino por defecto, porque `wcDecode` está apagado */ try{vi.vel.loop=false;}catch(e){} try{vi.vel.playbackRate=eff;}catch(e){}
     /* [R346c] POSICIONAR Y LUEGO ARRANCAR, en el mismo `then`. Antes el `currentTime` iba en una microtarea y
@@ -8774,7 +8782,6 @@ function play(){ if(state.playing)return; if(state.tl.selA!=null){ let _p=Math.m
     (vi.loadP||Promise.resolve()).then(()=>{ try{vi.vel.currentTime=instanteDecod(local);}catch(e){} vi.vel.play().catch(()=>{}); });
     const a=vinstAudio(vi,m); if(a){ try{a.currentTime=local;}catch(e){} try{a.playbackRate=eff;}catch(e){} a.volume=Math.max(0,Math.min(1,gain==null?1:gain)); a.muted=(gain!=null&&gain<=0.001); a.play().catch(()=>{}); } } } _enBucle=(state.workIn!=null&&state.workOut!=null&&state.workOut>state.workIn
     && state.playhead>=state.workIn-1e-6 && state.playhead<state.workOut-1e-6);   /* [R279] arrancar FUERA del bucle = reproducir recto */
-  _paraEnOut=(state.workIn!=null&&state.workOut!=null&&state.workOut>state.workIn && state.playhead<state.workOut-1e-6); // [R349] arrancar DETRÁS del tramo = correr libre, sin parada que ya está cruzada
   startAudio(); ploop(); } // loop=false: the timeline (ploop) governs clip-bounded looping, not the element. [R92-T2 C1] the paired <audio> (original file) carries the video's sound. [R92-T6] eff = rate composed through the nest chain
 /* ===================== [R97] J / K / L — the universal shuttle =====================
    The one standard every NLE shares (Premiere, Avid, Resolve, FCP) and the clearest "this is a real NLE" signal:
@@ -8810,6 +8817,7 @@ function shuttleKey(dir){ // dir −1 = J · +1 = L
   startShuttle(v); }
 function pause(){ state.playing=false; stopShuttle(); $('#playBtn').innerHTML=ICO('play'); if(playRaf)cancelAnimationFrame(playRaf); for(const m of state.media)if(m.kind==='video'&&m.el){try{m.el.pause();}catch(e){} stopVF(m);} for(const [,vi] of _vinst){ try{vi.vel&&vi.vel.pause();}catch(e){} try{vi.ael&&vi.ael.pause();}catch(e){} stopVFClip(vi); } stopAudio(); setMeters(0); startMotionPreview(); } // guard m.el: a missing/unrelinked video has el=null; resume live motion preview
 function ploop(){ if(!state.playing)return; const now=performance.now(),dt=(now-lastT)/1000;lastT=now;
+  const phPrev=state.playhead;   /* [R349b] dónde estaba el cabezal ANTES de avanzarlo en este fotograma — es lo que convierte «estar detrás de workOut» en «cruzar workOut». No sirve `_phLast`: sobrevive a la pausa, así que en el primer fotograma tras un play trae el valor de la reproducción anterior */
   if(_phLast!=null && Math.abs(state.playhead-_phLast)>0.06) startAudio(); // playhead was seeked externally while playing → reschedule audio to the new position
   if(audioSources.length&&actx){ state.playhead=_audioHead+(actx.currentTime-_audioBase); } else { state.playhead+=dt; } // slave visuals to the audio clock when audio is playing (no drift); else free-run on rAF
   /* [R279] Dos ataduras que Beltran queria sueltas.
@@ -8839,7 +8847,15 @@ function ploop(){ if(!state.playing)return; const now=performance.now(),dt=(now-
      indefinidamente -la linea de tiempo crecia en el DOM y `state.playhead` se guardaba en el .isp con un
      valor arbitrario-. Se repone lo que el propio comentario de R279 promete: para al final del tramo de
      trabajo, que es un limite puesto a proposito. Poder correr por encima de la nada SIN tramo se conserva. */
-  else if(hasWork && _paraEnOut && state.playhead>=state.workOut){ state.playhead=state.workOut; pause(); }   // [R349] `_paraEnOut`: sólo para quien ARRANCÓ antes del final del tramo
+  /* [R349 → R349b] Para al CRUZAR `workOut` hacia adelante en ESTE fotograma, no cuando el cabezal simplemente
+     esté por detrás. R349 lo resolvió con una bandera decidida al arrancar (`_paraEnOut`) y eso arrastraba el
+     defecto de toda decisión congelada: marcar entrada y salida MIENTRAS suena —con I/O, con Ctrl+L o
+     arrastrando la llave del bucle, que son manejadores vivos durante la reproducción— dejaba la bandera en
+     false y la reproducción no volvía a detenerse nunca, que es literalmente la avería del comentario de
+     R286b (medido: con `workOut=1`, a los 2,5 s el cabezal iba por 3,5 y seguía). Con el cruce, los dos casos
+     salen solos y sin estado que mantener: arrancar DETRÁS del tramo no para (nunca se cruza hacia adelante),
+     arrancar delante para al llegar, y un tramo puesto en marcha se respeta desde el fotograma siguiente. */
+  else if(hasWork && phPrev<state.workOut-1e-6 && state.playhead>=state.workOut){ state.playhead=state.workOut; pause(); }
   { const ra=raHas(state.playhead); const drawn=collectDrawnVideoClips(state.clips,state.lanes,state.playhead,0,[]); const act=new Set(); // [R92-T6] the drawn pass runs EVERY frame now: with render-ahead serving cached frames, the per-clip <audio> used to go orphan (kept playing stale volume/position)
     for(const {c,m,local,gain,rate} of drawn){ act.add(c.id); const vi=vinstEnsure(c,m); if(!vi||!vi.vel)continue; const v=vi.vel; const eff=Math.max(0.0625,Math.min(16,rate||c.speed||1)); const cdOn=driveCD(vi,c,m,local); // [R108·E4] ClipDecoder owns VIDEO when active; <video> below is skipped, audio still runs
       /* [R104] TORMENTA DE SEEKS. R92 metió el servo de velocidad pero dejó el seek duro a 0.2s de deriva.
@@ -10790,6 +10806,15 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
        cuando el archivo real ronda los 24 — bastante para descartar el formato o salir a buscar disco. Es el
        mismo calculo que hace `hapFrame`. */
     if(c==='hap'||c==='hapq'){ const F=HAP_FMT[c]; return Math.ceil(p.w/4)*Math.ceil(p.h/4)*F.bpb*n*0.85; }
+    /* [R349b] El bitrate que se ANUNCIA tiene que ser el que se va a CODIFICAR. Los dos códecs por FFmpeg toman
+       `ffq.mbps = S.ffbr` (el control `#exFfBr`), no `S.br` — cuyo control `#exBrRow` está además OCULTO para
+       ellos, porque `isVid` sólo miraba 'mp4'/'hevc': la estimación salía de un número que el usuario ni veía ni
+       podía corregir. Medido con los valores de fábrica, domo 4096² a 60p, un minuto: anunciaba 0,83 GB
+       (`exAutoBr` = 111 Mbps) contra 1,5 GB reales (`S.ffbr` = 200); a 8192² el error se invierte y anuncia 2,2×
+       de más. Misma clase que el ×16 de HAP que cerró R319, y desde R349 es el ÚNICO camino a MP4, así que ya no
+       hay ninguna elección que dé un número correcto. El acotado replica el de `runExport`, para que las dos
+       cuentas partan del mismo número. */
+    if(c==='ffh264'||c==='ffhevc')return Math.max(5,Math.round(S.ffbr||200))*1e6/8*exSecs();
     return S.br*1e6/8*exSecs(); }
   function exAutoBr(){ const p=exPx(S); return Math.max(24,Math.min(800,Math.round(p.w*p.h*S.fps*0.11/1e6))); }
 
@@ -10960,7 +10985,12 @@ function openExport(){ if(!state.clips.length){appAlert(T('Add clips to the time
         :(S.ffbr>sug*3)?T('very high — suggested ','muy alta — sugerida ')+sug
         :T('suggested for this size: ','sugerida para este tamano: ')+sug; } }
   { const seg=$$('#exFfQ'); if(seg)seg.querySelectorAll('button').forEach(b=>b.onclick=()=>{ S.ffq=b.dataset.q; exFfSync(); }); }
-  { const br=$$('#exFfBr'); if(br)br.oninput=e=>{ S.ffbr=Math.max(5,Math.min(900,+e.target.value||200)); exFfSync(); }; }
+  /* [R349b] …y `exUpd()`, no sólo `exFfSync()`: desde que la estimación de tamaño lee `S.ffbr` (ver `exEstBytes`),
+     este control es el que la mueve, y `exFfSync` sólo repinta la fila del codificador. Sin esto el arreglo
+     quedaba a medias — la cifra sería correcta al abrir el panel y se quedaría clavada al cambiar la tasa, que es
+     justo cuando se la mira. `exFfSync` respeta el campo con el foco, así que repintar mientras se teclea no pisa
+     nada. */
+  { const br=$$('#exFfBr'); if(br)br.oninput=e=>{ S.ffbr=Math.max(5,Math.min(900,+e.target.value||200)); exFfSync(); exUpd(); }; }
   { const c=$$('#exFf10'); if(c)c.onchange=e=>{ S.ff10=!!e.target.checked; exFfSync(); }; }
   function exSlateSync(){ try{ exFfSync(); }catch(_){}
     const esDomo=(state.seqMode==='dome');

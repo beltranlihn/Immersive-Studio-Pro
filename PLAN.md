@@ -1,5 +1,54 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 349b — La revisión de R349: el umbral de arrastre abrió una puerta a perder material
+
+Cinco hallazgos, tres de producción y los tres **de la propia ronda de ayer**. Los dos primeros son la misma
+lección con dos caras: *un cambio pequeño hereda las guardas que ya había alrededor, y hay que mirarlas.*
+
+**1. El umbral de arrastre convirtió un clic corriente en una edición destructiva sin deshacer.** `onTLUp`
+llamaba a `cutOverlapsOnDrop` —que recorta o elimina al vecino solapado— **fuera** de la condición `changed` que
+gobierna el `pushUndo`. Con un gesto que no mueve nada, `changed` es falso: se corta sin foto de deshacer.
+Existía para el clic de **0 px exactos**; el umbral de 6 px de R349 lo abrió a **todo clic con temblor**, que es
+el caso normal. Medido: dos clips solapando 2 s, clic con 3 px sobre el de arriba → el otro pasaba de
+`start 2, dur 4` a `start 4, dur 2`, la pila de deshacer no crecía (2 → 2) y **el Ctrl+Z siguiente borraba el
+clip entero** (`clipById` devolvía null). Dos segundos de material perdidos, irrecuperables. Arreglo:
+`if(changed)`. El nombre ya lo decía — *on drop*: si no se ha soltado nada, no hay drop. Control en la red: un
+arrastre de verdad sigue recortando y sigue empujando su foto.
+
+**2. `_paraEnOut` era una decisión congelada, y las decisiones congeladas envejecen.** R349 arregló el «no se
+puede dar al play detrás del bucle» con una bandera decidida en `play()`. Eso resolvía su caso y estrenaba el
+simétrico: marcar entrada y salida **mientras suena** (teclas I/O, Ctrl+L, o arrastrando la llave del bucle —
+los tres son manejadores vivos) dejaba la bandera en falso y la reproducción **ya no se detenía nunca**, que es
+literalmente la avería que describe el comentario de R286b. Medido: con `workOut=1`, a los 2,5 s el cabezal iba
+por 3,5 y seguía. La bandera se retira: la condición correcta es **cruzar `workOut` hacia adelante en ESTE
+fotograma** (`phPrev < workOut ≤ playhead`), que distingue los tres casos sin guardar estado. `phPrev` se toma al
+entrar en `ploop`, antes de avanzar el cabezal — no vale `_phLast`, que sobrevive a la pausa y en el primer
+fotograma tras un play trae el valor de la reproducción anterior.
+
+**3. La estimación de tamaño del MP4 anunciaba un bitrate que no se codifica.** `exEstBytes` caía a `S.br` para
+los dos códecs por FFmpeg, que codifican con `ffq.mbps = S.ffbr`; y `#exBrRow` está oculta para ellos, así que
+el número venía de un control que el usuario ni veía. Medido con los valores de fábrica, domo 4096² a 60p, un
+minuto: **anunciaba 0,83 GB y escribía 1,5 GB**; a 8192² el error se invierte y se pasa 2,2× de más. Preexistente
+desde R291, pero R349 dejó esos dos códecs como **único** camino a MP4, así que ya no había ninguna elección con
+un número correcto. Misma clase que el ×16 de HAP que cerró R319. De paso, el control de tasa refresca ahora la
+estimación (`exUpd`, no sólo `exFfSync`): sin eso el arreglo quedaba a medias — correcto al abrir y clavado justo
+cuando se lo mira.
+
+**4. Las dos sondas gemelas sin barrer.** `r241-medir.mjs` y `r241-reproxy.mjs` repetían el `v._pxGen=true` antes
+de `enqProxy(v)` que R349 acababa de quitar del menú: quien las volviera a pasar mediría cero proxys y ningún
+error, esperando doce o veinte minutos a un `proxyReady` que no iba a llegar. Es la regla 2 del método —al
+arreglar X, `grep` del patrón y arreglar todos en el mismo commit— aplicada tarde.
+
+**5. Y el desajuste de la propia tarjeta de Motion:** las filas Modo/Velocidad/Amplitud y la Intensidad del
+maestro no reservaban el hueco del rombo, así que llegaban 20 px más a la derecha que la fila de Mix. El hueco va
+con ancho **explícito** y no con un `.kf` vacío: la regla `.prow .kf:not([data-kf]){display:none}` de R143 esconde
+ese relleno y el `.nav` se quedaría a cero — que es por lo que las filas sin diamante de `fxFaderRow` tampoco
+reservan nada hoy.
+
+**Verificación:** 33 redes y 6 tests en verde. `r349-revision.mjs` estrena los dos casos que la revisión cazó —el
+tramo marcado en marcha y el clic sobre un clip solapado, éste con su control— porque los dos eran fallos de
+producción sin red que los vigilara.
+
 ## ROUND 349 — Los diez de la prueba de Beltrán: dos guardas que se anulaban entre sí, un `q` fuera de ámbito y una sección con estética propia
 
 Beltrán probó la aplicación y trajo diez puntos, con una advertencia: *«varias de estas cosas antes funcionaban

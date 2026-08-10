@@ -50,7 +50,10 @@ await bloque('D4_cuatroCapas',4);
 /* el experimento que importa: proxies. Se generan para los 4 clips en uso y se repite la medida. */
 out.E_proxies=await ev(`(async function(){ const vids=state.media.filter(m=>m.kind==='video'&&m.w>4000).slice(0,4);
   const t0=performance.now(); const antes=vids.map(v=>({n:v.name,listo:!!v.proxyReady}));
-  for(const v of vids){ if(v.proxyReady)continue; v.proxyReady=false; v.proxyPct=0; v._pxGen=true; enqProxy(v); }
+  /* [R349b] SIN tocar _pxGen: es la marca de «se esta generando AHORA», la pone pumpProxy, y enqProxy sale por
+     if(m._pxGen)return en su primera linea — ponerla aqui hacia que esta sonda no encolara nada y esperara doce
+     minutos a un proxyReady que no iba a llegar, sin un solo error. Es el mismo fallo que R349 quito del menu. */
+  for(const v of vids){ if(v.proxyReady)continue; v.proxyReady=false; v.proxyPct=0; enqProxy(v); }
   /* esperar a que la cola termine (con techo de 12 min: son 4 clips de 7196×912 @60fps) */
   const lim=performance.now()+12*60*1000;
   while(performance.now()<lim){ await new Promise(r=>setTimeout(r,3000));

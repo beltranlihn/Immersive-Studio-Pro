@@ -11,7 +11,9 @@ const ev=async x=>{const r=await cmd('Runtime.evaluate',{expression:x,awaitPromi
 const r=await ev(`(async function(){
   const vids=state.media.filter(m=>m.kind==='video'&&m.w>4000);
   const antes=vids.map(v=>({n:v.name,fps:v.fps,proxy:!!v.proxyReady}));
-  for(const v of vids){ v.proxyReady=false; v.proxyPct=0; v._pxGen=true; v._proxyForce=true; enqProxy(v); }
+  /* [R349b] SIN tocar _pxGen: la pone pumpProxy y enqProxy sale por if(m._pxGen)return — ver la gemela en
+     r241-medir.mjs. Con la marca puesta aqui esta sonda esperaba veinte minutos sin encolar nada. */
+  for(const v of vids){ v.proxyReady=false; v.proxyPct=0; v._proxyForce=true; enqProxy(v); }
   const t0=performance.now(), lim=t0+20*60*1000;
   while(performance.now()<lim){ await new Promise(r=>setTimeout(r,4000));
     if(vids.every(v=>v.proxyReady||v.missing))break; }

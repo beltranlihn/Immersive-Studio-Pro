@@ -156,13 +156,61 @@ console.log('   6 · reproducir fuera del bucle y mas alla de los clips'+tic());
     const fuera=await prueba(9,3);          /* detras del tramo: antes volvia a workOut y pausaba en el acto */
     const dentro=await prueba(1.2,3);       /* dentro: envuelve, no se detiene */
     const antes=await prueba(0.2,1.4,1600); /* delante: corre recto y PARA en workOut, que es el limite querido */
+    /* [R349b] El cuarto caso, el que la revision caza: el tramo se marca MIENTRAS suena. La primera version de
+       este arreglo congelaba la decision en play(), asi que aqui la reproduccion no volvia a detenerse nunca —
+       la averia que R286b describe, por el otro lado. setWorkIn/setWorkOut son manejadores vivos (las teclas
+       I/O), igual que Ctrl+L y el arrastre de la llave del bucle. */
+    pause(); state.workIn=null; state.workOut=null; state.playhead=0;
+    play(); await new Promise(r=>setTimeout(r,250));
+    state.playhead=0.2; setWorkIn(); state.playhead=1.0; setWorkOut(); state.playhead=0.3;
+    await new Promise(r=>setTimeout(r,2500));
+    const enMarcha={sigue:state.playing, ph:+state.playhead.toFixed(3)}; pause();
     state.workIn=null; state.workOut=null; state.playhead=0;
-    return {fuera:fuera, dentro:dentro, antes:antes};`);
+    return {fuera:fuera, dentro:dentro, antes:antes, enMarcha:enMarcha};`);
   if (r._err) ok(false, 'la sonda del transporte no corrio', r._err);
   else {
     ok(r.fuera.sigue && r.fuera.avanzo > 0.2, 'arrancando DETRAS del tramo, sigue reproduciendo', JSON.stringify(r.fuera));
     ok(r.dentro.sigue, 'arrancando DENTRO, el bucle envuelve y no para', JSON.stringify(r.dentro));
     ok(!r.antes.sigue && Math.abs(r.antes.ph - 1.4) < 0.05, 'arrancando DELANTE, sigue parando al final del tramo', JSON.stringify(r.antes));
+    ok(!r.enMarcha.sigue && Math.abs(r.enMarcha.ph - 1.0) < 0.05, 'un tramo marcado MIENTRAS suena tambien detiene', JSON.stringify(r.enMarcha));
+  }
+}
+
+/* ---- 9b · un clic que no mueve nada no puede recortar al vecino ---- */
+console.log('');
+console.log('   9b · el gesto que no mueve nada no edita nada'+tic());
+{
+  const r = await J(`
+    /* La app TOLERA solapes a proposito (R323/R324: el ripple los crea y solo se avisa). cutOverlapsOnDrop es
+       destructivo y la foto de deshacer va detras de "changed", asi que un gesto que no mueve nada lo ejecutaba
+       SIN historial: el material recortado no se recuperaba ni con Ctrl+Z. Se mide la CONCLUSION -que le pasa al
+       vecino- y se acompana del control: un arrastre de verdad SI tiene que recortar, y con su foto. */
+    const A=state.clips[0], B=state.clips[1]; if(!A||!B)return {salta:'hacen falta dos clips'};
+    A.start=0; A.dur=4; B.start=2; B.dur=4; B.lane=A.lane;
+    renderTimeline(); await new Promise(z=>requestAnimationFrame(z));
+    const prof=()=>{ let n=0; for(const k in _undoBySeq)n+=_undoBySeq[k].u.length; return n; };
+    const gesto=async(dx)=>{ const nodo=document.querySelector('#tracks .clip[data-clip="'+A.id+'"]'); if(!nodo)return false;
+      const rr=nodo.getBoundingClientRect(); const x0=Math.round(rr.left+8), y0=Math.round(rr.top+rr.height/2);
+      state._lastClipClick=null;
+      nodo.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,clientX:x0,clientY:y0,button:0,pointerId:1}));
+      window.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,clientX:x0+dx,clientY:y0,pointerId:1}));
+      await new Promise(z=>setTimeout(z,30));
+      window.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,clientX:x0+dx,clientY:y0,pointerId:1}));
+      await new Promise(z=>setTimeout(z,150)); return true; };
+    const u0=prof();
+    if(!(await gesto(3)))return {salta:'sin nodo de clip'};
+    const b1=clipById(B.id);
+    const clic={existe:!!b1, start:b1?+b1.start.toFixed(3):null, dur:b1?+b1.dur.toFixed(3):null, undo:prof()};
+    await gesto(200);
+    const b2=clipById(B.id);
+    const arrastre={existe:!!b2, dur:b2?+b2.dur.toFixed(3):null, undo:prof()};
+    return {undoAntes:u0, clic:clic, arrastre:arrastre};`);
+  if (r._err) ok(false, 'la sonda del solape no corrio', r._err);
+  else if (r.salta) console.log('      -- ' + r.salta);
+  else {
+    ok(r.clic.existe && r.clic.start === 2 && r.clic.dur === 4, 'un clic con 3 px de temblor NO recorta al vecino solapado', JSON.stringify(r.clic));
+    ok(r.clic.undo === r.undoAntes, 'y no consume historial', r.undoAntes + ' → ' + r.clic.undo);
+    ok(r.arrastre.dur !== null && r.arrastre.dur < 4 && r.arrastre.undo > r.undoAntes, 'control: un arrastre de verdad SI recorta, y con su foto de deshacer', JSON.stringify(r.arrastre));
   }
 }
 
