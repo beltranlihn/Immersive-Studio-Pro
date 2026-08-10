@@ -2,21 +2,20 @@
 
 > Tareas ordenadas de **más rápido de resolver → más complejo**. Marcá `[x]` a medida que se cierran (y actualizá la fila
 > en `COMPONENTS.md` + una entrada en `PLAN.md` en el mismo commit, como manda el ritual de `/commit`).
-> Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: **2026-08-10** (R347).
+> Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: **2026-08-10** (R347b).
 
 ---
 
-# ⏭️ EMPEZAR POR AQUÍ — estado a 2026-08-10, cierre de R347
+# ⏭️ EMPEZAR POR AQUÍ — estado a 2026-08-10, cierre de R347b
 
 Escrito para retomar sin contexto previo. Lo de abajo (secciones con fecha) es historia; esto es lo que queda.
 
-## 1. ⚠️ DESPLEGAR R347b
-Las **tres instalaciones** corren **R347** (`1cec486`), que lleva una **regresión**: al quitar el redondeo a
-entero de `detectFps`, un archivo de 24 o 60 fps EXACTOS en un contenedor de timebase de milisegundos —cualquier
-WebM/MKV, y cualquier MP4 remuxeado de uno— se detecta como 23,976 o 59,94, y de ahí sale la cadencia con la que
-se hornea el proxy. **R347b lo revierte al estimador correcto** (el demuxador decide NTSC vs entero; la
-reproducción vuelve a redondear) y cierra los otros catorce hallazgos de la revisión, entre ellos que **todo
-material de 25p se detectaba como 24 desde el commit inicial**.
+## 1. ✅ Nada pendiente de desplegar
+El repositorio y las **tres instalaciones** van por **R347b** (`54852cd`), verificadas por sha1 el 2026-08-10.
+R347b arregla la regresión que R347 había desplegado (al quitar el redondeo a entero, un 24 o 60 EXACTOS en un
+contenedor de timebase de milisegundos se detectaba como 23,976 o 59,94) poniendo dos estimadores: el demuxador
+decide NTSC vs entero, la reproducción vuelve a redondear. Y cierra los otros catorce hallazgos de la revisión,
+entre ellos que **todo material de 25p se detectaba como 24 desde el commit inicial**.
 ```bash
 npm run dist && powershell -NoProfile -ExecutionPolicy Bypass -File "scripts/deploy-verificado.ps1" && git push
 ```
