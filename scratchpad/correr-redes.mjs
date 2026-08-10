@@ -66,6 +66,12 @@ const REDES = [
      ping-pong no tenia red. Vigila la CONCLUSION -que fotograma se entrega alrededor del giro- porque una
      sonda que preguntara "?el instante cae dentro de la ventana?" habria aprobado la regresion. */
   ['r346c-pingpong.mjs',          'el giro de un bucle en ping-pong no repite fotograma'],
+  /* [R347] NTSC, que era el agujero que R346 dejo escrito y nadie habia medido. Vigila las dos direcciones:
+     que la tolerancia aguante 23,976/29,97/59,94, y que `detectFps` devuelva la cadencia REAL — ni redondeada
+     al entero (la rejilla del proxy derivaria) ni bajada a la NTSC vecina en material de cadencia entera, que
+     es el riesgo que introdujo el propio arreglo. Su material se fabrica con `r347-material-ntsc.mjs`; sin el
+     sale con codigo 3 (NO MEDIDA). */
+  ['r347-ntsc.mjs',               'NTSC: la tolerancia aguanta y la cadencia detectada es la real'],
 ];
 
 /* Sin app levantada no se distingue «rojo» de «no medido», y esa confusión es justo la que hace inútil una red. */

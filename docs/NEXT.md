@@ -2,18 +2,19 @@
 
 > Tareas ordenadas de **más rápido de resolver → más complejo**. Marcá `[x]` a medida que se cierran (y actualizá la fila
 > en `COMPONENTS.md` + una entrada en `PLAN.md` en el mismo commit, como manda el ritual de `/commit`).
-> Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: **2026-08-10** (R346c).
+> Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: **2026-08-10** (R347).
 
 ---
 
-# ⏭️ EMPEZAR POR AQUÍ — estado a 2026-08-10, cierre de R346c
+# ⏭️ EMPEZAR POR AQUÍ — estado a 2026-08-10, cierre de R347
 
 Escrito para retomar sin contexto previo. Lo de abajo (secciones con fecha) es historia; esto es lo que queda.
 
-## 1. ✅ Nada pendiente de desplegar
-El repositorio y las **tres instalaciones** van por **R346c** (`8b5d5c8`), verificadas por sha1 el 2026-08-10.
-R346c revierte la regresión que R346b había desplegado (el tope del espejo del ping-pong, que congelaba un
-fotograma durante tres en cada giro) y cierra los otros catorce hallazgos de aquella revisión.
+## 1. ⚠️ DESPLEGAR R347
+Las **tres instalaciones** corren **R346c** (`8b5d5c8`). R347 arregla un fallo de producción que no tienen:
+`detectFps` redondeaba las cadencias NTSC al entero (59,94 → 60), y como `m.fps` manda en la rejilla de seek del
+generador de proxys, **el proxy de un clip NTSC deriva un fotograma cada 16,7 s** — en uno de 10 minutos, ~36
+fotogramas al final. Lo que se previsualiza deja de ser lo que se exporta.
 ```bash
 npm run dist && powershell -NoProfile -ExecutionPolicy Bypass -File "scripts/deploy-verificado.ps1" && git push
 ```
@@ -28,9 +29,14 @@ frontera, en los DOS caminos. Detalle en su sección de abajo y en `PLAN.md › 
 red cubre 40 fotogramas seguidos de **dos archivos, a 24 y a 60 fps** (cada uno con la cadencia que dice su
 demuxador), por los dos caminos; el cambio afecta a **todo máster 1:1**, así que merece una pasada con material
 de Beltrán antes de darlo por asentado en producción.
-**Y una pregunta abierta que la medida deja servida:** con material NTSC (23,976 / 29,97 / 59,94) no se ha
-medido nada. La tolerancia de 2 µs no depende de la cadencia —por eso se eligió frente al centro del fotograma,
-que sí—, pero «no depende» es un argumento, no una medida.
+**[R347] Y la pregunta NTSC que quedaba servida: MEDIDA, y con dos resultados opuestos.** Fabricado material
+exacto de 30 s en las tres cadencias (`r347-material-ntsc.mjs`). La **tolerancia aguanta**: 0 repetidos,
+0 saltados y 0 desplazados por los dos caminos, al 60 % del archivo, en 23,976 / 29,97 / 59,94. La **cadencia
+detectada no**: `detectFps` redondeaba a entero antes de canonizar, y con la rejilla canonizada salían **40 de
+40 fotogramas desplazados**. Arreglado, con la red 31 (`r347-ntsc.mjs`) vigilando las dos direcciones —que no
+redondee NTSC al entero, y que no baje a NTSC un material de 24 o 60 exactos, que es el riesgo del propio
+arreglo—. Queda dicho también que medio argumento de R346 contra el centro del fotograma se cae con esto: lo que
+sostiene la decisión es el daño acotado, no ya la canonización.
 
 ## 3. 🐢 Dos optimizaciones MEDIDAS, dejadas fuera a propósito
 - **El bucle se re-decodifica entero en cada vuelta.** `BEHIND` son 2 fotogramas (`app.js`, constantes de
@@ -59,9 +65,13 @@ que sí—, pero «no depende» es un argumento, no una medida.
   se ponen rojas en los dos caminos de carga); las que no se validaron así resultaron ser aprobados vacíos.
 - **Medir la CONCLUSIÓN, no la premisa.** R342 vivió dos rondas dado por bueno porque su sonda medía que el
   demuxador leía la edit list, no que el fotograma entregado fuese el correcto.
-- `npm run redes` = 30 redes; `npm test` = 6. Las dos deben pasar antes de compilar. El guardián de acentos
-  graves de `correr-redes.mjs` funciona ahora por PARIDAD y vigila las 30: **mirar su cabecera**, que una vez
+- `npm run redes` = 31 redes; `npm test` = 6. Las dos deben pasar antes de compilar. El guardián de acentos
+  graves de `correr-redes.mjs` funciona ahora por PARIDAD y vigila las 31: **mirar su cabecera**, que una vez
   se dieron por buenos tres avisos sin leerlos (y en R346b cantó dos veces, las dos con razón).
+- **[R347] Nunca reescribir un documento con `Get-Content`/`Set-Content` de PowerShell.** Al actualizar la
+  cuenta de redes con un `-replace` se recodificó `docs/NEXT.md` entero a mojibake (720 líneas, todos los
+  acentos) y encima el reemplazo no llegó a aplicarse. `CLAUDE.md` ya avisa de esto para los `.ps1`; vale para
+  cualquier archivo con acentos. Se restauró con `git checkout --` y se rehízo con la herramienta de edición.
 - **[R346c] Un cambio sin red es un cambio sin medir, aunque venga de una revisión.** R346b aplicó quince
   hallazgos: catorce traían números y salieron bien; **el único que traía un razonamiento —marcado PLAUSIBLE—
   fue el que metió una regresión, y se desplegó**. La revisión siguiente lo cazó porque midió la conclusión.

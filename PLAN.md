@@ -1,5 +1,40 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 347 — NTSC: la tolerancia aguanta, la cadencia detectada no
+
+Las dos preguntas que R346 dejó escritas en la cola y nadie había medido. Fabricado material NTSC exacto de
+30 s en las tres cadencias (`r347-material-ntsc.mjs`: 24000/1001, 30000/1001, 60000/1001, comprobado con
+ffprobe, que no es el demuxador de la app). **La duración es parte del banco:** el error relativo de canonizar
+NTSC es 1/1001, así que la deriva alcanza medio fotograma en `1001/(2·fps)` — 8,3 s a 59,94 pero **20,9 s a
+23,976**. La primera versión salió de 8 s y no podía discriminar: habría dado un aprobado vacío.
+
+**P1 — la tolerancia aguanta.** Con la rejilla de la cadencia real, al 60 % del archivo, los tres ficheros dan
+**0 repetidos, 0 saltados, 0 desplazados** por los dos caminos, y los dos caminos coinciden en todo. El
+argumento de R346 («la tolerancia no depende de la cadencia, el centro del fotograma sí») ya es una medida.
+
+**P2 — `detectFps` sí estaba roto, y era más gordo de lo que parecía.** Hacía `canon(Math.round(1/md))`, y el
+culpable no era la tolerancia de `canon` sino ese **`Math.round`, que es anterior**: 59,94006 → 60, 23,976 → 24.
+Y `m.fps` manda en la rejilla de seek del generador de proxys, así que sobre NTSC esa rejilla **deriva**:
+**medido, 40 de 40 fotogramas desplazados** al 60 % del archivo, en los tres. En un clip de 10 minutos el final
+del proxy va ~36 fotogramas por detrás del original — o sea que lo que se previsualiza deja de ser lo que se
+exporta, cada vez más. Ahora la mediana entra en `canon` sin redondear y el juego de tasas incluye las tres
+NTSC, eligiendo la más cercana; se puede distinguir porque `mediaTime` es el pts exacto (la mediana vale
+1001/30000 clavado, y 59,94 dista 0,06 de 60, mil veces el ruido de esa medida).
+
+**Y el control en el otro sentido, que es el riesgo que introduce el propio arreglo:** que al dejar de redondear,
+un material de 24 o 60 **exactos** pase a detectarse como 23,976 o 59,94 y la rejilla derive al revés. Medido:
+24 → 24 y 60 → 60. Está dentro de la red, no fue una comprobación de una vez.
+
+**Red 31: `scratchpad/r347-ntsc.mjs`**, con las tres cosas dentro — la tolerancia sobre la rejilla real, la
+cadencia detectada en las dos direcciones, y un control que exige que **con la rejilla entera el desplazamiento
+siga viéndose**: si no se ve, el tramo medido no está bastante lejos del principio y todo lo demás no prueba
+nada. Material no versionado; sin él sale con código 3 (NO MEDIDA).
+
+**De paso, una consecuencia honesta:** la mitad del argumento con el que R346 descartó el centro del fotograma
+era «`detectFps` canoniza 59,94 a 60». Eso ya no es cierto, así que esa mitad se cae. La decisión sigue en pie
+por lo otro —daño acotado a 2 µs y ninguna suposición de rejilla uniforme, que un VFR no cumple—, y así queda
+escrito en los dos sitios donde estaba el argumento entero.
+
 ## ROUND 346c — La revisión de R346b: el arreglo sin medida era el que rompía
 
 R346b aplicó los quince hallazgos de la revisión de R346. Catorce venían con números detrás. **El único que

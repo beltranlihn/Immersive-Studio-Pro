@@ -3097,10 +3097,25 @@ function makeThumb(m){const c=document.createElement('canvas');c.width=108;c.hei
    Por qué importaba: `m.fps` manda en la tasa del PROXY (se generaban a 30 → la mitad de los fotogramas), en el
    índice del caché de scrub-ahead (`_raVidFrame`) y en cualquier cuenta de tiempo↔fotograma. Un 60p editado como
    30p miente sobre qué fotograma se está viendo. Se añade 120 a las tasas canónicas. */
+/* [R347] NTSC: 59,94 no es 60, y redondear a entero lo borraba antes de que nadie pudiera distinguirlo.
+   `calc` hacía `canon(Math.round(1/md))`, así que 59,94006 salía 60 y 23,976 salía 24 — no por la tolerancia de
+   `canon`, sino por ese `Math.round`, que es anterior. Y `m.fps` manda en la rejilla de seek del generador de
+   proxys (`makeProxy`: `total=Math.round(dur*fps)`, `us=1e6/fps`), así que sobre material NTSC esa rejilla
+   DERIVA: el error relativo de la canonización es 1/1001, o sea que la deriva alcanza medio fotograma —el punto
+   en el que se empieza a hornear otro fotograma— en `1001/(2·fps)` segundos (8,3 s a 59,94) y crece un
+   fotograma más cada `1001/fps` (16,7 s). **MEDIDO** sobre material NTSC exacto de 30 s, al 60 % del archivo:
+   con la rejilla de la cadencia real, 0 fotogramas desplazados por los dos caminos; con la canonizada, **40 de
+   40 desplazados** en los tres archivos (`scratchpad/r347-ntsc.mjs`). En un clip de 10 minutos el final del
+   proxy va ~36 fotogramas por detrás del original: lo que se previsualiza deja de ser lo que se exporta.
+   Ahora la mediana entra en `canon` SIN redondear y el juego de tasas incluye las tres NTSC, eligiendo la MÁS
+   CERCANA — 24 sigue ganando a 23,976 cuando el material es de 24 exacto, porque la distancia es 0.
+   Se puede distinguir: `mediaTime` es el pts exacto del fotograma, así que la mediana de los intervalos vale
+   1001/30000 clavado, y 59,94 dista 0,06 de 60 — mil veces más que el ruido de esa medida. */
 function detectFps(v,m,done){let fin=false;
-  const canon=f=>{ for(const cc of[24,25,30,48,50,60,120])if(Math.abs(f-cc)<=1.2)return cc; return f; };
+  const FPS_CANON=[24000/1001,24,25,30000/1001,30,48,50,60000/1001,60,120];
+  const canon=f=>{ let mejor=f, dd=Infinity; for(const cc of FPS_CANON){ const x=Math.abs(f-cc); if(x<dd){ dd=x; mejor=cc; } } return dd<=1.2?mejor:f; };
   const calc=arr=>{ if(arr.length<3)return 0; const e=arr.slice().sort((a,b)=>a-b); const md=e[Math.floor(e.length/2)]||0;
-    return md>0?canon(Math.round(1/md)):0; };
+    return md>0?canon(1/md):0; };
   let _to=null,_onEnd=null;   /* [R327] el oyente se RETIRA al terminar. Con `{once:true}` solo se autodesregistra si llega a dispararse, y en el camino normal la medida acaba en el fotograma 10: quedaba colgado del `<video>` del medio —que es de larga vida— y cada reproduccion posterior que llegara al final ejecutaba un `v.pause()` inesperado sobre un elemento que puede estar sirviendo al visor. */
   const fn=f=>{if(fin)return;fin=true;if(_to)clearTimeout(_to);if(_onEnd){try{v.removeEventListener('ended',_onEnd);}catch(_){}_onEnd=null;}if(f>0)m.fps=f;if(done)done();};
   if(!v.requestVideoFrameCallback){fn(0);return;} let last=null,d=[],n=0;
@@ -3497,7 +3512,7 @@ function mediaProperties(m){ const rows=[]; const add=(k,v)=>{ if(v!=null&&v!=='
   const kindLbl={video:T('Video','Vídeo'),image:T('Image','Imagen'),audio:'Audio',sequence:T('Image sequence','Secuencia de imágenes'),nest:T('Sequence / composition','Secuencia / composición'),text:T('Text','Texto'),shape:T('Shape','Forma'),ndi:'NDI',adjust:T('Adjustment','Ajuste')}[m.kind]||m.kind;
   add(T('Name','Nombre'),m.name); add(T('Type','Tipo'),kindLbl);
   if(m.kind!=='audio'&&m.w>1)add(T('Resolution','Resolución'),m.w+' × '+m.h+' px');
-  if((m.kind==='video'||m.kind==='sequence'||m.kind==='nest')&&m.fps)add(T('Frame rate','Velocidad'),m.fps+' fps');
+  if((m.kind==='video'||m.kind==='sequence'||m.kind==='nest')&&m.fps)add(T('Frame rate','Velocidad'),(Math.round(m.fps*1000)/1000)+' fps');   /* [R347] desde que las tasas NTSC no se canonizan, `m.fps` puede ser 59,94006: se muestra a tres decimales (59,94) en vez de con la cola binaria */
   if(m.dur&&m.kind!=='image')add(T('Duration','Duración'),fmtDur(m.dur)+'  ('+m.dur.toFixed(2)+' s)');
   if(m.kind==='sequence'&&m.framePaths)add(T('Frames','Fotogramas'),m.framePaths.length);
   if(m.buffer){ add(T('Sample rate','Frecuencia'),m.buffer.sampleRate+' Hz'); add(T('Channels','Canales'),m.buffer.numberOfChannels); }
