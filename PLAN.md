@@ -1,5 +1,31 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 350 — La selección por arrastre se ve mientras se arrastra
+
+Petición de Beltrán: *«cuando arrastro en el timeline para seleccionar clips, quiero que se vayan seleccionando a
+medida que el arrastre los va tocando. Que se sienta realtime»*. Se resolvía **entera en el `pointerup`**: durante
+todo el gesto no se veía nada y al soltar aparecían cuatro clips marcados de golpe, sin saber hasta ese momento
+qué se estaba cogiendo.
+
+El cálculo ya existía —era la primera línea de la rama `else` de `up`—, así que lo único que hacía falta era
+llamarlo también en el movimiento. Se extrae a `idsEnRango()`, **una sola implementación** que usan los dos
+caminos: no hay copia que pueda quedarse atrás.
+
+**Lo que va en vivo y lo que no, y por qué.** En vivo: el resaltado de los clips y el contador de la barra de
+estado, que es lo que se mira mientras se arrastra. Al soltar: `renderInspector()`, que rehace el panel entero —
+durante el barrido pasaría por cinco clips distintos parpadeando, y costaría justo lo que haría que dejara de
+sentirse inmediato. Y el repintado sólo ocurre cuando el conjunto **cambia de verdad** (se compara la firma),
+que son unas pocas veces por gesto —al cruzar el borde de un clip— en vez de sesenta por segundo.
+
+**Red:** `scratchpad/r350-seleccion-viva.mjs` (34 en total). Mide lo que hay **en pantalla** —la clase `.sel` del
+nodo— y no `state.selIds`: el estado podría ir bien sin repintar, que es exactamente el fallo que se venía a
+quitar. Cuatro clips y cuatro pasos de barrido: **1 · 2 · 3 · 4**, y con la reconstrucción del estado anterior,
+plano (0 · 0 · 0 · 0).
+
+**Y el manual en PDF, al `.gitignore`** (decisión de Beltrán): es un entregable, no fuente — se genera desde
+`docs/manual/` y se reparte aparte. Versionarlo metía varios MB de binario en cada revisión y ensuciaba
+`git status` en cada sesión.
+
 ## ROUND 349b — La revisión de R349: el umbral de arrastre abrió una puerta a perder material
 
 Cinco hallazgos, tres de producción y los tres **de la propia ronda de ayer**. Los dos primeros son la misma

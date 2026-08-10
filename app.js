@@ -5493,10 +5493,27 @@ function lanesBetweenY(yA,yB){ const lo=Math.min(yA,yB),hi=Math.max(yA,yB); cons
 function startTimeSelect(e,c){ const rect=$('#tracks').getBoundingClientRect(); const xT=ev=>Math.max(0,(ev.clientX-rect.left)/state.tl.pxPerSec); const y0=e.clientY;
   const snap=v=>{ if(!e.altKey){ const sn=applySnap(v,c?c.id:null); if(sn.snap!=null)return sn.val; } return v; };
   let a=snap(xT(e)); state.tl.selA=a; state.tl.selB=a; state.tl.selLanes=c?[c.lane]:lanesBetweenY(y0,y0); renderTimeSel(); let moved=false; // click drops an insert marker; the playhead (thick line) does NOT move — play() starts from here
-  const mv=ev=>{ let b=Math.max(0,(ev.clientX-rect.left)/state.tl.pxPerSec); if(!ev.altKey){const sn=applySnap(b,c?c.id:null); if(sn.snap!=null)b=sn.val;} state.tl.selB=b; const ln=lanesBetweenY(y0,ev.clientY); state.tl.selLanes=ln.length?ln:(c?[c.lane]:state.tl.selLanes); if(Math.abs(b-a)>0.002)moved=true; renderTimeSel(); };
+  /* [R350] Los clips se marcan MIENTRAS se arrastra, no al soltar. El cálculo ya existía —era la primera línea
+     de la rama `else` de `up`—; lo único que hacía falta era llamarlo también en el movimiento, así que aquí no
+     se duplica nada: `idsEnRango` es la ÚNICA implementación y la usan los dos.
+     Se repinta sólo cuando el conjunto CAMBIA de verdad (la firma), que ocurre unas pocas veces por gesto —al
+     cruzar el borde de un clip— y no en cada `pointermove`: repintar sesenta veces por segundo lo que no ha
+     cambiado es justo lo que haría que dejara de sentirse inmediato. Por eso también se queda fuera
+     `renderInspector()`, que rehace el panel entero: durante el barrido pasaría por cinco clips distintos
+     parpadeando; el panel se pinta una vez, al soltar. Lo que sí va en vivo es el resaltado y el contador de la
+     barra de estado, que es lo que se mira mientras se arrastra. */
+  let _firmaSel=null;
+  const idsEnRango=()=>{ const lo=Math.min(state.tl.selA,state.tl.selB),hi=Math.max(state.tl.selA,state.tl.selB); const lanes=state.tl.selLanes||[];
+    return state.clips.filter(x=>lanes.includes(x.lane)&&x.start<hi-1e-4&&x.start+x.dur>lo+1e-4).map(x=>x.id); };
+  const pintarSel=ids=>{ const firma=ids.join(','); if(firma===_firmaSel)return false; _firmaSel=firma;
+    state.selIds=ids; state.selId=ids[ids.length-1]||null; state.selGroupId=null; if(ids.length)laneDesel();
+    const set=new Set(ids); $$('.clip').forEach(x=>x.classList.toggle('sel',set.has(+x.dataset.clip))); updStatus(); return true; };
+  const mv=ev=>{ let b=Math.max(0,(ev.clientX-rect.left)/state.tl.pxPerSec); if(!ev.altKey){const sn=applySnap(b,c?c.id:null); if(sn.snap!=null)b=sn.val;} state.tl.selB=b; const ln=lanesBetweenY(y0,ev.clientY); state.tl.selLanes=ln.length?ln:(c?[c.lane]:state.tl.selLanes); if(Math.abs(b-a)>0.002)moved=true; renderTimeSel(); if(moved)pintarSel(idsEnRango()); };
   const up=()=>{ window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up);
     if(!moved){ /* pure click = keep a thin insert marker at the click on this one lane (does NOT move the playhead); deselect clips */ state.tl.selA=state.tl.selB=a; state.tl.selLanes=c?[c.lane]:lanesBetweenY(y0,y0); renderTimeSel(); if(c){ state.selIds=[c.id]; state.selId=c.id; laneDesel(); ensureClipVisible(c); /* [R94-UT2·U-01] */ } else { state.selIds=[]; state.selId=null; } state.selGroupId=null; renderInspector(); $$('.clip').forEach(x=>x.classList.toggle('sel',state.selIds.includes(+x.dataset.clip))); updStatus(); }
-    else { const lo=Math.min(state.tl.selA,state.tl.selB),hi=Math.max(state.tl.selA,state.tl.selB); const lanes=state.tl.selLanes||[]; const ids=state.clips.filter(x=>lanes.includes(x.lane)&&x.start<hi-1e-4&&x.start+x.dur>lo+1e-4).map(x=>x.id); state.selIds=ids; state.selId=ids[ids.length-1]||null; state.selGroupId=null; if(ids.length)laneDesel(); renderInspector(); $$('.clip').forEach(x=>x.classList.toggle('sel',state.selIds.includes(+x.dataset.clip))); updStatus(); flashStatus(T('Selection ','Selección ')+fmtTime(lo)+' → '+fmtTime(hi)+' · '+lanes.length+(lanes.length===1?T(' track',' pista'):T(' tracks',' pistas'))); } };
+    else { const lo=Math.min(state.tl.selA,state.tl.selB),hi=Math.max(state.tl.selA,state.tl.selB); const lanes=state.tl.selLanes||[];
+      pintarSel(idsEnRango());   // [R350] normalmente ya está pintado por el último `mv`: la firma coincide y no repinta. Se llama igual porque soltar tiene que dejar la selección cerrada aunque no llegara ningún movimiento tras el último cruce
+      renderInspector(); flashStatus(T('Selection ','Selección ')+fmtTime(lo)+' → '+fmtTime(hi)+' · '+lanes.length+(lanes.length===1?T(' track',' pista'):T(' tracks',' pistas'))); } };
   window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up); }
 function renderTimeSel(){ const el=$('#timeSel'); if(!el)return; const a=state.tl.selA,b=state.tl.selB; if(a==null||b==null){ el.style.display='none'; el.style.top=''; el.style.bottom=''; el.style.height=''; el.classList.remove('insert'); return; } const lo=Math.min(a,b),hi=Math.max(a,b); const isInsert=Math.abs(b-a)<1e-4; el.classList.toggle('insert',isInsert); el.style.display='block'; el.style.left=(lo*state.tl.pxPerSec)+'px'; el.style.width=(isInsert?0:((hi-lo)*state.tl.pxPerSec))+'px';
   const lanes=state.tl.selLanes; // span only the selected tracks vertically (Ableton)

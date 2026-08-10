@@ -43,3 +43,7 @@ vendor/ffmpeg/win/*
 vendor/ffmpeg/mac/*
 !vendor/ffmpeg/*/.gitkeep
 docs/manual/build/salida/
+
+# [R350] El manual en PDF es un ENTREGABLE, no fuente: se genera desde docs/manual/ y Beltran lo reparte
+# aparte. Versionarlo metia un binario de varios MB en cada revision y ensuciaba `git status` en cada sesion.
+Immersive Studio Pro - User Manual.pdf

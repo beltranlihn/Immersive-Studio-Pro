@@ -80,6 +80,10 @@ const REDES = [
      reconstruye el estado anterior y lo ve rojo (6 de 20 alturas de boton, la peor a -528 px). */
   ['r349-cola-proxy.mjs',         'el menu «Generar proxy» genera un proxy de verdad'],
   ['r349-revision.mjs',           'los puntos de la prueba de Beltran: codecs, PNG, menu, transporte, mascara, arrastre y rueda'],
+  /* [R350] La seleccion por arrastre se ve MIENTRAS se arrastra. Mide lo que hay en pantalla (la clase `.sel`
+     del nodo) y no lo que hay en `state.selIds`: el estado podria ir bien sin repintar, que es exactamente el
+     fallo que se venia a quitar. Trae su caso rojo. */
+  ['r350-seleccion-viva.mjs',     'al arrastrar por el timeline los clips se marcan segun los toca el barrido'],
 ];
 
 /* Sin app levantada no se distingue «rojo» de «no medido», y esa confusión es justo la que hace inútil una red. */
