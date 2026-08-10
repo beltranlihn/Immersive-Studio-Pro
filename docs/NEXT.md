@@ -10,11 +10,11 @@
 
 Escrito para retomar sin contexto previo. Lo de abajo (secciones con fecha) es historia; esto es lo que queda.
 
-## 1. ⚠️ DESPLEGAR R347
-Las **tres instalaciones** corren **R346c** (`8b5d5c8`). R347 arregla un fallo de producción que no tienen:
-`detectFps` redondeaba las cadencias NTSC al entero (59,94 → 60), y como `m.fps` manda en la rejilla de seek del
-generador de proxys, **el proxy de un clip NTSC deriva un fotograma cada 16,7 s** — en uno de 10 minutos, ~36
-fotogramas al final. Lo que se previsualiza deja de ser lo que se exporta.
+## 1. ✅ Nada pendiente de desplegar
+El repositorio y las **tres instalaciones** van por **R347** (`1cec486`), verificadas por sha1 el 2026-08-10.
+R347 cierra el último fallo de producción conocido: `detectFps` redondeaba las cadencias NTSC al entero
+(59,94 → 60) y, como `m.fps` manda en la rejilla de seek del generador de proxys, el proxy de un clip NTSC
+derivaba un fotograma cada 16,7 s — en uno de 10 minutos, ~36 fotogramas al final.
 ```bash
 npm run dist && powershell -NoProfile -ExecutionPolicy Bypass -File "scripts/deploy-verificado.ps1" && git push
 ```
