@@ -1,5 +1,54 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 346c — La revisión de R346b: el arreglo sin medida era el que rompía
+
+R346b aplicó los quince hallazgos de la revisión de R346. Catorce venían con números detrás. **El único que
+venía con un razonamiento —marcado PLAUSIBLE, no CONFIRMADO— es el que metió una regresión**, y se desplegó.
+
+**La regresión: el tope del ping-pong.** La revisión de R346 dijo que el espejo `ph=L-ph` mapea `ph=0` a `ph=L`,
+el extremo EXCLUIDO de la ventana `[inP, inP+loopLen)`, así que la vuelta de ida empezaba un fotograma fuera del
+bucle. Cierto. Lo que no comprobé es qué pasa al toparlo: **`Math.min` no corre la rampa, aplana el vértice
+sobre su vecino.** El espejo ya hace que la muestra anterior al vértice y la posterior caigan en el mismo tiempo
+de origen; lo único que las separaba era que el vértice cayera en otro fotograma. Medido replicando las dos
+versiones de `srcT` con `keyForTime`: el giro pasa de `22,23,24,23,22` a `22,23,23,23,22`, **una meseta de tres
+fotogramas — 125 ms de tirón a 24 fps, horneada en el export**. Barrido de 4000 configuraciones: **604
+empeoradas contra 346 mejoradas** (y sólo mejora cuando la salida diezma la fuente, 60p→24p), **0 en las que el
+tope quitara una congelación**. Y lo que lo cierra: **ningún tamaño de tope funciona** — 4 µs, 1 ms, medio
+fotograma y un fotograma entero dan la misma meseta. Revertido a `ph=L-ph`, con la nota puesta en el sitio para
+que no se vuelva a intentar y con la forma correcta escrita (restar un PASO DE FOTOGRAMA con el fps de la
+FUENTE, no un épsilon de tiempo).
+
+**Y la razón de fondo, que es la que importa:** ese cambio **no tenía red**. Ninguno de los siete cambios de
+R346b la tenía salvo el que venía de R346. Ahora la tiene (`scratchpad/r346c-pingpong.mjs`, la número 30), y
+mide la CONCLUSIÓN —qué fotograma se entrega alrededor del giro— porque una sonda que preguntara «¿el instante
+cae dentro de la ventana?» **habría aprobado la regresión**: mide la premisa.
+
+**Lo demás que la revisión encontró y se ha cerrado.** Dos de producción anteriores a esta ronda: `scrubRender`
+y `raPrerenderRange` abanican `vinstSeek` sobre todos los clips dibujados y los esperan sin subir el tope de
+instancias, así que con más de `VINST_MAX` el propio abanico desaloja lo que espera y la previsualización se
+congela sin error (R189 lo guardó sólo en `seekExport`; ahora la decisión vive en `vinstCapPara` y la usan los
+tres); y la vuelta del bucle recolocaba `m.el` a 0 —el elemento por MEDIO, del que ya no se dibuja— en vez de
+cada clip a su tiempo local de `workIn`, con lo que con un tramo corto no resincronizaba nadie y se veía
+material de FUERA del bucle. Más: `play()` posicionaba en una microtarea *después* de arrancar la reproducción;
+la clave de agrupación de `seekExport` pasa a `Math.floor`, que es literalmente el entero que recibe
+`keyForTime`; `seekMedia` entra en el contrato; y la tolerancia del proxy baja a `seekRaw`, que es quien
+posiciona.
+
+**Tres afirmaciones mías, falsas, corregidas donde estaban copiadas.** «La milésima es 24 veces más gruesa que
+un fotograma» está invertida (a 24 fps es ~42 veces más FINA). `instanteDecod` dentro de la clave de agrupación
+**no arregla nada** —sumar una constante entera de µs antes de redondear no puede cambiar ninguna partición,
+medido en 6,5 M de valores: idéntico en el 100 %—, y sin embargo el comentario, `COMPONENTS.md` y el mensaje del
+commit se lo apuntaban; lo único que arregló fue `1e3`→`1e6`. Y la regla «todo instante que se le pide a un
+decodificador» la contradicen las dos escrituras de `<audio>` que están dentro de las mismas funciones que la
+lista daba por barridas: ahora dice «de vídeo» y explica por qué el audio queda fuera. La lista de sitios
+escrita a mano se sustituye por la regla más `grep instanteDecod(`, que no caduca.
+
+**Y una cita que no decía lo que le atribuí.** El cierre del pendiente de R256 se apoyaba en «lo dice la
+cabecera de `r256-aceptacion.mjs`»; esa cabecera habla del CAMINO de decodificación y del bloqueo, y no dice
+nada de qué `srcT` había en el árbol cuando se capturó la referencia. El número (8 parejas de 48 con el `srcT`
+pre-R256) sigue cuadrando, así que la explicación se queda — pero escrita como la reconstrucción que es, en los
+tres sitios donde estaba como hecho citado.
+
 ## ROUND 346 — Un máster a la cadencia de la fuente repetía un fotograma de cada tres
 
 Salí a cerrar el único punto de código abierto de `docs/NEXT.md` —«el repliegue `<video>` del export no es
@@ -7,12 +56,18 @@ fiable al fotograma»— y lo primero que hizo la medida fue **desmentir su hip�
 R256. Debajo había un fallo bastante mayor, en el camino principal.
 
 **De dónde salían las «8 de 48 parejas» de R256, que la nota dejaba sin explicar.** Reproducida la configuración
-de aquella sonda contra el `srcT` de entonces: las producían **los dos fallos de `srcT` que R256 arregló en la
-misma ronda** (pre-R256 da exactamente 8 parejas distintas de 48, cuatro de ellas un fotograma vecino), y la
-referencia con la que se comparó se capturó **sin el arreglo** — lo dice la cabecera de
-`scratchpad/r256-aceptacion.mjs`. El ticket se abrió *después* del commit que lo arreglaba: nació caducado, y
-por eso nada posterior lo reprodujo. Sin esta frase quedaba un síntoma medido y sin causa al lado de una casilla
-tachada — que es la forma exacta del pendiente equivocado del que sale toda esta ronda.
+de aquella sonda contra el `srcT` de entonces: **el `srcT` anterior a R256 da exactamente 8 parejas distintas de
+48**, cuatro de ellas un fotograma vecino — el mismo número y la misma forma que el ticket. La explicación que
+encaja es que los producían los dos fallos de `srcT` que R256 arregló en su propia ronda, y que la referencia
+con la que se comparó se capturó antes de ese arreglo; el ticket se abrió *después* del commit que lo arreglaba,
+o sea que nació caducado, y por eso nada posterior lo reprodujo.
+**[R346c] Con el alcance dicho como es:** eso es una RECONSTRUCCIÓN que cuadra, no algo que diga ningún
+artefacto. La cabecera de `scratchpad/r256-aceptacion.mjs` —que R346b citó como prueba— dice qué CAMINO de
+decodificación usó la referencia y qué arreglo del bloqueo faltaba, y **no dice nada de qué `srcT` había en el
+árbol** cuando se capturaron los PNG; los volcados que lo zanjarían (`scratchpad/r256-ref-1/`, `r256-bucle-1/`)
+no están en el repositorio. Se deja escrito así, como hipótesis que cuadra con el número, en vez de como hecho
+citado: un `[x]` apoyado en una cita que no dice lo que se le atribuye tiene exactamente la forma del pendiente
+caducado que esta ronda vino a quitar.
 
 **Lo que decía la nota y no es cierto.** Decía que `vinstSeekVideo` «fija `currentTime`, espera `seeked` y sube
 lo que haya: es una carrera con la presentación». Medido con `requestVideoFrameCallback` sobre el elemento en

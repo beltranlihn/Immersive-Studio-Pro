@@ -60,35 +60,42 @@ const esperar = ms => new Promise(r => setTimeout(r, ms));
 await ev(`(async()=>{ await newProject('dome',1024,1024,30,180,true); if(typeof hideLanding==='function')hideLanding(); })()`);
 await esperar(1200);
 
-const PAGINA = (ruta) => `(async()=>{ let restaurar=null; try{
+const PAGINA = (ruta) => `(async()=>{
+  /* [R346c] La recogida se arma ANTES de coger nada. La version anterior asignaba restaurar despues de crear
+     la textura, empujar el medio y llamar a addClip -que por dentro hace pushUndo, renderTimeline,
+     renderInspector y un render() de GL-, asi que cualquier fallo en esa ventana dejaba el finally sin nada
+     que llamar: exactamente la fuga que el encabezado dice cerrada. Ahora los huecos se rellenan segun se
+     cogen y restaurar suelta lo que haya. */
+  let m=null, c=null, v0=null, upOrig=null;
+  const restaurar=()=>{
+    try{ if(upOrig)upTex=upOrig; }catch(e){}
+    try{ _exCD=false; }catch(e){}
+    try{ if(m)m._cdFail=false; }catch(e){}
+    try{ if(c)vinstDispose(c.id); }catch(e){}
+    try{ if(m&&m.tex)gl.deleteTexture(m.tex); }catch(e){}
+    try{ if(c){ const ic=state.clips.indexOf(c); if(ic>=0)state.clips.splice(ic,1); } }catch(e){}
+    try{ if(m){ const im=state.media.indexOf(m); if(im>=0)state.media.splice(im,1); } }catch(e){}
+    try{ if(v0){ v0.removeAttribute('src'); v0.load(); } }catch(e){}
+    try{ renderMedia(); }catch(e){}
+  };
+  try{
   const RUTA=${JSON.stringify(ruta)}, I0=90, NUM=40;
   /* La cadencia sale del demuxador, no de una constante: la red cubre dos archivos de distinta cadencia. */
   const dd=await demuxMP4(RUTA); const fps=dd.fps||24; try{dd.close();}catch(e){}
 
   /* --- el medio y su clip, como los crea la aplicacion --- */
   const url=DSP.toFileURL(RUTA);
-  const v0=document.createElement('video'); v0.preload='metadata'; v0.src=url;
+  v0=document.createElement('video'); v0.preload='metadata'; v0.src=url;
   await new Promise((res,rej)=>{ v0.addEventListener('loadedmetadata',()=>res()); v0.addEventListener('error',()=>rej(new Error('el medio no carga'))); });
-  const m={id:uid(),name:'r346',kind:'video',el:v0,originalEl:v0,srcUrl:url,tex:newTex(),w:v0.videoWidth,h:v0.videoHeight,
+  m={id:uid(),name:'r346',kind:'video',el:v0,originalEl:v0,srcUrl:url,tex:newTex(),w:v0.videoWidth,h:v0.videoHeight,
     dur:v0.duration,fps:fps,color:clipColorFor('video'),proxyReady:false,proxyPct:0,path:RUTA,fsize:0,folder:null,missing:false,_loading:false};
   state.media.push(m); renderMedia();
-  addClip(m,0,0); const c=state.clips[state.clips.length-1];
+  addClip(m,0,0); c=state.clips[state.clips.length-1];
   if(!c) throw new Error('no se creo el clip');
 
   /* --- observar la llamada de VERDAD: que VideoFrame sube el codigo a la textura --- */
-  const upOrig=upTex; let ultimo=null, vistas=0;
+  upOrig=upTex; let ultimo=null, vistas=0;
   upTex=function(tex,src){ vistas++; if(src&&typeof src.timestamp==='number')ultimo=src.timestamp; return upOrig.apply(this,arguments); };
-  restaurar=()=>{
-    try{ upTex=upOrig; }catch(e){}
-    try{ _exCD=false; }catch(e){}
-    try{ m._cdFail=false; }catch(e){}
-    try{ vinstDispose(c.id); }catch(e){}
-    try{ if(m.tex)gl.deleteTexture(m.tex); }catch(e){}
-    try{ const ic=state.clips.indexOf(c); if(ic>=0)state.clips.splice(ic,1); }catch(e){}
-    try{ const im=state.media.indexOf(m); if(im>=0)state.media.splice(im,1); }catch(e){}
-    try{ v0.removeAttribute('src'); v0.load(); }catch(e){}
-    try{ renderMedia(); }catch(e){}
-  };
 
   const kDeUs=(us)=>us==null?null:Math.round(us/1e6*fps);
   const kDeSeg=(s)=>s==null?null:Math.round(s*fps);
@@ -107,9 +114,15 @@ const PAGINA = (ruta) => `(async()=>{ let restaurar=null; try{
     return ks; };
 
   /* --- camino <video>, el repliegue: el fotograma PRESENTADO, por mediaTime --- */
+  /* [R346c] _exCD=true TAMBIEN aqui. Con el a false, _useCD sale por su primera linea
+     -if(!(_exCD||state.view.wcDecode))return false- y ni siquiera LEE _cdFail: el camino <video> se tomaba
+     porque WebCodecs esta apagado en previsualizacion, no por el repliegue, y el guardia if(vi.cd) throw era
+     inalcanzable dijera lo que dijera la bandera. Con los dos puestos se reproduce la configuracion de
+     produccion que motivo toda la investigacion: export (_exCD) con el medio caido al repliegue (_cdFail),
+     y el guardia pasa a significar algo. */
   const porVideo=async(cancelarTol)=>{
     vinstDispose(c.id);
-    m._cdFail=true;                                   /* exactamente lo que marca el repliegue en produccion */
+    m._cdFail=true; _exCD=true;
     const ks=[]; let sinPresentar=0;
     try{
       /* CALENTAMIENTO, y no es un detalle: recien creado, el <video> presenta su primer fotograma por su
@@ -134,7 +147,7 @@ const PAGINA = (ruta) => `(async()=>{ let restaurar=null; try{
         /* Sin presentacion nueva es que sigue en pantalla el mismo fotograma: eso ES un repetido, y se
            arrastra el anterior para que la sucesion quede completa y el contador lo vea como tal. */
         ks.push(meta?kDeSeg(meta.mediaTime):(ks.length?ks[ks.length-1]:null)); }
-    } finally { m._cdFail=false; }
+    } finally { m._cdFail=false; _exCD=false; }
     return {ks:ks, sinPresentar:sinPresentar}; };
 
   /* rep + salt + atras: las TRES maneras de romper "de uno en uno". La de atras es la de R344c. */
@@ -149,7 +162,8 @@ const PAGINA = (ruta) => `(async()=>{ let restaurar=null; try{
 
   return JSON.stringify({ fps:+fps.toFixed(3), vistas:vistas, tol:TOL_DECOD,
     cd:{bien:cuenta(cdBien), mal:cuenta(cdMal)},
-    vid:{bien:cuenta(vBien.ks), mal:cuenta(vMal.ks), sinPresentar:vBien.sinPresentar, n:vBien.ks.length} });
+    vid:{bien:cuenta(vBien.ks), mal:cuenta(vMal.ks), n:vBien.ks.length,
+         sinPresentar:vBien.sinPresentar, sinPresentarMal:vMal.sinPresentar} });
 }catch(e){ return 'ERR '+String((e&&e.message)||e).slice(0,300);
 } finally { try{ if(restaurar)restaurar(); }catch(e){} } })()`;
 
@@ -162,20 +176,30 @@ for (const ruta of ARCHIVOS) {
   let o = null;
   try { o = JSON.parse(r); } catch (e) { console.log('   *** ' + nom + ': ' + String(r).slice(0, 400)); malas.push(nom + ': la sonda no llego a medir'); continue; }
 
+  /* [R346c] DOS criterios, no uno. `rotas` (que incluye `nulos`) dice si el tramo esta bien; `discrimina` NO
+     incluye `nulos`, porque un instrumento averiado —el decodificador que se rinde y deja de entregar sellos,
+     o el sondeo de rVFC agotando sus 400 ms— produce `nulos` y con el criterio unico eso bastaba para dar por
+     buena la mitad de «esta red sabe fallar». O sea: una red sin poder de discriminacion se aprobaba a si
+     misma. Que el estado anterior se reproduzca tiene que demostrarlo un REPETIDO o un SALTO, que es el fallo
+     que se esta vigilando, no la ausencia de medida. */
   const rotas = x => x.rep + x.salt + x.atras + x.nulos;
+  const discrimina = x => x.rep + x.salt + x.atras;
   console.log('   ' + nom + '  (' + o.fps + ' fps · tolerancia ' + (o.tol * 1e6).toFixed(1) + ' us · ' + o.vistas + ' subidas observadas)');
   console.log('      ClipDecoder  ARREGLADO: ' + o.cd.bien.rep + ' rep, ' + o.cd.bien.salt + ' salt, ' + o.cd.bien.atras + ' atras, ' + o.cd.bien.nulos + ' sin sello');
-  console.log('      ClipDecoder  sin tolerancia (estado anterior): ' + o.cd.mal.rep + ' rep, ' + o.cd.mal.salt + ' salt, ' + o.cd.mal.atras + ' atras');
-  console.log('      <video>      ARREGLADO: ' + o.vid.bien.rep + ' rep, ' + o.vid.bien.salt + ' salt, ' + o.vid.bien.atras + ' atras, ' + o.vid.bien.nulos + ' sin sello  (de ' + o.vid.n + ')');
-  console.log('      <video>      sin tolerancia (estado anterior): ' + o.vid.mal.rep + ' rep, ' + o.vid.mal.salt + ' salt, ' + o.vid.mal.atras + ' atras');
+  console.log('      ClipDecoder  sin tolerancia (estado anterior): ' + o.cd.mal.rep + ' rep, ' + o.cd.mal.salt + ' salt, ' + o.cd.mal.atras + ' atras, ' + o.cd.mal.nulos + ' sin sello');
+  console.log('      <video>      ARREGLADO: ' + o.vid.bien.rep + ' rep, ' + o.vid.bien.salt + ' salt, ' + o.vid.bien.atras + ' atras, ' + o.vid.bien.nulos + ' sin sello  (de ' + o.vid.n + ', ' + o.vid.sinPresentar + ' sin presentacion nueva)');
+  console.log('      <video>      sin tolerancia (estado anterior): ' + o.vid.mal.rep + ' rep, ' + o.vid.mal.salt + ' salt, ' + o.vid.mal.atras + ' atras, ' + o.vid.mal.nulos + ' sin sello, ' + o.vid.sinPresentarMal + ' sin presentacion nueva');
 
   if (!o.vistas) malas.push(nom + ': no se observo ni una subida de textura, la red no ha medido nada');
   if (!(o.tol > 0)) malas.push(nom + ': TOL_DECOD es ' + o.tol + ', el arreglo no esta puesto');
   if (rotas(o.cd.bien)) malas.push(nom + ' ClipDecoder: el tramo NO es consecutivo (' + o.cd.bien.rep + ' rep, ' + o.cd.bien.salt + ' salt, ' + o.cd.bien.atras + ' atras, ' + o.cd.bien.nulos + ' sin sello)');
   if (rotas(o.vid.bien)) malas.push(nom + ' <video>: el tramo NO es consecutivo (' + o.vid.bien.rep + ' rep, ' + o.vid.bien.salt + ' salt, ' + o.vid.bien.atras + ' atras, ' + o.vid.bien.nulos + ' sin sello)');
+  /* [R346c] El instrumento tiene que haber funcionado: en la corrida BUENA cada seek presenta un fotograma
+     nuevo, asi que un `sinPresentar` distinto de cero es el sondeo de rVFC agotandose, no material repetido. */
+  if (o.vid.sinPresentar) malas.push(nom + ' <video>: ' + o.vid.sinPresentar + ' seeks sin presentacion nueva en la corrida buena — el instrumento (rVFC) no esta midiendo');
   /* La otra mitad: si el estado anterior no se reproduce, esta red no discrimina y no vale como red. */
-  if (!rotas(o.cd.mal)) malas.push(nom + ': la red NO SABE FALLAR — sin la tolerancia el ClipDecoder sigue consecutivo');
-  if (!rotas(o.vid.mal)) malas.push(nom + ': la red NO SABE FALLAR — sin la tolerancia el repliegue <video> sigue consecutivo');
+  if (!discrimina(o.cd.mal)) malas.push(nom + ': la red NO SABE FALLAR — sin la tolerancia el ClipDecoder sigue consecutivo');
+  if (!discrimina(o.vid.mal)) malas.push(nom + ': la red NO SABE FALLAR — sin la tolerancia el repliegue <video> sigue consecutivo');
 }
 
 console.log('');

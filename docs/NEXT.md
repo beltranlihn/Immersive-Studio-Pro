@@ -2,17 +2,18 @@
 
 > Tareas ordenadas de **más rápido de resolver → más complejo**. Marcá `[x]` a medida que se cierran (y actualizá la fila
 > en `COMPONENTS.md` + una entrada en `PLAN.md` en el mismo commit, como manda el ritual de `/commit`).
-> Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: **2026-08-09** (R345b).
+> Códigos = tickets de `CORRECCIONES-V2.md`. Ubicaciones = `COMPONENTS.md`. Última revisión: **2026-08-10** (R346c).
 
 ---
 
-# ⏭️ EMPEZAR POR AQUÍ — estado a 2026-08-09, cierre de R346
+# ⏭️ EMPEZAR POR AQUÍ — estado a 2026-08-10, cierre de R346c
 
 Escrito para retomar sin contexto previo. Lo de abajo (secciones con fecha) es historia; esto es lo que queda.
 
-## 1. ✅ Nada pendiente de desplegar
-El repositorio y las **tres instalaciones** van por **R346** (`3d37b65`), verificadas por sha1 el 2026-08-09;
-R345b se desplegó y empujó el mismo día. Cuando vuelva a haber código nuevo:
+## 1. ⚠️ DESPLEGAR R346c
+Las **tres instalaciones** corren **R346b** (`a9bce14`), que lleva una **regresión**: el tope del espejo del
+ping-pong congelaba un fotograma durante tres en cada giro del bucle, horneado en el export. **R346c la
+revierte** y cierra los otros catorce hallazgos de la revisión. Hasta desplegarlo, la regresión está en producción.
 ```bash
 npm run dist && powershell -NoProfile -ExecutionPolicy Bypass -File "scripts/deploy-verificado.ps1" && git push
 ```
@@ -58,9 +59,13 @@ que sí—, pero «no depende» es un argumento, no una medida.
   se ponen rojas en los dos caminos de carga); las que no se validaron así resultaron ser aprobados vacíos.
 - **Medir la CONCLUSIÓN, no la premisa.** R342 vivió dos rondas dado por bueno porque su sonda medía que el
   demuxador leía la edit list, no que el fotograma entregado fuese el correcto.
-- `npm run redes` = 29 redes; `npm test` = 6. Las dos deben pasar antes de compilar. El guardián de acentos
-  graves de `correr-redes.mjs` funciona ahora por PARIDAD y vigila las 29: **mirar su cabecera**, que una vez
-  se dieron por buenos tres avisos sin leerlos.
+- `npm run redes` = 30 redes; `npm test` = 6. Las dos deben pasar antes de compilar. El guardián de acentos
+  graves de `correr-redes.mjs` funciona ahora por PARIDAD y vigila las 30: **mirar su cabecera**, que una vez
+  se dieron por buenos tres avisos sin leerlos (y en R346b cantó dos veces, las dos con razón).
+- **[R346c] Un cambio sin red es un cambio sin medir, aunque venga de una revisión.** R346b aplicó quince
+  hallazgos: catorce traían números y salieron bien; **el único que traía un razonamiento —marcado PLAUSIBLE—
+  fue el que metió una regresión, y se desplegó**. La revisión siguiente lo cazó porque midió la conclusión.
+  Si un hallazgo no viene con medida, lo primero es medirlo, no aplicarlo.
 - **[R346] Comparar dos implementaciones no verifica ninguna.** El fallo de máster de R346 —un fotograma de cada
   tres repetido— vivió ochenta rondas porque el ClipDecoder y `<video>` se equivocan EN LO MISMO, así que
   enfrentarlos salía «idéntico bit a bit». Cuando exista, el criterio tiene que ser **sin oráculo**: aquí, que
@@ -149,11 +154,14 @@ que sí—, pero «no depende» es un argumento, no una medida.
 > que miden las tres redes de R344. **Comparar dos implementaciones no verifica ninguna.** Lo cazó un criterio
 > sin oráculo: en un export 1:1 los fotogramas van de uno en uno.
 - [x] ~~**Y de dónde salían las «8 de 48 parejas que cambian de pasada en pasada» de R256.**~~ Reproducida la
-      configuración de aquella sonda contra el `srcT` de entonces: **las producían los dos fallos de `srcT` que
-      R256 arregló en esa misma ronda** (pre-R256 da exactamente 8 parejas distintas de 48, cuatro de ellas un
-      fotograma vecino), y la referencia guardada se capturó **sin el arreglo** — lo dice la cabecera de
-      `scratchpad/r256-aceptacion.mjs`. El ticket se abrió DESPUÉS del commit que lo arreglaba: nació caducado,
-      y por eso nada posterior lo reprodujo. No quedaba nada que arreglar en el repliegue.
+      configuración de aquella sonda contra el `srcT` de entonces: **el `srcT` anterior a R256 da exactamente 8
+      parejas distintas de 48**, cuatro de ellas un fotograma vecino — el mismo número y la misma forma. Encaja
+      con que los produjeran los dos fallos de `srcT` que R256 arregló en esa misma ronda, con una referencia
+      capturada antes del arreglo; el ticket se abrió DESPUÉS del commit que lo arreglaba, o sea que nació
+      caducado. **[R346c] Es una reconstrucción que cuadra con el número, no un hecho citado:** la cabecera de
+      `r256-aceptacion.mjs` habla del CAMINO de decodificación y del bloqueo, no de qué `srcT` había en el
+      árbol, y los volcados que lo zanjarían no están en el repositorio. Aun así no queda nada que arreglar en
+      el repliegue: lo que se midió en R346 es que su elección de fotograma coincide con la del ClipDecoder.
 
 ## ✅ Exportar con bucles · CERRADO [R256] — no era una optimización, eran dos fallos
 - [x] **El «×1,7 del bucle» de R254 era en realidad ×25, y por una avería.** Al envolver, el decodificador entraba

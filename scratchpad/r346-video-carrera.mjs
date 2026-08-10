@@ -5,11 +5,14 @@
    parejas que deben repetirse no se repiten, a 34-51 dB, y cambian de pasada en pasada). Antes de tocar el
    codigo hay que saber si la hipotesis es cierta, porque el arreglo es distinto segun la causa:
 
-   [R346b] Y aquellas 8 de 48 quedaron explicadas despues: las producian los DOS fallos de `srcT` que R256
-   arreglo en su misma ronda, y la referencia con la que se comparo se habia capturado SIN el arreglo (lo dice
-   la cabecera de `r256-aceptacion.mjs`). El ticket se abrio despues del commit que lo arreglaba. O sea que el
-   sintoma citado aqui arriba nunca fue del repliegue: se cita tal cual porque es lo que decia la nota que
-   mando escribir esta sonda, no porque siga siendo cierto.
+   [R346b·c] Y aquellas 8 de 48 tienen una explicacion que cuadra: el `srcT` anterior a R256 da exactamente 8
+   parejas distintas de 48, o sea el mismo numero y la misma forma, asi que lo mas probable es que las
+   produjeran los dos fallos de `srcT` que R256 arreglo en su propia ronda, sobre una referencia capturada antes
+   del arreglo — y el ticket se abrio despues del commit que lo arreglaba. OJO: eso es una RECONSTRUCCION, no
+   una cita. La cabecera de `r256-aceptacion.mjs` dice que CAMINO de decodificacion uso la referencia y que
+   arreglo del bloqueo faltaba, y no dice nada de que `srcT` habia en el arbol; R346b la cito como si lo
+   dijera. El sintoma de aqui arriba se transcribe tal cual porque es lo que decia la nota que mando escribir
+   esta sonda, no porque se haya confirmado que fuera del repliegue.
 
      (H1) PRESENTACION: `seeked` se dispara antes de que el fotograma nuevo este disponible para dibujar,
           asi que `drawImage`/`texImage2D` sube el ANTERIOR.  -> arreglo: esperar la presentacion (rVFC).

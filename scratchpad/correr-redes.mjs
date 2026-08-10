@@ -62,6 +62,10 @@ const REDES = [
      1:1 va de uno en uno. Se comprueba a si misma cancelando la tolerancia (`t - TOL_DECOD`), que reconstruye
      el estado anterior sin tocar app.js. */
   ['r346-verif.mjs',              'un export 1:1 entrega fotogramas consecutivos, por los dos caminos'],
+  /* [R346c] La que faltaba, y por eso R346b metio una regresion sin que nada cantara: el cambio del espejo del
+     ping-pong no tenia red. Vigila la CONCLUSION -que fotograma se entrega alrededor del giro- porque una
+     sonda que preguntara "?el instante cae dentro de la ventana?" habria aprobado la regresion. */
+  ['r346c-pingpong.mjs',          'el giro de un bucle en ping-pong no repite fotograma'],
 ];
 
 /* Sin app levantada no se distingue «rojo» de «no medido», y esa confusión es justo la que hace inútil una red. */

@@ -1088,13 +1088,23 @@ function srcT(c,t){ const raw=(t-c.start)*(c.speed||1); // timeline time → SOU
        mover nada real. */
     ph=Math.round(ph*1e9)/1e9;
     if(ph>=L-1e-9){ ph=0; k++; } else if(ph<0){ ph+=L; k--; }
-    /* [R346b] El espejo del ping-pong se toma DESPUÉS de la envoltura, así que `ph=0` salía `ph=L` — el extremo
-       EXCLUIDO de la ventana `[inP, inP+loopLen)` que documenta esta misma función: la vuelta de ida empezaba
-       un fotograma FUERA del bucle. Es anterior a R346 (con pts en microsegundos enteros ya pasaba igual), pero
-       la tolerancia lo dejó a la vista, así que se cierra donde vive. El tope deja margen de sobra por encima
-       de `TOL_DECOD` para que la tolerancia no lo devuelva al otro lado, y sigue siendo cuatro órdenes de
-       magnitud menor que un fotograma. */
-    if(c.loopRev&&(k&1))ph=Math.min(L-ph, L-2*TOL_DECOD); // R88: ping-pong — odd cycles play backward (forward, back, forward, …)
+    /* [R346c] NO TOPAR ESTA LÍNEA. R346b la cambió por `Math.min(L-ph, L-2*TOL_DECOD)` para que `ph=0` no
+       saliera `ph=L` —el extremo EXCLUIDO de la ventana `[inP, inP+loopLen)`— y salió PEOR: `Math.min` no corre
+       la rampa, APLANA EL VÉRTICE SOBRE SU VECINO. El espejo ya hace que la muestra anterior al vértice y la
+       posterior caigan en el mismo tiempo de origen, así que lo único que las separaba era que el vértice
+       cayera en otro fotograma. MEDIDO replicando las dos versiones de `srcT` con `keyForTime`: a 24 fps,
+       `loopLen`=1 s, el giro pasaba de `…22,23,[24],23,22…` a `…22,23,[23],23,22…` — una MESETA de tres
+       fotogramas, 125 ms de tirón, horneada en el export. Barrido de 4000 configuraciones: 604 empeoradas
+       contra 346 mejoradas (sólo cuando la salida diezma la fuente, 60p→24p) y CERO en las que el tope quitara
+       una congelación. Y ningún tamaño arregla nada: 4 µs, 1 ms, medio fotograma y un fotograma entero dan la
+       misma meseta, porque el operador es el equivocado, no el épsilon. El fotograma de más que deja el espejo
+       satura sin daño cuando el bucle llega al final del medio.
+       Si algún día se quiere cerrar la ventana de verdad, es restando un PASO DE FOTOGRAMA
+       (`Math.max(0, L-ph-1/fps)`) con el fps de la FUENTE (`mediaById(c.mediaId).fps`, no `state.fps`, que es
+       la cadencia de la línea de tiempo y coincide justo en el caso que regresa) — y con red propia, porque una
+       sonda que sólo preguntara «¿el instante cae dentro de la ventana?» APROBÓ este cambio: mide la premisa.
+       Red que lo vigila ahora: `scratchpad/r346c-pingpong.mjs`. */
+    if(c.loopRev&&(k&1))ph=L-ph; // R88: ping-pong — odd cycles play backward (forward, back, forward, …)
     return (c.inP||0)+ph; }
   return raw+(c.inP||0); }
 function loopCycleSec(c){ return (c.loop&&c.loopLen>0)?(c.loopLen/(c.speed||1)):0; } // one loop cycle length in TIMELINE seconds
@@ -1123,17 +1133,15 @@ function loopCycleSec(c){ return (c.loop&&c.loopLen>0)?(c.loopLen/(c.speed||1)):
    el del centro no lo está. Comprobado aparte: `Math.floor((t+2e-6)*1e6)` deja el punto de decisión entre 1 y
    2 µs por encima del pts, nunca más — los casos en que la ganancia entera no es 2 son exactamente aquellos en
    que el pts ya cae en un microsegundo entero y no hacía falta tolerancia ninguna.
-   DÓNDE SE APLICA — la lista, porque la primera versión de esta nota decía «en el único sitio» y era FALSA, y
-   creérselo es justo lo que dejó cuatro sitios sin barrer en la propia ronda que la escribió:
-     · `vinstSeek` (antes de bifurcar: cubre export, arrastre y los dos caminos con el mismo número)
-     · `driveCD` y el servo de deriva de `ploop` — reproducción
-     · `play()` — el primer fotograma al arrancar
-     · `vinstSeekVideo`, sobre el salto a fotograma clave de `snapKf`, y sólo si ha saltado de verdad
-     · las tres escrituras del monitor de origen y las dos secuencias de imágenes
-     · la rejilla de seek del generador de proxys, y la clave de agrupación de `seekExport`
-   La regla, para lo que venga: **todo instante que se le pide a un decodificador pasa por aquí, una sola vez**.
-   Si añades un `currentTime=` o un `setTarget(` nuevo, va con tolerancia — y si el instante ya la trae (como en
-   el reintento de `seekCDExport`), no se suma dos veces. */
+   DÓNDE SE APLICA — la primera versión de esta nota decía «en el único sitio» y era FALSA, y creérselo es justo
+   lo que dejó cinco sitios sin barrer en la ronda que la escribió. La segunda los enumeró, y una lista escrita
+   a mano es estado duplicado que caduca: **`grep "instanteDecod("` da la lista de verdad, siempre al día.**
+   La regla, para lo que venga: **todo instante que se le pide a un decodificador de VÍDEO pasa por aquí, una
+   sola vez**. Si añades un `currentTime=` o un `setTarget(` nuevo, va con tolerancia — y si el instante ya la
+   trae (como en el reintento de `seekCDExport` o dentro de `seekRaw`), no se suma dos veces.
+   El AUDIO queda fuera a propósito, y por eso la regla dice «de vídeo»: `vinstAudio` y el servo de audio de
+   `ploop` escriben el instante crudo. Dos microsegundos son 0,1 muestras a 48 kHz — ahí no hay frontera que
+   cruzar y la tolerancia no compra nada. [R346c] */
 const TOL_DECOD=2e-6;
 function instanteDecod(t){ const x=+t; return (isFinite(x)?x:0)+TOL_DECOD; }
 function audioLevelAt(t){ let lv=0; const anySolo=state.lanes.some(l=>l.kind==='audio'&&l.solo); for(const c of state.clips){ const m=mediaById(c.mediaId); if(!m||m.kind!=='audio'||!m.peaks||c.disabled)continue; const lane=state.lanes[c.lane]; if(lane&&(lane.mute||(anySolo&&!lane.solo)))continue; if(t<c.start||t>c.start+c.dur)continue; const local=srcT(c,t); const idx=Math.floor(local/(m.dur||1)*m.peaks.length); if(idx>=0&&idx<m.peaks.length)lv=Math.max(lv,m.peaks[idx]); } return lv; }
@@ -1716,7 +1724,8 @@ function _raVidFrame(m,t,c){ return Math.round(srcT(c,t)*(m.fps||30)); } // sour
    (saving/restoring m.tex with no await between) → atomic, no race with ploop. */
 async function raPrerenderRange(t0,t1,onProg){ _raOn=true; try{fxResetHistory();}catch(e){} const fps=state.fps||30; const F0=Math.round(t0*fps),F1=Math.round(t1*fps); let done=0; const total=Math.max(1,F1-F0+1);
   for(let F=F0;F<=F1;F++){ const t=F/fps;
-    if(!raHas(t)){ _arTime=t; await Promise.all(collectDrawnVideoClips(state.clips,state.lanes,t,0,[]).map(({c,m,local})=>vinstSeek(c,m,local))); // per-CLIP decode so nested/duplicated videos cache at their OWN local time
+    if(!raHas(t)){ _arTime=t; const _dib=collectDrawnVideoClips(state.clips,state.lanes,t,0,[]); vinstCapPara(_dib.length); /* [R346c] ver `vinstCapPara` */
+      await Promise.all(_dib.map(({c,m,local})=>vinstSeek(c,m,local))); // per-CLIP decode so nested/duplicated videos cache at their OWN local time
       prepNests(state.clips,t,0); // render active nests into their FBOs (now sampling the decoded frame for t)
       gl.bindFramebuffer(gl.FRAMEBUFFER,compFBO); composite(t,null,false,true); gl.bindFramebuffer(gl.FRAMEBUFFER,null); raStore(t);
       _lastSrcTex=null; } /* [R336] el adelanto acaba de PISAR compTex con otro instante: la guarda de reutilizacion tiene una rama `_lastSrcTex===compTex` que se salta la comprobacion de frescura, asi que quien ensucia la textura la invalida */
@@ -3179,7 +3188,13 @@ async function pumpProxy(){if(proxyBusy||!proxyQ.length)return;proxyBusy=true;co
   renderMedia();updProxyUI(m); if(e&&e.userMsg)try{appAlert(e.userMsg);}catch(_){}}finally{ /* [R327] El cierre va FUERA del `if(m._ppart)`. R326 quito el cierre del `catch` —era doble— pero el que quedaba estaba dentro de esa condicion, asi que un fallo posterior a publicar el proxy (con `_ppart` ya a null) perdia el descriptor: `m._pfid=null` olvidaba el identificador y el `FileHandle` seguia vivo en el mapa del proceso principal hasta cerrar la aplicacion. */
   try{ if(m._pfid!=null)await DSP.fileClose(m._pfid); }catch(_){}
   if(m._ppart){ try{ await DSP.deleteFile(m._ppart); }catch(_){} m._ppart=null; } m._pfid=null; m._pxGen=false; renderMedia(); }proxyBusy=false;pumpProxy();}
-function seekRaw(v,t){return new Promise(r=>{t=Math.max(0,Math.min((v.duration||0)-1e-3,t));if(Math.abs(v.currentTime-t)<1e-3&&v.readyState>=2){requestAnimationFrame(()=>r());return;}const on=()=>{v.removeEventListener('seeked',on);r();};v.addEventListener('seeked',on);v.currentTime=t;});}
+/* [R346c] La tolerancia y la guarda del atajo viven AQUÍ, no en el llamador. R346b se las puso a la única
+   llamada (`makeProxy`) y dejó cruda la función, que es la que de verdad posiciona: el siguiente que llame a
+   `seekRaw` con una rejilla `i/fps` se lleva en silencio el comportamiento anterior a R346. Y el atajo por
+   cercanía tiene la misma trampa que se cerró en `vinstSeekVideo`: 1 ms es 500 veces la tolerancia, así que un
+   elemento aparcado por otro camino en el instante crudo queda dentro de la ventana y se da por bueno sin
+   buscar; `v._pedT` exige además que el instante lo hayamos pedido nosotros. */
+function seekRaw(v,t){return new Promise(r=>{t=Math.max(0,Math.min((v.duration||0)-1e-3,instanteDecod(t)));if(Math.abs(v.currentTime-t)<1e-3&&v._pedT===t&&v.readyState>=2){requestAnimationFrame(()=>r());return;}const on=()=>{v.removeEventListener('seeked',on);r();};v.addEventListener('seeked',on);v._pedT=t;v.currentTime=t;});}
 async function makeProxy(m){
   if(/\.dsp-proxy-\w+\.mp4$/i.test(m.path||'')){ m.proxyUrl=m.srcUrl; m.proxyEl=m.el; m.proxyReady=true; m.proxyPct=100; renderMedia(); updProxyUI(m); return; } // the imported file IS a proxy — it is its own proxy (no proxy-of-proxy)
   const candidates=proxyCandidates(m);
@@ -3255,9 +3270,11 @@ async function makeProxy(m){
       /* [R346b] `i/fps` es exactamente la rejilla que falla, y aquí el fotograma equivocado se HORNEA en el
          archivo: ninguna tolerancia posterior lo recupera. Es el tercer camino (el rápido de WebCodecs va por
          índice y es inmune, y el de rVFC se pilota por `mediaTime`), así que sólo muerde cuando el demuxador o
-         el códec fallan — pero el proxy es lo que se ve al previsualizar. Modelado el truncado de Chromium:
-         33 % de fotogramas desplazados a i−1 sin la tolerancia, 0 con ella. */
-      if(seekFails<5){ const ok=await Promise.race([seekRaw(dec,instanteDecod(i/fps)).then(()=>true), new Promise(r=>setTimeout(()=>r(false),1500))]); if(ok)seekFails=0; else seekFails++; }
+         el códec fallan — pero el proxy es lo que se ve al previsualizar.
+         [R346c] La tolerancia la pone `seekRaw`, que es quien posiciona. Y el «33 % de fotogramas desplazados»
+         que decía esta nota sale de un MODELO del truncado de Chromium, no de una medida de este camino: se
+         deja como lo que es, un argumento, hasta que haya una sonda que lo mida sobre un proxy de verdad. */
+      if(seekFails<5){ const ok=await Promise.race([seekRaw(dec,i/fps).then(()=>true), new Promise(r=>setTimeout(()=>r(false),1500))]); if(ok)seekFails=0; else seekFails++; }
       drawEnc(i); _np++;
       if((i&7)===0){ try{ const d=ox.getImageData((pw>>1)-2,(ph>>1)-2,4,4).data; let s=0; for(let k=0;k<64;k++)s=(s*31+d[k])>>>0; if(s===_lastSig)_dups++; _lastSig=s; _sigN++; }catch(e){} } // sample 1-in-8: getImageData forces a sync canvas flush (~15× slower if done per frame)
       if(enc.encodeQueueSize>4)await new Promise(r=>setTimeout(r,0)); } }
@@ -8006,13 +8023,20 @@ function showFrame(m,F){ F=Math.max(0,Math.min(m.frames.length-1,F|0)); return d
 function decodeFrameToTex(m,F){ return showFrame(m,F); }
 function disposeDecoder(m){ if(!m)return; const d=_vdec.get(m.id); if(d){try{d.dec.close();}catch(e){} _vdec.delete(m.id);} for(const [k,v] of _fcache){ if(k.indexOf(m.id+':')===0){ _fcache.delete(k); try{gl.deleteTexture(v.tex);}catch(e){} } } }
 function clearFrameCache(){ for(const [,v] of _fcache){try{gl.deleteTexture(v.tex);}catch(e){}} _fcache.clear(); while(_fpool.length){try{gl.deleteTexture(_fpool.pop());}catch(e){}} }
-function seekMedia(m,t,useOrig){ if(!useOrig&&m&&m.frames&&m.decConfig){ return showFrame(m,Math.round(t*(m.fps||30))).then(()=>{}); }
+/* [R346c] Este también posiciona un decodificador, así que va con la tolerancia y con la MISMA regla de
+   elección que su gemelo de `drawClip` (`Math.floor(instanteDecod(t)*fps)`): tenía `Math.round`, una tercera
+   regla incompatible con las otras dos que para el mismo medio y el mismo instante elige otro fotograma en
+   cuanto `t` cae en la segunda mitad del fotograma. Hoy sus tres llamadores pasan `t=0` y no rompía nada — pero
+   la regla escrita en `instanteDecod` dice «todo instante que se le pide a un decodificador», y éste no la
+   cumplía; el siguiente llamador con `t` distinto de cero se llevaría el comportamiento anterior a R346. */
+function seekMedia(m,t,useOrig){ if(!useOrig&&m&&m.frames&&m.decConfig){ return showFrame(m,Math.floor(instanteDecod(t)*(m.fps||30))).then(()=>{}); }
   return new Promise(res=>{ const v=useOrig?m.originalEl:(m.el||m.originalEl); if(!v||m.kind==='image'){res();return;}
-  t=Math.max(0,Math.min((v.duration||0)-1e-3,t)); if(Math.abs(v.currentTime-t)<1e-3&&v.readyState>=2){upTex(m.tex,v);requestAnimationFrame(()=>res());return;}
-  const on=()=>{v.removeEventListener('seeked',on);upTex(m.tex,v);res();};v.addEventListener('seeked',on);v.currentTime=t; }); }
+  t=Math.max(0,Math.min((v.duration||0)-1e-3,instanteDecod(t))); if(Math.abs(v.currentTime-t)<1e-3&&v._pedT===t&&v.readyState>=2){upTex(m.tex,v);requestAnimationFrame(()=>res());return;}
+  const on=()=>{v.removeEventListener('seeked',on);upTex(m.tex,v);res();};v.addEventListener('seeked',on);v._pedT=t;v.currentTime=t; }); }
 let seekTok=0;
 async function scrubRender(){ const tok=++seekTok; positionPlayhead(); refreshInspector();
   const drawn=collectDrawnVideoClips(state.clips,state.lanes,state.playhead,0,[]);
+  vinstCapPara(drawn.length);   /* [R346c] ninguna instancia de este lote puede ser desalojada mientras se la espera — ver `vinstCapPara` */
   await Promise.all(drawn.map(({c,m,local})=>vinstSeek(c,m,local)));
   if(tok===seekTok) render(); }
 /* [R243] Al empezar a arrastrar se pide la tabla de fotogramas clave de lo que hay bajo el cabezal. Construirla
@@ -8483,6 +8507,15 @@ function vinstEnsure(c,m){ if(!m||(m.kind!=='video' && !(m.kind==='nest'&&ncUsab
    elemento se desmontó); por el de WebCodecs sería un reintento dando vueltas. `seekExport` sube el tope a lo que
    ese fotograma necesita y el final del export lo devuelve a VINST_MAX. */
 let _vinstCap=VINST_MAX;
+/* [R346c] El tope, subido para UN LOTE que se va a esperar entero. R189 lo escribió sólo dentro de `seekExport`
+   y el mismo peligro estaba en los otros dos sitios que abanican `vinstSeek` sobre todos los clips dibujados y
+   los esperan con un `Promise.all` (`scrubRender` y `raPrerenderRange`): `vinstEnsure` llama a `vinstCap()` en
+   cada vuelta y actualiza `vi.last` ANTES, así que con más de `VINST_MAX` clips dibujados las víctimas del
+   desalojo son las instancias creadas al principio de ese mismo abanico — las que se están esperando. Y
+   `vinstDispose` hace `removeAttribute('src'); load()`, con lo que su `seeked` no llega nunca: el `Promise.all`
+   no resuelve, `scrubRender` no llega a `render()` y la previsualización se congela en cada movimiento del
+   cabezal, sin error. La decisión vive aquí y la usan los tres. */
+function vinstCapPara(n){ if(n+2>_vinstCap)_vinstCap=n+2; }
 /* [R194] Enlazar el `<video>` a su origen, extraído de `vinstEnsure` porque `vinstSeekVideo` TAMBIÉN lo necesita:
    si el camino de WebCodecs se cae hacia `<video>` con una instancia que nunca llegó a enlazarse, fijar
    `currentTime` sobre un elemento sin origen NO dispara `seeked` y la promesa no resuelve jamás — `seekExport`
@@ -8613,7 +8646,14 @@ function collectDrawnVideoClips(clips,lanes,t,depth,out,pGain,pRate){ out=out||[
 let playRaf=0,lastT=0,_phLast=null,_audioBase=0,_audioHead=0;
 let _enBucle=false;   /* [R279] esta reproduccion envuelve? Se decide al arrancar, mirando si el cabezal cae DENTRO del tramo */
 function play(){ if(state.playing)return; if(state.tl.selA!=null){ let _p=Math.min(state.tl.selA, state.tl.selB==null?state.tl.selA:state.tl.selB); state.playhead=_p; positionPlayhead(); }   /* [R279] sin encajar a la fuerza dentro del bucle: si el punto de inicio esta fuera, se reproduce desde ahi */ /* start from the timeline insert/selection (clamped into an active loop region); else resume where the playhead is */ diag('info','transport','play',{at:+state.playhead.toFixed(2)}); state.playing=true; stopMotionPreview(); _previewClock=0; $('#playBtn').innerHTML=ICO('pause'); lastT=performance.now();
-  for(const {c,m,local,gain,rate} of collectDrawnVideoClips(state.clips,state.lanes,state.playhead,0,[])){ const vi=vinstEnsure(c,m); if(vi&&vi.vel){ const eff=Math.max(0.0625,Math.min(16,rate||c.speed||1)); (vi.loadP||Promise.resolve()).then(()=>{ try{vi.vel.currentTime=instanteDecod(local);}catch(e){} }); vi.vel.muted=true;   /* [R346b] la MISMA tolerancia que `vinstSeek`: sin ella, dar al play saltaba un fotograma HACIA ATRÁS respecto a lo que se veía en pausa (medido, 8 de 12 arranques) — y es el camino por defecto, porque `wcDecode` está apagado */ try{vi.vel.loop=false;}catch(e){} try{vi.vel.playbackRate=eff;}catch(e){} vi.vel.play().catch(()=>{});
+  for(const {c,m,local,gain,rate} of collectDrawnVideoClips(state.clips,state.lanes,state.playhead,0,[])){ const vi=vinstEnsure(c,m); if(vi&&vi.vel){ const eff=Math.max(0.0625,Math.min(16,rate||c.speed||1)); vi.vel.muted=true;   /* [R346b] la MISMA tolerancia que `vinstSeek`: sin ella, dar al play arrancaba un fotograma por detrás de lo que se veía en pausa — y es el camino por defecto, porque `wcDecode` está apagado */ try{vi.vel.loop=false;}catch(e){} try{vi.vel.playbackRate=eff;}catch(e){}
+    /* [R346c] POSICIONAR Y LUEGO ARRANCAR, en el mismo `then`. Antes el `currentTime` iba en una microtarea y
+       el `play()` era síncrono, así que la reproducción empezaba ANTES de colocar el elemento: con un `<video>`
+       recién enlazado (`bindVideoSrc` lo deja en 0 con `loadP` pendiente) se veía un fogonazo del principio del
+       ARCHIVO —`pumpVFClip` sube esos fotogramas— y sólo después el elemento saltaba al sitio, ya con el
+       `local` capturado al pulsar play, o sea viejo. Dos microsegundos de tolerancia no pintan nada al lado de
+       eso. */
+    (vi.loadP||Promise.resolve()).then(()=>{ try{vi.vel.currentTime=instanteDecod(local);}catch(e){} vi.vel.play().catch(()=>{}); });
     const a=vinstAudio(vi,m); if(a){ try{a.currentTime=local;}catch(e){} try{a.playbackRate=eff;}catch(e){} a.volume=Math.max(0,Math.min(1,gain==null?1:gain)); a.muted=(gain!=null&&gain<=0.001); a.play().catch(()=>{}); } } } _enBucle=(state.workIn!=null&&state.workOut!=null&&state.workOut>state.workIn
     && state.playhead>=state.workIn-1e-6 && state.playhead<state.workOut-1e-6);   /* [R279] arrancar FUERA del bucle = reproducir recto */
   startAudio(); ploop(); } // loop=false: the timeline (ploop) governs clip-bounded looping, not the element. [R92-T2 C1] the paired <audio> (original file) carries the video's sound. [R92-T6] eff = rate composed through the nest chain
@@ -8663,8 +8703,18 @@ function ploop(){ if(!state.playing)return; const now=performance.now(),dt=(now-
         del tramo de trabajo, que es un limite que el usuario ha puesto a proposito. */
   const hasWork=state.workIn!=null&&state.workOut!=null&&state.workOut>state.workIn;
   const enBucle=hasWork&&_enBucle;
+  /* [R346c] La vuelta del bucle reposicionaba `m.el` —el elemento por MEDIO, del que la previsualización ya no
+     dibuja desde que existe el `_vinst` por clip— y encima a 0 en vez de al punto de entrada: o sea que no
+     resincronizaba la imagen nadie, y con un tramo corto tampoco entraba el servo de deriva (con un bucle de
+     0,4 s la deriva en la primera vuelta es ~0,4 s, por debajo de su umbral de 0,6, y el servo de +-12 % tarda
+     segundos en absorber lo que la vuelta vuelve a añadir cada 0,4 s), así que el `<video>` seguía corriendo
+     PASADO `workOut` y se veía material de fuera del bucle. Ahora se coloca cada clip dibujado en su tiempo
+     local del punto de entrada, y se abre la puerta del servo (`_seekT=0`) para que pueda actuar en el acto. */
   if(enBucle){ if(state.playhead>=state.workOut){ state.playhead=state.workIn;
-      for(const m of state.media)if(m.kind==='video'&&m.el){try{m.el.currentTime=0;}catch(e){}} startAudio(); } }
+      for(const {c,m,local} of collectDrawnVideoClips(state.clips,state.lanes,state.workIn,0,[])){
+        const vi=_vinst.get(c.id); if(!vi||!vi.vel)continue;
+        try{ vi.vel.currentTime=instanteDecod(local); }catch(e){} vi._seekT=0; }
+      startAudio(); } }
   /* [R286b] R279 se llevo la rama de PARADA entera junto con el confinamiento, asi que la reproduccion no se
      detenia nunca: arrancando fuera del tramo, el cabezal pasaba de largo por workOut y seguia corriendo
      indefinidamente -la linea de tiempo crecia en el DOM y `state.playhead` se guardaba en el .isp con un
@@ -8703,15 +8753,24 @@ function ploop(){ if(!state.playing)return; const now=performance.now(),dt=(now-
    reposicionar un vídeo ~80. Si los tiempos locales difieren no hay grupo y el comportamiento es el de siempre. */
 async function seekExport(t){
   const drawn=collectDrawnVideoClips(state.clips,state.lanes,t,0,[]);
-  if(drawn.length+2>_vinstCap)_vinstCap=drawn.length+2;   // [R189] ninguna instancia que este fotograma necesita puede ser desalojada mientras se la espera
+  vinstCapPara(drawn.length);   // [R189] ninguna instancia que este fotograma necesita puede ser desalojada mientras se la espera · [R346c] la decisión vive en `vinstCapPara`, que la usan los tres abanicos
   const grupos=new Map();
-  /* [R346b] La clave era la MILÉSIMA, que es 24 veces más gruesa que un fotograma: dos clips a 2,29160 y
-     2,29170 caían en la misma cesta con la frontera del fotograma (2,2916667) entre medias, y al seguidor se le
-     copiaban los píxeles del jefe — el mismo juicio «estos dos instantes son el mismo fotograma» que esta ronda
-     acaba de afinar, tomado con mil veces menos precisión y ANTES de la tolerancia. En microsegundos agrupa lo
-     que de verdad es el mismo instante, que es el caso para el que R188 lo escribió (un plano duplicado N veces
-     tiene el MISMO tiempo local, no uno parecido). */
-  for(const d of drawn){ const k=d.m.id+'@'+Math.round(instanteDecod(d.local||0)*1e6);
+  /* [R346b·c] La clave era la MILÉSIMA. Al seguidor de un grupo se le copian los píxeles del jefe sin volver a
+     posicionar, así que la clave está afirmando «estos dos instantes son el mismo FOTOGRAMA» — y una milésima
+     no lo garantiza: las fronteras de la cesta no están alineadas con las del fotograma, y dos clips a 2,29160
+     y 2,29170 caen en la misma con la frontera del fotograma 55 (2,2916667) entre medias.
+     [R346c] Y se agrupa con `Math.floor`, no con `Math.round`, porque `Math.floor(t_µs)` es LITERALMENTE el
+     entero que recibe `keyForTime` (y Chromium por dentro): así «misma clave ⇒ mismo fotograma» es demostrable
+     en vez de aproximado. Con `round` quedaba un residuo de la misma familia — medido, 181 agrupaciones
+     equivocadas en 20 M de parejas separadas 0,6 µs, y 0 con `floor`, agrupando lo mismo (41,2 % contra 39,4 %).
+     Con el compose de hoy el residuo no es alcanzable —`regenComposeNest` crea las copias con el mismo
+     `start`/`inP`/`speed`, así que `srcT` devuelve el MISMO doble bit a bit— pero cuesta cero.
+     OJO con lo que decía la versión anterior de esta nota y era falso: la milésima es ~42 veces más FINA que un
+     fotograma a 24 fps, no 24 veces más gruesa; y `instanteDecod` aquí NO arregla nada — sumar una constante
+     entera de µs antes de redondear no puede cambiar ninguna partición (medido en 6,5 M de valores: idéntico en
+     el 100 %). Lo único que arregló fue `1e3`→`1e6`. Se deja la tolerancia por coherencia con el número que
+     recibe el decodificador, no porque agrupe distinto. */
+  for(const d of drawn){ const k=d.m.id+'@'+Math.floor(instanteDecod(d.local||0)*1e6);
     let g=grupos.get(k); if(!g){ g=[]; grupos.set(k,g); } g.push(d); }
   await Promise.all([...grupos.values()].map(async g=>{
     const jefe=g[0];
