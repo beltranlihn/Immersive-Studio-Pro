@@ -1,5 +1,32 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 352 — Una pista nueva nace del alto que tienen las demás
+
+Petición de Beltrán: una pista añadida con ⌘T o por el menú —de audio, vídeo o piso— salía con un alto distinto
+del resto en cuanto la línea de tiempo se había agrandado o achicado a mano. Se creaban **sin `h`**, así que
+`renderTimeline` las pintaba a `LANE_DEF_H` (57 px) mientras las demás llevaban el suyo; y como Alt+rueda
+redimensiona **todas a la vez**, la recién añadida era siempre la que rompía la fila.
+
+La decisión se pone **donde vive**, no en cada llamador: `laneAplicaAlta(nl)` se aplica al objeto de pista ya
+construido, justo antes de insertarlo. Toma la **mediana** de los altos actuales —no la media: una sola pista
+que alguien dejó estirada a propósito no debe arrastrar el valor— y la acota al suelo de SU clase, que en modo
+automatización no es el mismo para audio que para vídeo (`laneFloorH`). `collapsed` sólo se hereda si están
+plegadas **todas**: con una suelta plegada, lo que se espera de una pista nueva es verla, no que nazca
+escondida.
+
+**Diez sitios, no uno.** El que pidió Beltrán es `addLane` (⌘T y el menú de la cabecera), pero una pista nueva
+aparece por nueve caminos más y todos tenían el mismo defecto: el horneado en el sitio (`ripPlaceOnNewTrack`),
+la capa de ajuste, la pista de audio que se fabrica sola al importar un par A/V, la que se crea al arrastrar un
+medio sin pista de su clase (dos variantes), la de un proyecto viejo sin pista de audio al cargarlo, la de
+llevar un clip a una pista de su tipo, `laneLibreCerca` cuando no hay hueco, y `ensureVideoLanes`. Quedan fuera
+a propósito `defLanes`/`roomDefLanes` y las pistas internas de una composición: ahí el alto de fábrica **es** el
+correcto, porque no hay nada previo con lo que igualarse.
+
+**Red:** `scratchpad/r352-alto-pista-nueva.mjs` (35 en total). Mide el alto **renderizado** del nodo `.lane`, no
+la propiedad `h` — el estado podía estar bien y la pintura no —, en los dos sentidos y para las tres clases:
+domo agrandado a 84 px (vídeo y audio nuevos: 84) y sala 360 achicada a 43 px (piso nuevo: 43). Su caso rojo
+—una pista insertada sin pasar por el helper— sale a 57 px en los dos escenarios.
+
 ## ROUND 350 — La selección por arrastre se ve mientras se arrastra
 
 Petición de Beltrán: *«cuando arrastro en el timeline para seleccionar clips, quiero que se vayan seleccionando a

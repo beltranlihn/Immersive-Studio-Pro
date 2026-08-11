@@ -3851,7 +3851,7 @@ function nearestAudioLane(li,start,dur){
      peor que añadir una. Va al FONDO (índice 0 desde R155) y hay que correr los índices de todos los clips.
      Sin pushUndo: esto es la segunda mitad de una acción que ya empujó su estado al añadir el clip de vídeo. */
   const n=audio.length+1;
-  state.lanes.unshift({id:uid(),name:'Audio '+n,tag:'A'+n,kind:'audio'});
+  state.lanes.unshift(laneAplicaAlta({id:uid(),name:'Audio '+n,tag:'A'+n,kind:'audio'}));   // [R352] el alto, del resto
   for(const c of state.clips) if(c.lane!=null) c.lane++;
   if(state.selLane!=null) state.selLane++;
   return {lane:0, creada:true};
@@ -3865,13 +3865,13 @@ function makeClip(m,lane,start,props,extra){
 function addClip(m,lane,start,rango){ // [R249] `rango` = {inP,dur} del monitor de origen; sin él, el clip entero, como siempre
   if(isSeqMedia(m)&&(m.id===state.activeSeqId||seqReaches(m.id,state.activeSeqId))){ flashStatus(T("Can't nest a sequence inside itself (would create a loop)",'No se puede anidar una secuencia que crearía un bucle'),'err'); return; } // [R94-UT3·U-21]
   if(m.kind==='adjust'){ pushUndo(); // adjustment media → an adjustment CLIP (its FX chain — colour AND audio-reactive — affects every layer below it)
-    if(lane==null){ lane=state.lanes.findIndex(l=>l.kind==='video'); if(lane<0){ const n=state.lanes.filter(l=>l.kind==='video').length+1; state.lanes.push({id:uid(),name:'Video '+n,tag:'V'+n,kind:'video'}); lane=state.lanes.length-1; } }
+    if(lane==null){ lane=state.lanes.findIndex(l=>l.kind==='video'); if(lane<0){ const n=state.lanes.filter(l=>l.kind==='video').length+1; state.lanes.push(laneAplicaAlta({id:uid(),name:'Video '+n,tag:'V'+n,kind:'video'})); lane=state.lanes.length-1; } }   /* [R352] el alto, del resto */
     start=(start!=null)?start:state.playhead; const hasWork=(state.workIn!=null&&state.workOut!=null&&state.workOut>state.workIn); const dur=hasWork?(state.workOut-state.workIn):Math.max(6,m.dur||6);
     const c=makeAdjustClip(lane,start,dur); state.clips.push(c); state.selId=c.id; state.selIds=[c.id]; state.selGroupId=null; clearMediaSel(); renderTimeline(); renderInspector(); render(); updStatus(); return c; }
   diag('info','clip','add',{media:m&&m.name,kind:m&&m.kind,lane,start:(start!=null?+(+start).toFixed(2):'playhead')});
   pushUndo();
   if(lane==null){ const want=m.kind==='audio'?'audio':'video'; lane=state.lanes.findIndex(l=>l.kind===want);
-    if(lane<0){ const n=state.lanes.filter(l=>l.kind===want).length+1; state.lanes.push({id:uid(),name:(want==='audio'?'Audio ':'Video ')+n,tag:(want==='audio'?'A':'V')+n,kind:want}); lane=state.lanes.length-1; } } // auto-create a track of the right kind (dragging audio in with no audio track makes one)
+    if(lane<0){ const n=state.lanes.filter(l=>l.kind===want).length+1; state.lanes.push(laneAplicaAlta({id:uid(),name:(want==='audio'?'Audio ':'Video ')+n,tag:(want==='audio'?'A':'V')+n,kind:want}));   /* [R352] el alto, del resto */ lane=state.lanes.length-1; } } // auto-create a track of the right kind (dragging audio in with no audio track makes one)
   start=(start!=null)?start:state.playhead;
   const c=makeClip(m,lane,start,null,(rango&&rango.dur>0)?{inP:rango.inP||0,dur:rango.dur}:null); // [R249] el trozo marcado, no el archivo entero
   state.clips.push(c); state.selId=c.id; state.selIds=[c.id]; state.selGroupId=null; clearMediaSel();
@@ -4122,7 +4122,7 @@ function addLane(kind,surf){
   const cnt=surf?state.lanes.filter(l=>l.surf===surf).length:state.lanes.filter(l=>l.kind===kind&&!l.surf).length; const n=cnt+1;
   const nm=surf==='wall'?'Wall':surf==='floor'?'Floor':(kind==='audio'?'Audio':'Video');
   const tg=surf==='wall'?'W':surf==='floor'?'F':(kind==='audio'?'A':'V');
-  const nl={id:uid(),name:(surf==='floor'?tg+n:nm+' '+n),tag:tg+n,kind}; if(surf)nl.surf=surf; // [R230] el piso se llama como su tag (F1, F2…)
+  const nl=laneAplicaAlta({id:uid(),name:(surf==='floor'?tg+n:nm+' '+n),tag:tg+n,kind}); if(surf)nl.surf=surf; // [R230] el piso se llama como su tag (F1, F2…) · [R352] y nace del alto que tienen las demás
   if(kind==='audio'){ let at=state.lanes.findIndex(l=>l.kind==='audio'); if(at<0)at=0; // [R93b] audio grows DOWNWARD: the module displays audio lanes index-descending → the bottom slot is the smallest audio index · [R165] sin ninguna pista de audio el respaldo era `lanes.length`, que desde R155 es ARRIBA del todo; el fondo es el 0
     state.lanes.splice(at,0,nl); for(const c of state.clips)if(c.lane>=at)c.lane++; if(state.selLane!=null&&state.selLane>=at)state.selLane++; }
   else if(surf==='floor'){ // [FLOOR-GROUP] entra JUSTO ENCIMA del último piso existente (o, sin piso todavía, encima del último audio) y DEBAJO del grupo de muros — mismo patrón de reindexado que la rama de audio
@@ -6137,6 +6137,26 @@ function wheelResizeLanes(e){ const crece=e.deltaY<0, f=crece?1.1:1/1.1;
   scheduleTimeline(); }
 /* Suelo de altura de una pista: el general, o el del modo automatización si la pista lleva los desplegables. */
 function laneFloorH(l){ return (state.inlineCurves&&l.kind!=='audio')?AUTO_LANE_MIN_H:LANE_MIN_H; }
+/* [R352] Una pista NUEVA nace del alto que tienen las que ya están, no de la constante de fábrica. Se creaban
+   sin `h`, así que `renderTimeline` las pintaba a `LANE_DEF_H` (57): con la línea de tiempo agrandada o achicada
+   a mano —Alt+rueda, que redimensiona TODAS a la vez— la recién añadida salía con otro alto y había que
+   reajustar el conjunto para volver a igualarlas.
+   MEDIANA y no media: una sola pista con un alto raro (una que se dejó estirada a propósito) no debe arrastrar
+   el valor. Y `collapsed` sólo se hereda si están plegadas TODAS — con una suelta plegada, lo que el usuario
+   espera de una pista nueva es verla, no que nazca escondida. Se acota al suelo de SU clase, que en modo
+   automatización no es el mismo para audio que para vídeo (`laneFloorH`). */
+function laneAltaActual(kind){
+  const ls=state.lanes||[]; const def=(kind==='audio')?AUDIO_LANE_H:LANE_DEF_H;
+  if(!ls.length)return {h:def,collapsed:false};
+  const hs=ls.map(l=>l.h||((l.kind==='audio')?AUDIO_LANE_H:LANE_DEF_H)).sort((a,b)=>a-b);
+  return {h:hs[hs.length>>1], collapsed:ls.every(l=>!!l.collapsed)}; }
+/* Se aplica al objeto de pista ya construido, justo antes de insertarlo: así el ALTO no depende de por qué
+   camino se creó (⌘T, el menú de la cabecera, el horneado en el sitio, la capa de ajuste, o la pista que se
+   fabrica sola al importar un par A/V). */
+function laneAplicaAlta(nl){ const a=laneAltaActual(nl.kind);
+  nl.h=Math.max(laneFloorH(nl),Math.min(LANE_MAX_H,a.h));
+  if(a.collapsed)nl.collapsed=true;
+  return nl; }
 function audioZoneScrollBy(dy){ const az=document.querySelector('#tracks .audiozone'); if(!az)return; az.scrollTop+=dy; state.tl._audioScroll=az.scrollTop; const ah=$('#audioHeadZone'); if(ah)ah.scrollTop=az.scrollTop; } // sync + persist immediately (the 'scroll' event fires async — waiting on it lagged the header column a frame)
 /* [R152] Una sola área de scroll: se fueron las ramas `.audiozone` (ese módulo no existe desde R148, así que
    `inAudio` era siempre false y el código sólo despistaba). Ctrl = zoom horizontal · Alt = alto de pistas ·
@@ -10130,7 +10150,7 @@ function ripProgress(title,meta,aspect){
    reverses for display, so the highest index is the top row AND the top layer. */
 function ripPlaceOnNewTrack(nm,start,dur,flat,laneName,aboveLane){
   const n=state.lanes.filter(l=>l.kind==='video').length+1;
-  const lane={id:uid(),name:laneName||('Render '+n),tag:'V'+n,kind:'video'};
+  const lane=laneAplicaAlta({id:uid(),name:laneName||('Render '+n),tag:'V'+n,kind:'video'});   // [R352] el alto, del resto
   let li;
   /* Un horneado NO tiene alfa: el MP4 es un fotograma completo con negro donde no había nada. En la pista más
      alta, el horneado de UN clip tapaba en negro todas las demás pistas de ese tramo. Por eso el de un clip se
@@ -11285,7 +11305,7 @@ function loadSeqIntoState(s){ if(!s)return; state.clips=s.nestClips||[]; state.l
   if(!s.comp && !state.lanes.some(l=>l.kind==='audio')){ const n=state.lanes.filter(l=>l.kind==='audio').length+1;
     /* [R165] unshift, no push: desde R155 el índice 0 es el FONDO de la pila, que es donde va el audio.
        Con push aparecía arriba del todo. Los clips guardan su pista por índice → hay que correrlos uno. */
-    state.lanes.unshift({id:uid(),name:'Audio '+n,tag:'A'+n,kind:'audio'});
+    state.lanes.unshift(laneAplicaAlta({id:uid(),name:'Audio '+n,tag:'A'+n,kind:'audio'}));   /* [R352] el alto, del resto: al cargar un proyecto viejo las demas pistas ya traen el suyo */
     for(const c of state.clips) if(c.lane!=null) c.lane++;
     s.nestLanes=state.lanes; } /* [R92-T9] audio module always present on real timelines (old projects get one); compositions (m.comp) stay video-only; no markDirty (idempotent) */
   state.markers=s.nestMarkers||[]; state.groups=s.nestGroups||[]; state.playhead=s.nestPlayhead||0; state.workIn=s.nestWorkIn??null; state.workOut=s.nestWorkOut??null; state.fps=s.fps||state.fps||60; state.seqW=s.w||state.seqW||4096; state.seqH=s.h||state.seqH||4096; state.seqMode=s.mode||'dome'; state.seqCov=s.cov||180; /* [archivado 20260725] state.seqGrade — un s.grade de un .isp viejo se ignora sin romper nada */ state.selId=null; state.selIds=[]; state.selGroupId=null; state.selMarkerId=null; state.autoSel=null; state.hoverAuto=null; state.shapeBox=null; /* [R95·B1] the box holds live keyframe refs — undo/sequence switch replaces those objects, so it must go with them */ _arCache=null; try{raInvalidate();}catch(e){} try{updModeUI();}catch(e){} } // invalidate render-ahead + reactive cache: a cached flat frame / band cache belongs to the previous sequence
@@ -13768,7 +13788,7 @@ function pasteClip(){ const cb=state.clipboard; if(!cb)return;
     const n=Object.assign(JSON.parse(JSON.stringify(s)),{id:uid(),start:Math.max(0,state.playhead+((s.start||0)-t0)),maskTex:null,groupId:undefined,slot:undefined});
     if(s.link&&relink[s.link])n.link=relink[s.link]; else { delete n.link; delete n.avRole; }
     { const kind=(m.kind==='audio')?'audio':'video'; const L2=state.lanes[n.lane]; // [R92-T1 F8] acota la pista: pegar en una secuencia con otras pistas dejaba el clip invisible (y el audio SONANDO sin clip a la vista)
-      if(!L2||L2.kind!==kind){ let li=state.lanes.findIndex(l=>l.kind===kind); if(li<0){ const t=state.lanes.filter(l=>l.kind===kind).length+1; state.lanes.push({id:uid(),name:(kind==='audio'?'Audio ':'Video ')+t,tag:(kind==='audio'?'A':'V')+t,kind}); li=state.lanes.length-1; } n.lane=li; } }
+      if(!L2||L2.kind!==kind){ let li=state.lanes.findIndex(l=>l.kind===kind); if(li<0){ const t=state.lanes.filter(l=>l.kind===kind).length+1; state.lanes.push(laneAplicaAlta({id:uid(),name:(kind==='audio'?'Audio ':'Video ')+t,tag:(kind==='audio'?'A':'V')+t,kind}));   /* [R352] el alto, del resto */ li=state.lanes.length-1; } n.lane=li; } }
     if(n.maskData||(n.penMasks&&n.penMasks.length))rebuildMaskTex(n);
     state.clips.push(n); nuevos.push(n); }
   state.selId=nuevos[0].id; state.selIds=nuevos.map(x=>x.id); state.selGroupId=null;
@@ -14431,11 +14451,11 @@ function laneLibreCerca(kind,start,dur){
     for(const li of orden) if(libre(li))return li;
   }
   const n=state.lanes.filter(l=>l.kind===kind).length+1;
-  state.lanes.push({id:uid(),name:(kind==='audio'?'Audio ':'Video ')+n,tag:(kind==='audio'?'A':'V')+n,kind});
+  state.lanes.push(laneAplicaAlta({id:uid(),name:(kind==='audio'?'Audio ':'Video ')+n,tag:(kind==='audio'?'A':'V')+n,kind}));   /* [R352] el alto, del resto */
   return state.lanes.length-1; }
 /* ensure at least n video lanes exist; return their indices (top-down stable order) */
 function ensureVideoLanes(n){ let vids=state.lanes.map((l,i)=>({l,i})).filter(o=>o.l.kind==='video').map(o=>o.i);
-  while(vids.length<n){ const k=state.lanes.filter(l=>l.kind==='video').length+1; state.lanes.push({id:uid(),name:'V'+k,tag:'V'+k,kind:'video'}); vids.push(state.lanes.length-1); } return vids; }
+  while(vids.length<n){ const k=state.lanes.filter(l=>l.kind==='video').length+1; state.lanes.push(laneAplicaAlta({id:uid(),name:'V'+k,tag:'V'+k,kind:'video'})); vids.push(state.lanes.length-1);   /* [R352] el alto, del resto */ } return vids; }
 function regenComp(g){ const m=mediaById(g.mediaId); if(!m)return; ensureRand(g);
   const lay=compLayout(g);
   // [20] each composition element lives on its OWN lane → no same-lane overlap → no spurious crossfade.
@@ -16007,7 +16027,7 @@ function makeAdjustClip(lane,start,dur){ return {id:uid(),adjust:true,mediaId:nu
 function newAdjustMedia(){ return {id:uid(),kind:'adjust',name:T('Adjustment','Ajuste'),color:clipColorFor('adjust'),dur:6,missing:false,_loading:false,folder:(state.mediaView==='grid'&&state.mediaFolder)||null}; }
 function createAdjustMedia(){ pushUndo(); const m=newAdjustMedia(); state.media.push(m); selectMedia(m.id); renderMedia(); markDirty(); flashStatus(T('Adjustment added to Media — drag it onto a track (its FX affect everything below)','Ajuste añadido a Medios — arrástralo a una pista (sus FX afectan todo lo de debajo)')); return m; }
 function addAdjustmentLayer(){ pushUndo();
-  state.lanes.push({id:uid(),name:T('Adjustment','Ajuste'),tag:'ADJ',kind:'video'}); const li=state.lanes.length-1; // top-most lane → drawn last → affects every lane below
+  state.lanes.push(laneAplicaAlta({id:uid(),name:T('Adjustment','Ajuste'),tag:'ADJ',kind:'video'})); const li=state.lanes.length-1; // top-most lane → drawn last → affects every lane below · [R352] el alto, del resto
   const hasWork=(state.workIn!=null&&state.workOut!=null&&state.workOut>state.workIn);
   const dur=hasWork?(state.workOut-state.workIn):Math.max(6,duration()), start=hasWork?state.workIn:0;
   const c=makeAdjustClip(li,start,dur); state.clips.push(c); state.selId=c.id; state.selIds=[c.id]; state.selGroupId=null;

@@ -84,6 +84,10 @@ const REDES = [
      del nodo) y no lo que hay en `state.selIds`: el estado podria ir bien sin repintar, que es exactamente el
      fallo que se venia a quitar. Trae su caso rojo. */
   ['r350-seleccion-viva.mjs',     'al arrastrar por el timeline los clips se marcan segun los toca el barrido'],
+  /* [R352] Una pista nueva nace del alto que tienen las demas. Mide el alto RENDERIZADO del nodo `.lane`, no la
+     propiedad `h`, y lo comprueba en los dos sentidos (agrandando y achicando) para las tres clases: video,
+     audio y piso. Trae su caso rojo (una pista insertada sin pasar por `laneAplicaAlta`). */
+  ['r352-alto-pista-nueva.mjs',   'una pista nueva mide lo mismo que las que ya estaban'],
 ];
 
 /* Sin app levantada no se distingue «rojo» de «no medido», y esa confusión es justo la que hace inútil una red. */

@@ -102,7 +102,7 @@ la decisión es el daño acotado y el VFR, no ya la canonización.
   se ponen rojas en los dos caminos de carga); las que no se validaron así resultaron ser aprobados vacíos.
 - **Medir la CONCLUSIÓN, no la premisa.** R342 vivió dos rondas dado por bueno porque su sonda medía que el
   demuxador leía la edit list, no que el fotograma entregado fuese el correcto.
-- `npm run redes` = **34 redes**; `npm test` = 6. Las dos deben pasar antes de compilar. El guardián de acentos
+- `npm run redes` = **35 redes**; `npm test` = 6. Las dos deben pasar antes de compilar. El guardián de acentos
   graves de `correr-redes.mjs` funciona ahora por PARIDAD y vigila las 33: **mirar su cabecera**, que una vez
   se dieron por buenos tres avisos sin leerlos (y en R346b cantó dos veces, las dos con razón; en R349, tres).
 - **[R349] Una red que se apoya en el proyecto que dejó la anterior no mide lo suyo.** `r349-revision.mjs`
