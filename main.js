@@ -246,6 +246,12 @@ function createWindow() {
     // que ya no tienen dueño no tiene downside.
     for (const [, fh] of _fds) { try { fh.close(); } catch (_) {} }
     _fds.clear();
+    /* [R352b] El hijo de FFmpeg es EXACTAMENTE el mismo problema y no se estaba limpiando: se quedaba con stdin
+       abierto, bloqueado en read() para siempre, y el .mp4 a medias. Solo lo mataba `before-quit`, que en macOS
+       NO llega al cerrar la ventana (`window-all-closed` no hace app.quit en darwin), asi que el huerfano vivia
+       hasta un Cmd+Q. Aqui muere con el resto. */
+    for (const [, st] of _ff) { try { st.ch.kill('SIGKILL'); } catch (_) {} }
+    _ff.clear();
     if (!details || details.reason === 'clean-exit' || details.reason === 'killed') return;
     dialog.showMessageBox({ type: 'warning', message: tt('The editor crashed ('+details.reason+') and will reload now. Your work is protected by the disk autosave (max ~15s lost): reopen your project and accept "Restore autosave".', 'El editor se cayó ('+details.reason+') y se recargará ahora. Tu trabajo está protegido por el autoguardado en disco (máx. ~15s perdidos): reabre tu proyecto y acepta "Restaurar autoguardado".') })
       .then(() => { try { win.webContents.reload(); } catch (err) {} });
@@ -450,9 +456,19 @@ ipcMain.handle('dsp:ffWrite', async (e, id, data) => {
   try {
     const buf = Buffer.from(data.buffer || data, data.byteOffset || 0, data.byteLength || data.length);
     if (st.ch.stdin.write(buf)) return true;
-    if (!st.drenando) st.drenando = null;
-    await new Promise(res => { st.drenando = res; setTimeout(() => { if (st.drenando === res) { st.drenando = null; res(); } }, 30000); });
-    return true;
+    /* [R352b] El plazo devolvia `true`: con FFmpeg VIVO pero sin consumir -salida a disco externo o de red, que
+       es el caso normal para un master grande- el bucle seguia renderizando y encolando 24 MB por fotograma en
+       el proceso principal, sin tope, hasta agotar la memoria. La contrapresion que justifica todo el diseño
+       NV12 desaparecia justo cuando hace falta. Ahora el plazo devuelve `false` y el renderer para. */
+    const drenado = await new Promise(res => {
+      /* Identidad, no presencia: si entrara un segundo `ffWrite` pisaria `st.drenando`, y comprobando solo que
+         hay algo el plazo del PRIMERO se llevaria por delante al segundo. Hoy el bucle serializa los await, pero
+         el mecanismo esta pensado para varias escrituras seguidas y asi no depende de eso. */
+      const mio = () => { if (st.drenando === mio) st.drenando = null; res(true); };
+      st.drenando = mio;
+      setTimeout(() => { if (st.drenando === mio) { st.drenando = null; res(false); } }, 30000);
+    });
+    return drenado;
   } catch (err) { return false; }
 });
 /* Cierra la entrada y espera a que termine de escribir el archivo. Sin esperar, el MP4 se queda sin su indice
@@ -460,7 +476,14 @@ ipcMain.handle('dsp:ffWrite', async (e, id, data) => {
 ipcMain.handle('dsp:ffEnd', async (e, id) => {
   const st = _ff.get(id); if (!st) return { ok: false, err: 'sin trabajo' };
   try { st.ch.stdin.end(); } catch (err) {}
-  const code = await st.fin;
+  /* [R352b] Con plazo. `-movflags +faststart` reescribe el archivo ENTERO al cerrar: en una entrega larga sobre
+     un disco externo eso son minutos, y si se cuelga -o el disco se llena a mitad- este `await` no tenia salida
+     ninguna: ni plazo, ni boton (Cancelar solo pone una bandera en el renderer, que ya esta esperando aqui).
+     La unica salida era matar la app, dejando ademas el huerfano. Cinco minutos es holgado para un faststart
+     legitimo; pasados, se mata y se informa del fallo en vez de quedarse colgado para siempre. */
+  const code = await Promise.race([ st.fin, new Promise(res => setTimeout(() => res(null), 300000)) ]);
+  if (code === null) { try { st.ch.kill('SIGKILL'); } catch (err) {} _ff.delete(id);
+    return { ok: false, code: null, err: 'FFmpeg timed out while finalizing the file.' }; }
   _ff.delete(id);
   return { ok: code === 0, code, err: code === 0 ? '' : st.err.slice(-1200) };
 });

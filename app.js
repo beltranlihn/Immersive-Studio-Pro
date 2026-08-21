@@ -3359,6 +3359,10 @@ async function makeProxy(m){
     let published=false; try{ published=await DSP.rename(part,cache); }catch(e){}
     if(!published){ try{ await DSP.deleteFile(part); }catch(e){} m._ppart=null; throw new Error('proxy publish failed'); }
     m._ppart=null;
+    m.proxyFps=fps; /* [R352b] el camino de DISCO -que es el normal- nunca lo escribia: solo lo hacia la rama del
+       blob en RAM. Con `proxyFps` ausente, `proxyRevisaFps` cae siempre al heuristico «cadencia no entera =
+       regimen viejo» y TIRA un proxy recien horneado y perfectamente valido de material NTSC (23,976), con el
+       aviso de regenerarlo... que no arregla nada, porque al regenerar tampoco se escribia. Bucle sin salida. */
     try{ await bindProxyFile(m,cache); }catch(e){ if(!(e&&e.timeout)){ try{ await DSP.deleteFile(cache); }catch(_){} } throw e; } // a finalized file that still won't decode must not be left as a landmine — but a slow-disk TIMEOUT is not corruption, keep it
     return;
   }
@@ -5896,7 +5900,13 @@ function onTLUp(){ showSnap(null); _dragLaneRects=null; _dragLaneScrollTop=null;
          El agujero existía para un clic de 0 px exactos; el umbral de arrastre de R349 lo abrió a todo clic de
          ≤6 px, que es el caso normal. Y el nombre lo decía: «on drop» — si no se ha soltado nada, no hay drop. */
       if(changed)cutOverlapsOnDrop(drag.items.map(it=>it.id)); } }
-  else if(drag&&(drag.mode==='trimL'||drag.mode==='trimR')){ cutOverlapsOnDrop(drag.items.map(it=>it.id)); } // [R223] crecer con el handle de resize hacia un vecino también corta, no funde
+  /* [R352b] La MISMA puerta que R349b cerro en la rama de mover seguia abierta aqui: sin la guarda, un clic de
+     <=6 px sobre el tirador de recorte -por debajo del umbral de arrastre de R349, o sea un clic normal- no
+     calcula delta, no empuja deshacer... y aun asi llamaba a `cutOverlapsOnDrop`, que BORRA o recorta al vecino
+     solapado. El siguiente Ctrl+Z revertia una edicion anterior dejando el corte hecho. Y como `drag.items` es
+     `linkedIds(state.selIds)`, un solo clic actuaba sobre TODOS los clips seleccionados.
+     `_undone` es lo que marca que hubo edicion de verdad: si no la hubo, no hay nada que cortar. */
+  else if(drag&&(drag.mode==='trimL'||drag.mode==='trimR')){ if(drag._undone)cutOverlapsOnDrop(drag.items.map(it=>it.id)); } // [R223] crecer con el handle de resize hacia un vecino también corta, no funde
   clearMoveGhosts(); drag=null; window.removeEventListener('pointermove',onTLMove); window.removeEventListener('pointerup',onTLUp); renderTimeline(); renderInspector(); render(); updStatus(); reschedAudio(); }
 /* [R223] vecino de crossfade para `which`: el clip de la misma pista que cc ya TOCA o ya SOLAPA por ese lado
    (gap<=10ms). A diferencia de laneNeighbours (sólo tocantes), esto también encuentra al vecino cuando se
@@ -8684,7 +8694,18 @@ function vinstCapPara(n){ if(n+2>_vinstCap)_vinstCap=n+2; }
    se quedaba colgado sin plazo ni error. */
 function bindVideoSrc(vi,url){ if(!vi||!url||vi.vsrc===url)return;
   vi.vsrc=url; vi.ready=false; try{vi.vel.pause();}catch(e){} vi.vel.src=url;
-  vi.loadP=new Promise(r=>{ const on=()=>{ vi.vel.removeEventListener('loadeddata',on); r(); }; vi.vel.addEventListener('loadeddata',on); try{vi.vel.load();}catch(e){} if(vi.vel.readyState>=2){ vi.vel.removeEventListener('loadeddata',on); r(); } }); }
+  /* [R352b] Misma familia que R194 dio por cerrada, pero el otro caso: alli era «src ausente», aqui es «src que
+     DA ERROR». Sin oyente de `error` ni plazo, `loadP` no resolvia jamas y todo el que la espera se quedaba
+     colgado sin error, sin aviso y sin barra moviendose — p. ej. exportar con el material en un disco externo
+     que se expulsa o se duerme a mitad. Se resuelve igualmente: quien espera ya comprueba `vi.ready`. */
+  vi.loadP=new Promise(r=>{
+    let fin=false; const acabar=()=>{ if(fin)return; fin=true;
+      try{ vi.vel.removeEventListener('loadeddata',on); vi.vel.removeEventListener('error',onErr); }catch(_){} r(); };
+    const on=()=>{ vi.ready=true; acabar(); }; const onErr=()=>acabar();
+    vi.vel.addEventListener('loadeddata',on); vi.vel.addEventListener('error',onErr);
+    setTimeout(acabar,20000);
+    try{vi.vel.load();}catch(e){}
+    if(vi.vel.readyState>=2){ vi.ready=true; acabar(); } }); }
 function vinstCap(){ if(_vinst.size<=_vinstCap)return; const arr=[..._vinst.entries()].sort((a,b)=>a[1].last-b[1].last); for(let i=0;i<arr.length&&_vinst.size>_vinstCap;i++) vinstDispose(arr[i][0]); }
 function vinstDispose(id){ const vi=_vinst.get(id); if(!vi)return; if(vi.cd){try{vi.cd.close();}catch(e){} vi.cd=null;} if(vi.vf&&vi.vel&&vi.vel.cancelVideoFrameCallback){try{vi.vel.cancelVideoFrameCallback(vi.vf);}catch(e){}} try{vi.vel.pause();}catch(e){} try{vi.vel.removeAttribute('src');vi.vel.load();}catch(e){} if(vi.ael){try{vi.ael.pause();vi.ael.removeAttribute('src');vi.ael.load();}catch(e){}} if(vi.vtex){try{gl.deleteTexture(vi.vtex);}catch(e){}} _vinst.delete(id); }
 /* [R92-T2 C1] per-clip <audio> element for PREVIEW sound of video clips. Always bound to the ORIGINAL file
@@ -12789,7 +12810,14 @@ function restore(s){ const o=JSON.parse(s);
 function undo(){ const st=_ustk(); if(!st.u.length)return; const s=st.u.pop(); st.bytes-=s.length;
   let tids=null; try{ tids=JSON.parse(s).trashIds||null; }catch(e){}
   st.r.push(snapshot(tids)); restore(s); }
-function redo(){ const st=_ustk(); if(!st.r.length)return; const s=snapshot(); st.u.push(s); st.bytes+=s.length; restore(st.r.pop()); }
+/* [R352b] `redo` apilaba `snapshot()` SIN los trashIds, asi que el hilo que R327 enhebro en `undo` se cortaba al
+   primer rehacer: borrar un medio del panel -sin clips que lo usen-, Ctrl+Z (revive), Ctrl+Y (se entierra),
+   Ctrl+Z otra vez... y ya NO revivia, porque la foto que se saca es la de `redo` y `need` no lo contiene. El
+   siguiente guardado lo borraba del proyecto de forma definitiva via `purgeMediaTrash`. Simetrico con `undo`:
+   los trashIds se leen de la foto que se va a restaurar y viajan con la que se deja atras. */
+function redo(){ const st=_ustk(); if(!st.r.length)return;
+  let tids=null; try{ tids=JSON.parse(st.r[st.r.length-1]).trashIds||null; }catch(e){}
+  const s=snapshot(tids); st.u.push(s); st.bytes+=s.length; restore(st.r.pop()); }
 /* [R214→R215] state.mediaTrash never shrank on its own — a media deleted from the panel stayed in the trash (full
    decoded buffers/textures held via disposeMedia's own bookkeeping, not the tiny stub) for the rest of the
    session, undo-revivable forever. new/open/newRoomProject already wipe the trash wholesale (fresh project = no

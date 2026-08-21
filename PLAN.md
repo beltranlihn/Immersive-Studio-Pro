@@ -1,5 +1,78 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND 352b — Revisión desde el Mac de R303→R352
+
+69 commits de Windows. Dos revisores sobre las áreas de más riesgo (integridad de datos / proyectos existentes, y
+la cadena decodificador-cadencia-export). **Seis defectos corregidos y verificados**
+(`scratchpad/r352b-review.mjs`); el resto queda reportado abajo. Su suite pasa 6/6 y mis regresiones siguen
+limpias, `__errs` vacío.
+
+### Dos que destruían trabajo del usuario
+
+**Un clic sobre el tirador de recorte cortaba al clip vecino sin dejar rastro en el historial.** R349b puso la
+guarda en la rama de *mover* y dejó la de *recortar* igual que estaba. Con el umbral de arrastre de R349, un clic
+de ≤6 px —o sea, un clic normal— no calcula delta ni empuja deshacer, pero seguía llamando a
+`cutOverlapsOnDrop`, que borra o recorta al vecino solapado: la configuración exacta de cualquier crossfade. El
+siguiente Ctrl+Z revertía una edición anterior dejando el corte hecho. Y como el gesto opera sobre
+`linkedIds(state.selIds)`, un solo clic actuaba sobre **todos** los clips seleccionados.
+
+**Rehacer enterraba un medio para siempre.** R327 enhebró los `trashIds` en `undo`, pero `redo` seguía apilando
+`snapshot()` sin ellos, así que el hilo se cortaba al primer rehacer: borrar un medio del panel (sin clips que lo
+usen) → Ctrl+Z revive → Ctrl+Y entierra → Ctrl+Z **ya no revivía**, y el siguiente guardado lo borraba del
+proyecto de forma definitiva vía `purgeMediaTrash`. Ahora los `trashIds` viajan igual en las dos direcciones.
+Medido: el medio sobrevive al ciclo completo.
+
+### Tres que se notan en este Mac
+
+**El hijo de FFmpeg quedaba huérfano.** `render-process-gone` limpiaba los descriptores de archivo pero no los
+procesos; sólo los mataba `before-quit`, que **en macOS no llega al cerrar la ventana**. Un reinicio de GPU a
+mitad de export dejaba un ffmpeg bloqueado en `read()` para siempre, con el `.mp4` a medias, hasta un Cmd+Q.
+
+**El plazo del drenaje devolvía `true`**, anulando la contrapresión justo cuando hace falta: con FFmpeg vivo pero
+sin consumir —salida a disco externo o de red— el bucle seguía encolando 24 MB por fotograma en el proceso
+principal, sin tope. Ahora devuelve `false` y el renderer para. De paso, la espera pasa a comprobar **identidad**
+y no presencia: con dos escrituras seguidas, el plazo de la primera se llevaba por delante a la segunda.
+
+**`ffEnd` no tenía plazo y Cancelar no lo alcanzaba.** `-movflags +faststart` reescribe el archivo entero al
+cerrar; si se cuelga o el disco se llena a mitad, ese `await` no tenía salida ninguna —Cancelar sólo pone una
+bandera en el renderer, que ya está esperando ahí— y la única opción era matar la app, dejando además el
+huérfano.
+
+### Uno que dejaba al usuario en un bucle sin salida
+
+**El camino de disco del proxy nunca escribía `proxyFps`** — sólo lo hacía la rama del blob en RAM, que es la
+excepción. Con el campo ausente, `proxyRevisaFps` cae siempre al heurístico «cadencia no entera = régimen viejo»
+y **tira un proxy recién horneado y perfectamente válido** de material NTSC, pidiendo regenerarlo… lo que no
+arregla nada, porque al regenerar tampoco se escribía.
+
+Y **`bindVideoSrc` no resolvía nunca si el archivo daba error**: misma familia que R194 dio por cerrada, pero el
+otro caso (allí «src ausente», aquí «src que falla»). Sin oyente de `error` ni plazo, todo el que espera esa
+promesa se quedaba colgado sin error, sin aviso y sin barra moviéndose — exportar con el material en un disco
+externo que se expulsa a mitad. Medido: ahora resuelve en 4 ms.
+
+### Reportado, no corregido
+
+- **Un máster a la cadencia de la fuente es imposible para NTSC.** R347 enseñó a la app a *detectar* 23,976 /
+  29,97 / 59,94, pero los cuatro selectores de fps sólo ofrecen enteros. Resultado: un fotograma repetido cada
+  41,7 s con 23,976 sobre 24, cada 16,7 s con 59,94 sobre 60 — en 90 min, ~130 duplicados horneados en silencio.
+  **No afecta al material actual** (60/1 y 24/1); afectará en cuanto entre material de archivo o de cámara
+  americana.
+- **La justificación del HEVC de 10 bits es falsa en esta tubería:** la entrada a FFmpeg es NV12 leído de un FBO
+  `RGBA8` con `UNSIGNED_BYTE`, así que el bandeado ya viene cuantizado a 8 bits y `p010le` sólo rellena ceros.
+- **El caché de un nido sigue sin coincidir con el recompuesto** donde el nido tiene zonas transparentes: en vivo
+  se ve a través, horneado sale negro opaco. R341 arregló el recorte al disco, que era la premisa, no la
+  conclusión.
+- **«Recomponer» empuja un `pushUndo` que no cubre nada de lo que muta** (`media[].comp` y `nestClips` no están
+  en el snapshot), así que deshacer no recupera los ajustes anteriores del compose y encima revierte la línea de
+  tiempo a un estado sin relación.
+- **La red de R317 da falsos negativos**: es una lista de 7 gestos escritos a mano, y **3 de los 7 no invocan el
+  manejador real**, así que se pueden revertir tres de sus cinco arreglos y sigue verde. Cuatro rondas
+  posteriores (R320, R328, R329, R349b) encontraron miembros de esa familia que la red no vio.
+- **El mando de máscara por clip se quedó fuera del acuerdo de R304**: `min=20 max=200` recorta tanto el 250
+  legacy como el 0 que R296/R301c habilitaron, en cuanto se roza el fader.
+- `openModPanel` no se llama desde ningún sitio: los `pushUndo` que R328 le añadió son código inalcanzable.
+
+
 ## ROUND 352 — Una pista nueva nace del alto que tienen las demás
 
 Petición de Beltrán: una pista añadida con ⌘T o por el menú —de audio, vídeo o piso— salía con un alto distinto
