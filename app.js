@@ -1553,6 +1553,25 @@ function freeNestPool(){ for(const e of _nestPool){ try{gl.deleteTexture(e.tex);
    que es la única puerta que de verdad decide si el caché se usa: un proxy no cuadrado guardado en un `.isp`
    anterior seguía enlazándose en previsualización con el desencuadre que R192 vino a cerrar. */
 function ncUsable(m){ return !_exportQuality && state.view.useNestCache!==false && !!(m && m.kind==='nest' && m.w===m.h && m.ncReady && m.ncUrl && !m.ncStale); }
+/* [R353] ¿El interior de este nido depende del RELOJ? Modificadores procedimentales (`anim`) o pila de
+   modulacion (`mod`): los dos avanzan con `animTime`. Desciende a los nidos hijos, como `anyFeedbackFx`. */
+function nestConReloj(m,prof){ if(!m||!m.nestClips||(prof||0)>5)return false;
+  for(const c of m.nestClips){ if((c.anim&&c.anim.length)||(c.mod&&Object.keys(c.mod).length))return true;
+    const h=mediaById(c.mediaId); if(h&&h.nestClips&&nestConReloj(h,(prof||0)+1))return true; }
+  return false; }
+/* [R353] EL CACHE NO SABE DE BUCLES, y por eso un compose loopeado se reiniciaba o parpadeaba.
+   R273 separo el bucle del MOVIMIENTO: el video envuelve -para eso se loopea- pero los modificadores siguen
+   corriendo, y de eso se encarga `_animNido` en el camino que RECOMPONE. El cache es un video horneado de
+   [0,dur): no tiene esos fotogramas y no hay forma de que los tenga. Medido con un diente de sierra dentro de
+   un clip en bucle de 2 s: el recompuesto pide 0…8 s seguidos mientras el cache pide 0,5 / 1 / 1,5 / 0 / 0,5…
+   -reinicia en cada vuelta-. Y como el export apaga el cache, la previsualizacion contradecia a la entrega.
+   El segundo sintoma es del mismo sitio: al envolver, la instancia de video busca, y mientras `vi.ready` es
+   false `c._ntex` queda nulo; en un nest `m.tex` tambien lo es, asi que el compose DESAPARECE hasta que llega
+   el fotograma. Se ve como un negro que va y viene.
+   Sin reloj dentro, un bucle si repite identico y el cache sigue valiendo: ahi no se toca nada. */
+function ncUsableFor(c,m){ if(!ncUsable(m))return false;
+  if(c && c.loop && c.loopLen>0 && nestConReloj(m))return false;
+  return true; }
 function _r4(v){ return Math.round((+v||0)*1e4)/1e4; }
 function _fnv(s){ let h=2166136261>>>0; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619)>>>0; } return h.toString(36); }
 /* Firma del CONTENIDO del nest. Es lo único que decide si el caché sigue valiendo, y se compara en vez de
@@ -1607,7 +1626,7 @@ function prepNests(clips,t,depth){ if(!depth)_nestN=0; if((depth||0)>5||!clips)r
     if(isNestAudioClip(c)){ c._ntex=null; continue; } // [R225·9] el clip derivado es SÓLO audio: componer su nest en una FBO cada fotograma sería trabajo tirado (nadie lo dibuja: vive en una pista de audio)
     if(c.disabled){ c._ntex=null; continue; } // [R180] apagar un nest NO lo hacía gratis: compositeClips lo saltaba al dibujar, pero aquí se seguían componiendo sus 15 hijos cada fotograma para producir una textura que nadie usaba
     const lt=srcT(c,t);
-    if(ncUsable(m)){ const vi=vinstEnsure(c,m); c._ntex=(vi&&vi.ready&&vi.vtex)?vi.vtex:null; // [R180] el caché ES el nest: no se desciende a los hijos. Las props del clip (az/el/tamaño/opacidad/LUT/keyframes) se aplican encima igual que antes, porque el caché sustituye SÓLO la composición interna
+    if(ncUsableFor(c,m)){ const vi=vinstEnsure(c,m); c._ntex=(vi&&vi.ready&&vi.vtex)?vi.vtex:null; // [R180] el caché ES el nest: no se desciende a los hijos. Las props del clip (az/el/tamaño/opacidad/LUT/keyframes) se aplican encima igual que antes, porque el caché sustituye SÓLO la composición interna
       /* vinstEnsure, no _vinst.get: la instancia puede NO existir todavía — ncAttach acaba de soltarlas, o
          venimos de abrir el proyecto, o de un deshacer. Sin esto `c._ntex` se quedaba en null y `drawClip` caía
          a `m.tex`, que en un nest es null → la composición desaparecía del visor hasta que alguien movía el
@@ -8643,7 +8662,7 @@ function _useCD(m){ if(!(_exCD||state.view.wcDecode))return false; // [R108] eng
   if(/\.dsp-proxy-\w+\.mp4$/i.test(m.path))return false;                                   // a proxy is light — <video> handles it
   if(_exCD)return true;                                                                    // en export no hay proxy que valga: se entrega desde el original
   const usingProxy=(state.view.useProxy!==false && m.proxyReady && m.proxyUrl); return !usingProxy; }
-function vinstEnsure(c,m){ if(!m||(m.kind!=='video' && !(m.kind==='nest'&&ncUsable(m))))return null; const url=_vinstUrl(m); if(!url)return null; // [R180] nests cacheados incluidos (_useCD exige kind==='video', así que van por <video>, que es lo correcto para un archivo ligero)
+function vinstEnsure(c,m){ if(!m||(m.kind!=='video' && !(m.kind==='nest'&&ncUsableFor(c,m))))return null; // [R353] por CLIP: los tres puntos que deciden tienen que coincidir const url=_vinstUrl(m); if(!url)return null; // [R180] nests cacheados incluidos (_useCD exige kind==='video', así que van por <video>, que es lo correcto para un archivo ligero)
   let vi=_vinst.get(c.id);
   if(!vi){ vi={vel:document.createElement('video'),vtex:newTex(),vsrc:null,ready:false,vf:0,last:0,loadP:null,cd:null,cdPending:false,cdReadyP:null,mid:null}; vi.vel.muted=true; vi.vel.playsInline=true; vi.vel.preload='auto'; _vinst.set(c.id,vi); }
   vi.last=++_vinstClock;
@@ -8822,7 +8841,7 @@ function collectDrawnVideoClips(clips,lanes,t,depth,out,pGain,pRate){ out=out||[
        un flag: `gain<=0.001` ya es lo que mutea en las dos ramas (play() y ploop()) y se compone hacia dentro. */
     if((depth||0)>0) g=0;
     if(m.kind==='video') out.push({c,m,local:lt,gain:g,rate:rr});
-    else if(m.kind==='nest'&&ncUsable(m)) out.push({c,m,local:lt,gain:0,rate:rr}); // [R180] el caché entra como un vídeo y NO se desciende · [R225·9] su audio horneado NO suena aquí (vinstAudio devuelve null para nests): la mezcla va por el clip derivado
+    else if(m.kind==='nest'&&ncUsableFor(c,m)) out.push({c,m,local:lt,gain:0,rate:rr}); // [R353] misma decision que prepNests: si discrepan, la instancia se derriba dos veces por fotograma y el elemento sale NEGRO (es lo que cerro R338) // [R180] el caché entra como un vídeo y NO se desciende · [R225·9] su audio horneado NO suena aquí (vinstAudio devuelve null para nests): la mezcla va por el clip derivado
     else if(m.kind==='nest'&&m.nestClips){ const oan=_animNido; _animNido += (((c.inP||0)+(t-c.start)*(c.speed||1)) - lt); /* [R330] el MISMO reloj que usa prepNests al componer el nido (R273: el reloj de los modificadores del interior no envuelve). Sin la compensación, `mediaEfId` de dentro rotaba en un instante distinto del que dibuja el compositor en cuanto el clip del nido tiene bucle */
       try{ collectDrawnVideoClips(m.nestClips,(m.nestLanes&&m.nestLanes.length?m.nestLanes:lanes),lt,(depth||0)+1,out,g,rr); } finally { _animNido=oan; } } }
   return out; }

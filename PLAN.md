@@ -1,5 +1,32 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND R353 — El caché de nidos no sabía de bucles (compose loopeado: reinicio y parpadeo)
+
+**Sintoma del usuario:** «los compose que tengo loopeados, a veces se resetea la posicion de los elementos, o
+a veces pasan a negro y vuelven a aparecer». Con muchisimos composes en bucle en la experiencia en curso.
+
+**Causa unica, dos sintomas.** `ncUsable(m)` decidia solo con el MEDIO, pero que el cache valga depende del
+CLIP. R273 separo el bucle del movimiento: el video envuelve -para eso se loopea- mientras los modificadores
+siguen corriendo, y de eso se encarga `_animNido` en el camino que RECOMPONE. El cache es un video horneado de
+`[0,dur)`: no tiene esos fotogramas y no puede tenerlos. En `prepNests` la rama del cache hace `continue`
+ANTES del bloque que aplica `_animNido`.
+- *Reinicio de posicion:* medido con un diente de sierra dentro de un clip en bucle de 2 s — el recompuesto
+  pide 0…8 s seguidos; el cache pide 0 / 0,5 / 1 / 1,5 / **0** / 0,5… Reinicia en cada vuelta.
+- *Negro que va y viene:* al envolver, la instancia de video BUSCA; mientras `vi.ready` es false,
+  `c._ntex` queda nulo, y en un nest `m.tex` tambien lo es (app.js:1264) → el compose desaparece hasta que
+  llega el fotograma.
+- Ademas la previsualizacion contradecia a la ENTREGA: el export apaga el cache y recompone.
+
+**Arreglo.** `ncUsableFor(c,m)` + `nestConReloj(m)` (desciende a los nidos hijos buscando `anim` o `mod`).
+Aplicado en **los tres puntos que deciden** — `prepNests`, `vinstEnsure` y `collectDrawnVideoClips`: si
+discrepan, la instancia se derriba dos veces por fotograma y el elemento sale negro, que es exactamente lo
+que cerro R338. Un bucle SIN reloj dentro repite identico, asi que ahi el cache se sigue usando: la ganancia
+de rendimiento no se toca en el caso comun.
+
+**Sonda** `scratchpad/r353-bucle-compose.mjs` — y SABE FALLAR: reconstruye la logica anterior y exige que la
+cace (`conLaLogicaVieja.loopConReloj: true` frente a `decision.loopConReloj: false`). Verifica tambien la NO
+regresion (`sinLoopConReloj: true`, `loopSinReloj: true`) y que los tres puntos coinciden.
+
 ## ROUND 352b — Revisión desde el Mac de R303→R352
 
 69 commits de Windows. Dos revisores sobre las áreas de más riesgo (integridad de datos / proyectos existentes, y
