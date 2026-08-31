@@ -2,21 +2,26 @@
 
 Dos salidas del MISMO texto:
 
-- **`docs/Immersive Studio Pro - User Manual.pdf`** — 79 páginas, A4, para imprimir o leer en el escritorio.
+- **`docs/Immersive Studio Pro - User Manual.pdf`** — 73 páginas, A4, para imprimir o leer en el escritorio.
 - **`docs/manual/manual-web.html`** — la versión de pantalla, de una sola columna y con las imágenes
   empotradas en `data:`, para leerla en el teléfono. Se genera con `build/web.py`.
 
-No son dos manuales: la de pantalla **reutiliza `manual.html`** y sólo le cambia la hoja de estilo. Escribir
-el texto dos veces sería garantizar que las dos versiones se separen.
+No son dos manuales: la de pantalla **reutiliza `manual.html`** y sólo le cambia la hoja de estilo. Escribir el
+texto dos veces sería garantizar que las dos versiones se separen.
 
 ## La regla que lo sostiene
 
 **Nada del manual se escribe de memoria.** Las fotos se capturan de la aplicación en marcha y las tablas de
 menús, atajos, efectos y composiciones se leen de los catálogos vivos (`commandList()`, `FXTYPES`,
-`ANIM_PRESETS`, las opciones reales de los cuadros). Un manual que documenta funciones que ya no existen es peor
-que no tener manual, y esa es exactamente la avería que aparece cuando alguien transcribe a mano.
+`ANIM_PRESETS`, las opciones reales de los cuadros). Un manual que documenta funciones que ya no existen es
+peor que no tener manual, y ésa es exactamente la avería que aparece cuando alguien transcribe a mano.
 
 Por eso el índice, el capítulo de atajos y el de efectos se **generan** al imprimir, desde `build/datos.json`.
+
+## El tono
+
+Instructivo e impersonal. Sin argumentario de venta, **sin definir nada por lo que no hace** y sin segunda
+persona: imperativo para las instrucciones, tercera para las descripciones.
 
 ## Rehacerlo
 
@@ -34,41 +39,43 @@ node docs/manual/build/extraer2.mjs
 node docs/manual/build/capturar.mjs
 node docs/manual/build/capturar.mjs docs/manual/build/tomas2.json
 node docs/manual/build/capturar.mjs docs/manual/build/tomas-m.json   # las tomas NUMERADAS
-python docs/manual/build/recortar.py   # quita el vacio del pie de las capturas altas
-python docs/manual/build/anotar.py     # dibuja los numeros sobre las capturas
+python docs/manual/build/recortar.py   # quita el vacío del pie de las capturas altas
+python docs/manual/build/anotar.py     # dibuja los números sobre las capturas
 python docs/manual/build/armar.py      # el PDF
-python docs/manual/build/web.py        # la version de pantalla
+python docs/manual/build/web.py        # la versión de pantalla
 ```
 
-## Las capturas numeradas
-
-El modelo es el manual de Ableton: **si se habla de una zona, se enseña esa zona**, ampliada, con sus
-controles numerados sobre la imagen y la lista debajo. `tomas-m.json` define cada toma y la lista de
-selectores que se numeran; **las coordenadas las mide `capturar.mjs` sobre el DOM vivo**, nunca se estiman.
-
-`"discos": true` dibuja sólo el número, sin recuadro. Es lo que necesita una vista general: dos zonas
-contiguas trazan dos filetes paralelos que se leen como un error de encuadre, y ocho recuadros grandes sobre
-la ventana entera son ruido a tamaño de lectura. El recuadro se reserva a controles pequeños.
-
-## El tono
-
-Instructivo e impersonal. Sin argumentario de venta, **sin definir nada por lo que no hace** y sin segunda
-persona: imperativo para las instrucciones, tercera para las descripciones.
-
+Qué hace cada uno:
 
 - **`extraer.mjs` / `extraer2.mjs`** → `build/datos.json` y `build/datos2.json`: comandos y atajos, catálogo de
   efectos con sus parámetros, presets de movimiento, máscaras, mezclas, menús, códecs de export y tipos de
   composición.
 - **`capturar.mjs`** → `img/*.png`: monta los proyectos de demostración, abre cada cuadro y captura por
-  selector, a escala 2 porque el destino es papel. La lista de tomas está en `build/tomas.json`.
-- **`armar.py`** → el PDF: imprime **dos veces**. Un índice sin números de página no es un índice, y Chromium no
-  sabe en qué página cae cada capítulo; así que la primera pasada sirve para medir —se buscan los titulares en
-  el PDF resultante— y la segunda ya lleva los números puestos. Luego pega portada y cuerpo y escribe los
+  selector, a escala 2 porque el destino es papel. La lista de tomas está en `build/tomas.json`, y las tomas
+  numeradas en `build/tomas-m.json`.
+- **`recortar.py`** → quita la franja inferior vacía de las capturas altas. El panel del inspector mide 850 px
+  con media vacía, y a ancho de columna esa proporción se sale de la hoja.
+- **`anotar.py`** → dibuja los números naranjas sobre las capturas, a partir de los rectángulos que midió
+  `capturar.mjs`.
+- **`armar.py`** → el PDF: imprime **dos veces**. Un índice sin números de página no es un índice, y Chromium
+  no sabe en qué página cae cada capítulo; así que la primera pasada sirve para medir —se buscan los titulares
+  en el PDF resultante— y la segunda ya lleva los números puestos. Luego pega portada y cuerpo y escribe los
   marcadores.
+- **`web.py`** → la versión de pantalla, desde el mismo `manual.html`.
 
 `manual.html` es el texto. Al cambiar algo de la aplicación que el manual describa, se edita ahí y se vuelve a
 ejecutar `armar.py`; si lo que cambió fue un menú, un atajo o un efecto, hay que volver a pasar `extraer.mjs`
 primero, porque esas tablas no están escritas en el HTML.
+
+## Las capturas numeradas
+
+El modelo es el manual de Ableton: **si se habla de una zona, se enseña esa zona**, ampliada, con sus controles
+numerados sobre la imagen y la lista debajo. `tomas-m.json` define cada toma y la lista de selectores que se
+numeran; **las coordenadas las mide `capturar.mjs` sobre el DOM vivo**, nunca se estiman.
+
+`"discos": true` dibuja sólo el número, sin recuadro. Es lo que necesita una vista general: dos zonas contiguas
+trazan dos filetes paralelos que se leen como un error de encuadre, y ocho recuadros grandes sobre la ventana
+entera son ruido a tamaño de lectura. El recuadro se reserva a controles pequeños.
 
 ## Trampas que ya costaron una vuelta
 
