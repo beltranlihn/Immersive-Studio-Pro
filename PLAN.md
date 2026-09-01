@@ -1,5 +1,30 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND R355 — Proxies de MEDIO en lote, y el codec por el tamano que se hornea
+
+**R354b — el codec se elegia por el tamano equivocado.** `ncBuild` preguntaba por los codecs con `ncFullSize`
+(el tamano completo del nido) para poder anunciarlo en el dialogo, pero luego horneaba al tamano ELEGIDO. A
+4096 esta maquina solo ofrece AV1/VP9 por software, asi que un proxy a 2048 seguia codificando por software
+sin ninguna necesidad. Ahora se vuelve a preguntar por el tamano real, y el bitrate tambien se calcula con el,
+en vez de reservar bits de 4096 para un archivo de 2048. Efecto medido en la pelicula en curso: los 20
+composes mas pesados pasaron de horas estimadas a **4,5 minutos**.
+
+**R355 — generacion en lote de proxies de medio.** `scratchpad/r355-proxies-de-medio.mjs` encola los videos
+por la cola oficial (`enqProxy`, uno a uno) y espera a que se vacie. En la pelicula: 134 videos, 4 minutos.
+
+Dos hechos del formato que conviene no volver a deducir:
+- **`proxyPath` NO se serializa** en el `.isp`. La app reengancha los proxies de medio al abrir buscando el
+  archivo hermano `*.dsp-proxy-*.mp4`. Verificado reabriendo de cero: 134/134 enganchados. Es decir, el
+  proyecto no depende de ellos, pero moverlos de carpeta los pierde.
+- **Ningun proxy llega a la entrega.** `_vinstUrl` solo devuelve el proxy con `!_exportQuality`; en export se
+  usa siempre `m.srcUrl`. Vale igual para los de medio y para los de composicion.
+
+**Guardas en los guiones que escriben sobre proyectos del usuario.** Un guion anterior sobrescribio el
+proyecto de produccion con uno vacio: esperaba a "0 medios faltantes", condicion que **ya se cumple con el
+proyecto vacio de arranque**, salio antes de cargar y guardo encima. Se recupero de la copia. Desde ahora los
+guiones de lote exigen antes de guardar: numero de medios esperado, ruta cargada que coincide, y que la
+operacion haya producido algo. Nunca una condicion que un estado vacio pueda satisfacer.
+
 ## ROUND R354 — El proxy de composicion ya entiende los bucles
 
 R353 midio que un proxy no puede representar un compose en BUCLE con movimiento dentro -el horneado cubre
