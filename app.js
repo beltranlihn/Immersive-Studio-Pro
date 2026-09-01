@@ -1569,9 +1569,53 @@ function nestConReloj(m,prof){ if(!m||!m.nestClips||(prof||0)>5)return false;
    false `c._ntex` queda nulo; en un nest `m.tex` tambien lo es, asi que el compose DESAPARECE hasta que llega
    el fotograma. Se ve como un negro que va y viene.
    Sin reloj dentro, un bucle si repite identico y el cache sigue valiendo: ahi no se toca nada. */
+const NC_BUCLE_MAX=180; // tope de horneado en segundos: un clip de 60 min en bucle no se hornea entero
+/* [R354] Un nido usado EN BUCLE con reloj dentro no se puede representar con un horneado de [0,dur): el
+   movimiento sigue corriendo y el archivo no tiene esos fotogramas (R353 lo midio y por eso le negaba el
+   cache). La salida no es renunciar al proxy, es hornear lo que el clip pide de verdad: se hornea la
+   EXTENSION del clip con el bucle YA APLICADO dentro -misma envoltura y mismo `_animNido` que usa el camino
+   en vivo- y en reproduccion se indexa SIN envolver. Asi el proxy y la recomposicion coinciden fotograma a
+   fotograma, y el compose loopeado deja de reiniciarse sin perder el proxy.
+   Devuelve null si los clips que lo loopean no comparten `loopLen`: con dos bucles distintos un solo archivo
+   no puede servir a los dos, y ahi se recompone en vivo. */
+function ncPlanBucle(m){ if(!m||m.kind!=='nest'||!nestConReloj(m))return null;
+  let len=null, span=0, hay=false;
+  const mira=(clips)=>{ for(const c of (clips||[])){ if(c.mediaId!==m.id)continue;
+      if(!(c.loop&&c.loopLen>0))continue;
+      hay=true;
+      if(len==null)len=c.loopLen; else if(Math.abs(len-c.loopLen)>1e-6)len=-1;
+      span=Math.max(span,(c.inP||0)+(c.dur||0)*(c.speed||1)); } };
+  mira(state.clips);
+  for(const mm of state.media) if(mm&&mm.kind==='nest') mira(mm.nestClips);
+  if(!hay||len==null||len<0)return null;
+  return { len, span:Math.min(Math.max(span,len), NC_BUCLE_MAX) }; }
 function ncUsableFor(c,m){ if(!ncUsable(m))return false;
-  if(c && c.loop && c.loopLen>0 && nestConReloj(m))return false;
-  return true; }
+  if(!(c&&c.loop&&c.loopLen>0))return true;
+  if(!nestConReloj(m))return true;                       // sin reloj dentro, el bucle repite identico
+  /* horneado PARA este bucle y cubriendo lo que el clip pide: el proxy ya lleva el bucle dentro */
+  return (m.ncLoop>0 && Math.abs(m.ncLoop-c.loopLen)<1e-6
+          && (m.ncSpan||0) >= ((c.inP||0)+(c.dur||0)*(c.speed||1))-1e-3); }
+/* Reloj con el que se pide el fotograma al proxy: si el proxy lleva el bucle horneado, NO se envuelve. */
+function ncLocalT(c,m,t,lt){ return (m&&m.ncLoop>0)?((c.inP||0)+(t-c.start)*(c.speed||1)):lt; }
+/* [R354] Hornear el bucle SIN tocar el motor de render. Una vuelta del bucle es, exactamente, el mismo clip
+   repetido cada `len` segundos: la FUENTE vuelve a empezar -mismo `inP`- mientras los modificadores siguen
+   corriendo, porque `animTime` va con el tiempo absoluto. Es la misma semantica que `_animNido` reproduce en
+   vivo, pero expresada como clips, asi que la sirve cualquier camino de export.
+   Se intento antes envolviendo el tiempo dentro de `renderExportFrame` y NO valia: un nido de domo no pasa por
+   ahi -`pintarFotograma` llama a `composite` directamente-, y ademas `seekExport`/`prepNests` ya habian corrido
+   con el tiempo sin envolver. Materializarlo aqui cubre los cuatro caminos a la vez.
+   Solo entra lo que cabe en UNA vuelta: si el nido dura mas que `len`, el bucle nunca llega a verlo. */
+function ncExpandirBucle(m,plan){ const L=plan.len, span=plan.span, orig=m.nestClips||[]; const out=[];
+  /* NO se muta `m`: se hornea una copia temporal. Mutar `m.nestClips` en el sitio y restaurarlo despues deja
+     contaminadas las caches derivadas del compose -el mapa de orden se dimensiona por numero de clips
+     (`compOrderCount`, R265b)-, y al volver a N clips el mapa seguia con 4N: `mediaEfId` apuntaba fuera del
+     array y la composicion se quedaba NEGRA en el visor. Medido: luz maxima 115 antes de hornear, 0 despues. */
+  for(let k=0; k*L < span-1e-6; k++){
+    for(const c of orig){ if(c.start>=L-1e-6)continue;
+      const d=Math.min(c.dur, L-c.start, span-(c.start+k*L));
+      if(d<=1e-6)continue;
+      const n=Object.assign({},c); n.id=uid(); n.start=c.start+k*L; n.dur=d; out.push(n); } }
+  return out; }
 function _r4(v){ return Math.round((+v||0)*1e4)/1e4; }
 function _fnv(s){ let h=2166136261>>>0; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619)>>>0; } return h.toString(36); }
 /* Firma del CONTENIDO del nest. Es lo único que decide si el caché sigue valiendo, y se compara en vez de
@@ -1603,10 +1647,10 @@ function ncRecheck(){ let changed=false;
   if(changed){ try{ renderMedia(); renderTimeline(); render(); }catch(e){} } }
 function ncDropVinst(mid){ const kill=cs=>{ for(const c of (cs||[])) if(c.mediaId===mid) vinstDispose(c.id); };
   kill(state.clips); for(const s of state.media) if(s.kind==='nest') kill(s.nestClips); }
-function ncAttach(m,path,sig,w,h,fps){ m.ncPath=path; m.ncSig=sig; m.ncW=w; m.ncH=h; m.ncFps=fps; delete m._noAudio; // sonda de silencio en limpio: un primer horneado sin pista de audio dejaba _noAudio pegado para siempre, y tras añadir sonido dentro del nest y regenerar, la composición seguía muda (vinstAudio devolvía null y collectAudioEvents seguía sin descender)
+function ncAttach(m,path,sig,w,h,fps,loop,span){ m.ncPath=path; m.ncSig=sig; m.ncW=w; m.ncH=h; m.ncFps=fps; m.ncLoop=loop||0; m.ncSpan=span||0; // [R354] con que bucle se horneo y cuanto cubre delete m._noAudio; // sonda de silencio en limpio: un primer horneado sin pista de audio dejaba _noAudio pegado para siempre, y tras añadir sonido dentro del nest y regenerar, la composición seguía muda (vinstAudio devolvía null y collectAudioEvents seguía sin descender)
   m.ncUrl=(IS_ELEC&&DSP.toFileURL)?DSP.toFileURL(path):null; m.ncReady=!!m.ncUrl; m.ncStale=false; ncDropVinst(m.id); }
 function ncDetach(m,delFile){ const p=m.ncPath;
-  m.ncPath=null; m.ncSig=null; m.ncUrl=null; m.ncReady=false; m.ncStale=false; m.ncW=m.ncH=m.ncFps=null;
+  m.ncPath=null; m.ncSig=null; m.ncUrl=null; m.ncReady=false; m.ncStale=false; m.ncW=m.ncH=m.ncFps=null; m.ncLoop=0; m.ncSpan=0;
   ncDropVinst(m.id);
   if(delFile&&p&&IS_ELEC&&DSP.deleteFile){ try{ DSP.deleteFile(p); }catch(e){} }
   try{ renderMedia(); renderTimeline(); render(); markDirty(); }catch(e){} }
@@ -1632,7 +1676,7 @@ function prepNests(clips,t,depth){ if(!depth)_nestN=0; if((depth||0)>5||!clips)r
          a `m.tex`, que en un nest es null → la composición desaparecía del visor hasta que alguien movía el
          cabezal (los caminos que terminan en render() y no en scrubRender() no siembran instancias). */
       if(vi&&!vi.ready&&!vi._ncKick&&!state.playing&&!exporting){ vi._ncKick=1; // un solo tiro por instancia: al llegar su primer fotograma se pide UN repintado
-        (vi.loadP||Promise.resolve()).then(()=>vinstSeek(c,m,lt)).then(()=>{ if(!state.playing&&!exporting)render(); },()=>{}); }
+        (vi.loadP||Promise.resolve()).then(()=>vinstSeek(c,m,ncLocalT(c,m,t,lt))).then(()=>{ if(!state.playing&&!exporting)render(); },()=>{}); }
       continue; }
     try{ wvPrep(m); }catch(e){}   /* [R300] deriva la rotacion del tejido; se cachea por firma, no cuesta por fotograma */
     /* [R336] La compensacion del reloj se aplicaba DESPUES de preparar los nidos interiores, asi que solo valia
@@ -8841,7 +8885,7 @@ function collectDrawnVideoClips(clips,lanes,t,depth,out,pGain,pRate){ out=out||[
        un flag: `gain<=0.001` ya es lo que mutea en las dos ramas (play() y ploop()) y se compone hacia dentro. */
     if((depth||0)>0) g=0;
     if(m.kind==='video') out.push({c,m,local:lt,gain:g,rate:rr});
-    else if(m.kind==='nest'&&ncUsableFor(c,m)) out.push({c,m,local:lt,gain:0,rate:rr}); // [R353] misma decision que prepNests: si discrepan, la instancia se derriba dos veces por fotograma y el elemento sale NEGRO (es lo que cerro R338) // [R180] el caché entra como un vídeo y NO se desciende · [R225·9] su audio horneado NO suena aquí (vinstAudio devuelve null para nests): la mezcla va por el clip derivado
+    else if(m.kind==='nest'&&ncUsableFor(c,m)) out.push({c,m,local:ncLocalT(c,m,t,lt),gain:0,rate:rr}); // [R354] con el bucle horneado dentro, el reloj NO se envuelve // [R353] misma decision que prepNests: si discrepan, la instancia se derriba dos veces por fotograma y el elemento sale NEGRO (es lo que cerro R338) // [R180] el caché entra como un vídeo y NO se desciende · [R225·9] su audio horneado NO suena aquí (vinstAudio devuelve null para nests): la mezcla va por el clip derivado
     else if(m.kind==='nest'&&m.nestClips){ const oan=_animNido; _animNido += (((c.inP||0)+(t-c.start)*(c.speed||1)) - lt); /* [R330] el MISMO reloj que usa prepNests al componer el nido (R273: el reloj de los modificadores del interior no envuelve). Sin la compensación, `mediaEfId` de dentro rotaba en un instante distinto del que dibuja el compositor en cuanto el clip del nido tiene bucle */
       try{ collectDrawnVideoClips(m.nestClips,(m.nestLanes&&m.nestLanes.length?m.nestLanes:lanes),lt,(depth||0)+1,out,g,rr); } finally { _animNido=oan; } } }
   return out; }
@@ -10270,7 +10314,7 @@ function ncFullSize(m){ const cw=m.w||1920, ch=m.h||1080;
   const w=Math.max(16,Math.round(cw*k/2)*2), h=Math.max(16,Math.round(ch*k/2)*2);
   return {w,h,s:Math.max(16,Math.round(Math.max(w,h)/2)*2),lienzo:cw+' × '+ch}; }
 async function ncDialog(m,opts){ return new Promise(resolve=>{
-  const fps=m.fps||state.fps||60, dur=m.dur||1;
+  const fps=m.fps||state.fps||60, dur=(opts&&opts.durBake)||m.dur||1; // [R354] con bucle horneado, la duracion no es la del nido
   const est=o=>{ const mb=ncBitrate(o.s,o.s,fps)/8*dur/1e6; return mb>=1000?(mb/1000).toFixed(2)+' GB':Math.max(1,Math.round(mb))+' MB'; };
 
 
@@ -10297,7 +10341,11 @@ async function ncBuild(m){
      también aquí: en un nest no cuadrado el horneado recorta el letterbox (rama `flat` de `renderExportFrame`)
      mientras que `prepNests` lo conserva, así que el caché encuadra distinto que la composición recompuesta. */
   if(m.w!==m.h){ appAlert(T('Nest proxies only support square compositions for now (a 16:9 nest would be framed differently with the proxy on).','Por ahora los proxies de composición sólo admiten composiciones cuadradas (un nido 16:9 quedaría encuadrado distinto con el proxy puesto).')); return; }
-  const fps=m.fps||state.fps||60, dur=m.dur||1;
+  const fps=m.fps||state.fps||60;
+  /* [R354] Si este nido se usa en bucle y lleva reloj dentro, se hornea la EXTENSION que piden sus clips
+     con el bucle ya aplicado, no los `m.dur` de la composicion: si no, el movimiento se reinicia cada vuelta. */
+  const plan=ncPlanBucle(m);
+  const dur=plan?plan.span:(m.dur||1);
   const tam=ncFullSize(m);
   const cods=await ripCodecOptions(tam.s,tam.s,fps); // el ARCHIVO es cuadrado
   if(!cods.length){ appAlert(T('No encoder accepts '+tam.s+'² on this machine.','Ningún codificador acepta '+tam.s+'² en esta máquina.')); return; }
@@ -10306,7 +10354,7 @@ async function ncBuild(m){
      codifican por software. Medido: un nido de 20 s tarda ~3,5 min en hornearse. Sin avisar, quien pulsa
      «Generar» cree que va a tardar segundos y cree que se ha colgado. */
   const blando=/^(av1|vp9)/.test(cod.kind);
-  const choice=await ncDialog(m,Object.assign({},tam,{codLabel:cod.label,blando})); if(!choice)return;
+  const choice=await ncDialog(m,Object.assign({},tam,{codLabel:cod.label,blando,durBake:dur})); if(!choice)return;
   const bitrate=ncBitrate(tam.s,tam.s,fps);
   const i=Math.max(currentPath.lastIndexOf('\\'),currentPath.lastIndexOf('/')), dir=currentPath.slice(0,i)+PSEP+'nest proxies'; // [R242·Aud-4.3] PSEP, no '\\': la familia R204 tenía aquí sus dos últimos supervivientes (en macOS creaban archivos con la barra DENTRO del nombre)
   try{ if(DSP.ensureDir)await DSP.ensureDir(dir); }catch(e){ appAlert(T('Could not create the “nest proxies” folder.','No se pudo crear la carpeta “nest proxies”.')); return; }
@@ -10315,8 +10363,20 @@ async function ncBuild(m){
   const old=m.ncPath;
   const ui=ripProgress(T('Nest proxy','Proxy de composición'), (m.name||'').slice(0,22)+' · '+choice.w+'×'+choice.h+' · '+cod.label+' · '+fps+' fps', 1);
   let thrown=null;
-  try{ await runExport({seqId:m.id, codec:cod.kind, res:choice.s, fps, bitrate, range:'clips', rangeT:[0,dur], outW:choice.s, outH:choice.s, squareNest:true, outPath, silent:true, job:ui.job}); }
+  let _tmp=null;
+  /* La temporal se CONSTRUYE, no se clona: `Object.assign({},m)` arrastra los campos internos del medio
+     (miniatura, textura, estado de proxy) y el horneado los toca, dejando la composicion original en negro
+     -medido: luz maxima 115 antes de hornear y 0 despues-. */
+  if(plan){ /* pistas PROPIAS, no las del original: el horneado inserta una pista de AUDIO al principio del
+       array, y compartiendolo la pista de video V1 pasaba del indice 0 al 1 mientras el clip seguia apuntando
+       al 0 -que ya era audio-. `compositeClips` salta lo que no es video, asi que la composicion original se
+       quedaba NEGRA. Medido: pistas [V1] antes, [Audio 1, V1] despues, y luz maxima de 115 a 0. */
+    const _lanes=(m.nestLanes||[]).map(l=>Object.assign({},l));
+    _tmp=newSeqMedia((m.name||'nest')+' bucle',m.fps||fps,m.w,m.h,ncExpandirBucle(m,plan),_lanes,m.mode,m.cov);
+    _tmp.dur=dur; state.media.push(_tmp); }
+  try{ await runExport({seqId:(_tmp||m).id, codec:cod.kind, res:choice.s, fps, bitrate, range:'clips', rangeT:[0,dur], outW:choice.s, outH:choice.s, squareNest:true, outPath, silent:true, job:ui.job}); }
   catch(e){ thrown=e; }
+  finally { if(_tmp)state.media=state.media.filter(x=>x!==_tmp); }
   ui.close();
   const failed=thrown||ui.failed();
   const rm=async()=>{ try{ if(DSP.deleteFile)await DSP.deleteFile(outPath); }catch(e){} };
@@ -10327,7 +10387,7 @@ async function ncBuild(m){
   /* La firma se toma AQUÍ, no antes de renderizar: entrar en la secuencia del nest la MUTA — loadSeqIntoState
      le añade una pista de audio si no tiene y corre los clips un índice (migración idempotente, neutra para la
      imagen). Firmando antes, el caché nacía rancio en el mismo instante de crearse. */
-  ncAttach(m,outPath,nestSig(m),choice.w,choice.h,fps);
+  ncAttach(m,outPath,nestSig(m),choice.w,choice.h,fps,plan?plan.len:0,plan?dur:0);
   if(old&&old!==outPath&&DSP.deleteFile){ try{ await DSP.deleteFile(old); }catch(e){} } // el anterior sólo se borra cuando el nuevo ya está enlazado
   renderMedia(); renderTimeline(); renderInspector(); render(); markDirty();
   flashStatus(T('Nest proxy ready · ','Proxy de composición listo · ')+choice.w+'×'+choice.h);
@@ -11275,7 +11335,7 @@ function projTitle(){ const md=(activeSeq()&&activeSeq().mode)||state.seqMode; c
 function serMedia(m){ return {id:m.id,name:m.name,kind:m.kind,w:m.w,h:m.h,mode:m.mode||null,cov:m.cov||null,room:m.room||null,roomFloorOf:m.roomFloorOf||null,dur:m.dur,fps:m.fps,proxyFps:(m.proxyFps||null),/* [R347b] la cadencia con la que se horneo el proxy: viaja en el .isp porque el proxy tambien sobrevive a la sesion */color:m.color,path:m.path||null,fsize:m.fsize||0,folder:m.folder||null,framePaths:m.framePaths||null,srcIn:(m.srcIn!=null?m.srcIn:null),srcOut:(m.srcOut!=null?m.srcOut:null),/* [R249] las marcas del monitor son del MATERIAL, no de la ventana: viajan con el proyecto */ndiSource:m.ndiSource||null,spoutSource:m.spoutSource||null,/* [V3] serMedia es una LISTA BLANCA: sin esta línea el .isp guardaba el medio Spout sin su emisor y al reabrir enganchaba al que estuviera activo — parecía funcionar por casualidad */
   text:m.text,tfontSize:m.tfontSize,tweight:m.tweight,tfont:m.tfont,talign:m.talign,tlineH:m.tlineH,titalic:m.titalic,tcolor:m.tcolor,tbg:m.tbg,tstroke:m.tstroke,tstrokeColor:m.tstrokeColor,
   shape:m.shape,fill:m.fill,stroke:m.stroke,strokeW:m.strokeW,sw:m.sw,sh:m.sh,
-  ncPath:(m.kind==='nest'?(m.ncPath||null):null), ncSig:(m.kind==='nest'?(m.ncSig||null):null), ncW:(m.kind==='nest'?(m.ncW||null):null), ncH:(m.kind==='nest'?(m.ncH||null):null), ncFps:(m.kind==='nest'?(m.ncFps||null):null), /* [R180] el caché sobrevive al cierre: al reabrir, ncReattach compara la firma y decide si sigue valiendo */
+  ncPath:(m.kind==='nest'?(m.ncPath||null):null), ncSig:(m.kind==='nest'?(m.ncSig||null):null), ncW:(m.kind==='nest'?(m.ncW||null):null), ncH:(m.kind==='nest'?(m.ncH||null):null), ncFps:(m.kind==='nest'?(m.ncFps||null):null), ncLoop:(m.kind==='nest'?(m.ncLoop||0):0), ncSpan:(m.kind==='nest'?(m.ncSpan||0):0), /* [R180] el caché sobrevive al cierre: al reabrir, ncReattach compara la firma y decide si sigue valiendo */
   nestClips:(m.kind==='nest'?(m.nestClips||[]).map(serClip):null), nestLanes:(m.kind==='nest'?m.nestLanes:null),
   nestMarkers:(m.kind==='nest'?(m.nestMarkers||[]):null), nestGroups:(m.kind==='nest'?(m.nestGroups||[]):null), nestPlayhead:(m.kind==='nest'?(m.nestPlayhead||0):null), nestScrollT:(m.kind==='nest'?(m.nestScrollT||0):null), /* [R239] el encuadre horizontal de la secuencia, en segundos */ nestWorkIn:(m.kind==='nest'?(m.nestWorkIn??null):null), nestWorkOut:(m.kind==='nest'?(m.nestWorkOut??null):null), comp:(m.comp||null), /* [archivado 20260725] grade: del nest */
   thumb:(m.kind==='audio'?m.thumb:null)}; }
