@@ -8662,7 +8662,7 @@ function _useCD(m){ if(!(_exCD||state.view.wcDecode))return false; // [R108] eng
   if(/\.dsp-proxy-\w+\.mp4$/i.test(m.path))return false;                                   // a proxy is light — <video> handles it
   if(_exCD)return true;                                                                    // en export no hay proxy que valga: se entrega desde el original
   const usingProxy=(state.view.useProxy!==false && m.proxyReady && m.proxyUrl); return !usingProxy; }
-function vinstEnsure(c,m){ if(!m||(m.kind!=='video' && !(m.kind==='nest'&&ncUsableFor(c,m))))return null; // [R353] por CLIP: los tres puntos que deciden tienen que coincidir const url=_vinstUrl(m); if(!url)return null; // [R180] nests cacheados incluidos (_useCD exige kind==='video', así que van por <video>, que es lo correcto para un archivo ligero)
+function vinstEnsure(c,m){ if(!m||(m.kind!=='video' && !(m.kind==='nest'&&ncUsableFor(c,m))))return null; /* [R353] por CLIP: los tres puntos que deciden tienen que coincidir */ const url=_vinstUrl(m); if(!url)return null; // [R180] nests cacheados incluidos (_useCD exige kind==='video', así que van por <video>, que es lo correcto para un archivo ligero)
   let vi=_vinst.get(c.id);
   if(!vi){ vi={vel:document.createElement('video'),vtex:newTex(),vsrc:null,ready:false,vf:0,last:0,loadP:null,cd:null,cdPending:false,cdReadyP:null,mid:null}; vi.vel.muted=true; vi.vel.playsInline=true; vi.vel.preload='auto'; _vinst.set(c.id,vi); }
   vi.last=++_vinstClock;

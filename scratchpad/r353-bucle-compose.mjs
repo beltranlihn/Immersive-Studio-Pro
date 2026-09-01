@@ -45,5 +45,14 @@ console.log(JSON.stringify(await ev(`(function(){
   r.relojes=relojes; r.elRecompuestoNoReinicia=relojes.every((x,i)=>i===0||x.recompuesto>relojes[i-1].recompuesto);
   state.media=state.media.filter(m=>m.id!==A.id&&m.id!==B.id);
   return r; })()`),null,1));
+console.log('videoNormal:', JSON.stringify(await ev(`(function(){
+  const v=state.media.find(m=>m.kind==='video'); if(!v)return {saltado:'sin video'};
+  const c=makeClip(v,0,0,{},{}); c.dur=5;
+  let err=null, vi=null; try{ vi=vinstEnsure(c,v); }catch(e){ err=String(e&&e.message||e); }
+  return { lanzaExcepcion:!!err, error:err, devuelveInstancia:!!vi }; })()`)));
 console.log('errs:', JSON.stringify(await ev(`__errs.slice(0,10)`)));
 ws.close();
+
+/* [R353b] La sonda de R353 SOLO ejercitaba la rama de nido, y por eso no vio que un comentario `//` mal
+   colocado se habia tragado `const url=_vinstUrl(m)` en vinstEnsure: con un clip de VIDEO normal la funcion
+   lanzaba ReferenceError y se caia la reproduccion entera. Cubrir el camino comun, no solo el que se toca. */
