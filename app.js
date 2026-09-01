@@ -10355,7 +10355,11 @@ async function ncBuild(m){
      «Generar» cree que va a tardar segundos y cree que se ha colgado. */
   const blando=/^(av1|vp9)/.test(cod.kind);
   const choice=await ncDialog(m,Object.assign({},tam,{codLabel:cod.label,blando,durBake:dur})); if(!choice)return;
-  const bitrate=ncBitrate(tam.s,tam.s,fps);
+  /* [R354] El codec se eligio arriba con el tamano COMPLETO para poder anunciarlo en el dialogo, pero se
+     hornea al tamano ELEGIDO: a 4096 esta maquina solo ofrece AV1/VP9 por software, y con eso un horneado a
+     2048 seguia yendo por software sin necesidad. Se vuelve a preguntar por el tamano real. */
+  let codF=cod; try{ const c2=await ripCodecOptions(choice.s,choice.s,fps); if(c2&&c2.length)codF=c2[0]; }catch(e){}
+  const bitrate=ncBitrate(choice.s,choice.s,fps);
   const i=Math.max(currentPath.lastIndexOf('\\'),currentPath.lastIndexOf('/')), dir=currentPath.slice(0,i)+PSEP+'nest proxies'; // [R242·Aud-4.3] PSEP, no '\\': la familia R204 tenía aquí sus dos últimos supervivientes (en macOS creaban archivos con la barra DENTRO del nombre)
   try{ if(DSP.ensureDir)await DSP.ensureDir(dir); }catch(e){ appAlert(T('Could not create the “nest proxies” folder.','No se pudo crear la carpeta “nest proxies”.')); return; }
   const safe=(m.name||'nest').replace(/[\\/:*?"<>|]/g,'_').slice(0,50);
@@ -10374,7 +10378,7 @@ async function ncBuild(m){
     const _lanes=(m.nestLanes||[]).map(l=>Object.assign({},l));
     _tmp=newSeqMedia((m.name||'nest')+' bucle',m.fps||fps,m.w,m.h,ncExpandirBucle(m,plan),_lanes,m.mode,m.cov);
     _tmp.dur=dur; state.media.push(_tmp); }
-  try{ await runExport({seqId:(_tmp||m).id, codec:cod.kind, res:choice.s, fps, bitrate, range:'clips', rangeT:[0,dur], outW:choice.s, outH:choice.s, squareNest:true, outPath, silent:true, job:ui.job}); }
+  try{ await runExport({seqId:(_tmp||m).id, codec:codF.kind, res:choice.s, fps, bitrate, range:'clips', rangeT:[0,dur], outW:choice.s, outH:choice.s, squareNest:true, outPath, silent:true, job:ui.job}); }
   catch(e){ thrown=e; }
   finally { if(_tmp)state.media=state.media.filter(x=>x!==_tmp); }
   ui.close();
