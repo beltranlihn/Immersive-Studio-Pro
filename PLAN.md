@@ -1,5 +1,38 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND R354 — El proxy de composicion ya entiende los bucles
+
+R353 midio que un proxy no puede representar un compose en BUCLE con movimiento dentro -el horneado cubre
+`[0,dur)` y el movimiento sigue corriendo-, y por eso le negaba el cache. Correcto, pero dejaba sin proxy justo
+a los composes mas pesados: en la pelicula en curso, los 10 mas caros son todos bucle+reloj.
+
+**Arreglo.** No renunciar al proxy: hornear lo que el clip pide. `ncPlanBucle(m)` reune los clips que loopean
+ese nido y, si comparten `loopLen`, se hornea `[0, extension)` con el bucle MATERIALIZADO como clips repetidos
+(`ncExpandirBucle`). Una vuelta es, exactamente, el mismo clip cada `len` segundos: la fuente reinicia con su
+`inP` y los modificadores siguen corriendo porque `animTime` va con el tiempo absoluto — la misma semantica que
+`_animNido` reproduce en vivo, pero expresada como clips, asi que la sirve cualquier camino de export. En
+reproduccion se indexa SIN envolver (`ncLocalT`). Se persisten `ncLoop`/`ncSpan` y `ncUsableFor` solo acepta el
+proxy si se horneo para ESE `loopLen` y cubre la extension del clip.
+
+**Verificado por centroide** contra la recomposicion en vivo, cruzando vueltas: 0,02 / 0,03 / 0,01 px. El
+control -hornear como antes y forzar la puerta- diverge 14,5 / 14,5 / 25,7 px, que es el sintoma que reporto
+el usuario. `scratchpad/r354-proxy-bucle.mjs`, modos `plan` y `control`.
+
+**Lo que costo encontrar (y quedo medido, porque volveria a morder):**
+- El horneado **inserta una pista de AUDIO al principio** del array de pistas de la secuencia. La temporal
+  compartia ese array con el nido original, asi que V1 pasaba del indice 0 al 1 mientras el clip seguia
+  apuntando al 0 -que ya era audio-: `compositeClips` salta lo que no es video y la composicion se quedaba
+  NEGRA. Pistas `[V1]` -> `[Audio 1, V1]`, luz maxima 115 -> 0. Ahora la temporal se CONSTRUYE con
+  `newSeqMedia` y con pistas propias; clonar con `Object.assign` tampoco valia.
+- Envolver el tiempo dentro de `renderExportFrame` no sirve: un nido de DOMO no pasa por ahi
+  (`pintarFotograma` llama a `composite` directamente) y ademas `seekExport`/`prepNests` ya han corrido con el
+  tiempo sin envolver. Por eso el bucle se materializa en la linea de tiempo y no en el renderizador.
+- La sonda mintio dos veces antes de decir la verdad: primero comparaba pixeles crudos -incomparables entre un
+  proxy comprimido a 256 y el recompuesto a 512-, y luego salia del bucle de espera en cuanto la instancia
+  estaba "lista", dejando la textura clavada en el fotograma anterior: el centroide del proxy salia CONGELADO y
+  parecia un fallo del motor. Hay que pedir la busqueda SIEMPRE y esperar a que el video llegue al tiempo
+  pedido, no solo a que este listo.
+
 ## ROUND R353 — El caché de nidos no sabía de bucles (compose loopeado: reinicio y parpadeo)
 
 **Sintoma del usuario:** «los compose que tengo loopeados, a veces se resetea la posicion de los elementos, o

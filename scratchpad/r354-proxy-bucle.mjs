@@ -39,10 +39,20 @@ console.log('horneado:', JSON.stringify(await ev(`(async function(){ await ncBui
 // comparar PIXELES: proxy puesto vs quitado, cruzando vueltas
 const comparar=async(etiq)=>{
   const out=[];
-  for(const T of [0.5,2.5,4.5,6.5]){
+  for(const T of [0.5,2.5,4.5,6.5,0.5]){   // el 0,5 se repite al final: si el primero desviaba por asentamiento del video, el segundo lo dira
     await ev('state.playhead='+T+'; state.view.useNestCache=true; prepNests(state.clips,'+T+'); 1');
-    for(let i=0;i<40;i++){ const ok=await ev('(function(){var v=_vinst.get(__c.id);return !!(v&&v.ready&&v.vtex);})()'); if(ok)break;
-      await ev('(function(){var v=_vinst.get(__c.id); if(v)vinstSeek(__c,__n,ncLocalT(__c,__n,'+T+',srcT(__c,'+T+'))); return 1;})()'); await wait(250); }
+    /* SIEMPRE hay que pedir la busqueda: mirar primero si la instancia esta "lista" y salir en ese caso deja
+       la textura clavada en el fotograma anterior — el centroide del proxy salia congelado en todos los
+       instantes y parecia un fallo del motor cuando era de la sonda. Se espera a que el video llegue AL
+       tiempo pedido, no solo a que este listo. */
+    const obj=await ev('(function(){var v=_vinst.get(__c.id); var u=ncLocalT(__c,__n,'+T+',srcT(__c,'+T+'));'+
+      ' if(v)vinstSeek(__c,__n,u); return u;})()');
+    for(let i=0;i<40;i++){ const st=await ev('(function(){var v=_vinst.get(__c.id); if(!v)return null;'+
+      ' return {listo:!!(v.ready&&v.vtex), t:(v.vsrc?v.vsrc.currentTime:null)};})()');
+      if(st&&st.listo&&st.t!=null&&Math.abs(st.t-obj)<0.06)break;
+      await wait(250);
+      await ev('(function(){var v=_vinst.get(__c.id); if(v&&!v.ready)vinstSeek(__c,__n,'+ '(' +'0'+'+'+'0'+')||0); return 1;})()'.replace('(0+0)||0',String(obj))); }
+    await wait(500);   // asentar la subida de la textura antes de leer
     out.push(await ev(`(function(){ var T=${T};
       /* CENTROIDE del elemento: robusto a compresion y a la diferencia de resolucion entre el proxy y el
          recompuesto. Es ademas la magnitud del sintoma: "se resetea la POSICION de los elementos". */
@@ -57,17 +67,20 @@ const comparar=async(etiq)=>{
       state.view.useNestCache=true;
       if(!a||!b) return { t:T, sinContenido:true, conProxy:!!a, enVivo:!!b };
       var d=Math.hypot(a[0]-b[0],a[1]-b[1]);
-      return { t:T, desviacion_px:+d.toFixed(2) }; })()`));
+      return { t:T, proxy:[+a[0].toFixed(1),+a[1].toFixed(1)], vivo:[+b[0].toFixed(1),+b[1].toFixed(1)], desviacion_px:+d.toFixed(2) }; })()`));
   }
   console.log(etiq, JSON.stringify(out));
   return out;
 };
-await comparar('CON plan de bucle (debe ser ~0):');
+const MODO=process.argv[2]||'plan';
+if(MODO==='plan') await comparar('CON plan de bucle (debe seguir al vivo):');
 
-// CONTROL NEGATIVO: re-hornear como antes (sin plan) y exigir que DIVERJA
-await ev('window.__plan=ncPlanBucle; ncPlanBucle=function(){ return null; }; 1');
-await ev('(async function(){ ncDetach(__n,false); await ncBuild(__n); __n.ncLoop=2; __n.ncSpan=8; return 1; })()');  // se fuerza la puerta para que lo USE
-await comparar('SIN plan (control negativo, debe DIVERGIR):');
-await ev('ncPlanBucle=window.__plan; ncDialog=window.__dlg; 1');
+if(MODO==='control'){   // CONTROL NEGATIVO: hornear como antes (sin plan) y forzar la puerta -> debe DIVERGIR
+  await ev('window.__plan=ncPlanBucle; ncPlanBucle=function(){ return null; }; 1');
+  await ev('(async function(){ ncDetach(__n,false); await ncBuild(__n); __n.ncLoop=2; __n.ncSpan=8; return 1; })()');
+  await comparar('SIN plan (control, debe DIVERGIR):');
+  await ev('ncPlanBucle=window.__plan; 1');
+}
+await ev('ncDialog=window.__dlg; 1');
 console.log('errores:', JSON.stringify(await ev('__errs.slice(0,5)')));
 ws.close(); process.exit(0);

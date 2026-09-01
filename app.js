@@ -10367,7 +10367,12 @@ async function ncBuild(m){
   /* La temporal se CONSTRUYE, no se clona: `Object.assign({},m)` arrastra los campos internos del medio
      (miniatura, textura, estado de proxy) y el horneado los toca, dejando la composicion original en negro
      -medido: luz maxima 115 antes de hornear y 0 despues-. */
-  if(plan){ _tmp=newSeqMedia((m.name||'nest')+' bucle',m.fps||fps,m.w,m.h,ncExpandirBucle(m,plan),m.nestLanes,m.mode,m.cov);
+  if(plan){ /* pistas PROPIAS, no las del original: el horneado inserta una pista de AUDIO al principio del
+       array, y compartiendolo la pista de video V1 pasaba del indice 0 al 1 mientras el clip seguia apuntando
+       al 0 -que ya era audio-. `compositeClips` salta lo que no es video, asi que la composicion original se
+       quedaba NEGRA. Medido: pistas [V1] antes, [Audio 1, V1] despues, y luz maxima de 115 a 0. */
+    const _lanes=(m.nestLanes||[]).map(l=>Object.assign({},l));
+    _tmp=newSeqMedia((m.name||'nest')+' bucle',m.fps||fps,m.w,m.h,ncExpandirBucle(m,plan),_lanes,m.mode,m.cov);
     _tmp.dur=dur; state.media.push(_tmp); }
   try{ await runExport({seqId:(_tmp||m).id, codec:cod.kind, res:choice.s, fps, bitrate, range:'clips', rangeT:[0,dur], outW:choice.s, outH:choice.s, squareNest:true, outPath, silent:true, job:ui.job}); }
   catch(e){ thrown=e; }
