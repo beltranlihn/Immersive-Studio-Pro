@@ -3033,7 +3033,7 @@ function ACTX(){ if(!actx){ actx=new (window.AudioContext||window.webkitAudioCon
    de música dejaba clavados en memoria todos los archivos, enteros. */
 function addAudio(file,path){ const url=URL.createObjectURL(file); const folder=_importFolder;
   const _revocar=()=>{ try{URL.revokeObjectURL(url);}catch(_){} };   /* [R327] pase lo que pase: R326 lo revocaba solo en el encadenado del exito, asi que un audio corrupto —o un `decodeAudioData` que reviente— dejaba el blob retenido, que es justo la fuga que el cambio venia a cerrar */
-  fetch(url).then(r=>r.arrayBuffer()).then(b=>{ _revocar(); return ACTX().decodeAudioData(b); }).then(async ab=>{
+  decodificarAudio(url,path||file.name,file.size).then(ab=>{ _revocar(); return ab; }).then(async ab=>{   // [R356] igual al importar
     const wv=await computeWave(ab); const m={id:uid(),name:file.name,kind:'audio',buffer:ab,peaks:wv.peak,rms:wv.rms,dur:ab.duration,w:1,h:1,color:clipColorFor('audio'),thumb:waveThumb(wv.peak,108,64),path:path||null,fsize:file.size||0,folder:folder||null};
     state.media.push(m); adopt(m); renderMedia(); markDirty(); if(state.playing)startAudio(); }).catch(e=>{console.error('audio decode',e);appAlert(T('Could not decode audio.','No se pudo decodificar el audio.'));}); } // reschedule if the buffer finished decoding after Play started. [R92-T3] armMediaBands moved to on-demand (Reactive panel / source change / first reactive FX): 3 OfflineAudioContext renders per import were ~700MB of churn nobody asked for
 function computePeaks(ab,n){ const ch=ab.getChannelData(0); const block=Math.max(1,Math.floor(ch.length/n)); const out=new Float32Array(n);
@@ -3795,6 +3795,98 @@ function pareceEquirect(m){ if(!m||!(m.w>0)||!(m.h>0))return false; if(m.kind!==
    tope de tamaño. Si el archivo es enorme o no tiene sonido, NO se crea el par: el vídeo entra como un solo clip
    y suena como hasta ahora. Preferible a un enlace a medias que engañe.
    ============================================================================================================ */
+/* [R356] UN WAV LARGO MATABA EL RENDERER AL ABRIR EL PROYECTO — no al reproducir.
+   El camino de siempre hace `arrayBuffer()` y se lo entrega entero a `decodeAudioData`, asi que conviven el
+   archivo, la copia interna del decodificador y el AudioBuffer resultante. Con el master de 64 min de la
+   pelicula (0,94 GB en disco, 24 bits estereo) eso son unos 5 GB de pico. MEDIDO sobre ese proyecto: el mismo
+   proyecto SIN ese audio se queda estable en 3,0 GB; CON el, el renderer sube a 8,06 GB y muere a los 52 s
+   (los informes de macOS lo registran como EXC_BREAKPOINT/SIGTRAP en CrRendererMain).
+   Aqui el WAV se lee EN FLUJO y se vuelca segmento a segmento en el AudioBuffer ya reservado: el pico pasa a
+   ser el propio buffer mas un trozo de unos pocos MB. No se toca ni un bit del audio -mismo muestreo, mismos
+   canales, misma profundidad, sin remuestrear-; sale exactamente el mismo AudioBuffer que devolveria
+   `decodeAudioData`. Los formatos comprimidos siguen por el camino de siempre: son pequenos y ademas hay que
+   descomprimirlos. */
+const WAV_FLUJO_DESDE=64e6;   // por debajo de esto no compensa: el camino normal es mas rapido
+function _leerCabeceraWav(u8){
+  if(u8.length<44) return null;
+  const dv=new DataView(u8.buffer,u8.byteOffset,u8.byteLength);
+  if(dv.getUint32(0,false)!==0x52494646 || dv.getUint32(8,false)!==0x57415645) return null; // "RIFF" .. "WAVE"
+  let off=12, fmt=null;
+  while(off+8<=u8.length){
+    const id=dv.getUint32(off,false), tam=dv.getUint32(off+4,true);
+    if(id===0x666d7420){ // "fmt "
+      if(off+8+16>u8.length) return null;
+      fmt={ formato:dv.getUint16(off+8,true), canales:dv.getUint16(off+10,true),
+            muestreo:dv.getUint32(off+12,true), bits:dv.getUint16(off+22,true) };
+      if(fmt.formato===0xFFFE && off+8+40<=u8.length) fmt.formato=dv.getUint16(off+8+24,true); // WAVE_FORMAT_EXTENSIBLE
+    }
+    if(id===0x64617461){ // "data"
+      if(!fmt) return null;
+      return { fmt, datos:off+8, bytes:tam };
+    }
+    off += 8 + tam + (tam&1);   // los trozos van alineados a par
+  }
+  return null; }
+function _conversorPcm(fmt){
+  const b=fmt.bits, f=fmt.formato;
+  if(f===3 && b===32) return {ancho:4, leer:(dv,o)=>dv.getFloat32(o,true)};
+  if(f===1 && b===16) return {ancho:2, leer:(dv,o)=>dv.getInt16(o,true)/32768};
+  if(f===1 && b===24) return {ancho:3, leer:(dv,o)=>{ const v=dv.getUint8(o)|(dv.getUint8(o+1)<<8)|(dv.getInt8(o+2)<<16); return v/8388608; }};
+  if(f===1 && b===32) return {ancho:4, leer:(dv,o)=>dv.getInt32(o,true)/2147483648};
+  if(f===1 && b===8)  return {ancho:1, leer:(dv,o)=>(dv.getUint8(o)-128)/128};
+  return null; }
+async function decodificarWavEnFlujo(url){
+  const r=await fetch(url); if(!r.ok||!r.body) throw new Error('wav: no se pudo abrir el flujo');
+  const lector=r.body.getReader();
+  let cab=new Uint8Array(0), info=null, conv=null, ab=null, canales=null;
+  let restos=null, frameEscrito=0, totalFrames=0, bytesFrame=0;
+  const unir=(a,b)=>{ const o=new Uint8Array(a.length+b.length); o.set(a,0); o.set(b,a.length); return o; };
+  const volcar=(u8)=>{
+    if(restos&&restos.length){ u8=unir(restos,u8); restos=null; }
+    const sobra=u8.length%bytesFrame;
+    if(sobra){ restos=u8.slice(u8.length-sobra); u8=u8.subarray(0,u8.length-sobra); }
+    const n=Math.min(u8.length/bytesFrame, totalFrames-frameEscrito);
+    if(n<=0) return;
+    const dv=new DataView(u8.buffer,u8.byteOffset,u8.byteLength);
+    const nc=info.fmt.canales, an=conv.ancho, leer=conv.leer;
+    for(let c=0;c<nc;c++){ const dst=canales[c]; let o=c*an;
+      for(let i=0;i<n;i++,o+=bytesFrame) dst[frameEscrito+i]=leer(dv,o); }
+    frameEscrito+=n; };
+  for(;;){
+    const {done,value}=await lector.read();
+    if(done) break;
+    let trozo=value;
+    if(!info){
+      cab=unir(cab,trozo);
+      info=_leerCabeceraWav(cab);
+      if(!info){ if(cab.length>4e6) throw new Error('wav: cabecera no reconocida'); continue; }
+      conv=_conversorPcm(info.fmt); if(!conv) throw new Error('wav: formato PCM no soportado');
+      bytesFrame=conv.ancho*info.fmt.canales;
+      const bytesDatos=(info.bytes>0 && info.bytes!==0xFFFFFFFF)?info.bytes:(cab.length-info.datos);
+      totalFrames=Math.floor(bytesDatos/bytesFrame);
+      if(!totalFrames) throw new Error('wav: sin datos');
+      /* `decodeAudioData` REMUESTREA al ritmo del contexto; este lector conserva el del archivo. Para no
+         cambiar ningun comportamiento se exige que coincidan, y si no se cae al camino de siempre: el resto
+         del motor (mezcla, export, ondas) da por hecho el ritmo del contexto desde siempre. */
+      if(info.fmt.muestreo!==ACTX().sampleRate){ try{ await lector.cancel(); }catch(e){} throw new Error('wav: muestreo distinto del contexto'); }
+      ab=ACTX().createBuffer(info.fmt.canales,totalFrames,info.fmt.muestreo);
+      canales=[]; for(let c=0;c<info.fmt.canales;c++) canales.push(ab.getChannelData(c));
+      trozo=cab.subarray(info.datos); cab=new Uint8Array(0);   // se suelta la cabecera acumulada
+    }
+    volcar(trozo);
+    if(frameEscrito>=totalFrames) { try{ await lector.cancel(); }catch(e){} break; }
+  }
+  if(!ab) throw new Error('wav: no se encontro el bloque de datos');
+  return ab; }
+/* Punto unico de decodificacion de audio: elige flujo o camino de siempre. */
+async function decodificarAudio(url,ruta,tam){
+  const esWav=/\.wav$/i.test(ruta||url||'');
+  if(esWav && (tam||0)>=WAV_FLUJO_DESDE){
+    try{ return await decodificarWavEnFlujo(url); }
+    catch(e){ console.warn('wav en flujo fallo, se usa el camino normal:',e&&e.message); }
+  }
+  const b=await (await fetch(url)).arrayBuffer();
+  return await new Promise((ok,mal)=>{ const pr=ACTX().decodeAudioData(b,ok,mal); if(pr&&pr.catch)pr.catch(()=>{}); }); }
 const LINK_MAX_BYTES=1.2e9; // por encima de esto no se decodifica: un solo clip, comportamiento de siempre
 function linkPartner(c){ if(!c||!c.link)return null; return state.clips.find(x=>x!==c&&x.link===c.link)||null; }
 function linkedIds(ids){ const out=new Set(ids); for(const id of ids){ const p=linkPartner(clipById(id)); if(p)out.add(p.id); } return [...out]; }
@@ -12358,6 +12450,20 @@ function resetProjDefaults(){ state.seqMode='dome'; state.seqCov=180;
    repaso encontro ocho veces: arreglar la copia y dejar el original.
    OJO: `hideLoadingScreen` NO se llama en el camino feliz — ahi la quita `loadingWaitMedia` cuando los medios
    terminan de cargar, que es lo que se quiere. El `finally` solo actua si se sale por excepcion. */
+/* [R356] Los medios se recargaban TODOS A LA VEZ (`for(const m of state.media) reloadMedia(m)`), sin esperar
+   a ninguno. Con la pelicula del usuario eso son 745 medios de golpe, 329 de ellos imagenes que decodifican en
+   paralelo a 2048x2048 o mas. MEDIDO: el renderer daba un pico transitorio de ~8,5 GB en toda carga -con audio
+   o sin el-, que es justo el borde donde Chromium aborta la reserva; con el master de audio de 1 GB encima, la
+   reserva fallaba y el renderer moria (EXC_BREAKPOINT en CrRendererMain, tres veces en un dia).
+   El trabajo total es el mismo: lo que se limita es cuanto se hace A LA VEZ, asi que el pico deja de serlo.
+   No se espera al conjunto -`loadProject` no es asincrona y `loadingWaitMedia` ya vigila el final-, pero el
+   cupo se respeta igual porque cada obrero encadena su siguiente medio. */
+async function cargarMediosPorTandas(medios,cupo){
+  let i=0;
+  const obrero=async()=>{ for(;;){ const k=i++; if(k>=medios.length)return;
+      try{ await reloadMedia(medios[k]); }catch(e){} } };
+  const w=[]; for(let j=0;j<Math.max(1,cupo|0);j++) w.push(obrero());
+  await Promise.all(w); }
 function loadProject(obj){ let ok=false;
   try{ const r=_loadProjectCore(obj); ok=true; return r; }
   finally{ if(!ok){
@@ -12506,7 +12612,7 @@ function _loadProjectCore(obj){ relinkReset(); // [R204] el índice de reenlace 
   { const _as=activeSeq(); roomVpAutoFloor(!!(_as&&_as.room&&_as.room.floor)); } // [R231] abrir una sala con piso enseña el visor partido
   renderSeqBar(); updFmtChip();
   renderWork();
-  if(IS_ELEC){ for(const m of state.media) reloadMedia(m); }
+  if(IS_ELEC){ cargarMediosPorTandas(state.media,8); }   // [R356] con cupo: ver la nota de la funcion
   renderMedia(); renderTimeline(); renderInspector(); render(); updRelink(); updStatus(); projTitle(); try{preloadLUTs();}catch(e){}
   setTlScrollT((activeSeq()||{}).nestScrollT||0); // [R239] mismo defecto que al entrar a un nido: sin esto, abrir un proyecto hereda el encuadre horizontal del anterior
   flashStatus(T('Project loaded','Proyecto cargado'));
@@ -12624,7 +12730,7 @@ async function reloadMedia(m){
        reemplazaba un archivo en un disco lento veía «reemplazado» y ni un bucle reajustado, sin saber por qué.
        No es hipotético: este mismo archivo documenta lecturas de metadatos de más de 8 s en disco frío o red. */
     setTimeout(()=>{ if(!fin){ m._plazo=true; } acabar(); },15000); }); }
-  else if(m.kind==='audio'){ m._bandsFail=false; /* [R338] el reinicio de R336 vivia en `armMediaAudio`, que sale por `kind!=='video'` y por `m.buffer`: los medios de AUDIO no pasaban por ahi jamas, que es justo el caso -una cancion- del que hablaba su comentario */ return await fetch(url).then(r=>r.arrayBuffer()).then(b=>ACTX().decodeAudioData(b)).then(async ab=>{ m.buffer=ab; const wv=await computeWave(ab); m.peaks=wv.peak; m.rms=wv.rms; m.dur=ab.duration;m.missing=false;m._loading=false;m.thumb=waveThumb(m.peaks,108,64);renderMedia(); if(state.playing)startAudio(); }).catch(()=>{ m.missing=true;m._loading=false;renderMedia();updRelink(); }); } } // reschedule if the audio decoded after Play started (a long film track can finish decoding a beat after load → was silent until re-play)
+  else if(m.kind==='audio'){ m._bandsFail=false; /* [R338] el reinicio de R336 vivia en `armMediaAudio`, que sale por `kind!=='video'` y por `m.buffer`: los medios de AUDIO no pasaban por ahi jamas, que es justo el caso -una cancion- del que hablaba su comentario */ return await decodificarAudio(url,m.path,m.fsize).then(async ab=>{ m.buffer=ab; /* [R356] los WAV grandes entran en FLUJO: si no, el pico de decodificacion mata al renderer */ const wv=await computeWave(ab); m.peaks=wv.peak; m.rms=wv.rms; m.dur=ab.duration;m.missing=false;m._loading=false;m.thumb=waveThumb(m.peaks,108,64);renderMedia(); if(state.playing)startAudio(); }).catch(()=>{ m.missing=true;m._loading=false;renderMedia();updRelink(); }); } } // reschedule if the audio decoded after Play started (a long film track can finish decoding a beat after load → was silent until re-play)
 /* Replace media (offline→online workflow): swap this media's FILE for another of the same kind. Clips
    reference media by id, so every cut/keyframe/fx survives; proxy/bands/thumb reset and rebuild (the new
    file's proxy is picked from its own cache if it exists). If the new file is shorter, clips past its end

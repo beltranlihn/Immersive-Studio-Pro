@@ -1,5 +1,43 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND R356 — El renderer moria al abrir la pelicula: dos causas de memoria, las dos medidas
+
+**Sintoma:** «se crashea, o abre y va muy lento». Informes de macOS: EXC_BREAKPOINT/SIGTRAP en CrRendererMain,
+tres veces en un dia. El codigo NO habia cambiado desde que el mismo proyecto iba a 60 fps: lo que cambio es el
+proyecto, que paso de 483 medios a **745** (214 videos, 329 imagenes, 201 composes, 374 clips en el master).
+
+**Medicion.** Vigilando la memoria por TIPO de proceso durante la carga (`scratchpad/r356-vigilar-memoria.sh`):
+el renderer subia de 0,18 GB a **7,85 GB en 38 s** y moria a los 52. La memoria estaba en el RENDERER, no en la
+GPU (el proceso de GPU no pasaba de 0,35 GB). Dos causas independientes, separadas por bisección:
+
+1. **Los medios se recargaban TODOS A LA VEZ** — `for(const m of state.media) reloadMedia(m)`, sin esperar a
+   ninguno. 329 imagenes decodificando en paralelo a 2048² o mas dejaban un pico transitorio de ~8,5 GB, que es
+   justo el borde donde Chromium aborta la reserva. Ese pico estaba **en toda carga, con audio o sin el**.
+   Arreglo: `cargarMediosPorTandas(medios,8)` — el trabajo total es el mismo, lo que se limita es cuanto se
+   hace a la vez. Pico **8,5 → 6,2 GB**, reposo **3,0 → 2,1 GB**.
+2. **Un WAV de 64 min (0,94 GB, 24 bits) se decodificaba de golpe.** `arrayBuffer()` + `decodeAudioData` deja
+   vivos a la vez el archivo, la copia interna del decodificador y el AudioBuffer (1,26 GB): unos 5 GB de pico
+   encima de lo anterior, y la reserva fallaba. Ese audio quedaba marcado «ausente» — no faltaba el archivo,
+   es que su decodificacion reventaba. Arreglo: `decodificarWavEnFlujo`, que lee el WAV por trozos y lo vuelca
+   en el AudioBuffer ya reservado; el pico pasa a ser el propio buffer mas unos pocos MB.
+
+**Sin perdida de calidad ni cambio de comportamiento.** El lector en flujo da EXACTAMENTE el mismo AudioBuffer
+que `decodeAudioData`: verificado muestra a muestra sobre WAV de 24 bits y de coma flotante, **diferencia 0,0**
+(`scratchpad/r356-wav-exacto.mjs`). La red sabe fallar: con el conversor roto a proposito (24 bits leidos como
+16) la diferencia salta a 1,77 y la sonda lo caza. `decodeAudioData` REMUESTREA al ritmo del contexto y el
+lector conserva el del archivo, asi que **solo se usa el flujo cuando los dos coinciden**; si no, se cae al
+camino de siempre. Los formatos comprimidos siguen igual: son pequenos y ademas hay que descomprimirlos.
+
+**Resultado sobre la pelicula real**, tres cargas en frio seguidas: pico 6,17 / 6,23 / 6,19 GB, reposo
+1,7–2,2 GB, 745 medios con **0 faltantes** (el WAV ya carga: 63,9 min, 44,1 kHz, estereo), y reproduccion a
+**57,7–59,8 fps** en cinco puntos de los 64 minutos.
+
+**Lo que NO valio, y se retiro.** Primero soltamos el mapa de bits en CPU de cada imagen tras subirla a la GPU,
+creyendo que `m.originalEl` retenia 4,45 GB. Medido en el mismo banco: sin ese cambio 2,99 GB, con el 3,17 GB
+— **no ahorraba nada y ademas costaba** las miniaturas que anadia; Blink ya descarta esos bitmaps por su
+cuenta. Se revirtio en vez de dejarlo puesto. Es la pregunta 1 de CLAUDE.md: la sonda tiene que medir la
+CONCLUSION, y aqui la conclusion era el pico del proceso, no la aritmetica de anchoxaltox4.
+
 ## ROUND R355 — Proxies de MEDIO en lote, y el codec por el tamano que se hornea
 
 **R354b — el codec se elegia por el tamano equivocado.** `ncBuild` preguntaba por los codecs con `ncFullSize`
