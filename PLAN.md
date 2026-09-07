@@ -1,5 +1,33 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND R357 — Proxy de FOTO: la previsualizacion deja de cargar 9 GB de texturas
+
+R356 arreglo la carga, pero el editor seguia cayendo MIENTRAS se trabaja (EXC_BREAKPOINT en CrRendererMain a
+las 16:03 y 17:04, ya con R356 instalado). El proyecto habia vuelto a crecer: 840 medios, **361 imagenes**.
+
+**Causa.** Cada imagen conserva su textura a resolucion completa -con mipmaps- durante toda la sesion, y NO hay
+desalojo de texturas de medios. Medido sobre el proyecto real: **8,98 GB solo en texturas de imagen** (297 a
+2048x2048, 34 a 2752x1536, 24 a 4096x4096). En Apple Silicon eso sale de la misma RAM del sistema. Ademas, la
+propia generacion de proxies de video mataba al renderer a mitad: el proyecto ya ocupaba ~9 GB antes de sumar
+los buferes de codificacion.
+
+**Arreglo — idea del usuario, y es la correcta.** Un proxy para las FOTOS: para previsualizar no hace falta la
+resolucion completa -el master del domo es 2048 y estas fotos son elementos dentro de el-, asi que la textura
+se sube reducida a `IMG_PREVIEW_MAX` (1024). Medido en el mismo banco: **8,98 -> 1,79 GB**, 7,2 GB liberados.
+
+**Lo que NO cambia, y esta verificado:**
+- **La ENTREGA sale igual.** `seekExport` sube la imagen ENTERA antes de cada fotograma de export
+  (`nitidezExport`), con un presupuesto de 2 GB y desalojo de las menos usadas — nunca se degrada lo que el
+  fotograma en curso dibuja. Comprobado con la huella de pixeles de un fotograma de export con una foto de
+  4096x4096: hash **1719989172 antes y despues**, misma media y mismo maximo. La previsualizacion SI difiere
+  (hash 7626801), que es la prueba de que el proxy esta actuando: si no difiriera, la sonda no probaria nada.
+- **La geometria no se mueve.** `m.w`/`m.h` siguen siendo las medidas reales del archivo -de ellas dependen el
+  aspecto y la deteccion de equirectangulares (L3779)-; solo cambia el tamano de la TEXTURA, y el muestreo va
+  por UV. `fitImage` devuelve ahora `w/h` reales y `tw/th` las de la textura.
+
+**Sonda** `scratchpad/r357-export-identico.mjs`: dibuja el mismo fotograma en previsualizacion y en export y
+vuelca su huella. Se ejecuta contra el codigo anterior y el nuevo y se comparan.
+
 ## ROUND R356 — El renderer moria al abrir la pelicula: dos causas de memoria, las dos medidas
 
 **Sintoma:** «se crashea, o abre y va muy lento». Informes de macOS: EXC_BREAKPOINT/SIGTRAP en CrRendererMain,

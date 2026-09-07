@@ -2868,9 +2868,19 @@ function upTexRaw(tex,w,h,u8){gl.bindTexture(gl.TEXTURE_2D,tex);gl.pixelStorei(g
    limits on integrated GPUs → silent upload failure → transparent image). The dome composite is 2048,
    so 4096 keeps full visual quality. Returns {src,w,h} (a canvas if scaled, else the original element). */
 const MAX_IMG=Math.min(8192, gl.getParameter(gl.MAX_TEXTURE_SIZE)||4096); // keep originals crisp for 4K–8K export; downscale only what the GPU can't upload
-function fitImage(el){ const w=el.naturalWidth||el.width||0, h=el.naturalHeight||el.height||0; const big=Math.max(w,h);
-  if(big<=MAX_IMG||!big) return {src:el,w,h}; const s=MAX_IMG/big, cw=Math.max(1,Math.round(w*s)), ch=Math.max(1,Math.round(h*s));
-  const cv=document.createElement('canvas'); cv.width=cw; cv.height=ch; cv.getContext('2d').drawImage(el,0,0,cw,ch); return {src:cv,w:cw,h:ch}; }
+/* [R357] PROXY DE FOTO. Cada imagen conservaba su textura a resolucion completa -con mipmaps- durante toda la
+   sesion, y no hay desalojo de texturas de medios: con las 361 fotos de la pelicula eso son 8,98 GB medidos
+   (297 a 2048x2048, 24 a 4096x4096). Para PREVISUALIZAR no hace falta: el master del domo es 2048 y estas
+   fotos son elementos dentro de el. Se sube una version reducida y se baja a 1,79 GB.
+   Lo que NO cambia: `m.w`/`m.h` siguen siendo las medidas REALES del archivo -de ellas dependen el aspecto y
+   la deteccion de equirectangulares (L3779)-, y el EXPORT sigue a resolucion completa: `seekExport` sube la
+   imagen entera antes de cada fotograma (ver `nitidezExport`). El muestreo va por UV, asi que el tamano de la
+   textura no altera el encuadre. */
+const IMG_PREVIEW_MAX=1024;
+function fitImage(el,tope){ const w=el.naturalWidth||el.width||0, h=el.naturalHeight||el.height||0; const big=Math.max(w,h);
+  const T=Math.min(MAX_IMG,tope||MAX_IMG);
+  if(big<=T||!big) return {src:el,w,h}; const s=T/big, cw=Math.max(1,Math.round(w*s)), ch=Math.max(1,Math.round(h*s));
+  const cv=document.createElement('canvas'); cv.width=cw; cv.height=ch; cv.getContext('2d').drawImage(el,0,0,cw,ch); return {src:cv,w,h,tw:cw,th:ch}; } // w/h = medidas REALES; tw/th = las de la textura
 const HAS_WC=(typeof VideoEncoder!=='undefined')&&(typeof window.Mp4Muxer!=='undefined');
 let colorIdx=0;
 const DSP=window.dsp||null; const IS_ELEC=!!(DSP&&DSP.isElectron);
@@ -3118,8 +3128,8 @@ function liveAudioGain(c){ if(!c||!actx)return; const g=_audioGains[c.id]; if(!g
 // [archivado 20260730] meters() → _backup/deprecated/20260730-vu-meters.js (escribía en #mL/#mR, retirados del DOM en R148; llamada quitada de ploop())
 function setMeters(v){ const p=(v*100)+'%'; if($('#mL'))$('#mL').style.width=p; if($('#mR'))$('#mR').style.width=p; }
 function addImage(file,path){ const url=URL.createObjectURL(file); const img=new Image(); const folder=_importFolder;
-  img.onload=()=>{const fit=fitImage(img); const m={id:uid(),name:file.name,kind:'image',el:fit.src,originalEl:img,tex:newTex(),w:fit.w,h:fit.h,dur:5,fps:0,thumb:url,color:clipColorFor('image'),proxyReady:false,proxyPct:0,path:path||null,fsize:file.size||0,folder:folder||null}; // [M5] photos default to 5 s
-    upTex(m.tex,fit.src); mipTex(m.tex,fit.w,fit.h);   /* [R302] material fijo: los mipmaps se generan UNA vez, aqui */
+  img.onload=()=>{const fit=fitImage(img,IMG_PREVIEW_MAX); const m={id:uid(),name:file.name,kind:'image',el:fit.src,originalEl:img,tex:newTex(),w:fit.w,h:fit.h,_texTope:IMG_PREVIEW_MAX,dur:5,fps:0,thumb:url,color:clipColorFor('image'),proxyReady:false,proxyPct:0,path:path||null,fsize:file.size||0,folder:folder||null}; // [M5] photos default to 5 s
+    upTex(m.tex,fit.src); mipTex(m.tex,fit.tw||fit.w,fit.th||fit.h);   /* [R302] material fijo: los mipmaps se generan UNA vez, aqui */
     state.media.push(m); adopt(m); renderMedia(); render(); markDirty(); }; img.src=url; }
 /* [R242·Aud-3.3] Aviso de material pesado al importar. R241 midió que con este material (HEVC 6,5 Mpx, 410 Mbps,
    GOP de 250 fotogramas) el proxy no es una optimización: es la diferencia entre poder montar (8 ms de scrub) y
@@ -9099,7 +9109,47 @@ function ploop(){ if(!state.playing)return; const now=performance.now(),dt=(now-
    **80%** del tiempo de export (498 ms de 625 por fotograma) mientras la GPU hacía 0 ms. Ahora se reposiciona UNO
    por grupo y su fotograma ya decodificado se sube a la textura de los demás: subir una textura cuesta ~1 ms,
    reposicionar un vídeo ~80. Si los tiempos locales difieren no hay grupo y el comportamiento es el de siempre. */
+/* [R357] EL EXPORT NO SE ENTERA DEL PROXY DE FOTO. En previsualizacion la textura de una imagen esta reducida
+   a `IMG_PREVIEW_MAX`; antes de cada fotograma de export se vuelve a subir ENTERA la de las imagenes que ese
+   fotograma dibuja. Se guarda un presupuesto: mas alla, se devuelven a tamano de previsualizacion las menos
+   usadas. Sin esto el export saldria con la calidad del proxy, que es justo lo que no se puede permitir. */
+const IMG_NITIDAS_BYTES=2.0e9;
+const _imgNit=new Map();     // id -> bytes (el orden del Map hace de LRU)
+let _imgNitBytes=0;
+function _imagenesDibujadas(clips,t,prof,out){
+  out=out||new Map(); if((prof||0)>6||!clips) return out;
+  for(const c of clips){ if(c.disabled)continue; if(t<c.start||t>=c.start+c.dur)continue;
+    const m=mediaById(mediaEfId(c,t)); if(!m)continue;
+    if(m.kind==='image'){ out.set(m.id,m); continue; }
+    if(m.kind==='nest'&&m.nestClips) _imagenesDibujadas(m.nestClips,srcT(c,t),(prof||0)+1,out); }
+  return out; }
+function _decodificarImagen(ruta,tope){
+  return new Promise((ok,mal)=>{ const im=new Image();
+    im.onload=()=>{ try{ ok(fitImage(im,tope)); }catch(e){ mal(e); } };
+    im.onerror=()=>mal(new Error('imagen ilegible')); im.src=DSP.toFileURL(ruta); }); }
+async function _ponerImagenA(m,tope){
+  if(!m||m.kind!=='image'||!m.path||m._texTope===tope) return;
+  try{ const fit=await _decodificarImagen(m.path,tope);
+    upTex(m.tex,fit.src); mipTex(m.tex,fit.tw||fit.w,fit.th||fit.h); m._texTope=tope;
+  }catch(e){}
+}
+async function nitidezExport(t){
+  if(!_exportQuality) return;
+  const usadas=_imagenesDibujadas(state.clips,t,0);
+  for(const [id,m] of usadas){
+    if(m._texTope!==MAX_IMG){ await _ponerImagenA(m,MAX_IMG);
+      if(m._texTope===MAX_IMG){ const b=(m.w||0)*(m.h||0)*4; _imgNit.set(id,b); _imgNitBytes+=b; } }
+    else { _imgNit.delete(id); _imgNit.set(id,_imgNit.get(id)||((m.w||0)*(m.h||0)*4)); }   // refresca su turno
+  }
+  for(const [id,b] of _imgNit){
+    if(_imgNitBytes<=IMG_NITIDAS_BYTES) break;
+    if(usadas.has(id)) continue;                       // nunca se degrada lo que este fotograma dibuja
+    const m=mediaById(id); _imgNit.delete(id); _imgNitBytes-=b;
+    if(m) await _ponerImagenA(m,IMG_PREVIEW_MAX); }
+}
+function soltarNitidezExport(){ _imgNit.clear(); _imgNitBytes=0; }
 async function seekExport(t){
+  await nitidezExport(t);                              // [R357] imagenes a resolucion completa antes de dibujar
   const drawn=collectDrawnVideoClips(state.clips,state.lanes,t,0,[]);
   vinstCapPara(drawn.length);   // [R189] ninguna instancia que este fotograma necesita puede ser desalojada mientras se la espera · [R346c] la decisión vive en `vinstCapPara`, que la usan los tres abanicos
   const grupos=new Map();
@@ -9843,6 +9893,9 @@ async function _runExportCore(opt){
     _chapaCv=null; _chapaCx=null;
     try{ if($('#renderMask'))$('#renderMask').classList.remove('on'); }catch(_){}
     exporting=false; _exportQuality=false; _exCD=false; _vinstCap=VINST_MAX; _ncSquare=false; disposeAllVinst();
+    /* [R357] las imagenes que se subieron enteras vuelven a tamano de previsualizacion */
+    { const ids=[..._imgNit.keys()]; soltarNitidezExport();
+      (async()=>{ for(const id of ids){ const m=mediaById(id); if(m)await _ponerImagenA(m,IMG_PREVIEW_MAX); } render(); })(); }
     try{ if(IS_ELEC&&DSP.powerSave)DSP.powerSave(false); }catch(e){}
     for(const m of state.media)if(m._exAudio)delete m._exAudio; // _exAudio freed: decoded video audio is export-only (1h ≈ 1.4GB PCM)
     if(_rsSeq)switchSeq(_rsSeq,true); resize(); try{scrubRender();}catch(_){}
@@ -12707,7 +12760,7 @@ async function reloadMedia(m){
      para vídeo, sin arreglar para audio. */
   if(m.kind==='image'){ return await new Promise(res=>{ const img=new Image();
     let fin=false; const acabar=()=>{ if(fin)return; fin=true; res(); };
-    img.onload=()=>{ const fit=fitImage(img); m.el=fit.src;m.originalEl=img;m.tex=newTex();upTex(m.tex,fit.src);mipTex(m.tex,fit.w,fit.h);/* [R303] o los mipmaps solo existirian en la sesion en que se importo la imagen: guardar y reabrir volvia a dejarla dentada */m.w=fit.w;m.h=fit.h;m.missing=false;m._loading=false;m.thumb=url;renderMedia();render(); acabar(); };
+    img.onload=()=>{ const fit=fitImage(img,IMG_PREVIEW_MAX); m.el=fit.src;m.originalEl=img;m.tex=newTex();upTex(m.tex,fit.src);mipTex(m.tex,fit.tw||fit.w,fit.th||fit.h);m._texTope=IMG_PREVIEW_MAX;/* [R357] textura reducida para previsualizar *//* [R303] o los mipmaps solo existirian en la sesion en que se importo la imagen: guardar y reabrir volvia a dejarla dentada */m.w=fit.w;m.h=fit.h;m.missing=false;m._loading=false;m.thumb=url;renderMedia();render(); acabar(); };
     img.onerror=()=>{ m.missing=true;m._loading=false;renderMedia();updRelink(); acabar(); };
     img.src=url; setTimeout(acabar,15000); }); }
   /* [R205] El camino de vídeo AHORA SE PUEDE ESPERAR. Antes registraba el oyente de metadatos y volvía en el acto,
