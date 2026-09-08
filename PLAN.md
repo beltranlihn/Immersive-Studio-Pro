@@ -1,5 +1,37 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## RONDA 363 — Proxy de IMAGEN en disco (PNG con alfa) — pedido de Vicente
+
+El proyecto típico son composes con cientos de fotos 4K. R357 ya reducía la TEXTURA a 1024, pero cada
+apertura seguía leyendo y decodificando el PNG entero. Ahora: `Generar proxy` sobre fotos escribe un PNG
+(alfa intacto) a ≤1024 px en `Proxies/` (`pxi_<hash nombre|tamaño>_1024.png`), y la carga decodifica ESO
+(~16× menos) manteniendo w/h reales del `.isp`. El export sigue saliendo del original a resolución completa
+(`nitidezExport` no mira nada de esto). Manual, misma cola y misma UI que los de vídeo; Collect y la
+reorganización lo llevan y renombran igual que a los `px_`.
+
+### R363b/c — dos pasadas de revisión (6 agentes), todo corregido y re-sondado
+- **Consolidación** (la primera versión duplicó el enganche dentro de reloadMedia y YA había divergido): una
+  sola `attachExistingImgProxy` que valida E instala; constructores de ruta compartidos con vídeo
+  (`_proxySibling`/`_proxyCache`); `proxyable(m)` como predicado único — el barrido a mano de `kind==='video'`
+  se había olvidado la barra de progreso, el punto de la lista y TODA la vista de cuadrícula; `ensureProjProxiesDir`
+  común; `RE_IPROXY` una vez; `IPMAX=1024` literal (viaja en el nombre del archivo: subir `IMG_PREVIEW_MAX`
+  un día no orfana los proxies ya generados).
+- **Carga sin sondas de más**: 3 `exists()` por foto al abrir (casi siempre "no") → `_dirListCache`, un
+  `listDir` por carpeta única; el mismo listado da el rescate de hermanos huérfanos (el R107 de las fotos).
+- **Correcciones de fondo**: stat del original contra `fsize` antes de enganchar (un re-export en el sitio
+  pasaba por sano y el preview quedaba con el contenido VIEJO para siempre); VALIDAR/INSTALAR en try
+  separados (una pérdida de contexto GL en plena carga borraba en cascada proxies sanos, y dejaba
+  `proxyReady` apuntando al borrado); `replaceMedia`/«Localizar» sueltan w/h de imágenes (validaban — y hasta
+  borraban — proxies del archivo nuevo contra el aspecto del ANTERIOR); `addImage` re-engancha al importar
+  (como addVideo — sin eso Collect no se llevaba un proxy que estaba al lado); selección mixta genera ambos
+  tipos (antes descartaba el otro kind en silencio) y sin WebCodecs caen solo los vídeos; fotos ya ≤1024 no
+  se encolan (con aviso único); `proxyUrl` queda SOLO para vídeo también en Collect; el catch de
+  `_ponerImagenA` AVISA si el original es ilegible en pleno export (antes, con proxy, habría salido a 1024
+  en silencio); el fallo «sin sitio donde escribir» llega al usuario via `err.userMsg`.
+- **Deuda aceptada y anotada**: la maquinaria de enganche de vídeo (`attachExistingProxy`/`bindProxyFile`,
+  con sus matices R108) NO se fusionó con la de imagen — una tabla por-kind es el siguiente paso natural si
+  aparece un tercer tipo con proxy; hoy el riesgo de tocar código probado supera el beneficio.
+
 ## RONDA 360 — Proyecto-carpeta (estilo Ableton/Unreal): Media/ + Proxies/ + rutas relativas + Collect All & Save
 
 Pedido de Beltrán/Vicente: que cada proyecto sea UNA carpeta autocontenida —`<Nombre>/<Nombre>.isp`,

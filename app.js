@@ -3184,7 +3184,12 @@ function setMeters(v){ const p=(v*100)+'%'; if($('#mL'))$('#mL').style.width=p; 
 function addImage(file,path){ const url=URL.createObjectURL(file); const img=new Image(); const folder=_importFolder;
   img.onload=()=>{const fit=fitImage(img,IMG_PREVIEW_MAX); const m={id:uid(),name:file.name,kind:'image',el:fit.src,originalEl:img,tex:newTex(),w:fit.w,h:fit.h,_texTope:IMG_PREVIEW_MAX,dur:5,fps:0,thumb:url,color:clipColorFor('image'),proxyReady:false,proxyPct:0,path:path||null,fsize:file.size||0,folder:folder||null}; // [M5] photos default to 5 s
     upTex(m.tex,fit.src); mipTex(m.tex,fit.tw||fit.w,fit.th||fit.h);   /* [R302] material fijo: los mipmaps se generan UNA vez, aqui */
-    state.media.push(m); adopt(m); renderMedia(); render(); markDirty(); }; img.src=url; }
+    state.media.push(m); adopt(m); renderMedia(); render(); markDirty();
+    /* [R363c] igual que addVideo con attachExistingProxy: si el proxy de esta foto ya existe en disco
+       (re-import), se engancha solo — sin esto, proxyReady quedaba en false y un Collect posterior no se
+       llevaba el proxy a Proxies/ aunque estuviera ahi al lado. La textura recien subida se sustituye por la
+       del proxy (misma resolucion de previsualizacion). */
+    if(m.path&&IS_ELEC)attachExistingImgProxy(m,true).catch(()=>{}); }; img.src=url; }
 /* [R242·Aud-3.3] Aviso de material pesado al importar. R241 midió que con este material (HEVC 6,5 Mpx, 410 Mbps,
    GOP de 250 fotogramas) el proxy no es una optimización: es la diferencia entre poder montar (8 ms de scrub) y
    no (1148 ms). ADR-0003 se respeta ENTERO — la generación sigue siendo manual —: esto sólo INFORMA, una vez por
@@ -3364,17 +3369,115 @@ function subSecuencia(nombre){ return fsSafeName(String(nombre||'seq').replace(/
 const PMAX=960,PMBPS=12,proxyQ=[]; let proxyBusy=false;
 let _proxyDir=null; if(IS_ELEC&&DSP.proxyDir){ try{ DSP.proxyDir().then(d=>{_proxyDir=d||null;}); }catch(e){} }
 function proxyHash(s){ let h=5381; for(let i=0;i<s.length;i++)h=((h<<5)+h+s.charCodeAt(i))>>>0; return h.toString(36); }
-function proxyCachePath(m){ if(!_proxyDir||!m.path)return null; return pjoin(_proxyDir,'px_'+proxyHash(m.path+'|'+(m.fsize||0))+'_'+PMAX+'.mp4'); }
+/* [R363b] Los CONSTRUCTORES de ruta de proxy viven en dos parejas parametrizadas — hermano junto al clip y
+   cache central — compartidas por video e imagen: un cambio de clave de hash (como el de R360) toca UN sitio
+   por familia, no cuatro. La clave path|size se conserva identica: los proxies ya generados se siguen viendo. */
+function _proxySibling(m,marca,ext){ if(!m.path)return null; const dir=pdir(m.path); if(!dir)return null;
+  return pjoin(dir, splitExt(pbase(m.path)).stem+marca+proxyHash(m.path+'|'+(m.fsize||0))+ext); }
+function _proxyCache(pref,m,max,ext){ if(!_proxyDir||!m.path)return null; return pjoin(_proxyDir,pref+proxyHash(m.path+'|'+(m.fsize||0))+'_'+max+ext); }
+function proxyCachePath(m){ return _proxyCache('px_',m,PMAX,'.mp4'); }
 /* preferred location: NEXT TO the source clip (travels with the media/drive) — "MiClip.dsp-proxy-<hash>.mp4";
    the hash (path|size) self-invalidates the proxy if the source file is replaced. Central cache = fallback. */
-function proxyLocalPath(m){ if(!m.path)return null; const dir=pdir(m.path); if(!dir)return null;
-  const stem=pbase(m.path).replace(/\.[^.]+$/,'');
-  return pjoin(dir, stem+'.dsp-proxy-'+proxyHash(m.path+'|'+(m.fsize||0))+'.mp4'); }
+function proxyLocalPath(m){ return _proxySibling(m,'.dsp-proxy-','.mp4'); } /* [R363b] delega en el constructor comun */
 /* [R360] proxy dentro de la carpeta del proyecto (`Proxies/`). La clave del hash es nombre|tamaño —no la ruta—
    para que sobreviva a mover la carpeta entera: la ruta absoluta cambia, el nombre y el tamaño no. */
 function proxyProjPath(m){ if(!state.managed||!m.path)return null; const d=projProxiesDir(); if(!d)return null;
-  return pjoin(d,'px_'+proxyHash(pbase(m.path).toLowerCase()+'|'+(m.fsize||0))+'_'+PMAX+'.mp4'); }
+  const key=proxyHash(pbase(m.path).toLowerCase()+'|'+(m.fsize||0));
+  return (m.kind==='image')?pjoin(d,'pxi_'+key+'_'+IPMAX+'.png'):pjoin(d,'px_'+key+'_'+PMAX+'.mp4'); } /* [R363] tambien para IMAGENES (pxi_, PNG): misma clave nombre|tamaño que sobrevive a mover la carpeta */
 function proxyCandidates(m){ return IS_ELEC?[proxyProjPath(m),proxyLocalPath(m),proxyCachePath(m)].filter(Boolean):[]; } // lookup/write order: [R360] Proxies/ del proyecto → junto al clip → caché central
+/* ===================== [R363] PROXY DE IMAGEN (PNG con alfa, ≤IPMAX px en el lado largo) =====================
+   Las fotos 4K dominan el proyecto tipico (composes con cientos de PNG). La textura de PREVISUALIZACION ya va
+   reducida a IMG_PREVIEW_MAX (R357), pero cada apertura seguia LEYENDO Y DECODIFICANDO el PNG 4K entero de
+   disco. El proxy es un PNG —conserva el canal alfa tal cual— reescalado al MISMO tamaño que la textura de
+   previsualizacion, asi que visualmente no cambia nada y la carga decodifica un archivo ~16× mas chico.
+   EL EXPORT NO SE ENTERA: nitidezExport/_ponerImagenA re-decodifican SIEMPRE desde m.path (el original) a
+   resolucion completa antes de cada fotograma que la dibuja [R357]. Generacion MANUAL, como los de video;
+   misma cola (pumpProxy despacha por kind) y mismos campos proxyReady/proxyPct/proxyPath (proxyUrl NO se toca:
+   es del camino de video y _vinstUrl lo prefiere). */
+const IPMAX=1024; /* [R363b] tamaño del ARCHIVO de proxy, LITERAL a proposito: viaja en el nombre (pxi_<hash>_1024) — si un dia sube IMG_PREVIEW_MAX, los proxies ya generados siguen siendo validos (solo algo mas blandos que la previsualizacion nueva), en vez de quedar huerfanos en silencio */
+const RE_IPROXY=/\.dsp-iproxy-\w+\.png$/i; /* el contrato de nombre del hermano, escrito UNA vez */
+function proxyable(m){ return !!(m&&(m.kind==='video'||(m.kind==='image'&&IS_ELEC&&m.path))); } /* [R363c·A4] imagen: solo escritorio y con archivo — en navegador no hay donde escribir el PNG y la entrada fallaba muda */ /* [R363b] "este kind lleva proxy de medio" — la UI y Collect preguntan AQUI, no con kind=== repartidos */
+function imgProxyLocalPath(m){ return _proxySibling(m,'.dsp-iproxy-','.png'); }
+function imgProxyCachePath(m){ return _proxyCache('pxi_',m,IPMAX,'.png'); }
+function imgProxyCandidates(m){ return IS_ELEC?[proxyProjPath(m),imgProxyLocalPath(m),imgProxyCachePath(m)].filter(Boolean):[]; }
+/* [R363b] Cache de LISTADOS por carpeta para las sondas de existencia: al abrir un proyecto de fotos, 3
+   exists() por imagen eran cientos de IPC en serie que casi siempre respondian "no". Un listDir por carpeta
+   UNICA (Proxies/, la cache central, las carpetas de las fotos — pocas y compartidas) responde de memoria.
+   Se tira en relinkReset (por proyecto) y se actualiza al escribir/borrar proxies. */
+const _dirListCache=new Map();
+async function _listaDir(dir){ let s=_dirListCache.get(dir);
+  if(!s){ try{ s=new Set((((await DSP.listDir(dir))||[]).map(f=>String(f.name||'').toLowerCase()))); }catch(e){ s=new Set(); }
+    _dirListCache.set(dir,s); }
+  return s; }
+async function _hayArchivo(p){ if(!p)return false; return (await _listaDir(pdir(p))).has(pbase(p).toLowerCase()); }
+function _dirRecuerda(p){ const s=_dirListCache.get(pdir(p)); if(s)s.add(pbase(p).toLowerCase()); }
+function _dirOlvida(p){ const s=_dirListCache.get(pdir(p)); if(s)s.delete(pbase(p).toLowerCase()); }
+async function ensureProjProxiesDir(aviso){ const pd=projProxiesDir();
+  if(state.managed&&pd&&DSP.ensureDir){ if(!(await DSP.ensureDir(pd)))diag('warn','proxy',aviso||'Proxies/ del proyecto no se pudo crear — el proxy caera junto al medio o a la cache central',{dir:pd}); } } /* [R360b] ensureDir devuelve false, no lanza — por eso se mira el retorno */
+/* [R363b] UNA sola funcion de enganche de proxy de imagen, usada por la carga del proyecto, por el import y
+   por «Generar proxy» — la primera version tenia una copia casi identica dentro de reloadMedia y ya habian
+   divergido. Ademas de VALIDAR (aspecto contra las medidas REALES del .isp — el gemelo del chequeo de duracion
+   de bindProxyFile: un proxy de un homonimo de otro corte se borra y se regenera), INSTALA la textura desde el
+   proxy decodificado — asi la decodificacion nunca se tira, y en la carga es EL sustituto de decodificar el
+   original 4K. m.w/m.h no se tocan: son las medidas reales, que viajan en el .isp y posicionan la composicion.
+   Exige w/h>0: sin medidas fiables no hay validacion ni forma de conservar las reales → se cae al original.
+   Rescate de huerfanos [R107]: si ningun candidato exacto esta, se busca el hermano `<stem>.dsp-iproxy-*.png`
+   en el listado (ya cacheado) de la carpeta de la foto — mismo salvavidas que proxyScanDir da a los videos. */
+async function attachExistingImgProxy(m,clean){ if(!m||m.kind!=='image'||!m.path||RE_IPROXY.test(m.path))return false;
+  if(!(m.w>0&&m.h>0))return false;
+  /* [R363c·B2] el ORIGINAL tiene que seguir siendo el que el .isp recuerda (mismo tamano en bytes): con el
+     proxy puesto ya no se decodifica al abrir, y un original truncado/reemplazado pasaria por sano mientras
+     el export saldria del proxy sin aviso. Un stat es barato; contenido corrupto con el MISMO tamano queda
+     fuera de alcance (lo avisa el export, ver _ponerImagenA). */
+  { let stO=null; try{ stO=await DSP.stat(m.path); }catch(e){}
+    if(!stO)return false;
+    if(m.fsize>0&&stO.size!==m.fsize){ m.fsize=stO.size; m.proxyReady=false; return false; } /* [R363c·A2] re-exportado en el sitio (mismo nombre, otro tamano): identidad nueva — el proxy viejo ya no encaja por hash y se regenera a mano; el original se decodifica ahora */
+    if(!(m.fsize>0))m.fsize=stO.size; }
+  const lista=[...imgProxyCandidates(m)];
+  { const dir=pdir(m.path);
+    if(dir){ const s=await _listaDir(dir); const stem=splitExt(pbase(m.path)).stem.toLowerCase();
+      for(const n of s){ if(n.startsWith(stem+'.dsp-iproxy-')&&n.endsWith('.png'))lista.push(pjoin(dir,n)); } } }
+  const seen=new Set();
+  for(const cp of lista){ const key=cp.toLowerCase(); if(seen.has(key))continue; seen.add(key);
+    if(!(await _hayArchivo(cp)))continue;
+    /* [R363c·B3] VALIDAR y INSTALAR van en try separados: el borra-si-falla es SOLO para fallos de
+       validacion (proxy corrupto/rancio). Un fallo de GL/DOM al instalar (perdida de contexto en plena
+       carga) no puede ponerse a borrar proxies sanos de disco uno tras otro — leccion R108 de los videos. */
+    let fit=null;
+    try{ fit=await _decodificarImagen(cp,IMG_PREVIEW_MAX);
+      if(!fit.w||!fit.h)throw new Error('proxy vacio');
+      { const a=m.w/m.h,b=fit.w/fit.h; if(Math.abs(a-b)>0.02*Math.max(a,b))throw new Error('aspecto distinto — proxy rancio'); } }
+    catch(e){ if(clean!==false){ try{ if(await DSP.deleteFile(cp))_dirOlvida(cp); }catch(_){}} continue; }
+    try{ m.el=fit.src; m.originalEl=fit.src; if(!m.tex)m.tex=newTex(); upTex(m.tex,fit.src); mipTex(m.tex,fit.tw||fit.w,fit.th||fit.h); m._texTope=IMG_PREVIEW_MAX;
+      m.proxyPath=cp; m.proxyReady=true; m.proxyPct=100; m._proxyForce=false; m.thumb=DSP.toFileURL(cp);
+      renderMedia(); updProxyUI(m); return true; }
+    catch(e){ m.proxyReady=false; m.proxyPath=null; m.proxyPct=0; return false; } }
+  return false; }
+async function makeImgProxy(m){
+  if(RE_IPROXY.test(m.path||'')){ m.proxyReady=true; m.proxyPct=100; renderMedia(); updProxyUI(m); return; } /* el archivo importado YA es un proxy */
+  if(!m._proxyForce){ if(await attachExistingImgProxy(m,true))return; }
+  const fit=await _decodificarImagen(m.path,IPMAX); /* fitImage: canvas ≤IPMAX si el original es mayor; w/h = medidas REALES */
+  if(!fit.w||!fit.h)throw new Error('imagen ilegible');
+  if(Math.max(fit.w,fit.h)<=IPMAX){ m.proxyPct=0; renderMedia(); updProxyUI(m);
+    flashStatus(m.name+T(' is already ≤'+IPMAX+' px — no proxy needed',' ya es ≤'+IPMAX+' px — no necesita proxy')); return; }
+  m.proxyPct=40; updProxyUI(m);
+  const blob=await new Promise(r=>fit.src.toBlob(r,'image/png')); if(!blob)throw new Error('PNG encode failed');
+  const buf=new Uint8Array(await blob.arrayBuffer());
+  m.proxyPct=70; updProxyUI(m);
+  await ensureProjProxiesDir('Proxies/ no se pudo crear — el proxy de imagen caera junto a la foto o a la cache central');
+  let escrito=null;
+  for(const cp of imgProxyCandidates(m)){ const pt=cp+'.part'; /* escribir a .part y renombrar: atomico, como los de video [R107] */
+    let ok=false; try{ ok=await DSP.writeBinary(pt,buf); }catch(e){}
+    if(!ok)continue;
+    let st=null; try{ st=await DSP.stat(pt); }catch(e){}
+    if(!st||st.size!==buf.length){ try{ await DSP.deleteFile(pt); }catch(e){} continue; } /* escritura VERIFICADA por tamaño, regla de la casa */
+    if(!(await DSP.rename(pt,cp))){ try{ await DSP.deleteFile(pt); }catch(e){} continue; }
+    escrito=cp; break; }
+  if(!escrito){ const err=new Error('no writable location for the image proxy');
+    err.userMsg=T('The image proxy could not be written (read-only folder or full disk).','El proxy de imagen no se pudo escribir (carpeta de solo lectura o disco lleno).'); throw err; }
+  _dirRecuerda(escrito); /* la cache de listados sigue diciendo la verdad */
+  m.proxyPath=escrito; m.proxyReady=true; m.proxyPct=100; m._proxyForce=false;
+  renderMedia(); updProxyUI(m); }
 /* every "<stem>.dsp-proxy-<hash>.mp4" sitting next to the source — rescues a proxy orphaned when the source file was
    moved/renamed (its hash no longer matches path|size, so proxyCandidates would miss it). Validated by duration in bindProxyFile. */
 async function proxyScanDir(m){ if(!IS_ELEC||!DSP.listDir||!m.path)return []; const dir=pdir(m.path); if(!dir)return [];
@@ -3406,7 +3509,7 @@ async function bindProxyFile(m,cachePath){ const purl=DSP.toFileURL(cachePath); 
 function enqProxy(m){ if(!m||m._pxGen||proxyQ.includes(m))return; proxyQ.push(m); pumpProxy(); }
 async function pumpProxy(){if(proxyBusy||!proxyQ.length)return;proxyBusy=true;const m=proxyQ.shift();
   m._pxGen=true;   /* [R327] La marca se PONE aqui. R326 escribio la guarda de `enqProxy` sobre `_pxGen` sin darse cuenta de que esa propiedad solo se escribia a `false` en el `finally` de abajo: nunca a true. Medido, el medio se reencolaba mientras se generaba y el doble clic seguia lanzando dos codificaciones. */
-  try{await makeProxy(m);}catch(e){console.error('proxy',e);m.proxyPct=-1;
+  try{ if(m.kind==='image')await makeImgProxy(m); else await makeProxy(m); }catch(e){console.error('proxy',e);m.proxyPct=-1; /* [R363] la cola es UNA para los dos tipos; el finally de video (fid/.part) es inocuo para imagen (no los usa) */
   /* [R311·A6] La tabla de fotogramas EN RAM (`m.frames`) se va llenando MIENTRAS se codifica, y `seekMedia` la
      prefiere al archivo original. Si la generacion muere a mitad —escritura a disco fallida, publicacion
      fallida, un `.part` que luego no se deja enlazar— esa tabla queda PARCIAL con `m.decConfig` puesto: a
@@ -3441,9 +3544,7 @@ async function makeProxy(m){
   // target: stream to disk when possible (flat RAM, persists) — next to the clip first, central cache if that
   // folder is not writable (read-only drive / network share); in-memory only as last resort (browser / no path)
   let fid=null,cache=null,part=null,_wr=[],_werr=false;
-  /* [R360→R360b] la carpeta Proxies/ del proyecto tiene que existir para que el fileOpen del primer candidato no
-     caiga al plan B en silencio. `ensureDir` NO lanza: devuelve false — el try/catch de R360 era letra muerta. */
-  { const pd=projProxiesDir(); if(state.managed&&pd&&DSP.ensureDir){ if(!(await DSP.ensureDir(pd)))diag('warn','proxy','Proxies/ del proyecto no se pudo crear — el proxy caera junto al clip o a la cache central',{dir:pd}); } }
+  await ensureProjProxiesDir('Proxies/ del proyecto no se pudo crear — el proxy caera junto al clip o a la cache central'); /* [R360b→R363b] helper comun con makeImgProxy */
   for(const cp of candidates){ const pt=cp+'.part'; try{ fid=await DSP.fileOpen(pt); }catch(e){ fid=null; } if(fid!=null){ cache=cp; part=pt; break; } } // [R107] encode to <name>.part → atomic rename on finalize (a killed session never leaves a moov-less proxy at the real name)
   m._pfid=fid; m._ppart=part; // so a mid-generation failure closes the fd AND deletes the partial (pumpProxy finally)
   const target=(fid!=null)
@@ -3707,7 +3808,7 @@ function makeMediaItem(m){
     const d=document.createElement('div'); d.className='mitem'+(selectedMediaIds().includes(m.id)?' sel':''); d.dataset.id=m.id; d.draggable=false;
     const loading=!!(m._loading&&m.missing), reallyMissing=(m.missing&&!m._loading); // decoding (esp. audio) ≠ missing
     if(reallyMissing){ d.style.boxShadow='inset 0 0 0 1px #E06A6A'; } // [M4] media whose original is missing → red
-    let px=''; if(m.kind==='video'){ if(m.proxyReady)px=`<div class="pbar"><i style="width:100%;background:var(--ink-2)"></i></div>`; else if(m.proxyPct>0||m._pxGen)px=`<div class="pbar gen"><i style="width:${Math.max(0,m.proxyPct||0)}%"></i><span class="pbtxt">${m.proxyPct>0?(m.proxyPct+'%'):'…'}</span></div>`; }
+    let px=''; if(proxyable(m)){ if(m.proxyReady)px=`<div class="pbar"><i style="width:100%;background:var(--ink-2)"></i></div>`; else if(m.proxyPct>0||m._pxGen)px=`<div class="pbar gen"><i style="width:${Math.max(0,m.proxyPct||0)}%"></i><span class="pbtxt">${m.proxyPct>0?(m.proxyPct+'%'):'…'}</span></div>`; }
     const isNdi=(m.kind==='ndi'||m.kind==='spout'); const seq=isSeqMedia(m); const isAdj=(m.kind==='adjust'); const dur=(m.kind==='ndi')?'NDI':(m.kind==='spout')?'SPOUT':(seq?'SEQ':(isAdj?'ADJ':(m.kind==='image'?'IMG':fmtDur(m.dur))));
     /* [R253] Un medio con marcas de entrada/salida entra RECORTADO cada vez que se arrastra, se abra el monitor
        o no. Eso tiene que verse en la ficha: si no, un archivo marcado hace tiempo suelta un trozo y no hay nada
@@ -3717,9 +3818,9 @@ function makeMediaItem(m){
     const thumbBg=isAdj?'repeating-linear-gradient(45deg,rgba(180,186,193,0.30) 0 9px,rgba(180,186,193,0.10) 9px 18px)':(m.thumb?`url(${m.thumb})`:'none');
     d.innerHTML=`<div class="mthumb${seq?' mseq':''}" style="background-image:${thumbBg}">
         <span class="dur"${seq?' style="background:var(--state-on);color:var(--ink);"':''}>${dur}</span>${px}</div>
-      <div style="flex:1;min-width:0;"><div class="mname">${esc(m.name)}${m.kind==='video'?` <span class="mprx" style="color:var(--ink-dim);font-weight:400;font-size:10px;">${m.proxyReady?T('proxy','proxy'):T('original','original')}</span>`:''}</div>
+      <div style="flex:1;min-width:0;"><div class="mname">${esc(m.name)}${(m.kind==='video'||(m.kind==='image'&&m.proxyReady))?` <span class="mprx" style="color:var(--ink-dim);font-weight:400;font-size:10px;">${m.proxyReady?T('proxy','proxy'):T('original','original')}</span>`:''}</div>
       <div class="mmeta" style="${reallyMissing?'color:#E06A6A':''}">${meta}${_rg?' · <span class="mrange" title="'+T('Drags in trimmed: ','Entra recortado: ')+fmtTime(_rg.inP)+' → '+fmtTime(_rg.inP+_rg.dur)+'">['+fmtDur(_rg.dur)+']</span>':''}</div></div>
-      ${m.kind==='video'?`<span class="pdot" data-mid="${m.id}" title="${m.proxyReady?T('Proxy ready','Proxy listo'):T('No proxy yet','Sin proxy aún')}" style="width:8px;height:8px;border-radius:50%;flex-shrink:0;background:${m.proxyReady?'#8A9199':'#5E646C'}"></span>`:''}
+      ${proxyable(m)?`<span class="pdot" data-mid="${m.id}" title="${m.proxyReady?T('Proxy ready','Proxy listo'):T('No proxy yet','Sin proxy aún')}" style="width:8px;height:8px;border-radius:50%;flex-shrink:0;background:${m.proxyReady?'#8A9199':'#5E646C'}"></span>`:''}
       ${isNdi?(()=>{ /* [R319] Spout marca `_spLive`, no `_ndiLive`: su punto se quedaba apagado para siempre aunque estuviera recibiendo. El texto de al lado ya distinguia los dos desde [V3]; el punto se quedo atras. */
         const vivo=(m.kind==='spout')?m._spLive:m._ndiLive, ttl=(m.kind==='spout')?T('Live Spout','Spout en vivo'):T('Live NDI','NDI en vivo');
         return `<span class="pdot ndilive${vivo?' on':''}" title="${ttl}" style="width:8px;height:8px;border-radius:50%;flex-shrink:0;background:${vivo?'#E8EAED':'#5E646C'}"></span>`; })():''}
@@ -3742,7 +3843,7 @@ function mediaProperties(m){ const rows=[]; const add=(k,v)=>{ if(v!=null&&v!=='
   if(m.buffer){ add(T('Sample rate','Frecuencia'),m.buffer.sampleRate+' Hz'); add(T('Channels','Canales'),m.buffer.numberOfChannels); }
   if(m.fsize)add(T('Size on disk','Tamaño en disco'),fmtBytes(m.fsize));
   if(m.fsize&&m.dur&&(m.kind==='video'||m.kind==='audio'))add(T('Average bitrate','Bitrate promedio'),(m.fsize*8/m.dur/1e6).toFixed(1)+' Mbps');
-  if(m.kind==='video')add('Proxy',m.proxyReady?T('ready','listo'):(m.proxyPct>0?(T('generating ','generando ')+Math.round(m.proxyPct)+'%'):T('none','sin proxy')));
+  if(proxyable(m))add('Proxy',m.proxyReady?T('ready','listo'):(m.proxyPct>0?(T('generating ','generando ')+Math.round(m.proxyPct)+'%'):T('none','sin proxy'))); /* [R363] la fila de info tambien para fotos */
   if(m.folder)add(T('Folder','Carpeta'),m.folder);
   add(T('Location','Ubicación'),m.path||(m.kind==='text'||m.kind==='shape'||m.kind==='nest'||m.kind==='adjust'?T('(generated inside the project)','(generado dentro del proyecto)'):'—'));
   const ov=document.createElement('div'); ov.className='overlay';
@@ -3768,7 +3869,7 @@ function openMediaCtx(e,m){ e.preventDefault(); const seq=isSeqMedia(m); const i
   items.push({label:T('Rename','Renombrar'),key:'⌘R',fn:()=>renameMediaInline(m,mediaNameEl(m.id))});
   items.push({label:T('Properties…','Propiedades…'),ico:'panel',fn:()=>mediaProperties(m)}); // R90: resolution / fps / size / bitrate / path
   if(IS_ELEC&&m.path&&DSP.revealPath) items.push({label:T('Reveal in Explorer','Mostrar en el Explorador'),ico:'folder',fn:()=>{ try{DSP.revealPath(m.path);}catch(e){} }}); // R90: locate media on disk
-  if(m.kind==='video'){ const selVids=((selIds.includes(m.id)?selIds.map(mediaById):[m]).filter(x=>x&&x.kind==='video')); const many=selVids.length>1; // proxies are manual now: generate for the whole (shift-)selection
+  if(proxyable(m)){ const selMedia=((selIds.includes(m.id)?selIds.map(mediaById):[m]).filter(x=>proxyable(x))); const many=selMedia.length>1; /* proxies are manual now: generate for the whole (shift-)selection · [R363] tambien IMAGENES (misma entrada, misma cola; el chequeo WebCodecs es solo de video — el proxy de foto es canvas→PNG) */
   /* [R349] Aquí NO se toca `_pxGen`. Esta entrada la marcaba a mano antes de encolar —una costumbre anterior a
      R326, de cuando la propiedad no la miraba nadie—, y R326 escribió justo encima la guarda de `enqProxy`
      (`if(m._pxGen)return`) sin ver que ya había un llamador poniéndola: desde entonces el medio JAMÁS entraba en
@@ -3776,7 +3877,12 @@ function openMediaCtx(e,m){ e.preventDefault(); const seq=isSeqMedia(m); const i
      —que es su sitio, porque significa «se está generando AHORA»— y tampoco miró este llamador. El síntoma era
      mudo: la barra se queda a 0 % con «…», idéntico a un proxy que acaba de empezar. Medido en
      `scratchpad/r349-cola-proxy.mjs`, que reconstruye el estado anterior y lo ve rojo (120 s sin un solo %). */
-    items.push({label:many?(T('Generate proxies (','Generar proxys (')+selVids.length+')'):(m.proxyReady?T('Regenerate proxy','Regenerar proxy'):T('Generate proxy','Generar proxy')),ico:'video',fn:()=>{ if(!HAS_WC){flashStatus(T('Proxies need WebCodecs (browser build)','Los proxys requieren WebCodecs'));return;} for(const v of selVids){ v.proxyReady=false; v.proxyPct=0; if(v.proxyPath)v._proxyForce=true; enqProxy(v); } renderMedia(); flashStatus(many?(T('Generating ','Generando ')+selVids.length+T(' proxies…',' proxys…')):T('Generating proxy…','Generando proxy…')); }}); }
+    items.push({label:many?(T('Generate proxies (','Generar proxys (')+selMedia.length+')'):(m.proxyReady?T('Regenerate proxy','Regenerar proxy'):T('Generate proxy','Generar proxy')),ico:'video',fn:()=>{
+      /* [R363b] una seleccion MIXTA genera los dos tipos; sin WebCodecs solo caen los videos (el proxy de foto es canvas→PNG y no lo necesita) */
+      let lote=selMedia; if(!HAS_WC){ const sinV=lote.filter(x=>x.kind!=='video'); if(sinV.length<lote.length)flashStatus(T('Video proxies need WebCodecs — generating only the image proxies','Los proxys de video requieren WebCodecs — se generan solo los de imagen')); lote=sinV; if(!lote.length)return; }
+      { const chicas=lote.filter(x=>x.kind==='image'&&x.w>0&&x.h>0&&Math.max(x.w,x.h)<=IPMAX); /* [R363c·B4] una foto que ya es <=1024 no gana nada: no se encola (ni se le borra el estado) y se avisa UNA vez */
+        if(chicas.length){ lote=lote.filter(x=>!chicas.includes(x)); flashStatus(chicas.length+T(' image(s) are already <=1024 px — no proxy needed',' imagen(es) ya son <=1024 px — no necesitan proxy')); if(!lote.length)return; } }
+      for(const v of lote){ v.proxyReady=false; v.proxyPct=0; if(v.proxyPath)v._proxyForce=true; enqProxy(v); } renderMedia(); flashStatus(lote.length>1?(T('Generating ','Generando ')+lote.length+T(' proxies…',' proxys…')):T('Generating proxy…','Generando proxy…')); }}); }
   /* [R192] REPUESTO. R186 lo retiró por una supuesta discrepancia de encuadre (PSNR 26,6 · 7 px sobre 32) que
      resultó ser un fallo de MI arnés de medida, no del programa: capturaba siempre el mismo fotograma porque
      escribía `state.t`, que no existe, en vez de `state.playhead`. Medido de nuevo con un arnés que se valida a
@@ -3789,7 +3895,7 @@ function openMediaCtx(e,m){ e.preventDefault(); const seq=isSeqMedia(m); const i
      de la misma condición que impide generarlo. */
   if(seq&&IS_ELEC&&m.ncPath) items.push({label:T('Remove nest proxy','Quitar proxy de composición'),ico:'trash',fn:()=>{ ncDetach(m,true); flashStatus(T('Nest proxy removed','Proxy de composición eliminado')); }});
   if(IS_ELEC && (m.kind==='video'||m.kind==='audio'||m.kind==='image')) items.push({label:T('Replace media…','Reemplazar medio…'),fn:()=>replaceMedia(m)});
-  if(m.missing&&IS_ELEC) items.push({label:T('Locate file…','Localizar archivo…'),ico:'upload',fn:async()=>{ try{ const p=await DSP.pickMedia(); if(p){ m.path=p; m.rel=null; /* [R361c·#4] reenlace MANUAL: la rel vieja no puede volver a mandar */ await reloadMedia(m); flashStatus(T('Media re-linked','Medio re-vinculado')); } }catch(e){} }});
+  if(m.missing&&IS_ELEC) items.push({label:T('Locate file…','Localizar archivo…'),ico:'upload',fn:async()=>{ try{ const p=await DSP.pickMedia(); if(p){ m.path=p; m.rel=null; /* [R361c·#4] reenlace MANUAL: la rel vieja no puede volver a mandar */ if(m.kind==='image'){ m.w=0; m.h=0; m.fsize=0; } /* [R363c·B1] puede ser OTRO archivo: fuera medidas y tamano rancios */ await reloadMedia(m); flashStatus(T('Media re-linked','Medio re-vinculado')); } }catch(e){} }});
   if(state.folders.length){ items.push('sep'); const tgt=()=>selectedMediaIds().includes(m.id)?selectedMediaIds():[m.id]; // move the whole multi-selection (R88 audit) + undo/dirty via moveMediaTo
     for(const f of state.folders) items.push({label:(m.folder===f?'✓ ':'')+T('Move to: ','Mover a: ')+f,fn:()=>moveMediaTo(tgt(),f)});
     if(m.folder)items.push({label:T('Remove from folder','Quitar de carpeta'),fn:()=>moveMediaTo(tgt(),null)}); }
@@ -3799,13 +3905,13 @@ function openMediaCtx(e,m){ e.preventDefault(); const seq=isSeqMedia(m); const i
 function makeMediaTile(m){ const seq=isSeqMedia(m), isNdi=(m.kind==='ndi'||m.kind==='spout'); // [V3] Spout se comporta como NDI: fuente en vivo, sin archivo
   const d=document.createElement('div'); d.className='mtile'+((m.missing&&!m._loading)?' missing':'')+(selectedMediaIds().includes(m.id)?' sel':''); d.dataset.id=m.id; d.title=m.name;
   const isAdj=(m.kind==='adjust'); const dur=isNdi?(m.kind==='spout'?'SPOUT':'NDI'):(seq?'SEQ':(isAdj?'ADJ':(m.kind==='image'?'IMG':fmtDur(m.dur)))); // [R320] el gemelo de la vista de LISTA, que ya distinguía los dos: en cuadrícula una entrada Spout se rotulaba «NDI»
-  const px=(m.kind==='video'&&!m.proxyReady&&m.proxyPct>0)?`<div class="tpbar"><i style="width:${m.proxyPct}%"></i></div>`:'';
+  const px=(proxyable(m)&&!m.proxyReady&&m.proxyPct>0)?`<div class="tpbar"><i style="width:${m.proxyPct}%"></i></div>`:'';
   const tbg=isAdj?'repeating-linear-gradient(45deg,rgba(180,186,193,0.30) 0 9px,rgba(180,186,193,0.10) 9px 18px)':(m.thumb?`url(${m.thumb})`:'none');
   /* [R253b] el mismo distintivo que la fila de la lista: en cuadricula un archivo marcado tambien suelta un clip
      recortado, y sin esto no habia NADA en pantalla que lo explicara. Es el patron que ya me mordio en R245: un
      camino cubierto y su gemelo olvidado. */
   const _rg=srcRange(m);
-  d.innerHTML=`<div class="tthumb${seq?' mseq':''}" style="background-image:${tbg};"><span class="tdur">${dur}</span>${m.kind==='video'&&m.proxyReady?'<span class="tprox">⚡</span>':''}${px}${_rg?'<span class="tcut" title="'+T('Drags in trimmed: ','Entra recortado: ')+fmtTime(_rg.inP)+' → '+fmtTime(_rg.inP+_rg.dur)+'">['+fmtDur(_rg.dur)+']</span>':''}</div><div class="tlbl" style="border-top:2px solid ${m.color};">${esc(m.name)}</div>`;
+  d.innerHTML=`<div class="tthumb${seq?' mseq':''}" style="background-image:${tbg};"><span class="tdur">${dur}</span>${proxyable(m)&&m.proxyReady?'<span class="tprox">⚡</span>':''}${px}${_rg?'<span class="tcut" title="'+T('Drags in trimmed: ','Entra recortado: ')+fmtTime(_rg.inP)+' → '+fmtTime(_rg.inP+_rg.dur)+'">['+fmtDur(_rg.dur)+']</span>':''}</div><div class="tlbl" style="border-top:2px solid ${m.color};">${esc(m.name)}</div>`;
   d.addEventListener('dblclick',()=>{ if(_composeDrop){ _composeDrop([m.id]); return; } /* [R248] con la composición abierta el doble clic la alimenta a ELLA */ if(seq)openSeq(m.id); else openSourceMonitor(m); }); // [R249] modelo Premiere: el doble clic ABRE el material en el monitor de origen, no lo suelta en la línea de tiempo (para eso se arrastra)
   d.addEventListener('pointerdown',e=>{ if(e.button===0){ const multi=e.shiftKey||e.ctrlKey||e.metaKey; if(multi||!selectedMediaIds().includes(m.id))selectMedia(m.id,e); if(!multi)startMediaDrag(e,m); } }); // press on an already-selected tile keeps the multi-selection (drag the whole set)
   d.addEventListener('contextmenu',e=>{ if(!selectedMediaIds().includes(m.id))selectMedia(m.id); openMediaCtx(e,m); });
@@ -9242,7 +9348,12 @@ async function _ponerImagenA(m,tope){
   if(!m||m.kind!=='image'||!m.path||m._texTope===tope) return;
   try{ const fit=await _decodificarImagen(m.path,tope);
     upTex(m.tex,fit.src); mipTex(m.tex,fit.tw||fit.w,fit.th||fit.h); m._texTope=tope;
-  }catch(e){}
+  }catch(e){ /* [R363c·B2] con proxy de imagen, esta es la UNICA lectura del original: si aqui falla en un
+      export, el fotograma saldria con la textura del proxy (1024) SIN aviso — el silencio era aceptable
+      cuando el original ya se habia decodificado al cargar; ya no. Un aviso por medio y por sesion. */
+    if(tope===MAX_IMG&&!m._nitidezAviso){ m._nitidezAviso=true;
+      diag('warn','export','original de imagen ilegible en nitidezExport — el export usa la textura de previsualizacion',{nombre:m.name,ruta:m.path});
+      try{ flashStatus(T('Could not read the full-resolution original of ','No se pudo leer el original a resolucion completa de ')+m.name+T(' — this export frame uses the preview texture',' — ese fotograma sale con la textura de previsualizacion'),'err'); }catch(_){}} }
 }
 async function nitidezExport(t){
   if(!_exportQuality) return;
@@ -12424,10 +12535,10 @@ async function collectProject(){
         /* el proxy ya generado viaja tambien: a Proxies/, con el nombre-hash de la identidad NUEVA (nombre|tamano).
            [R360b] SOLO si esta ENGANCHADO (proxyReady): un proxyPath suelto puede ser el del material de ANTES de
            un Replace/relink, y copiarlo bajo el hash nuevo colaria metraje viejo como proxy del nuevo. */
-        if(j.m.kind==='video'&&j.m.proxyReady&&j.m.proxyPath&&!isInProj(j.m.proxyPath)){ const pp=proxyProjPath(j.m);
+        if(proxyable(j.m)&&j.m.proxyReady&&j.m.proxyPath&&!isInProj(j.m.proxyPath)){ const pp=proxyProjPath(j.m); /* [R363] el de imagen viaja igual (proxyProjPath ya distingue pxi_/px_) */
           if(pp){ let ps=null; try{ ps=await DSP.stat(j.m.proxyPath); }catch(e){}
             if(ps){ const r2=await DSP.copyFile(j.m.proxyPath,pp);
-              if(r2&&r2.ok&&r2.size===ps.size){ j.m.proxyPath=pp; j.m.proxyUrl=DSP.toFileURL(pp); } } } } }
+              if(r2&&r2.ok&&r2.size===ps.size){ j.m.proxyPath=pp; if(j.m.kind==='video')j.m.proxyUrl=DSP.toFileURL(pp); } } } } } /* [R363c·A5] proxyUrl solo video */
       else if(j.tipo==='frame')j.m.framePaths[j.i]=u.dst;
       else if(j.tipo==='nc'){ j.m.ncPath=u.dst; j.m.ncUrl=DSP.toFileURL(u.dst); }
       else if(j.tipo==='lut')lutMap.set(j.src,u.dst);
@@ -12462,7 +12573,7 @@ async function collectProject(){
            [R361b·B3] Se decide por EXISTENCIA DEL ARCHIVO en Proxies/, no por `proxyReady`: el enganche es
            asincrono y posterior a `_loading=false`, asi que un Collect temprano renombraria el video con el
            proxy aun sin enganchar y el archivo px_<hashViejo> quedaria huerfano para siempre. */
-        const pxAntes=(j.m.kind==='video')?proxyProjPath(j.m):null; /* hash de la identidad VIEJA (antes de tocar path) */
+        const pxAntes=proxyable(j.m)?proxyProjPath(j.m):null; /* hash de la identidad VIEJA (antes de tocar path) · [R363] imagenes tambien */
         j.m.path=dst;
         try{ if(j.m.kind==='video'){ j.m.srcUrl=DSP.toFileURL(dst); if(j.m.el)j.m.el.src=j.m.srcUrl; if(j.m.originalEl&&j.m.originalEl!==j.m.el)j.m.originalEl.src=j.m.srcUrl;
           if(j.m.proxyReady&&!j.m.proxyPath)j.m.proxyUrl=j.m.srcUrl; /* [R361b·C3] un medio que ES su propio proxy (importado .dsp-proxy) sigue al srcUrl nuevo */ } }catch(e){}
@@ -12470,13 +12581,13 @@ async function collectProject(){
         if(pxAntes){ const pxNuevo=proxyProjPath(j.m);
           if(pxNuevo&&pxNuevo!==pxAntes){ let exPx=false; try{ exPx=await DSP.exists(pxAntes); }catch(e){}
             if(exPx&&await DSP.rename(pxAntes,pxNuevo)){
-              if(j.m.proxyPath===pxAntes){ j.m.proxyPath=pxNuevo; try{ j.m.proxyUrl=DSP.toFileURL(pxNuevo); }catch(e){} }
+              if(j.m.proxyPath===pxAntes){ j.m.proxyPath=pxNuevo; if(j.m.kind==='video')try{ j.m.proxyUrl=DSP.toFileURL(pxNuevo); }catch(e){} }
               hechosMov[hechosMov.length-1].px=[pxAntes,pxNuevo]; }
             /* [R361c·#2] el px viejo ya no existe porque OTRO medio que comparte el archivo lo renombro antes
                (mismo hash nombre|tamaño): re-apuntar a pxNuevo si esta ahi — si no, proxyUrl quedaba muerto
                con proxyReady=true y _vinstUrl servia un file:// inexistente (clip negro) */
             else if(!exPx&&j.m.proxyPath===pxAntes){ let exN=false; try{ exN=await DSP.exists(pxNuevo); }catch(e){}
-              if(exN){ j.m.proxyPath=pxNuevo; try{ j.m.proxyUrl=DSP.toFileURL(pxNuevo); }catch(e){} }
+              if(exN){ j.m.proxyPath=pxNuevo; if(j.m.kind==='video')try{ j.m.proxyUrl=DSP.toFileURL(pxNuevo); }catch(e){} }
               else { j.m.proxyReady=false; j.m.proxyPath=null; j.m.proxyUrl=null; } } } } };
       for(let i=0;i<movs.length;i++){ const j=movs[i];
         if(movs.length<80||i%10===0||i===movs.length-1)setProg(i,movs.length,'⇄ '+pbase(j.src));
@@ -12525,7 +12636,7 @@ async function collectProject(){
         const j=h.j;
         if(j.tipo==='frame'){ j.m.framePaths[j.i]=h.src; continue; }
         j.m.path=h.src;
-        if(h.px){ j.m.proxyPath=h.px[0]; try{ j.m.proxyUrl=DSP.toFileURL(h.px[0]); }catch(e){} }
+        if(h.px){ j.m.proxyPath=h.px[0]; if(j.m.kind==='video')try{ j.m.proxyUrl=DSP.toFileURL(h.px[0]); }catch(e){} }
         /* [R361c·#3] el rollback restaura TODO lo que `aplicar` muto — thumb de imagen, el.src del video y el
            proxyUrl del medio que ES su propio proxy quedaban apuntando al destino deshecho */
         try{ if(j.m.kind==='video'){ j.m.srcUrl=DSP.toFileURL(h.src); if(j.m.el)j.m.el.src=j.m.srcUrl; if(j.m.originalEl&&j.m.originalEl!==j.m.el)j.m.originalEl.src=j.m.srcUrl;
@@ -13046,7 +13157,7 @@ function esperarMediosArranque(){
    No se marca el proyecto como modificado: si se guarda, las rutas nuevas quedan fijadas; si no, la próxima vez
    se vuelven a resolver igual. Nunca se pierde nada por no guardar. */
 let _relIdx=null, _relIdxDir=null, _relCount=0, _relTimer=0;
-function relinkReset(){ _relIdx=null; _relIdxDir=null; _relCount=0; if(_relTimer){clearTimeout(_relTimer);_relTimer=0;} }
+function relinkReset(){ _relIdx=null; _relIdxDir=null; _relCount=0; try{ _dirListCache.clear(); }catch(e){} /* [R363b] la cache de listados es de ESTE proyecto */ if(_relTimer){clearTimeout(_relTimer);_relTimer=0;} }
 /* El aviso va con retardo a propósito: `loadProject` lanza todas las recargas SIN esperarlas, así que en el punto
    donde termina no hay todavía nada reparado. Cada reparación reinicia el temporizador, de modo que el mensaje
    sale una sola vez cuando la ráfaga acaba — y después del «Proyecto cargado», que si no lo pisaría. */
@@ -13133,7 +13244,14 @@ async function reloadMedia(m){
      el archivo, así que reemplazar un AUDIO en bucle por otro de distinta duración no reajustaba nada: la
      reconciliación comparaba la duración vieja consigo misma y se iba de largo. El mismo fallo que R205 arregló
      para vídeo, sin arreglar para audio. */
-  if(m.kind==='image'){ return await new Promise(res=>{ const img=new Image();
+  if(m.kind==='image'){
+    /* [R363→R363b] PROXY DE IMAGEN PRIMERO, por la funcion UNICA de enganche (la primera version llevaba
+       aqui una copia casi identica que ya habia divergido): valida contra las medidas REALES del .isp,
+       instala textura/el/thumb desde el proxy y deja w/h intactas. Si engancha, no se toca el original 4K
+       — que es el grueso del tiempo de apertura en proyectos de fotos. El export no se entera:
+       nitidezExport re-decodifica m.path entero antes de cada fotograma que la dibuja [R357]. */
+    if(IS_ELEC){ try{ if(await attachExistingImgProxy(m,true)){ m.missing=false; m._loading=false; render(); return; } }catch(e){} }
+    return await new Promise(res=>{ const img=new Image();
     let fin=false; const acabar=()=>{ if(fin)return; fin=true; res(); };
     img.onload=()=>{ const fit=fitImage(img,IMG_PREVIEW_MAX); m.el=fit.src;m.originalEl=img;m.tex=newTex();upTex(m.tex,fit.src);mipTex(m.tex,fit.tw||fit.w,fit.th||fit.h);m._texTope=IMG_PREVIEW_MAX;/* [R357] textura reducida para previsualizar *//* [R303] o los mipmaps solo existirian en la sesion en que se importo la imagen: guardar y reabrir volvia a dejarla dentada */m.w=fit.w;m.h=fit.h;m.missing=false;m._loading=false;m.thumb=url;renderMedia();render(); acabar(); };
     img.onerror=()=>{ m.missing=true;m._loading=false;renderMedia();updRelink(); acabar(); };
@@ -13189,6 +13307,7 @@ async function replaceMedia(m,ruta){ if(!IS_ELEC)return;
   bumpMeta(true); /* [R253d] reparar un medio ausente no es una edicion deshacible, pero si marca version: una foto anterior no puede devolverle el nombre del archivo perdido */
   m.path=p; m.fsize=sz; m.name=DSP.basename(p); m.missing=false; delete m._plazo;
   m.rel=null; m.relFrames=null; /* [R361c·#4] el reemplazo cambia de ARCHIVO: sin esto, la preferencia por la ruta relativa de reloadMedia devolvia el path a la copia VIEJA de Media/ y el reemplazo era un no-op silencioso con nombre/tamaño del archivo nuevo sobre contenido viejo */
+  if(m.kind==='image'){ m.w=0; m.h=0; } /* [R363c·B1] las medidas son del archivo ANTERIOR: con ellas, el enganche de proxy validaria (y hasta borraria) proxies del archivo nuevo contra un aspecto rancio — sin w/h, attachExistingImgProxy se abstiene y el original se decodifica entero, que las repone */
   m.proxyReady=false; m.proxyPct=0; m.proxyUrl=null; m.proxyEl=null; m.proxyPath=null; /* [R360b] sin esto, Collect copiaba el proxy del material VIEJO bajo el hash del nuevo */ m._proxyForce=false; m.bands=null; m._bandsBusy=false; m._bandsFail=false; /* [R334] el material cambia: el fallo recordado ya no vale — [R336] con comentario de BLOQUE: la version de linea se comio las seis asignaciones siguientes y el buffer viejo seguia sonando en la mezcla y en el export */ m.thumb=null; m._texW=null; m._texH=null; m.peaks=null; m.rms=null; m.buffer=null;
   /* [R322] El ESPECTRO también, que se quedaba fuera. `m.bands` (las cuatro bandas con nombre) sí se recalculaba,
      pero `m.spec` no, y `armMediaSpectrum` se niega a recomputar mientras `m.spec` esté puesto: al cambiar el
