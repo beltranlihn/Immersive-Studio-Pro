@@ -1,5 +1,38 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## ROUND R358 — El renderer no moria de memoria: moria de HILOS
+
+**Sintoma:** «sigue tirandome varios crashes, al intentar importar archivos», con el editor lento pese a estar
+con proxies y a 1/4. Cuatro caidas en ocho minutos (16:13, 16:15, 16:18, 16:21).
+
+**La medida que cambio el diagnostico.** Vigilando el proceso durante la carga, los hilos suben
+**20 -> 26 -> 30 -> 65 -> 123 -> 176 -> 219 -> 284 -> 303 -> 386 -> 417** y ahi muere, mientras la memoria
+BAJA de 6,7 a 3,5 GB. El informe de macOS lo confirma: **488 hilos** y solo 25 MB de MALLOC. No era falta de
+memoria; era agotamiento de hilos, y por eso todas las rondas anteriores -que atacaban memoria- no lo cerraban.
+
+**Causa.** Cada medio de video se quedaba con un `<video>` VIVO (`m.el`/`m.originalEl`) desde que se abria el
+proyecto, y **enganchar su proxy creaba otro mas** (`m.proxyEl`, con `preload='auto'`). Con 298 videos, casi
+todos con proxy, eso son cientos de tuberias de demux/decodificacion abiertas a la vez. Explica los tres
+hechos: revienta sobre todo AL IMPORTAR (cada archivo abre otra), empeora segun crece el proyecto, y los
+proxies no ayudaban porque **un proxy es otro `<video>`**.
+
+**Nadie los usaba.** La reproduccion va por `_vinst`, topada a `VINST_MAX=32` y creada bajo demanda; `pumpVF`
+no lo llama nadie (codigo muerto); `proxyEl` y `pw`/`ph` solo se escriben; y el monitor de origen dibuja por
+`naturalWidth`, que un `<video>` no tiene. Solo hacen falta un instante, para leer medidas y sacar la
+miniatura. `soltarVideoDelMedio(m,v)` los suelta en cuanto han cumplido, en los CUATRO caminos: reapertura de
+proyecto, enganche de proxy existente y los dos de importacion. Queda la URL, que es lo unico que `_vinst`
+necesita para abrirlos cuando de verdad hagan falta.
+
+**Resultado, medido sobre la pelicula (904 medios, 298 videos, 368 imagenes, 488 clips):**
+- Hilos: **488 -> 32 de pico, 23 en reposo**. El renderer deja de morir.
+- Carga completa: 904 medios, **0 faltantes**, memoria estable en 3,63 GB.
+- Reproduccion **60 fps** en seis puntos de los 64 minutos (peor pausa 19-38 ms), con las instancias
+  creandose bajo demanda (6 -> 28) y todas con textura: la reproduccion no pierde nada.
+- **Prueba del sintoma**: importar 25 archivos encima del proyecto deja los hilos en 23-24 y la memoria plana
+  (`scratchpad/r358-importar.mjs`). Antes, cada importacion sumaba una tuberia sobre las 417 ya abiertas.
+
+Sondas: `scratchpad/r358-vigilar-hilos.sh` (hilos + RSS del renderer) y `scratchpad/r358-importar.mjs`.
+
 ## ROUND R357 — Proxy de FOTO: la previsualizacion deja de cargar 9 GB de texturas
 
 R356 arreglo la carga, pero el editor seguia cayendo MIENTRAS se trabaja (EXC_BREAKPOINT en CrRendererMain a
