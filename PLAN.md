@@ -151,6 +151,27 @@ de rendimiento no se toca en el caso comun.
 cace (`conLaLogicaVieja.loopConReloj: true` frente a `decision.loopConReloj: false`). Verifica tambien la NO
 regresion (`sinLoopConReloj: true`, `loopSinReloj: true`) y que los tres puntos coinciden.
 
+## RONDA 353 — Por qué un import de imágenes agota la memoria
+
+Un amigo de Beltrán importó imágenes y el editor murió por falta de memoria. No se reproduce aquí, así que se
+midió en vez de parchear — y **dos hipótesis mías salieron falsas**, que se dejan escritas porque ahorran el
+camino: `m.frames` **no** retiene los fotogramas descodificados (80 de 1024² costaron 14 MB, no 320: Chromium
+guarda el fichero codificado, no el mapa de bits), y el canvas de `fitImage` **tampoco** (−12 MB medidos).
+
+**La tercera sí.** Una secuencia usa **una** textura y le cambia el contenido; las mismas imágenes **sueltas**
+crean un medio con **su propia textura cada una**. Con el mismo material: **1 textura y +3 MB** frente a
+**80 texturas y +657 MB**. Doscientas veces más, y lineal. Con fotogramas de 4096² cada textura son 64 MB, así
+que 300 imágenes sueltas piden más de 20 GB.
+
+Encaja con lo que hizo: desde R245b la agrupación la decide **la puerta** — «Importar secuencia de imágenes…»
+agrupa; «Importar medios…» y el arrastre nunca agrupan—. Verificado además que el camino bueno funciona de
+extremo a extremo: 80 de 80 fotogramas, clip en la línea de tiempo y **fotogramas distintos** a 0,1 / 1,6 /
+3,1 s.
+
+**Queda abierto:** la aplicación no avisa al importar cientos de imágenes sueltas. Se conoce el coste por
+imagen, así que se puede estimar y avisar antes de cargar.
+
+
 ## ROUND 352b — Revisión desde el Mac de R303→R352
 
 69 commits de Windows. Dos revisores sobre las áreas de más riesgo (integridad de datos / proyectos existentes, y
