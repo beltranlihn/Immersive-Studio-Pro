@@ -361,7 +361,11 @@ async function loadLUT(path){ if(!path)return null;
   _lutEnVuelo.set(path,_pr); return _pr; }
 async function _cargarLUT(path){
   if(!(IS_ELEC&&DSP.readText))return null;
-  let txt=null; try{ txt=await DSP.readText(path); }catch(e){} if(txt==null)return null;
+  let txt=null; try{ txt=await DSP.readText(path); }catch(e){}
+  /* [R360] Si la ruta guardada murio (carpeta de proyecto movida de sitio), se busca la copia recolectada en
+     `Media/_LUTs/<nombre>`. El registro conserva la CLAVE original: es la que llevan los clips en props.lut. */
+  if(txt==null&&currentPath){ const alt=projResolve('Media/_LUTs/'+pbase(path)); if(alt&&alt!==path){ try{ txt=await DSP.readText(alt); }catch(e){} } }
+  if(txt==null)return null;
   const parsed=parseCubeLUT(txt); if(!parsed)return null;
   const name=path.split(/[\\/]/).pop().replace(/\.cube$/i,''); if(parsed.dominioRaro)try{ flashStatus(T('LUT '+name+' declares a non-standard input domain ('+parsed.dmin[0]+' to '+parsed.dmax[0]+'): it is applied over 0-1 and will not match the source application.','La LUT '+name+' declara un dominio de entrada no estandar ('+parsed.dmin[0]+' a '+parsed.dmax[0]+'): se aplica sobre 0-1 y no coincidira con la aplicacion de origen.'),'err'); }catch(e){} // [R333] antes se clampaba sin decir nada
   const rec={tex:makeLutTex(parsed.data,parsed.size),size:parsed.size,name,path,dmin:parsed.dmin,dmax:parsed.dmax}; _lutReg.set(path,rec);
@@ -1656,6 +1660,9 @@ function ncDetach(m,delFile){ const p=m.ncPath;
   try{ renderMedia(); renderTimeline(); render(); markDirty(); }catch(e){} }
 /* Al reabrir el proyecto: si el archivo sigue en disco se vuelve a enganchar, y la firma dice si sirve. */
 async function ncReattach(m){ if(!m||!m.ncPath||!IS_ELEC||!DSP.stat){ return; }
+  /* [R360] igual que los medios: la ruta RELATIVA (Proxies/ de la carpeta del proyecto) manda si existe */
+  if(m.ncRel&&currentPath){ const rp=projResolve(m.ncRel); if(rp&&rp!==m.ncPath){ let ex=false; try{ const st=await DSP.stat(rp); ex=!!(st&&st.size>0); }catch(e){}
+    if(ex)m.ncPath=rp; } }
   let ok=false; try{ const st=await DSP.stat(m.ncPath); ok=!!(st&&st.size>0); }catch(e){}
   if(!ok){ m.ncPath=null; m.ncSig=null; m.ncReady=false; return; }
   m.ncUrl=DSP.toFileURL(m.ncPath); m.ncReady=true; m.ncStale=(nestSig(m)!==m.ncSig);
@@ -2884,7 +2891,28 @@ function fitImage(el,tope){ const w=el.naturalWidth||el.width||0, h=el.naturalHe
 const HAS_WC=(typeof VideoEncoder!=='undefined')&&(typeof window.Mp4Muxer!=='undefined');
 let colorIdx=0;
 const DSP=window.dsp||null; const IS_ELEC=!!(DSP&&DSP.isElectron);
-function filePath(f){ try{ return IS_ELEC?DSP.getPathForFile(f):null; }catch(e){ return null; } }
+function filePath(f){ try{ return (f&&f._ispPath)||(IS_ELEC?DSP.getPathForFile(f):null); }catch(e){ return null; } } /* [R360] `_ispPath` = la copia interna que dejo el importar-copiando; a partir de ahi el medio ES esa copia */
+/* [R360] Importar-copiando (estilo Unreal): en un proyecto gestionado, todo archivo que entre de FUERA de la
+   carpeta se copia a `Media/<bin>` y el medio nace apuntando a la copia. Copia verificada; si falla, el medio
+   entra apuntando al original (como siempre) y se avisa — importar nunca se bloquea por una copia fallida. */
+async function copiarImportado(f,bin,sub){
+  if(!(IS_ELEC&&state.managed&&currentPath&&DSP.copyFile&&f))return;
+  const p=filePath(f); if(!p||isInProj(p))return;
+  let dir=mediaDirForBin(bin); if(!dir)return; if(sub)dir=pjoin(dir,fsSafeName(sub)); // sub = subcarpeta propia (secuencias de imagenes)
+  try{ let st=null; try{ st=await DSP.stat(p); }catch(e){}
+    if(!st)return;
+    const base=pbase(p), stem=base.replace(/\.[^.]+$/,''), ext=(base.match(/\.[^.]+$/)||[''])[0];
+    for(let k=1;k<=999;k++){ const dst=pjoin(dir,(k===1)?base:(stem+'-'+k+ext));
+      let ex=null; try{ ex=await DSP.stat(dst); }catch(e){}
+      if(ex){ if(ex.size===st.size){ f._ispPath=dst; return; } continue; } // mismo nombre y tamano = ya esta dentro; distinto = probar sufijo
+      const r=await DSP.copyFile(p,dst);
+      if(!r||!r.ok||r.size!==st.size){ if(r&&r.ok)try{ await DSP.deleteFile(dst); }catch(e){}
+        _impCopiaFallos++; return; } // [R360b] UN aviso por lote (avisarCopiasFallidas), no uno por archivo: una secuencia de 500 fotogramas en un disco lleno soltaba 500 toasts (regla R327)
+      f._ispPath=dst; return; }
+  }catch(e){} }
+let _impCopiaFallos=0;
+function avisarCopiasFallidas(){ if(!_impCopiaFallos)return; const n=_impCopiaFallos; _impCopiaFallos=0;
+  flashStatus(n+T(' file(s) could not be copied into the project folder — imported from their original location',' archivo(s) no se pudieron copiar a la carpeta del proyecto — importados desde su ubicacion original'),'err'); }
 let _importFolder=null; // R88: media created by the add* functions below is filed into this folder path (set per-import; captured synchronously at each add* call)
 /* [R245] `opts.noSeq` = NO agrupar imágenes numeradas como secuencia. Lo pasa el ARRASTRE, y sólo él.
    Arrastrar tres o más imágenes con nombre numerado —que es lo normal en un export de cualquier herramienta—
@@ -2910,21 +2938,33 @@ function importFiles(files,folder,opts){ let arr=[...files]; const dropFolder=fo
      medio ni error. El caso normal no es rebuscado — un `.mxf`, un `.r3d` o un `.braw` llegan con `f.type` vacío
      porque el sistema no les asigna tipo MIME, así que arrastrar una carpeta de cámara importaba unos sí y otros
      no, sin pista de cuáles ni por qué. Se listan por nombre, que es lo único accionable. */
-  { const ignorados=[];
-    for(const f of rest){ const p=filePath(f); _importFolder=dropFolder;
-      if(f.type.startsWith('video'))addVideo(f,p); else if(f.type.startsWith('image'))addImage(f,p); else if(f.type.startsWith('audio'))addAudio(f,p);
-      else ignorados.push(f.name||'?'); }
+  /* [R360] IIFE asincrona: el importar-copiando espera cada copia ANTES de crear su medio, para que nazca ya
+     apuntando dentro de la carpeta. `_importFolder` se fija por iteracion, sin await entre fijarlo y usarlo. */
+  (async()=>{ const ignorados=[];
+    for(const f of rest){ const tipo=f.type.startsWith('video')?'v':(f.type.startsWith('image')?'i':(f.type.startsWith('audio')?'a':null));
+      if(!tipo){ ignorados.push(f.name||'?'); continue; }
+      await copiarImportado(f,dropFolder); const p=filePath(f); _importFolder=dropFolder;
+      if(tipo==='v')addVideo(f,p); else if(tipo==='i')addImage(f,p); else addAudio(f,p); }
+    _importFolder=null; avisarCopiasFallidas();
     if(ignorados.length){ diag('warn','import','formato no reconocido',{n:ignorados.length,nombres:ignorados.slice(0,8)});
-      flashStatus(ignorados.length+T(' file(s) not imported — format not supported: ',' archivo(s) sin importar — formato no admitido: ')+ignorados.slice(0,3).join(', ')+(ignorados.length>3?'…':''),'err'); } }
-  _importFolder=null; // reset so no later add* call inherits this import's folder
+      flashStatus(ignorados.length+T(' file(s) not imported — format not supported: ',' archivo(s) sin importar — formato no admitido: ')+ignorados.slice(0,3).join(', ')+(ignorados.length>3?'…':''),'err'); } })();
+  /* [R360b] aqui iba un `_importFolder=null` que quedo MUERTO al mover los add* a la IIFE asincrona de arriba:
+     corria antes del primer add* y no guardaba nada. El invariante vive ahora POR ITERACION dentro de la IIFE
+     (se fija sin await entre fijarlo y usarlo) y en el callback de askSeqFps, y ambos lo dejan en null al acabar. */
   // numbered PNG/JPG batches → timed video-like sequences; ask the frame rate once for the whole import
   /* [R245b] `cb(fps, sueltas)`: el diálogo tiene ahora una tercera salida — «Como imágenes sueltas», que importa
      el grupo como clips en vez de como un vídeo. Antes sólo cabía aceptar (se convertían en un vídeo) o cancelar
      (no entraba NADA), y con imágenes numeradas que no son secuencia no había salida buena. */
-  if(seqGroups.length){ askSeqFps(seqGroups, (fps,sueltas)=>{ _importFolder=dropFolder;
+  if(seqGroups.length){ askSeqFps(seqGroups, async(fps,sueltas)=>{
+    /* [R360] copiar ANTES de crear los medios: una secuencia va a su subcarpeta propia (cientos de fotogramas
+       sueltos en Media/ no son un orden); las imagenes sueltas, directas al bin */
+    if(sueltas){ for(const g of seqGroups)for(const x of g)await copiarImportado(x.f,dropFolder); }
+    else for(const g of seqGroups){ const sub=String(g[0].f.name||'seq').replace(/\d+(\.[^.]+)$/,'').replace(/[.\s_-]+$/,'')||'seq';
+      for(const x of g)await copiarImportado(x.f,dropFolder,sub); }
+    _importFolder=dropFolder;
     if(sueltas){ for(const g of seqGroups) for(const x of g) addImage(x.f, filePath(x.f)); }
     else for(const g of seqGroups) addSequence(g.map(x=>x.f), g[0].f.name, fps);
-    _importFolder=null; }); }
+    _importFolder=null; avisarCopiasFallidas(); }); }
   /* [R245b] Se pidió «Importar secuencia de imágenes…» y no había ninguna agrupable (hacen falta 3 o más con el
      mismo prefijo y extensión, numeradas). Entraron como imágenes sueltas, que es lo correcto — pero en silencio
      parecería que el modo no funcionó. */
@@ -3274,6 +3314,24 @@ function stripBom(t){ return (t&&t.charCodeAt(0)===0xFEFF)?t.slice(1):t; }
 function pdir(p){ const i=Math.max(String(p||'').lastIndexOf('\\'),String(p||'').lastIndexOf('/')); return i<0?'':String(p).slice(0,i); }
 function pbase(p){ const i=Math.max(String(p||'').lastIndexOf('\\'),String(p||'').lastIndexOf('/')); return String(p||'').slice(i+1); }
 
+/* ===================== [R360] PROYECTO-CARPETA (estilo Ableton/Unreal) =====================
+   Un proyecto "gestionado" (state.managed) vive en su propia carpeta: `<Nombre>/<Nombre>.isp` +
+   `Media/` (espejo de los bins del panel de Medios) + `Proxies/` (todos los proxies, de medio y de
+   composicion). El .isp guarda ademas rutas RELATIVAS a la carpeta (`rel`/`relFrames`/`ncRel`), asi
+   que mover la carpeta entera —de disco, de maquina, de sistema— no rompe ninguna referencia. */
+function projDir(){ return currentPath?pdir(currentPath):null; }
+function projMediaDir(){ const d=projDir(); return d?pjoin(d,'Media'):null; }
+function projProxiesDir(){ const d=projDir(); return d?pjoin(d,'Proxies'):null; }
+/* ruta relativa a la carpeta del proyecto (separador '/' SIEMPRE, para que el .isp viaje entre SO) — o null si esta fuera */
+function projRel(p){ const d=projDir(); if(!d||!p)return null; const pref=d+PSEP, P=String(p);
+  if(P.slice(0,pref.length).toLowerCase()!==pref.toLowerCase())return null;
+  return P.slice(pref.length).split(/[\\/]/).filter(Boolean).join('/'); }
+function projResolve(rel){ const d=projDir(); if(!d||!rel)return null; return pjoin(d,...String(rel).split('/').filter(Boolean)); }
+function isInProj(p){ return projRel(p)!=null; }
+/* nombre de segmento seguro para el sistema de archivos (los bins admiten caracteres que un FS no) */
+function fsSafeName(s){ return String(s||'').replace(/[\\/:*?"<>|]/g,'_').replace(/\s+$/,'').slice(0,120)||'_'; }
+/* carpeta de disco que corresponde a un bin del panel de Medios (bin = ruta con FSEP) */
+function mediaDirForBin(bin){ const md=projMediaDir(); if(!md)return null; if(!bin)return md; return pjoin(md,...String(bin).split(FSEP).map(fsSafeName)); }
 const PMAX=960,PMBPS=12,proxyQ=[]; let proxyBusy=false;
 let _proxyDir=null; if(IS_ELEC&&DSP.proxyDir){ try{ DSP.proxyDir().then(d=>{_proxyDir=d||null;}); }catch(e){} }
 function proxyHash(s){ let h=5381; for(let i=0;i<s.length;i++)h=((h<<5)+h+s.charCodeAt(i))>>>0; return h.toString(36); }
@@ -3283,7 +3341,11 @@ function proxyCachePath(m){ if(!_proxyDir||!m.path)return null; return pjoin(_pr
 function proxyLocalPath(m){ if(!m.path)return null; const dir=pdir(m.path); if(!dir)return null;
   const stem=pbase(m.path).replace(/\.[^.]+$/,'');
   return pjoin(dir, stem+'.dsp-proxy-'+proxyHash(m.path+'|'+(m.fsize||0))+'.mp4'); }
-function proxyCandidates(m){ return IS_ELEC?[proxyLocalPath(m),proxyCachePath(m)].filter(Boolean):[]; } // lookup/write order: junto al clip → caché central
+/* [R360] proxy dentro de la carpeta del proyecto (`Proxies/`). La clave del hash es nombre|tamaño —no la ruta—
+   para que sobreviva a mover la carpeta entera: la ruta absoluta cambia, el nombre y el tamaño no. */
+function proxyProjPath(m){ if(!state.managed||!m.path)return null; const d=projProxiesDir(); if(!d)return null;
+  return pjoin(d,'px_'+proxyHash(pbase(m.path).toLowerCase()+'|'+(m.fsize||0))+'_'+PMAX+'.mp4'); }
+function proxyCandidates(m){ return IS_ELEC?[proxyProjPath(m),proxyLocalPath(m),proxyCachePath(m)].filter(Boolean):[]; } // lookup/write order: [R360] Proxies/ del proyecto → junto al clip → caché central
 /* every "<stem>.dsp-proxy-<hash>.mp4" sitting next to the source — rescues a proxy orphaned when the source file was
    moved/renamed (its hash no longer matches path|size, so proxyCandidates would miss it). Validated by duration in bindProxyFile. */
 async function proxyScanDir(m){ if(!IS_ELEC||!DSP.listDir||!m.path)return []; const dir=pdir(m.path); if(!dir)return [];
@@ -3350,6 +3412,9 @@ async function makeProxy(m){
   // target: stream to disk when possible (flat RAM, persists) — next to the clip first, central cache if that
   // folder is not writable (read-only drive / network share); in-memory only as last resort (browser / no path)
   let fid=null,cache=null,part=null,_wr=[],_werr=false;
+  /* [R360→R360b] la carpeta Proxies/ del proyecto tiene que existir para que el fileOpen del primer candidato no
+     caiga al plan B en silencio. `ensureDir` NO lanza: devuelve false — el try/catch de R360 era letra muerta. */
+  { const pd=projProxiesDir(); if(state.managed&&pd&&DSP.ensureDir){ if(!(await DSP.ensureDir(pd)))diag('warn','proxy','Proxies/ del proyecto no se pudo crear — el proxy caera junto al clip o a la cache central',{dir:pd}); } }
   for(const cp of candidates){ const pt=cp+'.part'; try{ fid=await DSP.fileOpen(pt); }catch(e){ fid=null; } if(fid!=null){ cache=cp; part=pt; break; } } // [R107] encode to <name>.part → atomic rename on finalize (a killed session never leaves a moov-less proxy at the real name)
   m._pfid=fid; m._ppart=part; // so a mid-generation failure closes the fd AND deletes the partial (pumpProxy finally)
   const target=(fid!=null)
@@ -10421,7 +10486,7 @@ async function ripRun({name,a,b,isolateClips,isNest,laneName,aboveLane}){
   const opts=await ripCodecOptions(eW,eH,fps);
   const choice=await ripFormatDialog(name,dur,eW,eH,fps,flat,opts,isNest); if(!choice)return;
   const projDir=pdir(currentPath), dir=pjoin(projDir,'rendered clips');
-  try{ if(DSP.ensureDir)await DSP.ensureDir(dir); }catch(e){ appAlert(T('Could not create the “rendered clips” folder.','No se pudo crear la carpeta “rendered clips”.')); return; }
+  if(DSP.ensureDir&&!(await DSP.ensureDir(dir))){ appAlert(T('Could not create the “rendered clips” folder.','No se pudo crear la carpeta “rendered clips”.')); return; } // [R360b] mismo arreglo que en ncBuild: ensureDir devuelve false, no lanza
   const safe=(name||'clip').replace(/[\\/:*?"<>|]/g,'_').slice(0,60);
   const dimStr=flat?(eW+'x'+eH):(eW+'');
   const outPath=pjoin(dir, safe+' ['+dimStr+' '+choice.kind+'] '+String(uid()).padStart(4,'0')+'.mp4'); // [R179] uid() is a NUMBER (let _id=1; ()=>_id++). The old `uid().slice(0,5)` threw a TypeError right here, before a single frame was rendered — which is exactly why render-in-place looked like it did nothing at all.
@@ -10520,8 +10585,8 @@ async function ncBuild(m){
      2048 seguia yendo por software sin necesidad. Se vuelve a preguntar por el tamano real. */
   let codF=cod; try{ const c2=await ripCodecOptions(choice.s,choice.s,fps); if(c2&&c2.length)codF=c2[0]; }catch(e){}
   const bitrate=ncBitrate(choice.s,choice.s,fps);
-  const i=Math.max(currentPath.lastIndexOf('\\'),currentPath.lastIndexOf('/')), dir=currentPath.slice(0,i)+PSEP+'nest proxies'; // [R242·Aud-4.3] PSEP, no '\\': la familia R204 tenía aquí sus dos últimos supervivientes (en macOS creaban archivos con la barra DENTRO del nombre)
-  try{ if(DSP.ensureDir)await DSP.ensureDir(dir); }catch(e){ appAlert(T('Could not create the “nest proxies” folder.','No se pudo crear la carpeta “nest proxies”.')); return; }
+  const dir=state.managed?projProxiesDir():(pdir(currentPath)+PSEP+'nest proxies'); /* [R360] en un proyecto-carpeta TODOS los proxies van a Proxies/; el modo suelto conserva su "nest proxies" de siempre */ // [R242·Aud-4.3] PSEP, no '\\': la familia R204 tenía aquí sus dos últimos supervivientes (en macOS creaban archivos con la barra DENTRO del nombre)
+  if(DSP.ensureDir&&!(await DSP.ensureDir(dir))){ appAlert(T('Could not create the proxies folder.','No se pudo crear la carpeta de proxies.')); return; } // [R360b] ensureDir devuelve false, no lanza: el catch de antes era inalcanzable y el horneado seguia hacia una escritura rota
   const safe=(m.name||'nest').replace(/[\\/:*?"<>|]/g,'_').slice(0,50);
   const outPath=dir+PSEP+safe+' ['+choice.w+'x'+choice.h+'] '+String(uid()).padStart(4,'0')+'.mp4'; // nombre nuevo cada vez: sobrescribir el que está enlazado a un <video> vivo falla en Windows · [R242·Aud-4.3] PSEP
   const old=m.ncPath;
@@ -11496,10 +11561,10 @@ let currentPath=null;
 function markDirty(){ state.dirty=true; projTitle(); raInvalidate(); ncTouch(); } // [R180] toda mutación pasa por aquí → es el único enganche que necesita la invalidación del caché de nests
 function currentTitle(){ return (currentPath&&IS_ELEC)?DSP.basename(currentPath).replace(/\.(isp|ise|rdome)$/i,''):T('Untitled project','Proyecto sin título'); }
 function projTitle(){ const md=(activeSeq()&&activeSeq().mode)||state.seqMode; const pre=md==='flat'?'2D':md==='room'?T('360 Room','Sala 360'):T('Immersive Dome','Domo inmersivo'); const t=$('#projTitle'); if(t)t.textContent=pre+' · '+currentTitle()+(state.dirty?' *':''); if(IS_ELEC){try{DSP.setTitle('Immersive Studio Pro — '+currentTitle()+(state.dirty?' *':''));}catch(e){} try{if(DSP.setUiState)DSP.setUiState({dirty:!!state.dirty,lang:state.lang});}catch(e){}} }
-function serMedia(m){ return {id:m.id,name:m.name,kind:m.kind,w:m.w,h:m.h,mode:m.mode||null,cov:m.cov||null,room:m.room||null,roomFloorOf:m.roomFloorOf||null,dur:m.dur,fps:m.fps,proxyFps:(m.proxyFps||null),/* [R347b] la cadencia con la que se horneo el proxy: viaja en el .isp porque el proxy tambien sobrevive a la sesion */color:m.color,path:m.path||null,fsize:m.fsize||0,folder:m.folder||null,framePaths:m.framePaths||null,srcIn:(m.srcIn!=null?m.srcIn:null),srcOut:(m.srcOut!=null?m.srcOut:null),/* [R249] las marcas del monitor son del MATERIAL, no de la ventana: viajan con el proyecto */ndiSource:m.ndiSource||null,spoutSource:m.spoutSource||null,/* [V3] serMedia es una LISTA BLANCA: sin esta línea el .isp guardaba el medio Spout sin su emisor y al reabrir enganchaba al que estuviera activo — parecía funcionar por casualidad */
+function serMedia(m){ return {id:m.id,name:m.name,kind:m.kind,w:m.w,h:m.h,mode:m.mode||null,cov:m.cov||null,room:m.room||null,roomFloorOf:m.roomFloorOf||null,dur:m.dur,fps:m.fps,proxyFps:(m.proxyFps||null),/* [R347b] la cadencia con la que se horneo el proxy: viaja en el .isp porque el proxy tambien sobrevive a la sesion */color:m.color,path:m.path||null,fsize:m.fsize||0,folder:m.folder||null,framePaths:m.framePaths||null,rel:(projRel(m.path)||null),relFrames:(m.framePaths?m.framePaths.map(p=>projRel(p)):null),/* [R360] rutas relativas a la carpeta del proyecto: mover la carpeta no rompe nada */srcIn:(m.srcIn!=null?m.srcIn:null),srcOut:(m.srcOut!=null?m.srcOut:null),/* [R249] las marcas del monitor son del MATERIAL, no de la ventana: viajan con el proyecto */ndiSource:m.ndiSource||null,spoutSource:m.spoutSource||null,/* [V3] serMedia es una LISTA BLANCA: sin esta línea el .isp guardaba el medio Spout sin su emisor y al reabrir enganchaba al que estuviera activo — parecía funcionar por casualidad */
   text:m.text,tfontSize:m.tfontSize,tweight:m.tweight,tfont:m.tfont,talign:m.talign,tlineH:m.tlineH,titalic:m.titalic,tcolor:m.tcolor,tbg:m.tbg,tstroke:m.tstroke,tstrokeColor:m.tstrokeColor,
   shape:m.shape,fill:m.fill,stroke:m.stroke,strokeW:m.strokeW,sw:m.sw,sh:m.sh,
-  ncPath:(m.kind==='nest'?(m.ncPath||null):null), ncSig:(m.kind==='nest'?(m.ncSig||null):null), ncW:(m.kind==='nest'?(m.ncW||null):null), ncH:(m.kind==='nest'?(m.ncH||null):null), ncFps:(m.kind==='nest'?(m.ncFps||null):null), ncLoop:(m.kind==='nest'?(m.ncLoop||0):0), ncSpan:(m.kind==='nest'?(m.ncSpan||0):0), /* [R180] el caché sobrevive al cierre: al reabrir, ncReattach compara la firma y decide si sigue valiendo */
+  ncPath:(m.kind==='nest'?(m.ncPath||null):null), ncRel:(m.kind==='nest'?(projRel(m.ncPath)||null):null), ncSig:(m.kind==='nest'?(m.ncSig||null):null), ncW:(m.kind==='nest'?(m.ncW||null):null), ncH:(m.kind==='nest'?(m.ncH||null):null), ncFps:(m.kind==='nest'?(m.ncFps||null):null), ncLoop:(m.kind==='nest'?(m.ncLoop||0):0), ncSpan:(m.kind==='nest'?(m.ncSpan||0):0), /* [R180] el caché sobrevive al cierre: al reabrir, ncReattach compara la firma y decide si sigue valiendo */
   nestClips:(m.kind==='nest'?(m.nestClips||[]).map(serClip):null), nestLanes:(m.kind==='nest'?m.nestLanes:null),
   nestMarkers:(m.kind==='nest'?(m.nestMarkers||[]):null), nestGroups:(m.kind==='nest'?(m.nestGroups||[]):null), nestPlayhead:(m.kind==='nest'?(m.nestPlayhead||0):null), nestScrollT:(m.kind==='nest'?(m.nestScrollT||0):null), /* [R239] el encuadre horizontal de la secuencia, en segundos */ nestWorkIn:(m.kind==='nest'?(m.nestWorkIn??null):null), nestWorkOut:(m.kind==='nest'?(m.nestWorkOut??null):null), comp:(m.comp||null), /* [archivado 20260725] grade: del nest */
   thumb:(m.kind==='audio'?m.thumb:null)}; }
@@ -12208,19 +12273,132 @@ function renderSeqBar(){ const bar=$('#seqTabs'); if(!bar)return; const _sl=bar.
       d=Math.max(-60,Math.min(60,d*0.35));
       e.preventDefault(); bar.scrollLeft+=d; },{passive:false}); } // [R242c] sin `seqTabsOvf`: el borde va a hueso (ver el archivado)
   bar.scrollLeft=_sl; seqTabsReveal(); } // [R239] el repintado no mueve la vista… salvo lo justo para que la pestaña activa se vea
-function serProject(){ saveActiveSeq(); return { app:'DomeStudioPro', v:4, slate:state.slate||null,   /* [R282] los datos de esquina se guardan CON el proyecto: son de la obra, no del ordenador */
+function serProject(){ saveActiveSeq(); return { app:'DomeStudioPro', v:4, managed:!!state.managed, /* [R360] proyecto-carpeta: Media/ + Proxies/ junto al .isp */ slate:state.slate||null,   /* [R282] los datos de esquina se guardan CON el proyecto: son de la obra, no del ordenador */
     fps:state.fps, lanes:state.lanes, playhead:state.playhead, markers:[], groups:[], clips:[], media:state.media.map(serMedia), workIn:state.workIn, workOut:state.workOut, folders:state.folders, folderColors:state.folderColors||{}, tl:{bpm:state.tl.bpm,sig:state.tl.sig,tcMode:state.tl.tcMode,pxPerSec:state.tl.pxPerSec,inlineCurves:!!state.inlineCurves/* [archivado 20260804 · R242b] aquí iba `audioCollapsed`: R242 lo revivió por error — su módulo no existe desde R148 y nunca hubo setter → _backup/deprecated/20260804-tl-audiocollapsed.js */}, /* [R214] audioH removed — loadProject never read it back (vestige of R148) */ exportPresets:state.exportPresets||[], openSeqs:(state.openSeqs||[]).slice(), activeSeqId:state.activeSeqId, seqW:state.seqW, seqH:state.seqH, reactive:state.reactive||null, autoItems:state.autoItems||{} }; } // [R95·D2] the Automation Item library travels with the project (clips reference items by id via kfLink) // v4: the active sequence's clips/markers/groups live in its nest media (serMedia); top-level kept empty to avoid doubling the heaviest data (kf + maskData)
-async function saveProject(saveAs){ const json=JSON.stringify(serProject());
-  if(IS_ELEC){ let p=currentPath; if(saveAs||!p){ p=await DSP.saveDialog(p||((currentTitle()==='Untitled project'?T('untitled','proyecto'):currentTitle())+'.isp')); if(!p)return; }
+/* [R360] Al estrenar ruta (primer guardado / Guardar como), el proyecto se instala en SU CARPETA:
+   `<destino>/<Nombre>/<Nombre>.isp` + `Media/` + `Proxies/` (estilo Ableton). Si el usuario ya eligio un
+   `.isp` DENTRO de una carpeta homonima —o sea, una carpeta de proyecto existente— no se anida otra vez. */
+async function armarCarpetaProyecto(p){ if(!IS_ELEC||!DSP.ensureDir)return p;
+  try{ const dir=pdir(p), stem=pbase(p).replace(/\.isp$/i,'');
+    const root=(pbase(dir).toLowerCase()===stem.toLowerCase())?dir:pjoin(dir,stem);
+    /* [R360b] El "sobrescribir" que confirmo el dialogo del SO era sobre `<dir>/<stem>.isp`; si redirigimos a
+       `<dir>/<stem>/<stem>.isp` y ALLI ya vive un proyecto, hay que preguntar por ESE — no pisarlo con solo
+       un .bak de red. Cancelar aborta el guardado entero (el llamador recibe null). */
+    const interno=pjoin(root,stem+'.isp');
+    if(root!==dir){ let ex=false; try{ ex=await DSP.exists(interno); }catch(e){}
+      if(ex){ const ok=await new Promise(res=>appConfirm(T('The folder "','La carpeta "')+pbase(root)+T('" already contains a project with this name. Overwrite it?','" ya contiene un proyecto con este nombre. ¿Sobrescribirlo?'),res,{ok:T('Overwrite','Sobrescribir'),danger:true}));
+        if(!ok)return null; } }
+    const okM=await DSP.ensureDir(pjoin(root,'Media')), okP=await DSP.ensureDir(pjoin(root,'Proxies'));
+    if(!okM||!okP)return p; // sin carpeta no hay modo gestionado: se guarda suelto, como siempre
+    state.managed=true;
+    if(root!==dir)flashStatus(T('Project folder created: ','Carpeta de proyecto creada: ')+pbase(root));
+    return interno;
+  }catch(e){ return p; } }
+async function saveProject(saveAs){
+  if(IS_ELEC){ const _mgAntes=state.managed; let p=currentPath; if(saveAs||!p){ p=await DSP.saveDialog(p||((currentTitle()==='Untitled project'?T('untitled','proyecto'):currentTitle())+'.isp')); if(!p)return; p=await armarCarpetaProyecto(p); if(!p)return; }
+    /* [R360] serializar DESPUES de conocer la ruta final: `rel`/`relFrames`/`ncRel` se calculan contra la
+       carpeta del `.isp` (via `currentPath`), asi que con la ruta vieja saldrian relativas al sitio equivocado. */
+    const _cp=currentPath; let json; try{ currentPath=p; json=JSON.stringify(serProject()); }finally{ currentPath=_cp; }
     try{ const old=await DSP.readText(p); if(old&&old.length>2)await DSP.writeText(p+'.bak',old); }catch(e){} // rotate a .bak of the previous save — protects against a corrupted/interrupted overwrite
     let _ok=true;
     try{ const ok=await DSP.writeText(p,json); if(ok===false)throw new Error('write returned false'); currentPath=p; state.dirty=false; projTitle(); flashStatus(T('Project saved','Proyecto guardado')); addRecent(p, projThumb()); clearLiveAutosaves(); } // the file is now the newest copy → drop the crash autosaves so a later open never falsely offers "restore a newer autosave"
-    catch(e){ _ok=false; appAlert(T('Could not save the project (disk full, locked file, or no permission). Try Save As to another location.','No se pudo guardar el proyecto (disco lleno, archivo bloqueado o sin permiso). Prueba Guardar como en otra ubicación.')); }
+    catch(e){ _ok=false; state.managed=_mgAntes; /* [R360b] la escritura fallo: si `armarCarpetaProyecto` acababa de estrenar el modo gestionado, se revierte — el proyecto en memoria seguiria como "managed" con currentPath apuntando al .isp suelto viejo */ appAlert(T('Could not save the project (disk full, locked file, or no permission). Try Save As to another location.','No se pudo guardar el proyecto (disco lleno, archivo bloqueado o sin permiso). Prueba Guardar como en otra ubicación.')); }
     if(_ok){ try{ purgeMediaTrash(); }catch(e){ console.warn('purgeMediaTrash failed',e); } } } // [R215] fuera del try de escritura y sólo tras éxito CONFIRMADO — un fallo del purge nunca debe reportarse como "Could not save"
   /* [R228] SABIDO Y ACEPTADO: esta rama (navegador, no Electron) marca el proyecto como limpio SIN confirmación de
      escritura — la descarga puede cancelarse en el diálogo del navegador y el asterisco se habría ido igual. No se
      arregla porque el objetivo de distribución es el `.exe` de Electron; la rama web es un apaño de desarrollo. */
-  else { dlBlob(new Blob([json],{type:'application/json'}),(currentTitle()==='Untitled project'?'proyecto':currentTitle())+'.isp'); state.dirty=false; projTitle(); flashStatus(T('Project saved','Proyecto guardado')); } } // [R215] sin purgeMediaTrash aquí: la descarga del navegador no confirma que el archivo se haya escrito a disco — purgar destruiría medias sin garantía real de que el guardado llegó a buen puerto
+  else { const json=JSON.stringify(serProject()); dlBlob(new Blob([json],{type:'application/json'}),(currentTitle()==='Untitled project'?'proyecto':currentTitle())+'.isp'); state.dirty=false; projTitle(); flashStatus(T('Project saved','Proyecto guardado')); } } // [R215] sin purgeMediaTrash aquí: la descarga del navegador no confirma que el archivo se haya escrito a disco — purgar destruiría medias sin garantía real de que el guardado llegó a buen puerto
+/* ===================== [R360] COLLECT ALL & SAVE (estilo Ableton) =====================
+   Copia DENTRO de la carpeta del proyecto todo lo que el proyecto usa y este fuera: medios (a `Media/`,
+   reflejando los bins del panel), secuencias de imagenes (una subcarpeta por secuencia), LUTs (.cube, a
+   `Media/_LUTs`), proxies de medio ya generados y proxies de composicion (a `Proxies/`). Nunca borra ni
+   mueve los originales — solo copia VERIFICADA (tamano destino = tamano origen) y re-apunta; un fallo de
+   copia deja el medio apuntando a donde estaba. Al final guarda, que es lo que fija las rutas nuevas y
+   sus `rel`. Sobre un `.isp` suelto de antes, adopta el modo carpeta creando Media/ y Proxies/ a su lado. */
+let _collecting=false;
+async function collectProject(){
+  if(!IS_ELEC||!DSP.copyFile){ appAlert(T('Collect All & Save needs the desktop app.','Recolectar todo y guardar necesita la app de escritorio.')); return; }
+  if(_collecting)return;
+  if(state.playing)pause();
+  /* [R360b] Con medios AUN CARGANDO no se recolecta: nacen con missing:true hasta que reloadMedia los resuelve,
+     y el plan no sabria distinguir "ausente de verdad" de "todavia no leido" — se saltaria material en silencio
+     y el guardado final lo fijaria como recolectado. Mismo criterio missing&&!_loading que usa el resto (R204). */
+  if(state.media.some(m=>m._loading)){ appAlert(T('Some media are still loading. Wait for them to finish and run Collect again.','Aun hay medios cargandose. Espera a que terminen y vuelve a lanzar la recoleccion.')); return; }
+  if(!currentPath){ await saveProject(true); if(!currentPath)return; } // primero hace falta una carpeta donde recolectar
+  const md=projMediaDir(), pxd=projProxiesDir();
+  { const okM=await DSP.ensureDir(md), okP=await DSP.ensureDir(pxd);
+    if(!okM||!okP){ appAlert(T('Could not create the Media/Proxies folders next to the project.','No se pudieron crear las carpetas Media/Proxies junto al proyecto.')); return; } }
+  state.managed=true; saveActiveSeq();
+  _collecting=true;
+  const ov=document.createElement('div'); ov.className='overlay'; ov.id='collectOv';
+  ov.innerHTML='<div class="modal" style="width:430px;padding:16px 18px;">'
+    +'<div class="mh" style="padding:0 0 10px;border:none;"><span style="color:var(--ink-2);display:flex;">'+ICO('save',16)+'</span><span class="t">'+T('Collect All & Save','Recolectar todo y guardar')+'</span></div>'
+    +'<div id="colTxt" style="font-size:11px;color:var(--ink-2);margin:2px 0 9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">…</div>'
+    +'<div style="height:4px;background:var(--s1);border-radius:2px;overflow:hidden;"><div id="colBar" style="height:100%;width:0%;background:var(--ink-2);"></div></div></div>';
+  document.body.appendChild(ov);
+  const setProg=(i,n,txt)=>{ try{ $('#colTxt').textContent=(i+1)+' / '+n+'  ·  '+txt; $('#colBar').style.width=Math.round(100*(i+1)/Math.max(1,n))+'%'; }catch(e){} };
+  try{
+    // 1) PLAN — todo lo referenciado que viva fuera de la carpeta
+    const jobs=[];
+    for(const m of state.media){
+      if(m.kind==='sequence'&&m.framePaths&&m.framePaths.length){
+        if(!m.framePaths.some(fp=>fp&&!isInProj(fp)))continue;
+        const dir=pjoin(mediaDirForBin(m.folder),fsSafeName(String(m.name||'seq').replace(/[\[\]#]/g,' ').trim()||'seq'));
+        m.framePaths.forEach((fp,i)=>{ if(fp&&!isInProj(fp))jobs.push({tipo:'frame',m,i,src:fp,dir}); });
+        continue; }
+      if((m.kind==='video'||m.kind==='image'||m.kind==='audio')&&m.path&&!isInProj(m.path))
+        jobs.push({tipo:'media',m,src:m.path,dir:mediaDirForBin(m.folder)}); /* [R360b] los `missing` ENTRAN al plan: su stat falla y quedan LISTADOS como fallo, en vez de saltarse en silencio */
+      if(m.kind==='nest'&&m.ncPath&&!isInProj(m.ncPath))
+        jobs.push({tipo:'nc',m,src:m.ncPath,dir:pxd});
+    }
+    const lutMap=new Map(); const scanL=cs=>{ for(const c of (cs||[]))if(c&&c.props&&c.props.lut&&!isInProj(c.props.lut))lutMap.set(c.props.lut,null); };
+    scanL(state.clips); for(const m of state.media)if(m.kind==='nest')scanL(m.nestClips);
+    for(const src of lutMap.keys())jobs.push({tipo:'lut',src,dir:pjoin(md,'_LUTs')});
+    if(!jobs.length){ ov.remove(); _collecting=false; markDirty(); await saveProject(false); flashStatus(T('Everything already lives inside the project folder','Todo vive ya dentro de la carpeta del proyecto')); return; }
+    // 2) EJECUCION — copia verificada, secuencial (los medios pesan GB: en paralelo se pisan el disco)
+    const taken=new Map(); const porSrc=new Map(); const fallos=[]; let copiados=0,reusados=0,bytes=0; // [R360b] porSrc: dos medios que comparten ARCHIVO no lo copian dos veces (mismo mapa que el script offline)
+    /* destino libre (o reutilizable: mismo nombre y MISMO tamano = ya recolectado antes). Dos origenes distintos
+       con el mismo nombre no se pisan: el segundo sale con sufijo -2 (mismo criterio de homonimos que R325/R326). */
+    const unico=async(dir,base,srcSize,src)=>{ const stem=base.replace(/\.[^.]+$/,''), ext=(base.match(/\.[^.]+$/)||[''])[0];
+      for(let k=1;k<=999;k++){ const dst=pjoin(dir,(k===1)?base:(stem+'-'+k+ext)), key=dst.toLowerCase();
+        if(taken.has(key))continue;
+        let st=null; try{ st=await DSP.stat(dst); }catch(e){}
+        if(st&&st.size!==srcSize)continue;
+        taken.set(key,src); return {dst,copiar:!st}; }
+      return null; };
+    for(let i=0;i<jobs.length;i++){ const j=jobs[i]; setProg(i,jobs.length,pbase(j.src));
+      let st=null; try{ st=await DSP.stat(j.src); }catch(e){}
+      if(!st){ fallos.push(pbase(j.src)+' — '+T('source not found','origen ausente')); continue; }
+      const ya=porSrc.get(String(j.src).toLowerCase());
+      const u=ya?{dst:ya,copiar:false,_ya:true}:await unico(j.dir,pbase(j.src),st.size,j.src);
+      if(!u){ fallos.push(pbase(j.src)); continue; }
+      if(u.copiar){ const r=await DSP.copyFile(j.src,u.dst);
+        if(!r||!r.ok||r.size!==st.size){ fallos.push(pbase(j.src)); if(r&&r.ok)try{ await DSP.deleteFile(u.dst); }catch(e){} continue; } // una copia a medias no se queda haciendose pasar por el archivo
+        copiados++; bytes+=st.size; }
+      else if(!u._ya)reusados++;
+      porSrc.set(String(j.src).toLowerCase(),u.dst); // [R360b] mismo origen ⇒ mismo destino, sin segunda copia
+      if(j.tipo==='media'){ j.m.path=u.dst; j.m.fsize=st.size;
+        /* el proxy ya generado viaja tambien: a Proxies/, con el nombre-hash de la identidad NUEVA (nombre|tamano).
+           [R360b] SOLO si esta ENGANCHADO (proxyReady): un proxyPath suelto puede ser el del material de ANTES de
+           un Replace/relink, y copiarlo bajo el hash nuevo colaria metraje viejo como proxy del nuevo. */
+        if(j.m.kind==='video'&&j.m.proxyReady&&j.m.proxyPath&&!isInProj(j.m.proxyPath)){ const pp=proxyProjPath(j.m);
+          if(pp){ let ps=null; try{ ps=await DSP.stat(j.m.proxyPath); }catch(e){}
+            if(ps){ const r2=await DSP.copyFile(j.m.proxyPath,pp);
+              if(r2&&r2.ok&&r2.size===ps.size){ j.m.proxyPath=pp; j.m.proxyUrl=DSP.toFileURL(pp); } } } } }
+      else if(j.tipo==='frame')j.m.framePaths[j.i]=u.dst;
+      else if(j.tipo==='nc'){ j.m.ncPath=u.dst; j.m.ncUrl=DSP.toFileURL(u.dst); }
+      else if(j.tipo==='lut')lutMap.set(j.src,u.dst);
+    }
+    // 3) re-apuntar las LUTs de TODOS los clips (primer nivel + cada secuencia)
+    const reL=cs=>{ for(const c of (cs||[]))if(c&&c.props&&c.props.lut&&lutMap.get(c.props.lut))c.props.lut=lutMap.get(c.props.lut); };
+    reL(state.clips); for(const m of state.media)if(m.kind==='nest')reL(m.nestClips);
+    ov.remove(); _collecting=false;
+    markDirty(); await saveProject(false); // el guardado es lo que FIJA las rutas nuevas (y escribe rel/relFrames/ncRel)
+    const gb=bytes>=1e9?(bytes/1e9).toFixed(2)+' GB':Math.round(bytes/1e6)+' MB';
+    flashStatus(T('Collected: ','Recolectado: ')+copiados+T(' file(s) copied (',' archivo(s) copiado(s) (')+gb+')'+(reusados?(' · '+reusados+T(' already inside',' ya dentro')):''),fallos.length?'err':undefined);
+    if(fallos.length)appAlert(T('Some files could not be collected (the project keeps pointing at the originals):\n','Algunos archivos no se pudieron recolectar (el proyecto sigue apuntando a los originales):\n')+fallos.slice(0,20).join('\n')+(fallos.length>20?'\n…':''));
+  }catch(e){ console.error('collect',e); try{ ov.remove(); }catch(_){} _collecting=false;
+    appAlert(T('Collect stopped with an error. Nothing was deleted; media not yet collected keeps its original path.','La recoleccion se detuvo con un error. No se borro nada; lo no recolectado sigue apuntando a su ruta original.')); } }
 /* [R227→R228] `skipConfirm` = el usuario YA respondió "descartar" en la pregunta de tres salidas de «New project…»
    y quien llama trae ese consentimiento consigo (lo guarda la sesión del launcher, `_lch.discardOk` — ver
    `lchConsent`). Sustituye a la bandera global de un solo uso `_descartarYaDicho`, que la consumía a distancia
@@ -12477,6 +12655,7 @@ function migrateNestFulldome(){ let n=0;
 function resetProjView(){ state.view.zoom=0.92; state.view.pan=[0,0]; state.view.vp=null; state.view.vpFocus=null;
   state.view.cam={yaw:0, pitch:0.5, dist:3.0, fov:60, back:0.8}; } // el encuadre del visor (global + por panel + cámara 3D) es del proyecto que se cierra, no del que se abre — newRoomProject ya lo hacía; ahora lo hacen los tres caminos
 function resetProjDefaults(){ state.seqMode='dome'; state.seqCov=180;
+  state.managed=false; // [R360] "gestionado" es del proyecto: uno nuevo (o un .isp de antes) no hereda el modo carpeta del anterior
   /* [R284] La chapa TAMBIEN se resetea: sin esto, el titulo, el autor y el logo del proyecto anterior se
      colaban en uno nuevo, en su .isp y en su master horneado. Misma familia de fugas que cerro R242. */
   state.slate={ viewer:false, obra:'', autor:'', logo:null, logoNom:'' }; try{ chapaCargarLogo(null); }catch(e){}
@@ -12582,6 +12761,7 @@ function maxIdEnMedio(m){ let x=m.id||0;
   return x; }
 function _loadProjectCore(obj){ relinkReset(); // [R204] el índice de reenlace es de ESTE proyecto: se tira al cargar otro
   resetProjDefaults(); // [R242·Aud-2.1] fábrica ANTES de leer `obj`: lo que el archivo no diga, no se hereda
+  state.managed=!!obj.managed; // [R360] proyecto-carpeta (Media/ + Proxies/ + rutas relativas)
   /* [R282] Los datos de esquina son de la OBRA, así que viajan en el .isp. `resetProjDefaults` acaba de
      dejarlos en blanco, y aquí se recuperan los del archivo (o se quedan en blanco si es de antes). */
   try{ state.slate=Object.assign({viewer:false,obra:'',autor:'',logo:null,logoNom:''},(obj&&obj.slate)||{}); chapaCargarLogo(state.slate.logo); }catch(e){}
@@ -12729,6 +12909,12 @@ async function relinkIndex(){
   await meter(raiz);
   if(DSP.listSubdirs){ let subs=[]; try{ subs=(await DSP.listSubdirs(raiz))||[]; }catch(e){}
     for(const s of subs){ if(s==='autosave'||s==='rendered clips')continue; await meter(pjoin(raiz,s)); } }
+  /* [R360] En un proyecto-carpeta, `Media/` refleja los bins y puede anidar mas de un nivel: se recorre entera
+     (acotada a 500 carpetas, que no es recorrer un disco: es recorrer EL proyecto). */
+  if(state.managed&&DSP.listSubdirs){ const tope={n:500};
+    const walk=async(d)=>{ if(tope.n<=0)return; let ss=[]; try{ ss=(await DSP.listSubdirs(d))||[]; }catch(e){ return; }
+      for(const s of ss){ if(--tope.n<0)return; const sd=pjoin(d,s); await meter(sd); await walk(sd); } };
+    await walk(pjoin(raiz,'Media')); }
   _relIdx=idx; _relIdxDir=raiz; return idx;
 }
 /* devuelve una ruta que EXISTE (la de siempre, o su gemela junto al proyecto) — o null */
@@ -12757,6 +12943,13 @@ async function reloadMedia(m){
   if(m.kind==='adjust'){ m.missing=false; m._loading=false; return; } // adjustment layer template — no file
   if(m.kind==='ndi'||m.kind==='spout'){ m.missing=false; m._loading=false; return; } // entrada en vivo (NDI/Spout) — no hay archivo que reenlazar
   if(m.kind==='sequence'){ if(!m.framePaths||!m.framePaths.length){ m.missing=true; m._loading=false; renderMedia(); updRelink(); return; }
+    /* [R360] Primero la ruta RELATIVA a la carpeta del proyecto. Se sondea solo el primer fotograma (904 medios
+       no aguantan un exists() por fotograma); si esta, se re-apuntan todos y el bucle de reparacion de abajo
+       rescata cualquier hueco individual. Se prefiere la copia interna aunque la absoluta siga viva: la carpeta
+       ES el proyecto. */
+    if(m.relFrames&&m.relFrames.length===m.framePaths.length&&currentPath){
+      const r0=projResolve(m.relFrames.find(Boolean)); let ex=false; try{ ex=r0?await DSP.exists(r0):false; }catch(e){}
+      if(ex){ const nf=m.framePaths.map((fp,i)=>projResolve(m.relFrames[i])||fp); if(nf.some((p,i)=>p!==m.framePaths[i]))m.framePaths=nf; } }
     { const rep=[]; for(const fp of m.framePaths)rep.push(await repararRuta(fp,0,true)); if(rep.some((r,i)=>r&&r!==m.framePaths[i]))m.framePaths=rep.map((r,i)=>r||m.framePaths[i]);
       /* [R327] Un aviso por SECUENCIA, no por fotograma. */
       { const perdidos=rep.filter((r,i)=>!r&&m.framePaths[i]).length;
@@ -12765,9 +12958,13 @@ async function reloadMedia(m){
     m.framePaths.forEach((fp,i)=>{ if(!fp){ if(++loaded===total){ m._loading=false; renderMedia(); } return; } const img=new Image(); img.onload=()=>{ const fit=fitImage(img); frames[i]=fit.src; if(i===0){ m.w=fit.w; m.h=fit.h; upTex(m.tex,fit.src); m._curFrame=0; m.thumb=DSP.toFileURL(fp); m.missing=false; } if(++loaded===total){ m.missing=false; m._loading=false; renderMedia(); render(); } }; img.onerror=()=>{ if(++loaded===total){ m._loading=false; renderMedia(); } }; img.src=DSP.toFileURL(fp); });
     m.frames=frames; return; }
   if(!m.path){ m._loading=false; return; }
+  /* [R360] La ruta RELATIVA manda cuando existe: es la copia interna de la carpeta del proyecto, que es la que
+     viaja con el. La absoluta queda de reserva (y detras, el reenlace R204). */
+  if(m.rel&&currentPath){ const rp=projResolve(m.rel); if(rp&&rp!==m.path){ let ex=false; try{ ex=await DSP.exists(rp); }catch(e){}
+    if(ex){ m.path=rp; m.proxyReady=false; m.proxyUrl=null; m.proxyEl=null; m.proxyPath=null; } } } // ruta nueva ⇒ el proxy se re-engancha desde la ubicacion interna · [R360b] proxyPath TAMBIEN: si queda apuntando al proxy viejo, Collect lo copiaria bajo el hash de la identidad nueva
   { const np=await repararRuta(m.path,m.fsize); // [R204] si no está en su ruta, se busca junto al proyecto antes de rendirse · [R325] con el tamaño, para desempatar homónimos
     if(!np){ m.missing=true; m._loading=false; renderMedia(); updRelink(); return; }
-    if(np!==m.path){ m.path=np; m.proxyReady=false; m.proxyUrl=null; m.proxyEl=null; } } // ruta nueva ⇒ el proxy se re-engancha desde la nueva ubicación
+    if(np!==m.path){ m.path=np; m.proxyReady=false; m.proxyUrl=null; m.proxyEl=null; m.proxyPath=null; } } // ruta nueva ⇒ el proxy se re-engancha desde la nueva ubicación · [R360b] proxyPath tambien (ver arriba)
   const url=DSP.toFileURL(m.path);
   /* [R205b] Imagen y audio, esperables igual que el vídeo. Sin esto `await reloadMedia(m)` resolvía antes de leer
      el archivo, así que reemplazar un AUDIO en bucle por otro de distinta duración no reajustaba nada: la
@@ -12828,7 +13025,7 @@ async function replaceMedia(m,ruta){ if(!IS_ELEC)return;
   let sz=0; try{ const st=await DSP.stat(p); sz=(st&&st.size)||0; }catch(e){}
   bumpMeta(true); /* [R253d] reparar un medio ausente no es una edicion deshacible, pero si marca version: una foto anterior no puede devolverle el nombre del archivo perdido */
   m.path=p; m.fsize=sz; m.name=DSP.basename(p); m.missing=false; delete m._plazo;
-  m.proxyReady=false; m.proxyPct=0; m.proxyUrl=null; m.proxyEl=null; m._proxyForce=false; m.bands=null; m._bandsBusy=false; m._bandsFail=false; /* [R334] el material cambia: el fallo recordado ya no vale — [R336] con comentario de BLOQUE: la version de linea se comio las seis asignaciones siguientes y el buffer viejo seguia sonando en la mezcla y en el export */ m.thumb=null; m._texW=null; m._texH=null; m.peaks=null; m.rms=null; m.buffer=null;
+  m.proxyReady=false; m.proxyPct=0; m.proxyUrl=null; m.proxyEl=null; m.proxyPath=null; /* [R360b] sin esto, Collect copiaba el proxy del material VIEJO bajo el hash del nuevo */ m._proxyForce=false; m.bands=null; m._bandsBusy=false; m._bandsFail=false; /* [R334] el material cambia: el fallo recordado ya no vale — [R336] con comentario de BLOQUE: la version de linea se comio las seis asignaciones siguientes y el buffer viejo seguia sonando en la mezcla y en el export */ m.thumb=null; m._texW=null; m._texH=null; m.peaks=null; m.rms=null; m.buffer=null;
   /* [R322] El ESPECTRO también, que se quedaba fuera. `m.bands` (las cuatro bandas con nombre) sí se recalculaba,
      pero `m.spec` no, y `armMediaSpectrum` se niega a recomputar mientras `m.spec` esté puesto: al cambiar el
      archivo de audio de un clip reactivo, los moduladores de RANGO A MEDIDA seguían animando al ritmo de la
@@ -12841,7 +13038,7 @@ async function replaceMedia(m,ruta){ if(!IS_ELEC)return;
      apuntando a un archivo que no abre. */
   if(m.missing||m._plazo){ const tarde=!!m._plazo; delete m._plazo;
     m.path=antes.path; m.name=antes.name; m.fsize=antes.fsize; m.dur=antes.dur; m.missing=false; m._loading=true;
-    m.proxyReady=false; m.proxyUrl=null; m.proxyEl=null; m.thumb=null;
+    m.proxyReady=false; m.proxyUrl=null; m.proxyEl=null; m.proxyPath=null; m.thumb=null; // [R360b]
     await reloadMedia(m); renderMedia(); renderTimeline(); renderInspector(); render();
     appAlert(tarde?T('That file took too long to read — nothing was changed.','Ese archivo tardó demasiado en leerse — no se ha cambiado nada.')
                   :T('That file could not be read — nothing was changed.','Ese archivo no se pudo leer — no se ha cambiado nada.'));
@@ -12899,9 +13096,14 @@ function adopt(m){ // relink a re-imported file to a missing slot — prefer an 
      carpeta del hueco perdido. `replaceMedia` ya lo hacia; este camino se quedo fuera. */
   if(i>=0){m.id=state.media[i].id;state.media.splice(i,1);bumpMeta(true);renderTimeline();renderInspector();} updRelink(); }
 let saveVer=1;
-function saveIncremental(){ saveVer++; const json=JSON.stringify(serProject()); const name=(currentTitle()==='Untitled project'?'proyecto':currentTitle())+'_v'+String(saveVer).padStart(2,'0')+'.isp';
-  if(IS_ELEC&&currentPath){ DSP.saveDialog(name).then(p=>{ if(!p)return; DSP.writeText(p,json).then(ok=>{ if(ok===false)appAlert(T('Could not save the project (disk full, locked file, or no permission).','No se pudo guardar el proyecto (disco lleno, archivo bloqueado o sin permiso).')); else { flashStatus(T('Saved v','Guardado v')+saveVer); try{ purgeMediaTrash(); }catch(e){ console.warn('purgeMediaTrash failed',e); } } }); }); } // [R212] same pattern as saveProject: check the write actually succeeded before claiming it did · [R215] purge only after confirmed success, own try/catch
-  else { dlBlob(new Blob([json],{type:'application/json'}),name); flashStatus(T('Saved v','Guardado v')+saveVer); } }
+function saveIncremental(){ saveVer++; const name=(currentTitle()==='Untitled project'?'proyecto':currentTitle())+'_v'+String(saveVer).padStart(2,'0')+'.isp';
+  /* [R360b] Igual que saveProject: serializar DESPUES de conocer el destino y con `currentPath` apuntando a el
+     — si no, un _vNN guardado en otra carpeta lleva rel/relFrames/ncRel relativas a la carpeta EQUIVOCADA.
+     El dialogo ademas se siembra en la carpeta del proyecto, no en la ultima que usara el SO. */
+  if(IS_ELEC&&currentPath){ DSP.saveDialog(pjoin(pdir(currentPath),name)).then(p=>{ if(!p)return;
+    const _cp=currentPath; let json; try{ currentPath=p; json=JSON.stringify(serProject()); }finally{ currentPath=_cp; }
+    DSP.writeText(p,json).then(ok=>{ if(ok===false)appAlert(T('Could not save the project (disk full, locked file, or no permission).','No se pudo guardar el proyecto (disco lleno, archivo bloqueado o sin permiso).')); else { flashStatus(T('Saved v','Guardado v')+saveVer); try{ purgeMediaTrash(); }catch(e){ console.warn('purgeMediaTrash failed',e); } } }); }); } // [R212] same pattern as saveProject: check the write actually succeeded before claiming it did · [R215] purge only after confirmed success, own try/catch
+  else { const json=JSON.stringify(serProject()); dlBlob(new Blob([json],{type:'application/json'}),name); flashStatus(T('Saved v','Guardado v')+saveVer); } }
 async function restoreAutosave(){ if(!(await confirmDiscard()))return;
   if(IS_ELEC){ // disk candidates, newest first: project-local autosave folder + LEGACY sidecar next to the project + the unsaved-project pair
     const bases=[]; { const b=autosaveBase(); if(b)bases.push(b); } if(currentPath)bases.push(currentPath); if(_asDir){ bases.push(pjoin(_asDir,'unsaved.isp')); bases.push(pjoin(_asDir,'unsaved.ise')); bases.push(pjoin(_asDir,'unsaved.rdome')); }
@@ -12939,7 +13141,17 @@ async function openRecoveryHistory(){ if(!IS_ELEC||!DSP.listDir){ restoreAutosav
     <div style="display:flex;justify-content:flex-end;margin-top:11px;"><button class="mbtn" id="rhClose">${T('Close','Cerrar')}</button></div></div></div>`;
   document.body.appendChild(ov); const close=()=>ov.remove(); $('#rhClose').onclick=close; ov.addEventListener('pointerdown', e=>{if(e.target===ov)close();});
   ov.querySelectorAll('.rhrow').forEach(b=>b.onclick=async()=>{ const e=entries[+b.dataset.i]; close(); if(!(await confirmDiscard()))return;
-    try{ const txt=await DSP.readText(e.p); if(!txt){appAlert(T('Could not read that snapshot.','No se pudo leer ese snapshot.'));return;} const obj=JSON.parse(stripBom(txt)); currentPath=null; loadProject(obj); state.dirty=true; projTitle(); flashStatus(T('Recovery snapshot opened as a new project — Save to keep it','Snapshot de recuperación abierto como proyecto nuevo — Guarda para conservarlo')); }
+    try{ const txt=await DSP.readText(e.p); if(!txt){appAlert(T('Could not read that snapshot.','No se pudo leer ese snapshot.'));return;} const obj=JSON.parse(stripBom(txt));
+      /* [R360b] El snapshot abre como proyecto NUEVO (currentPath=null, para que Ctrl+S no pise el vivo), pero
+         eso apagaba la resolucion relativa: en una carpeta de proyecto MOVIDA de sitio, todos los medios salian
+         ausentes mientras «Restaurar ultimo autoguardado» los resolvia bien. Se PRE-RESUELVEN aqui las rel
+         contra la carpeta del proyecto vivo, a rutas absolutas, ANTES de soltar currentPath. */
+      if(currentPath){ const d=pdir(currentPath); const abs=rel=>rel?[d,...String(rel).split('/').filter(Boolean)].join(PSEP):null;
+        for(const md of (obj.media||[])){ try{
+          if(md.rel){ const rp=abs(md.rel); if(rp&&await DSP.exists(rp))md.path=rp; }
+          if(md.relFrames&&md.framePaths&&md.relFrames.length===md.framePaths.length){ const r0=abs(md.relFrames.find(Boolean)); if(r0&&await DSP.exists(r0))md.framePaths=md.framePaths.map((fp,i)=>abs(md.relFrames[i])||fp); }
+          if(md.ncRel){ const rp=abs(md.ncRel); if(rp&&await DSP.exists(rp))md.ncPath=rp; } }catch(err){} } }
+      currentPath=null; loadProject(obj); state.dirty=true; projTitle(); flashStatus(T('Recovery snapshot opened as a new project — Save to keep it','Snapshot de recuperación abierto como proyecto nuevo — Guarda para conservarlo')); }
     catch(err){ appAlert(T('That snapshot is corrupt.','Ese snapshot está dañado.')); } }); }
 function updRelink(){ const miss=state.media.filter(m=>m.missing&&!m._loading); if(miss.length)flashStatus(T('Missing media: ','Medios ausentes: ')+miss.map(m=>m.name).join(', '),'err'); } // only GENUINE failures — a file that's still decoding is "loading", not missing · [R94-UT3·U-21]
 
@@ -13307,7 +13519,7 @@ function applySecCollapse(){ const st=insColState(); document.querySelectorAll('
     let n=h.nextElementSibling; while(n && !(n.classList&&n.classList.contains('sechead'))){ if(n.id!=='insAudio')n.style.display=col?'none':''; n=n.nextElementSibling; } }); } // walk this header's rows up to the next header; insAudio is never section-owned
 function wireSecHeads(){ document.querySelectorAll('#insCtl .sechead[data-sec]').forEach(h=>{ if(h._wired)return; h._wired=true; h.onclick=()=>{ const st=insColState(); st[h.dataset.sec]=!st[h.dataset.sec]; applySecCollapse(); }; }); }
 wireSecHeads();
-function openSaveMenu(x,y){ openMenu(x,y,[{label:T('Save','Guardar'),key:'⌘S',ico:'save',fn:()=>saveProject()},{label:T('Save As… (new file)','Guardar como… (archivo nuevo)'),key:'⇧⌘S',fn:()=>saveProject(true)},{label:T('Save incremental (_vNN)','Guardar incremental (_vNN)'),fn:saveIncremental}]); }
+function openSaveMenu(x,y){ openMenu(x,y,[{label:T('Save','Guardar'),key:'⌘S',ico:'save',fn:()=>saveProject()},{label:T('Save As… (new file)','Guardar como… (archivo nuevo)'),key:'⇧⌘S',fn:()=>saveProject(true)},{label:T('Collect All & Save…','Recolectar todo y guardar…'),ico:'folder',fn:()=>collectProject()},{label:T('Save incremental (_vNN)','Guardar incremental (_vNN)'),fn:saveIncremental}]); }
 if($('#saveBtn')){ $('#saveBtn').onclick=()=>saveProject(); $('#saveBtn').oncontextmenu=e=>{ e.preventDefault(); openSaveMenu(e.clientX,e.clientY); }; } // [REDISEÑO Rev1] Save/Export/New/Open removidos del top bar → File menu; guardar el wiring
 if($('#saveMenuBtn'))$('#saveMenuBtn').onclick=e=>{ const r=e.currentTarget.getBoundingClientRect(); openSaveMenu(r.left, r.bottom+4); }; // visible caret → Save As… / incremental (R87)
 if($('#exportBtn'))$('#exportBtn').onclick=openExport; if($('#newBtn'))$('#newBtn').onclick=()=>newProjectViaLanding(); if($('#openBtn'))$('#openBtn').onclick=()=>openProject(); // [R227] "New" → pantalla de inicio
@@ -14206,6 +14418,7 @@ function openAppMenu(which,btn){ const r=btn.getBoundingClientRect(); const x=r.
     {label:T('Open…','Abrir…'),key:'⌘O',ico:'folder',fn:()=>openProject()},
     {label:T('Save','Guardar'),key:'⌘S',ico:'save',fn:()=>saveProject(false)},
     {label:T('Save As…','Guardar como…'),key:'⇧⌘S',fn:()=>saveProject(true)},
+    {label:T('Collect All & Save…','Recolectar todo y guardar…'),ico:'folder',fn:()=>collectProject()}, // [R360] proyecto-carpeta autocontenido
     'sep',
     {label:T('Export…','Exportar…'),key:'⇧⌘E',ico:'share',fn:openExport} ];
   else if(which==='edit') items=[
@@ -14413,7 +14626,7 @@ function commandList(){ const c1=T('Transport','Reproducción'),c2=T('File','Arc
   [c2,T('New project','Nuevo proyecto'),'⌘N',()=>newProjectViaLanding()],[c2,T('New sequence','Nueva secuencia'),'',newSequenceDialog], // [R227] a la pantalla de inicio, igual que el menú File y Ctrl+N
   [c2,T('Save','Guardar'),'⌘S',saveProject],[c2,T('Import media…','Importar medios…'),'⌘I',()=>pickMedia(false)],
   [c2,T('Export master…','Exportar máster…'),'⇧⌘E',openExport],[c2,T('Open project','Abrir proyecto'),'⌘O',()=>openProject()],[c2,T('Preferences…','Preferencias…'),'⌘,',openPrefs],
-  [c2,T('Save As… (new file)','Guardar como… (archivo nuevo)'),'⇧⌘S',()=>saveProject(true)],[c2,T('Save incremental (_vNN.isp)','Guardar incremental (_vNN.isp)'),'',saveIncremental],[c2,T('Restore last autosave','Restaurar último autoguardado'),'',restoreAutosave],[c2,T('Recovery history…','Historial de recuperación…'),'',openRecoveryHistory],
+  [c2,T('Save As… (new file)','Guardar como… (archivo nuevo)'),'⇧⌘S',()=>saveProject(true)],[c2,T('Collect All & Save (project folder)','Recolectar todo y guardar (carpeta de proyecto)'),'',()=>collectProject()],[c2,T('Save incremental (_vNN.isp)','Guardar incremental (_vNN.isp)'),'',saveIncremental],[c2,T('Restore last autosave','Restaurar último autoguardado'),'',restoreAutosave],[c2,T('Recovery history…','Historial de recuperación…'),'',openRecoveryHistory],
   [c2,T('Save diagnostics log…','Guardar registro de diagnóstico…'),'',saveDiagLog],
   [c3,T('Ring composition…','Composición en anillo…'),'',()=>openCompose('ring')],[c3,T('Grid composition…','Composición en cuadrícula…'),'',()=>openCompose('grid')],[c3,T('Random composition…','Composición aleatoria…'),'',()=>openCompose('random')],
   [c3,T('Add video track','Añadir pista de vídeo'),'',()=>addLane('video')],[c3,T('Add audio track','Añadir pista de audio'),'',()=>addLane('audio')],

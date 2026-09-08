@@ -1,5 +1,57 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## RONDA 360 — Proyecto-carpeta (estilo Ableton/Unreal): Media/ + Proxies/ + rutas relativas + Collect All & Save
+
+Pedido de Beltrán/Vicente: que cada proyecto sea UNA carpeta autocontenida —`<Nombre>/<Nombre>.isp`,
+`Media/` espejando los bins del panel, `Proxies/` con TODOS los proxies— que se pueda mover de disco o de
+máquina sin perder una sola referencia, con «Collect All & Save» para recoger lo disperso e importar-copiando
+(como Unreal: lo que se arrastra de fuera se copia dentro y el medio nace apuntando a la copia).
+
+- **`state.managed`** (viaja en el `.isp`): proyecto-carpeta. Se estrena al crear carpeta en el primer
+  guardado (`armarCarpetaProyecto`), al recolectar, o al migrar con el script offline. Un `.isp` suelto de
+  antes sigue funcionando exactamente igual (todo lo nuevo va detrás de la bandera).
+- **Rutas relativas** `rel`/`relFrames`/`ncRel` en `serMedia` (separador `/` siempre): al cargar, la REL
+  manda si existe; detrás, la absoluta y el reenlace R204 —cuyo índice ahora recorre `Media/` entera (tope
+  500 carpetas), porque los bins anidan a más de un nivel. LUTs: fallback `Media/_LUTs/<nombre>` en
+  `_cargarLUT` con la clave original en el registro (los clips no se reescriben). `saveProject` serializa
+  DESPUÉS de conocer la ruta final: con la vieja, las rel saldrían relativas al sitio equivocado.
+- **Proxies**: `proxyProjPath` primero en `proxyCandidates`; hash por **nombre|tamaño** (no ruta), que
+  sobrevive a mover la carpeta. `ncBuild` escribe en `Proxies/` (el modo suelto conserva «nest proxies»).
+- **`collectProject`** (File → Collect All & Save… / menú de Guardar / paleta): copia VERIFICADA por tamaño,
+  secuencial, sin tocar originales; homónimos distintos con sufijo `-2` (criterio R325/R326); proxies de
+  medio ya generados se renombran a su hash nuevo; al final guarda, que es lo que fija rutas y rel. Un fallo
+  de copia deja esa referencia apuntando al original y se lista.
+- **Importar-copiando**: `copiarImportado` + `f._ispPath` (leído por `filePath`); secuencias de imágenes a
+  subcarpeta propia. Si la copia falla, importa del original y avisa — importar nunca se bloquea.
+- **`DSP.copyFile`** nuevo (main+preload): mkdir del destino, copia y devuelve el tamaño real escrito.
+- **Migración offline**: `scripts/recolectar-proyecto.mjs` (mismo layout, mismo hash djb2, `--solo-usados`,
+  `INFORME-RECOLECCION.txt`). **Ejecutado sobre Rito Dome** → `~/Desktop/Rito Dome/`: 656 de 904 medios
+  conservados (248 clips/fotos sin uso en ninguna secuencia quedaron fuera, listados en el informe), 598
+  archivos copiados y verificados (43,39 GB: 419 medios + 159 proxies de medio + 20 de composición), 0
+  ausentes, 0 fuera de la carpeta, 0 sin rel; los 159 vídeos usados resuelven su proxy por el hash nuevo
+  (verificado offline replicando `proxyHash`). Único fallo: el nest proxy de «Ring 2», cuyo origen llevaba
+  una ruta con `\` de Windows y no existe — `ncPath` quedó a null y la app lo regenera. El proyecto original
+  no se tocó.
+
+### R360b — lo que cazó la revisión de cierre (10 hallazgos, todos corregidos)
+1. Collect con medios AÚN CARGANDO se saltaba material en silencio (nacen `missing:true` hasta que
+   `reloadMedia` resuelve): ahora se niega mientras `_loading` y los `missing` de verdad ENTRAN al plan para
+   quedar listados como fallo. 2. `proxyPath` rancio tras Replace/relink se copiaba bajo el hash de la
+   identidad NUEVA (metraje viejo colado como proxy): se anula `proxyPath` en los 4 caminos que invalidan el
+   proxy y Collect exige `proxyReady`. 3. `armarCarpetaProyecto` podía pisar `<dir>/<stem>/<stem>.isp` sin
+   preguntar (el "sobrescribir" del SO era sobre OTRA ruta) → confirmación propia; y `state.managed` se
+   revierte si la escritura falla. 4. `saveIncremental` serializaba ANTES de conocer el destino (rel contra
+   la raíz equivocada) → mismo intercambio de `currentPath` que `saveProject`, y el diálogo se siembra en la
+   carpeta del proyecto. 5. Barra final en el destino del script offline corrompía todos los `rel` →
+   `path.resolve`. 6. El historial de recuperación anulaba `currentPath` y apagaba la resolución relativa
+   (carpeta movida = todo ausente) → las rel se pre-resuelven a absolutas contra el proyecto vivo ANTES de
+   soltar la ruta. 7. `ensureDir` devuelve false y NO lanza: tres try/catch muertos (makeProxy, ncBuild,
+   rendered clips) pasaban de largo ante un fallo real → se comprueba el retorno. 8. Collect sin dédupe por
+   origen copiaba dos veces un archivo compartido por dos medios → mapa `porSrc` (como el script). 9. Un
+   toast de error POR FOTOGRAMA al fallar copias de importación (500 fotogramas = 500 toasts) → un aviso por
+   lote (`avisarCopiasFallidas`, regla R327). 10. `_importFolder=null` muerto tras mover los add* a la IIFE
+   → retirado con comentario del invariante nuevo.
+
 ## RONDA 358 — El aviso que NO hacía falta: R357 ya lo había resuelto
 
 R353 dejó escrito que faltaba avisar antes de importar cientos de imágenes sueltas, con la cuenta de que 300

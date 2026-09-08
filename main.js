@@ -358,6 +358,14 @@ ipcMain.handle('dsp:writeBinary', async (e, filePath, data) => {
 ipcMain.handle('dsp:ensureDir', async (e, dirPath) => {
   try { await fsp.mkdir(dirPath, { recursive: true }); return true; } catch (err) { return false; }
 });
+/* [R360] Copia de archivo para el proyecto-carpeta (recolectar / importar-copiando). Crea la carpeta destino,
+   copia y devuelve el tamano REAL escrito: el renderer lo compara con el del origen antes de re-apuntar nada
+   (regla "no perder material": una copia sin verificar no cuenta como copia). */
+ipcMain.handle('dsp:copyFile', async (e, from, to) => {
+  try { await fsp.mkdir(path.dirname(to), { recursive: true }); await fsp.copyFile(from, to);
+    const s = await fsp.stat(to); return { ok: true, size: s.size };
+  } catch (err) { return { ok: false, err: String((err && err.message) || err) }; }
+});
 
 // random-access file streaming (MP4 export writes chunks straight to disk — no multi-GB RAM buffer)
 const _fds = new Map(); let _fdSeq = 1;

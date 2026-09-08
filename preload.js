@@ -106,6 +106,7 @@ contextBridge.exposeInMainWorld('dsp', {
   readAt: (id, position, length) => ipcRenderer.invoke('dsp:readAt', id, position, length),
   closeRead: (id) => ipcRenderer.invoke('dsp:closeRead', id),
   ensureDir: (dirPath) => ipcRenderer.invoke('dsp:ensureDir', dirPath),
+  copyFile: (from, to) => ipcRenderer.invoke('dsp:copyFile', from, to), /* [R360] recolectar/importar-copiando: devuelve {ok,size} */
   readText: (p) => ipcRenderer.invoke('dsp:readText', p),
   writeText: (p, txt) => ipcRenderer.invoke('dsp:writeText', p, txt),
   stat: (p) => ipcRenderer.invoke('dsp:stat', p),
