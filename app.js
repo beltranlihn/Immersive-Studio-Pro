@@ -3458,6 +3458,7 @@ async function makeImgProxy(m){
   if(!m._proxyForce){ if(await attachExistingImgProxy(m,true))return; }
   const fit=await _decodificarImagen(m.path,IPMAX); /* fitImage: canvas ≤IPMAX si el original es mayor; w/h = medidas REALES */
   if(!fit.w||!fit.h)throw new Error('imagen ilegible');
+  if(!(m.w>0&&m.h>0)){ m.w=fit.w; m.h=fit.h; } /* [R363d·F4] A2/B1 pueden haber soltado las medidas (re-export en el sitio, replace): recien decodificado el original, este es EL momento de reponerlas — sin esto el proxy nuevo se validaba contra un aspecto rancio y se borraba como "rancio" en cada reapertura */
   if(Math.max(fit.w,fit.h)<=IPMAX){ m.proxyPct=0; renderMedia(); updProxyUI(m);
     flashStatus(m.name+T(' is already ≤'+IPMAX+' px — no proxy needed',' ya es ≤'+IPMAX+' px — no necesita proxy')); return; }
   m.proxyPct=40; updProxyUI(m);
@@ -3879,7 +3880,7 @@ function openMediaCtx(e,m){ e.preventDefault(); const seq=isSeqMedia(m); const i
      `scratchpad/r349-cola-proxy.mjs`, que reconstruye el estado anterior y lo ve rojo (120 s sin un solo %). */
     items.push({label:many?(T('Generate proxies (','Generar proxys (')+selMedia.length+')'):(m.proxyReady?T('Regenerate proxy','Regenerar proxy'):T('Generate proxy','Generar proxy')),ico:'video',fn:()=>{
       /* [R363b] una seleccion MIXTA genera los dos tipos; sin WebCodecs solo caen los videos (el proxy de foto es canvas→PNG y no lo necesita) */
-      let lote=selMedia; if(!HAS_WC){ const sinV=lote.filter(x=>x.kind!=='video'); if(sinV.length<lote.length)flashStatus(T('Video proxies need WebCodecs — generating only the image proxies','Los proxys de video requieren WebCodecs — se generan solo los de imagen')); lote=sinV; if(!lote.length)return; }
+      let lote=selMedia; if(!HAS_WC){ const sinV=lote.filter(x=>x.kind!=='video'); if(sinV.length&&sinV.length<lote.length)flashStatus(T('Video proxies need WebCodecs — generating only the image proxies','Los proxys de video requieren WebCodecs — se generan solo los de imagen')); lote=sinV; if(!lote.length){ flashStatus(T('Proxies need WebCodecs (browser build)','Los proxys requieren WebCodecs')); return; } }
       { const chicas=lote.filter(x=>x.kind==='image'&&x.w>0&&x.h>0&&Math.max(x.w,x.h)<=IPMAX); /* [R363c·B4] una foto que ya es <=1024 no gana nada: no se encola (ni se le borra el estado) y se avisa UNA vez */
         if(chicas.length){ lote=lote.filter(x=>!chicas.includes(x)); flashStatus(chicas.length+T(' image(s) are already <=1024 px — no proxy needed',' imagen(es) ya son <=1024 px — no necesitan proxy')); if(!lote.length)return; } }
       for(const v of lote){ v.proxyReady=false; v.proxyPct=0; if(v.proxyPath)v._proxyForce=true; enqProxy(v); } renderMedia(); flashStatus(lote.length>1?(T('Generating ','Generando ')+lote.length+T(' proxies…',' proxys…')):T('Generating proxy…','Generando proxy…')); }}); }
@@ -3895,7 +3896,7 @@ function openMediaCtx(e,m){ e.preventDefault(); const seq=isSeqMedia(m); const i
      de la misma condición que impide generarlo. */
   if(seq&&IS_ELEC&&m.ncPath) items.push({label:T('Remove nest proxy','Quitar proxy de composición'),ico:'trash',fn:()=>{ ncDetach(m,true); flashStatus(T('Nest proxy removed','Proxy de composición eliminado')); }});
   if(IS_ELEC && (m.kind==='video'||m.kind==='audio'||m.kind==='image')) items.push({label:T('Replace media…','Reemplazar medio…'),fn:()=>replaceMedia(m)});
-  if(m.missing&&IS_ELEC) items.push({label:T('Locate file…','Localizar archivo…'),ico:'upload',fn:async()=>{ try{ const p=await DSP.pickMedia(); if(p){ m.path=p; m.rel=null; /* [R361c·#4] reenlace MANUAL: la rel vieja no puede volver a mandar */ if(m.kind==='image'){ m.w=0; m.h=0; m.fsize=0; } /* [R363c·B1] puede ser OTRO archivo: fuera medidas y tamano rancios */ await reloadMedia(m); flashStatus(T('Media re-linked','Medio re-vinculado')); } }catch(e){} }});
+  if(m.missing&&IS_ELEC) items.push({label:T('Locate file…','Localizar archivo…'),ico:'upload',fn:async()=>{ try{ const p=await DSP.pickMedia(); if(p){ const _antes={w:m.w,h:m.h,fsize:m.fsize}; m.path=p; m.rel=null; /* [R361c·#4] reenlace MANUAL: la rel vieja no puede volver a mandar */ if(m.kind==='image'){ m.w=0; m.h=0; m.fsize=0; } /* [R363c·B1] puede ser OTRO archivo: fuera medidas y tamano rancios */ await reloadMedia(m); if(m.kind==='image'&&m.missing){ m.w=_antes.w; m.h=_antes.h; m.fsize=_antes.fsize; } /* [R363d·F1] localizar fallido: vuelven las medidas reales */ flashStatus(T('Media re-linked','Medio re-vinculado')); } }catch(e){} }});
   if(state.folders.length){ items.push('sep'); const tgt=()=>selectedMediaIds().includes(m.id)?selectedMediaIds():[m.id]; // move the whole multi-selection (R88 audit) + undo/dirty via moveMediaTo
     for(const f of state.folders) items.push({label:(m.folder===f?'✓ ':'')+T('Move to: ','Mover a: ')+f,fn:()=>moveMediaTo(tgt(),f)});
     if(m.folder)items.push({label:T('Remove from folder','Quitar de carpeta'),fn:()=>moveMediaTo(tgt(),null)}); }
@@ -12475,6 +12476,7 @@ async function collectProject(){
   { const okM=await DSP.ensureDir(md), okP=await DSP.ensureDir(pxd);
     if(!okM||!okP){ appAlert(T('Could not create the Media/Proxies folders next to the project.','No se pudieron crear las carpetas Media/Proxies junto al proyecto.')); return; } }
   state.managed=true; saveActiveSeq();
+  try{ _dirListCache.clear(); }catch(e){} /* [R363d·F3] Collect renombra/copia/poda proxies sin pasar por _dirRecuerda: se tira la cache entera al entrar y al salir, que es lo unico que garantiza que siga diciendo la verdad */
   const ov=document.createElement('div'); ov.className='overlay'; ov.id='collectOv';
   ov.innerHTML='<div class="modal" style="width:430px;padding:16px 18px;">'
     +'<div class="mh" style="padding:0 0 10px;border:none;"><span style="color:var(--ink-2);display:flex;">'+ICO('save',16)+'</span><span class="t">'+T('Collect All & Save','Recolectar todo y guardar')+'</span></div>'
@@ -12623,6 +12625,7 @@ async function collectProject(){
             hechosMov.push({j:{tipo:'media',m:mo},src:j.src,dst,compartido:true});
             await aplicar({tipo:'media',m:mo},dst); } } }
       if(movidos){ try{ disposeAllVinst(); }catch(e){} try{ raInvalidate(); }catch(e){} renderMedia(); } }
+    try{ _dirListCache.clear(); }catch(e){} /* [R363d·F3] salida: idem */
     ov.remove(); _collecting=false;
     markDirty(); await saveProject(false); /* el guardado es lo que FIJA las rutas nuevas (y escribe rel/relFrames/ncRel) */
     /* [R361b·F4] El renombre es mutacion IRREVERSIBLE del disco y corria antes del guardado que lo fija: si ese
@@ -13302,7 +13305,7 @@ async function replaceMedia(m,ruta){ if(!IS_ELEC)return;
         '"'+m.name+'" también se usa en '+otras.length+' secuencia'+(otras.length>1?'s':'')+' más ('+otras.map(s=>s.name).join(', ')+'). Reemplazar el archivo reajusta también sus bucles, y esto no se puede deshacer con Ctrl+Z.'),
       res, {ok:T('Replace','Reemplazar')}));
     if(!ok)return; }
-  const antes={path:m.path,name:m.name,fsize:m.fsize,dur:m.dur}; const oldDur=m.dur;
+  const antes={path:m.path,name:m.name,fsize:m.fsize,dur:m.dur,w:m.w,h:m.h}; const oldDur=m.dur;
   let sz=0; try{ const st=await DSP.stat(p); sz=(st&&st.size)||0; }catch(e){}
   bumpMeta(true); /* [R253d] reparar un medio ausente no es una edicion deshacible, pero si marca version: una foto anterior no puede devolverle el nombre del archivo perdido */
   m.path=p; m.fsize=sz; m.name=DSP.basename(p); m.missing=false; delete m._plazo;
@@ -13320,7 +13323,7 @@ async function replaceMedia(m,ruta){ if(!IS_ELEC)return;
      se vuelve al anterior. Antes se anunciaba «reemplazado» igual, dejando el medio desvinculado y el proyecto
      apuntando a un archivo que no abre. */
   if(m.missing||m._plazo){ const tarde=!!m._plazo; delete m._plazo;
-    m.path=antes.path; m.name=antes.name; m.fsize=antes.fsize; m.dur=antes.dur; m.missing=false; m._loading=true;
+    m.path=antes.path; m.name=antes.name; m.fsize=antes.fsize; m.dur=antes.dur; m.w=antes.w; m.h=antes.h; /* [R363d·F1] B1 los habia soltado para validar el archivo nuevo: si el reemplazo fracasa, vuelven los de verdad (sin esto quedaban 0 y el aspecto del clip dividia por cero, serializado y todo) */ m.missing=false; m._loading=true;
     m.proxyReady=false; m.proxyUrl=null; m.proxyEl=null; m.proxyPath=null; m.thumb=null; /* [R360b] */
     await reloadMedia(m); renderMedia(); renderTimeline(); renderInspector(); render();
     appAlert(tarde?T('That file took too long to read — nothing was changed.','Ese archivo tardó demasiado en leerse — no se ha cambiado nada.')
