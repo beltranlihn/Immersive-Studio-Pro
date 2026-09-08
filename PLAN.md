@@ -1,5 +1,26 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## RONDA 358 — El aviso que NO hacía falta: R357 ya lo había resuelto
+
+R353 dejó escrito que faltaba avisar antes de importar cientos de imágenes sueltas, con la cuenta de que 300
+fotos de 4096² pedirían más de 20 GB. **Esa cuenta era de antes de R357**, que aún no estaba en esta copia
+cuando se midió. Antes de escribir el aviso se volvió a medir, y sobraba.
+
+**Medido ahora** (`scratchpad/r358-coste-por-foto.mjs`, 20 fotos reales de 4096×4096):
+
+| | textura | por foto | 300 fotos |
+|---|---|---|---|
+| antes de R357 | 4096² = 64 MB | — | > 20 GB |
+| con R357 | **1024² = 4 MB** | **4,0 MB** | **1,2 GB** |
+
+Las medidas del medio siguen siendo las reales del archivo (4096×4096) — de ellas dependen el aspecto y la
+detección de equirectangulares—; lo único que baja es la textura de previsualización. **No se añade nada.**
+
+**Y un fallo de la sonda, no del código.** La primera versión llamaba `fitImage(img)` sin el segundo argumento
+—el tope viaja ahí— y medía un camino que en producción no existe: dio 4096, dedujo que R357 no actuaba y
+acusó al código. Reimplementar la ruta en vez de llamar a la de verdad es lo que lo causó.
+
+
 ## ROUND R357 — Proxy de FOTO: la previsualizacion deja de cargar 9 GB de texturas
 
 R356 arreglo la carga, pero el editor seguia cayendo MIENTRAS se trabaja (EXC_BREAKPOINT en CrRendererMain a
@@ -168,8 +189,8 @@ agrupa; «Importar medios…» y el arrastre nunca agrupan—. Verificado ademá
 extremo a extremo: 80 de 80 fotogramas, clip en la línea de tiempo y **fotogramas distintos** a 0,1 / 1,6 /
 3,1 s.
 
-**Queda abierto:** la aplicación no avisa al importar cientos de imágenes sueltas. Se conoce el coste por
-imagen, así que se puede estimar y avisar antes de cargar.
+**Corregido en R358:** ese «queda abierto» partió de medir con el código anterior a R357. Con R357 dentro la
+cuenta cambia por completo — ver R358.
 
 
 ## ROUND 352b — Revisión desde el Mac de R303→R352
