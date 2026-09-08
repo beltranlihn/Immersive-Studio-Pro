@@ -1,5 +1,59 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## RONDA 364 — Al abrir un proyecto, el árbol de carpetas del panel entra PLEGADO — pedido de Vicente
+
+«Cada vez que abro un proyecto se despliegan todas las carpetas del media y es muy molesto.» Con razón: en un
+proyecto real son cientos de filas de golpe, y plegarlas es una por una a mano.
+
+**La causa.** `state.collapsedGroups` —las claves `f_<ruta>` que `drawFolder` consulta para decidir si dibuja
+el contenido de una carpeta— **no viaja en el `.isp`**: `serProject` no lo escribe. Así que con la app recién
+arrancada llegaba en blanco, `!!state.collapsedGroups['f_'+f]` daba `false` para todas, y el árbol se dibujaba
+entero abierto. No era una preferencia guardada que se perdiera: es que ese estado nunca existió en el archivo.
+
+- **`plegarTodasLasCarpetas()`** (junto al resto de ayudantes de carpeta) marca TODAS las carpetas del
+  proyecto, también las hijas: así desplegar una de primer nivel no abre de golpe su subárbol entero, que es
+  la misma molestia a menor escala. Se llama desde `_loadProjectCore`, en cuanto `state.folders` tiene las
+  carpetas del archivo y antes del `renderMedia()` del final — o sea, por los **siete** caminos de apertura
+  (doble clic, recientes, arranque, `#projInput`, las dos restauraciones de autoguardado y el historial de
+  recuperación), que es lo que tiene arreglarlo en el sitio por donde pasan todos.
+- **De paso, una fuga de la familia «heredar del proyecto anterior»:** `collapsedGroups` tampoco se reseteaba.
+  Las claves son nombres de carpeta, y dos proyectos comparten nombres a menudo («Video», «Audio»), así que el
+  plegado del proyecto ANTERIOR se aplicaba a las homónimas del nuevo. Ahora `resetProjDefaults` lo devuelve a
+  `{}`. El test de paridad no lo exigía —sólo vigila lo que `serProject` escribe— pero es la misma familia que
+  esa función existe para cerrar (R242 · R242b · R240b · R311 · R315).
+
+**Verificado en la app real** con `scratchpad/r364-carpetas-plegadas.mjs` (CDP, proyecto de prueba fabricado
+por la propia sonda en `scratchpad/`, nunca sobre uno de producción). La sonda mide la **conclusión** —lo que
+hay dibujado en `#mediaList`— y no la premisa: al abrir, cabeceras `Video`/`Audio`/sin-archivar, las
+subcarpetas `Camara A`/`Camara B` NO están en el DOM y se dibujan 2 filas de medio en vez de 6. Y **sabe
+fallar**: la fase 3 reconstruye el estado anterior al arreglo (`collapsedGroups={}` + `renderMedia()`) y exige
+que la medida cambie — 5 cabeceras y 6 filas. `npm test` en verde (6/6).
+
+**Lo que NO cambia:** crear una carpeta nueva sigue desplegando su cadena (`newFolderIn`), plegar y desplegar a
+mano sigue igual dentro de la sesión, y el estado plegado sigue sin guardarse en el `.isp` — si algún día se
+quiere «recordar como lo dejé», eso es añadirlo a `serProject` y entonces sí lo pediría el test de paridad.
+
+### R364b — la revisión de cierre: tres flecos, uno de ellos una regresión de R364
+
+- **Buscar y filtrar ATRAVIESAN el plegado** (la regresión, y la que importa). Con el árbol abierto de par en
+  par nadie lo notaba; plegado, `items` podía traer diez coincidencias y no verse **ninguna**, porque
+  `drawFolder` corta en la cabecera y lo que casa vive dentro. Mientras hay `mediaQuery` o un filtro de tipo,
+  el árbol se dibuja abierto; al vaciar la caja vuelve a plegarse **solo**, porque esto no toca
+  `collapsedGroups` — se destapa al DIBUJAR, no mutando. Contrapartida asumida y anotada en el código: mientras
+  filtras, el galón de una carpeta guarda tu intención pero no se ve cambiar hasta que limpias la búsqueda.
+- **`_reprefixFolders` se lleva el plegado**, como ya se llevaba los colores. Renombrar o mover dejaba la clave
+  vieja huérfana y la carpeta —ya con otra ruta— sin clave: se **desplegaba entera sola**, justo la molestia
+  que R364 viene a quitar. Es un defecto anterior, pero invisible mientras casi no había claves; ahora las
+  tienen todas. Las del destino se pisan a propósito: manda el estado de la carpeta que se mueve.
+- **Una carpeta que nace, nace abierta.** `newFolderIn` limpiaba la cadena de padres pero no su propia clave, y
+  el `walk` del arrastre desde el explorador no limpiaba ninguna: una clave rancia con la misma ruta abría la
+  carpeta recién creada **plegada y vacía**, escondiendo lo que se acababa de importar.
+
+La sonda cubre los tres (13 comprobaciones, todas verdes) y **se delató a sí misma por el camino**: en la
+primera pasada las fases 4 y 5 salieron rojas porque el control negativo de la fase 3 dejaba el árbol
+desplegado y no restauraba la línea de salida. Era fallo de la sonda, no del código — arreglado con una
+restauración explícita entre fases, que además es una comprobación más.
+
 ## RONDA 363 — Proxy de IMAGEN en disco (PNG con alfa) — pedido de Vicente
 
 El proyecto típico son composes con cientos de fotos 4K. R357 ya reducía la TEXTURA a 1024, pero cada

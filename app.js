@@ -2993,7 +2993,7 @@ function importDropped(dt, baseFolder){ const items=(dt&&dt.items)?[...dt.items]
   const collected=[]; // {file, folder}
   const readAll=dirEntry=>new Promise(res=>{ const rd=dirEntry.createReader(); const all=[]; const batch=()=>rd.readEntries(es=>{ if(!es.length){res(all);return;} all.push(...es); batch(); }, ()=>res(all)); batch(); });
   const walk=async(entry,folderPath)=>{ if(entry.isFile){ await new Promise(r=>entry.file(f=>{ collected.push({file:f,folder:folderPath}); r(); }, r)); }
-    else if(entry.isDirectory){ const sub=joinFolder(folderPath, sanitizeFolderName(entry.name)); if(!folderExists(sub)){ bumpMeta(true); state.folders.push(sub); } /* [R253d] las carpetas que nacen al arrastrar del explorador no empujan deshacer (el import no lo es), pero SI marcan version, para que ninguna foto anterior las borre*/ const es=await readAll(entry); for(const e of es)await walk(e,sub); } };
+    else if(entry.isDirectory){ const sub=joinFolder(folderPath, sanitizeFolderName(entry.name)); if(!folderExists(sub)){ bumpMeta(true); state.folders.push(sub); delete state.collapsedGroups['f_'+sub]; /* [R364b] gemelo de newFolderIn: lo que acabas de arrastrar se ve */ } /* [R253d] las carpetas que nacen al arrastrar del explorador no empujan deshacer (el import no lo es), pero SI marcan version, para que ninguna foto anterior las borre*/ const es=await readAll(entry); for(const e of es)await walk(e,sub); } };
   (async()=>{ for(const en of entries)await walk(en, baseFolder||null);
     if(!collected.length){ renderMedia(); return; }
     const byFolder={}; for(const c of collected){ const k=c.folder||''; (byFolder[k]=byFolder[k]||[]).push(c.file); }
@@ -3663,11 +3663,31 @@ function folderDescendants(p){ return state.folders.filter(f=>f===p||f.indexOf(p
 function sanitizeFolderName(n){ return String(n||'').replace(/[\\/]+/g,' ').replace(/\s+/g,' ').trim(); }
 function joinFolder(parent,name){ return parent?parent+FSEP+name:name; }
 function folderCount(f){ return state.media.filter(x=>x.folder===f).length; } // media directly in this folder
+/* [R364] Al ABRIR un proyecto el arbol de medios entra PLEGADO, no desplegado de arriba abajo.
+   `collapsedGroups` NO viaja en el `.isp` (mirar `serProject`: no esta), asi que con la app recien arrancada
+   llegaba en blanco y `drawFolder` —que lee `!!state.collapsedGroups['f_'+f]`— dibujaba el arbol ENTERO abierto:
+   en un proyecto real eso son cientos de filas de golpe y hay que plegarlas a mano una por una.
+   Se marcan TODAS las carpetas, tambien las hijas, para que desplegar una de primer nivel no abra de golpe su
+   subarbol completo — que es exactamente la molestia que esto viene a quitar. */
+function plegarTodasLasCarpetas(){ state.collapsedGroups=state.collapsedGroups||{};
+  for(const f of (state.folders||[]))state.collapsedGroups['f_'+f]=true; }
 /* rewrite the path prefix oldP → newP across folders, media, colors and the current view (rename + move) */
 function _reprefixFolders(oldP,newP){ if(oldP===newP)return;
   state.folders=state.folders.map(x=> x===oldP?newP : (x.indexOf(oldP+FSEP)===0? newP+x.slice(oldP.length) : x));
   for(const m of state.media){ if(m.folder===oldP)m.folder=newP; else if(m.folder&&m.folder.indexOf(oldP+FSEP)===0)m.folder=newP+m.folder.slice(oldP.length); }
   const fc=state.folderColors||{}; const nfc={}; for(const k of Object.keys(fc)){ if(k===oldP)nfc[newP]=fc[k]; else if(k.indexOf(oldP+FSEP)===0)nfc[newP+k.slice(oldP.length)]=fc[k]; else nfc[k]=fc[k]; } state.folderColors=nfc; // colours follow the folder
+  /* [R364b] El PLEGADO tambien sigue a la carpeta, igual que los colores de la linea de arriba. Las claves son
+     `f_<ruta>`, asi que renombrar o mover dejaba la vieja huerfana y la carpeta —ya con otra ruta— sin clave: se
+     desplegaba entera sola, que es justo la molestia que R364 viene a quitar. Antes de R364 casi no se veia
+     porque casi nunca habia claves; ahora las tienen TODAS. Las del destino se pisan a proposito: manda el
+     estado de la carpeta que se mueve, no el de una homonima que ya no existe. */
+  const cg=state.collapsedGroups||{}; const ncg={};
+  for(const k of Object.keys(cg)){ if(k.indexOf('f_')!==0){ ncg[k]=cg[k]; continue; }
+    const ruta=k.slice(2);
+    if(ruta===oldP)ncg['f_'+newP]=cg[k];
+    else if(ruta.indexOf(oldP+FSEP)===0)ncg['f_'+newP+ruta.slice(oldP.length)]=cg[k];
+    else if(ruta!==newP&&ruta.indexOf(newP+FSEP)!==0)ncg[k]=cg[k]; }
+  state.collapsedGroups=ncg;
   const cf=state.mediaFolder; if(cf===oldP)state.mediaFolder=newP; else if(cf&&cf.indexOf(oldP+FSEP)===0)state.mediaFolder=newP+cf.slice(oldP.length);
   const sf=state.selFolder; if(sf===oldP)state.selFolder=newP; else if(sf&&sf.indexOf(oldP+FSEP)===0)state.selFolder=newP+sf.slice(oldP.length); }
 /* R90: rename a folder IN PLACE over its own label (tree .fnm / grid tile .tlbl); falls back to the prompt if the element is missing */
@@ -3693,6 +3713,7 @@ function newFolderIn(parent){ let base=T('Folder ','Carpeta ')+(folderChildren(p
   // [M1] create the folder instantly and rename it inline over its own label (no pop-up)
   const path=joinFolder(parent,nm); pushUndo(); bumpMeta(); state.folders.push(path);
   let p=parent; while(p!=null){ delete state.collapsedGroups['f_'+p]; p=folderParent(p); } // expand the chain so the new folder is visible
+  delete state.collapsedGroups['f_'+path]; /* [R364b] y la recien nacida, abierta: una clave rancia con su misma ruta la abriria vacia y plegada */
   state.selFolder=path; // Adobe-like: the new folder becomes the selection (next "New folder" nests inside it)
   if(state.mediaView!=='grid')showFolders(); renderMedia(); markDirty();
   _folderFresh=path; setTimeout(()=>{ renameFolderInline(path); },0); } // inline-edit the fresh label once it's in the DOM
@@ -3770,7 +3791,15 @@ function renderMedia(){
     const IND=13;
     if(state.mediaFolder&&!folderExists(state.mediaFolder))state.mediaFolder=null; const cur=state.mediaFolder; // R89c: the list navigates INTO folders too (dblclick), sharing state.mediaFolder with the grid
     const selectHdr=(h,f)=>{ state.selFolder=(state.selFolder===f?null:f); $$('#mediaList .folderhdr.fsel').forEach(x=>x.classList.remove('fsel')); if(state.selFolder===f)h.classList.add('fsel'); }; // select IN PLACE (no re-render — a re-render would swap the element mid-double-click and kill the dblclick)
-    const drawFolder=(f,depth)=>{ const key='f_'+f, collapsed=!!state.collapsedGroups[key]; const kids=folderChildren(f); const gi=items.filter(m=>m.folder===f);
+    /* [R364b] Buscar o filtrar ATRAVIESA el plegado. Desde que el arbol abre plegado (R364), `items` puede
+       traer diez coincidencias y no verse NINGUNA: `drawFolder` corta en la cabecera y los medios que casan
+       viven dentro. Antes no se notaba porque al abrir estaba todo desplegado — o sea, es una regresion que
+       R364 introduce y que hay que cerrar en la misma ronda. Mientras hay busqueda o filtro, el arbol se
+       dibuja abierto; al vaciar la caja vuelve a plegarse solo, porque esto NO toca `collapsedGroups`.
+       Contrapartida asumida: mientras filtras, el galon de una carpeta guarda tu intencion pero no se ve
+       cambiar hasta que limpias la busqueda. */
+    const filtrando=!!state.mediaQuery||state.mediaFilter!=='all';
+    const drawFolder=(f,depth)=>{ const key='f_'+f, collapsed=!!state.collapsedGroups[key]&&!filtrando; const kids=folderChildren(f); const gi=items.filter(m=>m.folder===f);
       const fcol=folderColor(f);
       const h=document.createElement('div'); h.className='grphead2 folderhdr'+(state.selFolder===f?' fsel':''); h.dataset.folder=key; h.dataset.fname=f; h.style.paddingLeft=(6+depth*IND)+'px';
       h.innerHTML=`<span class="fchev" title="${collapsed?T('Expand','Expandir'):T('Collapse','Contraer')}" style="display:inline-flex;cursor:pointer;transform:rotate(${collapsed?-90:0}deg);">${ICO('chevDown',12)}</span><span style="color:${fcol||'#8A9199'};display:inline-flex;">${ICO('folder',12)}</span><span class="fnm" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${fcol?'color:'+fcol+';':''}">${esc(folderName(f))}</span><span style="color:#50565D;">${gi.length+kids.length}</span>`;
@@ -12925,6 +12954,12 @@ function resetProjDefaults(){ state.seqMode='dome'; state.seqCov=180;
      archivos que se importan, y con una carpeta del mismo nombre en el proyecto nuevo, Delete borraba la suya
      con sus medios sin que el usuario la hubiera seleccionado nunca. */
   state.selFolder=null; state.mediaFolder=null;
+  /* [R364] Y el PLEGADO del arbol, por el mismo motivo que la navegacion de las dos lineas de arriba: las claves
+     son `f_<ruta>`, o sea nombres de carpeta, y dos proyectos distintos comparten nombres de carpeta a menudo
+     («Video», «Audio»). Sin este reseteo, el estado plegado/desplegado del proyecto ANTERIOR se aplicaba a las
+     carpetas homonimas del nuevo. No lo pide el test de paridad —`serProject` no escribe este campo— pero es la
+     misma familia que esa funcion existe para cerrar. */
+  state.collapsedGroups={};
   /* [R311·A13] Y la CUARTA aparicion de la misma familia, que la auditoria exhaustiva encontro viva: la
      biblioteca de automatizacion, los preajustes de export y el zoom de la linea de tiempo. Los tres los
      ESCRIBE `serProject`, asi que File→New heredaba los del proyecto abierto y los fijaba en el `.isp` nuevo.
@@ -13077,6 +13112,7 @@ function _loadProjectCore(obj){ relinkReset(); // [R204] el índice de reenlace 
   state.selId=null; state.dirty=false;
   state.autoItems=(obj.autoItems&&typeof obj.autoItems==='object')?obj.autoItems:{}; // [R95·D2]
   state.workIn=(obj.workIn!=null?obj.workIn:null); state.workOut=(obj.workOut!=null?obj.workOut:null); state.folders=Array.isArray(obj.folders)?obj.folders:[]; state.folderColors=(obj.folderColors&&typeof obj.folderColors==='object')?obj.folderColors:{}; state.exportPresets=Array.isArray(obj.exportPresets)?obj.exportPresets:[];
+  plegarTodasLasCarpetas(); /* [R364] con las carpetas del archivo ya en `state.folders` y antes del `renderMedia()` de mas abajo */
   state.reactive=obj.reactive||null; _arCache=null; _fxEnvCache.clear(); _modAudioCache.clear(); // Reactive FX config (source clip + sensitivity) — bands re-analyzed lazily when the panel opens
   /* [R240] El zoom del `.isp` se ACOTA como cualquier otro camino. Los ocho gestos que lo tocan (rueda, ±, los dos
      botones, la barra de zoom, Fit, Zoom-to-clip) pasan por `TL_PPS_MIN/MAX`; abrir un proyecto era el único que
