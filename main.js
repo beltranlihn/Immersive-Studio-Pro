@@ -366,6 +366,28 @@ ipcMain.handle('dsp:copyFile', async (e, from, to) => {
     const s = await fsp.stat(to); return { ok: true, size: s.size };
   } catch (err) { return { ok: false, err: String((err && err.message) || err) }; }
 });
+/* [R361] Poda de carpetas VACIAS bajo `root` (la reorganizacion de Collect deja cascarones al mover medios).
+   Solo borra directorios sin contenido — un `.DS_Store` suelto (metadatos del Finder) no cuenta como contenido
+   y se retira junto con su carpeta; cualquier otro archivo la salva. `root` mismo nunca se borra. */
+ipcMain.handle('dsp:pruneEmptyDirs', async (e, root) => {
+  let n = 0;
+  async function walk(d) {
+    let names; try { names = await fsp.readdir(d); } catch (err) { return false; }
+    let vacio = true;
+    for (const nm of names) {
+      const p = path.join(d, nm); let s; try { s = await fsp.lstat(p); } catch (err) { vacio = false; continue; }
+      if (s.isDirectory()) { if (!(await walk(p))) vacio = false; }
+      else if (nm !== '.DS_Store') vacio = false;
+    }
+    if (vacio && d !== root) {
+      try { for (const nm of names) { if (nm === '.DS_Store') await fsp.unlink(path.join(d, nm)); }
+        await fsp.rmdir(d); n++; return true; } catch (err) { return false; }
+    }
+    return vacio;
+  }
+  try { await walk(root); } catch (err) {}
+  return n;
+});
 
 // random-access file streaming (MP4 export writes chunks straight to disk — no multi-GB RAM buffer)
 const _fds = new Map(); let _fdSeq = 1;
@@ -555,7 +577,16 @@ ipcMain.handle('dsp:listDir', async (e, dir) => { try { const names = await fsp.
 // filtran por nombre — colarles carpetas sería pedir un falso positivo. Lo usa el reenlace junto al proyecto.
 ipcMain.handle('dsp:listSubdirs', async (e, dir) => { try { const names = await fsp.readdir(dir); const out = []; for (const n of names) { try { const s = await fsp.stat(path.join(dir, n)); if (s.isDirectory()) out.push(n); } catch (_) {} } return out; } catch (err) { return []; } });
 ipcMain.handle('dsp:deleteFile', async (e, p) => { try { await fsp.unlink(p); return true; } catch (err) { return false; } }); // prune old autosave-history snapshots
-ipcMain.handle('dsp:rename', async (e, from, to) => { try { await fsp.rename(from, to); return true; } catch (err) { try { await fsp.copyFile(from, to); await fsp.unlink(from); return true; } catch (_) { return false; } } }); // atomic proxy publish: encode to <name>.part, rename over the final name only on success → an interrupted encode never leaves a moov-less (corrupt) proxy at the real name
+ipcMain.handle('dsp:rename', async (e, from, to) => { try { await fsp.rename(from, to); return true; }
+  catch (err) { let copiado = false, habia = false; try { habia = fs.existsSync(to); } catch (__) {}
+    try { await fsp.copyFile(from, to); copiado = true; await fsp.unlink(from); return true; }
+    catch (_) { /* [R361b→R361c] si la copia del plan B llego a escribirse pero el unlink fallo (archivo origen
+      bloqueado — Windows con el clip abierto), NO se deja el duplicado huerfano en el destino: quien llama
+      recibe false y cuenta con que el disco quedo como estaba. PERO solo si el destino NO existia antes:
+      si habia un archivo previo en `to` (re-publicar un proxy sobre su nombre final), borrarlo destruiria
+      contenido ajeno a esta llamada — ahi se deja la copia, que ademas es valida. */
+      if (copiado && !habia) { try { await fsp.unlink(to); } catch (__) {} }
+      return false; } } }); // atomic proxy publish: encode to <name>.part, rename over the final name only on success → an interrupted encode never leaves a moov-less (corrupt) proxy at the real name
 ipcMain.handle('dsp:exists', async (e, p) => { try { return fs.existsSync(p); } catch (err) { return false; } });
 ipcMain.handle('dsp:setTitle', (e, t) => { if (win) win.setTitle(t); });
 ipcMain.handle('dsp:setProgress', (e, v) => { try { if (win) win.setProgressBar(typeof v === 'number' && v >= 0 ? Math.min(1, v) : -1); } catch (err) {} }); // [R92-T5] taskbar progress for exports

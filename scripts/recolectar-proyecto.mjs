@@ -22,6 +22,8 @@ import path from 'path';
 const PMAX=960;
 function proxyHash(s){ let h=5381; for(let i=0;i<s.length;i++)h=((h<<5)+h+s.charCodeAt(i))>>>0; return h.toString(36); }
 function fsSafeName(s){ return String(s||'').replace(/[\\/:*?"<>|]/g,'_').replace(/\s+$/,'').slice(0,120)||'_'; }
+/* replica de subSecuencia de app.js [R361]: misma formula ⇒ el primer Collect en la app no tiene que mudar nada */
+function subSecuencia(n){ return fsSafeName(String(n||'seq').replace(/\s*\[\d+f\]\s*$/i,'').replace(/#+/g,'').replace(/\.[a-z0-9]{2,4}\s*$/i,'').replace(/[.\s_-]+$/,'').trim())||'seq'; }
 const norm=p=>String(p||'').replace(/\\/g,'/'); // rutas escritas en Windows dentro de un .isp que ahora vive en mac
 const base=p=>norm(p).split('/').pop();
 
@@ -78,7 +80,7 @@ const dirDeBin=bin=>bin?path.join(mediaDir,...String(bin).split('/').map(fsSafeN
 let hechos=0; const total=dentro.filter(m=>m.path||m.framePaths||(m.kind==='nest'&&m.ncPath)).length;
 for(const m of dentro){
   if(m.kind==='sequence'&&m.framePaths&&m.framePaths.length){
-    const dir=path.join(dirDeBin(m.folder),fsSafeName(String(m.name||'seq').replace(/[\[\]#]/g,' ').trim()||'seq'));
+    const dir=path.join(dirDeBin(m.folder),subSecuencia(m.name));
     const nf=[]; for(const fp of m.framePaths)nf.push((await copia(fp,dir))||fp);
     m.framePaths=nf; m.relFrames=nf.map(p2=>p2.startsWith(destRoot+path.sep)?p2.slice(destRoot.length+1).split(path.sep).join('/'):null);
   }

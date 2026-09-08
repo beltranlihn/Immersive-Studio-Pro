@@ -52,6 +52,74 @@ máquina sin perder una sola referencia, con «Collect All & Save» para recoger
    lote (`avisarCopiasFallidas`, regla R327). 10. `_importFolder=null` muerto tras mover los add* a la IIFE
    → retirado con comentario del invariante nuevo.
 
+## RONDA 361 — Collect reorganiza: el disco calca los bins y nombres del panel (pedido de Vicente)
+
+Cada «Collect All & Save» deja `Media/` como un espejo del panel de Medios TAL COMO ESTÉ: mueve entre
+carpetas lo que cambió de bin, renombra archivos al nombre del panel (`nombreArchivo`: nombre saneado +
+extensión real), re-hashea y renombra el proxy que sigue a cada vídeo, y poda las carpetas que quedan
+vacías (`dsp:pruneEmptyDirs`, que trata un `.DS_Store` suelto como vacío). Sólo RENOMBRES verificados en el
+mismo volumen; nada se copia ni se borra. `subSecuencia` unifica la fórmula de subcarpeta de secuencias
+que importar y recolectar tenían distinta. Los medios de fuera entran ya con su nombre del panel.
+**Compromiso aceptado (anotado por la revisión):** renombrar archivos al recolectar rompe el rescate por
+nombre (R204) de los `.bak`/`_vNN` ANTERIORES para esos archivos — es el precio de «como lo tengo en el
+proyecto», que es lo que pidió Vicente; los guardados posteriores llevan rel/abs nuevas y no les afecta.
+
+### R361b — lo que cazó la segunda revisión (6 agentes; todo corregido y re-sondado)
+- **F1 (alto):** la fase 4 usaba `isInProj` y en un `.isp` suelto ADOPTADO habría MOVIDO los originales del
+  usuario (la carpeta de proyecto es la carpeta donde viva el archivo) → el alcance es SOLO `Media/`.
+- **F2/C1 (alto):** dos medios que comparten archivo: el segundo quedaba huérfano tras renombrar → mapa
+  `porMov` (gemelo del `porSrc` de la copia), el segundo sólo se re-apunta.
+- **F4:** renombrar es irreversible y corría ANTES del guardado que lo fija → si `saveProject` falla
+  (`state.dirty` sigue true), la mudanza entera se deshace y el disco queda como el `.isp` en disco.
+- **C2:** el buscador de sufijos trataba al PROPIO origen como «ocupado»: `clip-2 → clip-3 → clip-2` en
+  cada Collect, renombrando archivo y proxy sin fin → el origen con sufijo válido se deja quieto.
+- **B3/C3:** el proxy se seguía sólo si `proxyReady`, pero el enganche es ASÍNCRONO y posterior a
+  `_loading=false`: un Collect temprano orfanaba `px_<hashViejo>` → se decide por EXISTENCIA del archivo
+  en `Proxies/`; y un medio que ES su propio proxy (importado `.dsp-proxy`) re-apunta su `proxyUrl`.
+- **C4:** Collect con un `makeProxy` en vuelo publicaba bajo el hash viejo → guarda de entrada (cola+_pxGen).
+- **B4:** un Collect interrumpido antes de guardar re-copiaba gigas al reintentar (el destino ahora lleva
+  el nombre del panel) → se reutiliza la copia previa bajo el nombre ORIGINAL y la fase 4 la renombra gratis.
+- **B5:** el plan B de `dsp:rename` (copiar+borrar, para archivos bloqueados en Windows) dejaba un DUPLICADO
+  si el unlink fallaba → se retira la copia y se devuelve false con el disco como estaba.
+- **B1:** guardar en mitad de una importación escribía el `.isp` SIN los medios aún copiándose →
+  `_importEnCurso` y `saveProject` pregunta. Además: avance visible al copiar lotes, un aviso por lote.
+- Limpiezas de los agentes de reuso/simplicidad: `splitExt` único (estaba retipado ×4), `fsSafeName` en
+  `ripRun`/`ncBuild`, `projResolve` en el historial de recuperación (+`Promise.all`: ~900 exists en serie
+  congelaban la apertura del snapshot), fuera la marca privada `_ya`, `ensureDir` memoizado y progreso
+  acotado en la fase 4, `_collecting` armada pegada al try, y barrido de comentarios `//`→`/* */` (regla
+  de app.js). Sondas: proyecto sintético (foto renombrada en bin anidado + vídeo real con proxy generado
+  en la app) → mudanza, renombre, proxy re-hasheado y poda verificados EN DISCO; segunda pasada
+  IDEMPOTENTE (mismos inodos y mtimes, «Todo está ya recolectado y ordenado»).
+
+### R361c — tercera pasada de revisión (verificó R361b y cazó 4 más; corregidos y re-sondados)
+1. **(alto)** Archivo compartido donde el OTRO medio no necesitaba mudanza (su bin/nombre ya coincidía): no
+   entraba al plan y `porMov` no lo veía — quedaba con path muerto sin fallo listado. Tras cada renombre se
+   re-apuntan TODOS los medios que compartían ese origen (sondado: `compartenPath:true`, 0 ausentes).
+2. El compartido con proxy: `exists(pxViejo)` ya daba false (el primero lo renombró) y `proxyUrl` quedaba
+   muerto con `proxyReady=true` (clip negro) → si el px nuevo existe se re-apunta; si no, se desengancha.
+3. El rollback no restauraba `thumb` de imágenes, `el.src` ni el `proxyUrl` del medio que es su propio proxy.
+4. **(alto, R360 latente)** `replaceMedia`/«Localizar archivo…»/reenlace R204 cambiaban `m.path` sin limpiar
+   `m.rel` — y la preferencia por la rel de `reloadMedia` DEVOLVÍA el path a la copia vieja de `Media/`: un
+   reemplazo era un no-op silencioso con nombre/tamaño nuevos sobre contenido viejo. `rel=null` en los tres.
+6. El confirm de B1 dentro del `saveProject` final de Collect se leía como «escritura fallida» → rollback
+   falso; Collect ahora también se niega con `_importEnCurso`, y `saveIncremental` lleva la guarda B1.
+7. El limpiado del plan B de `dsp:rename` podía borrar contenido PREVIO del destino → solo limpia si `to` no
+   existía antes de la llamada.
+
+## RONDA 362 — Una sola espera de carga, por PROGRESO (las «tres pantallas» de Vicente)
+
+Con el Rito de 43 GB el arranque encadenaba: splash 1:1 → pantalla gris del logo (con el texto
+descolgado) → editor «esperando media» un minuto más. Causa: TRES relojes fijos — 35 s del cortafuegos de
+`bootEsperarProyecto`, 30 s de `esperarMediosArranque`, 20 s de `loadingWaitMedia` — pensados para
+proyectos chicos; un proyecto grande los agotaba y el editor se revelaba a medio cargar.
+- La espera va ahora por PROGRESO (`cargaAvanza`): mientras el nº de medios `_loading` siga bajando, la
+  pantalla se queda; sólo un cargador ATASCADO (sin un avance en 45 s) suelta por la vía de emergencia.
+- El splash cuenta el avance real (88→99 = medios hechos/total) y el `loadingOv` dice «Cargando medios…
+  n / N». El cortafuegos del boot vigila progreso cada 5 s en vez de rendirse a los 35 s (y sigue
+  cubriendo el caso real: proyecto que nunca llegó a montarse).
+- El texto descolgado: `.splashcard`/`.splashttl` sólo existen en el CSS de splash.html (la OTRA ventana);
+  el overlay del editor ahora lleva estilos en línea, centrados.
+
 ## RONDA 358 — El aviso que NO hacía falta: R357 ya lo había resuelto
 
 R353 dejó escrito que faltaba avisar antes de importar cientos de imágenes sueltas, con la cuenta de que 300

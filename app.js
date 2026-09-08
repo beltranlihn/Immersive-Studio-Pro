@@ -26,8 +26,15 @@ let _bootRevelado=false, _bootEsperandoProyecto=false;
    Esta consulta es lo primero que ocurre, así que el freno está puesto antes de que nada pueda revelar. */
 function bootEsperarProyecto(){ if(_bootRevelado)return; if(_bootEsperandoProyecto)return; _bootEsperandoProyecto=true;
   /* Último cortafuegos: pase lo que pase con el proyecto, el editor se revela. Sin esto, un fallo por un camino
-     que no previera dejaría al usuario mirando el splash para siempre — peor que las dos pantallas de antes. */
-  setTimeout(()=>{ if(_bootEsperandoProyecto){ diag('warn','boot','el proyecto no terminó de cargar: se revela el editor igualmente'); bootProyectoListo(); } }, 35000); }
+     que no previera dejaría al usuario mirando el splash para siempre — peor que las dos pantallas de antes.
+     [R362] El cortafuegos vigila PROGRESO, no un plazo fijo: un proyecto de 40 GB tarda minutos legítimos y el
+     plazo de 35 s soltaba al usuario dentro de un editor a medio cargar (las «tres pantallas» que reportó
+     Vicente). Mientras los medios sigan entrando, el splash se queda; sólo un arranque ATASCADO (sin un solo
+     avance en CARGA_STALL_MS, o sin proyecto siquiera montado a los 35 s) revela por la vía de emergencia. */
+  const vigila=()=>{ if(!_bootEsperandoProyecto)return;
+    try{ if(state.media.length&&cargaAvanza()){ setTimeout(vigila,5000); return; } }catch(e){}
+    diag('warn','boot','el proyecto no avanza: se revela el editor igualmente'); bootProyectoListo(); };
+  setTimeout(vigila, 35000); }
 /* Se PREGUNTA al proceso principal en vez de esperar su aviso: `dsp:openPath` sale en `did-finish-load` y
    llegaba DESPUES de que el editor decidiera revelarse — una carrera que perdia, y de ahi las dos pantallas
    seguidas. Esta consulta corre antes que nada, asi que el freno queda puesto (y con su cortafuegos armado). */
@@ -2898,19 +2905,19 @@ function filePath(f){ try{ return (f&&f._ispPath)||(IS_ELEC?DSP.getPathForFile(f
 async function copiarImportado(f,bin,sub){
   if(!(IS_ELEC&&state.managed&&currentPath&&DSP.copyFile&&f))return;
   const p=filePath(f); if(!p||isInProj(p))return;
-  let dir=mediaDirForBin(bin); if(!dir)return; if(sub)dir=pjoin(dir,fsSafeName(sub)); // sub = subcarpeta propia (secuencias de imagenes)
+  let dir=mediaDirForBin(bin); if(!dir)return; if(sub)dir=pjoin(dir,fsSafeName(sub)); /* sub = subcarpeta propia (secuencias de imagenes) */
   try{ let st=null; try{ st=await DSP.stat(p); }catch(e){}
     if(!st)return;
-    const base=pbase(p), stem=base.replace(/\.[^.]+$/,''), ext=(base.match(/\.[^.]+$/)||[''])[0];
+    const base=pbase(p), {stem,ext}=splitExt(base);
     for(let k=1;k<=999;k++){ const dst=pjoin(dir,(k===1)?base:(stem+'-'+k+ext));
       let ex=null; try{ ex=await DSP.stat(dst); }catch(e){}
       if(ex){ if(ex.size===st.size){ f._ispPath=dst; return; } continue; } // mismo nombre y tamano = ya esta dentro; distinto = probar sufijo
       const r=await DSP.copyFile(p,dst);
       if(!r||!r.ok||r.size!==st.size){ if(r&&r.ok)try{ await DSP.deleteFile(dst); }catch(e){}
-        _impCopiaFallos++; return; } // [R360b] UN aviso por lote (avisarCopiasFallidas), no uno por archivo: una secuencia de 500 fotogramas en un disco lleno soltaba 500 toasts (regla R327)
-      f._ispPath=dst; return; }
+        _impCopiaFallos++; return; } /* [R360b] UN aviso por lote (avisarCopiasFallidas), no uno por archivo: una secuencia de 500 fotogramas en un disco lleno soltaba 500 toasts (regla R327) */
+      f._ispPath=dst; return true; }
   }catch(e){} }
-let _impCopiaFallos=0;
+let _impCopiaFallos=0, _importEnCurso=0; /* [R361b·B1] >0 = una importacion sigue copiando/creando medios: un guardado en esa ventana escribiria el proyecto SIN ellos */
 function avisarCopiasFallidas(){ if(!_impCopiaFallos)return; const n=_impCopiaFallos; _impCopiaFallos=0;
   flashStatus(n+T(' file(s) could not be copied into the project folder — imported from their original location',' archivo(s) no se pudieron copiar a la carpeta del proyecto — importados desde su ubicacion original'),'err'); }
 let _importFolder=null; // R88: media created by the add* functions below is filed into this folder path (set per-import; captured synchronously at each add* call)
@@ -2940,11 +2947,14 @@ function importFiles(files,folder,opts){ let arr=[...files]; const dropFolder=fo
      no, sin pista de cuáles ni por qué. Se listan por nombre, que es lo único accionable. */
   /* [R360] IIFE asincrona: el importar-copiando espera cada copia ANTES de crear su medio, para que nazca ya
      apuntando dentro de la carpeta. `_importFolder` se fija por iteracion, sin await entre fijarlo y usarlo. */
-  (async()=>{ const ignorados=[];
+  (async()=>{ const ignorados=[]; _importEnCurso++;
+    try{ let nCop=0;
     for(const f of rest){ const tipo=f.type.startsWith('video')?'v':(f.type.startsWith('image')?'i':(f.type.startsWith('audio')?'a':null));
       if(!tipo){ ignorados.push(f.name||'?'); continue; }
-      await copiarImportado(f,dropFolder); const p=filePath(f); _importFolder=dropFolder;
+      if(await copiarImportado(f,dropFolder)){ nCop++; if(rest.length>3)flashStatus(T('Copying into the project… ','Copiando al proyecto… ')+nCop+' / '+rest.length); } /* [R361b] las copias de un lote grande tardan: que se vea el avance */
+      const p=filePath(f); _importFolder=dropFolder;
       if(tipo==='v')addVideo(f,p); else if(tipo==='i')addImage(f,p); else addAudio(f,p); }
+    }finally{ _importEnCurso--; }
     _importFolder=null; avisarCopiasFallidas();
     if(ignorados.length){ diag('warn','import','formato no reconocido',{n:ignorados.length,nombres:ignorados.slice(0,8)});
       flashStatus(ignorados.length+T(' file(s) not imported — format not supported: ',' archivo(s) sin importar — formato no admitido: ')+ignorados.slice(0,3).join(', ')+(ignorados.length>3?'…':''),'err'); } })();
@@ -2955,15 +2965,19 @@ function importFiles(files,folder,opts){ let arr=[...files]; const dropFolder=fo
   /* [R245b] `cb(fps, sueltas)`: el diálogo tiene ahora una tercera salida — «Como imágenes sueltas», que importa
      el grupo como clips en vez de como un vídeo. Antes sólo cabía aceptar (se convertían en un vídeo) o cancelar
      (no entraba NADA), y con imágenes numeradas que no son secuencia no había salida buena. */
-  if(seqGroups.length){ askSeqFps(seqGroups, async(fps,sueltas)=>{
+  if(seqGroups.length){ askSeqFps(seqGroups, async(fps,sueltas)=>{ _importEnCurso++;
+    try{
     /* [R360] copiar ANTES de crear los medios: una secuencia va a su subcarpeta propia (cientos de fotogramas
        sueltos en Media/ no son un orden); las imagenes sueltas, directas al bin */
-    if(sueltas){ for(const g of seqGroups)for(const x of g)await copiarImportado(x.f,dropFolder); }
-    else for(const g of seqGroups){ const sub=String(g[0].f.name||'seq').replace(/\d+(\.[^.]+)$/,'').replace(/[.\s_-]+$/,'')||'seq';
-      for(const x of g)await copiarImportado(x.f,dropFolder,sub); }
+    { let nCop=0; const nTot=seqGroups.reduce((s,g)=>s+g.length,0);
+      const prog=()=>{ if(nTot>3&&(++nCop)%10===0)flashStatus(T('Copying into the project… ','Copiando al proyecto… ')+nCop+' / '+nTot); };
+      if(sueltas){ for(const g of seqGroups)for(const x of g){ if(await copiarImportado(x.f,dropFolder))prog(); } }
+      else for(const g of seqGroups){ const sub=subSecuencia(String(g[0].f.name||'seq').replace(/\d+(\.[^.]+)$/,'###$1')+' ['+g.length+'f]'); /* [R361] el MISMO nombre que addSequence le pondra al medio → la reorganizacion no tendra que mover nada */
+        for(const x of g){ if(await copiarImportado(x.f,dropFolder,sub))prog(); } } }
     _importFolder=dropFolder;
     if(sueltas){ for(const g of seqGroups) for(const x of g) addImage(x.f, filePath(x.f)); }
     else for(const g of seqGroups) addSequence(g.map(x=>x.f), g[0].f.name, fps);
+    }finally{ _importEnCurso--; }
     _importFolder=null; avisarCopiasFallidas(); }); }
   /* [R245b] Se pidió «Importar secuencia de imágenes…» y no había ninguna agrupable (hacen falta 3 o más con el
      mismo prefijo y extensión, numeradas). Entraron como imágenes sueltas, que es lo correcto — pero en silencio
@@ -3313,6 +3327,10 @@ function pjoin(...partes){ return partes.filter(p=>p!=null&&p!=='').join(PSEP); 
 function stripBom(t){ return (t&&t.charCodeAt(0)===0xFEFF)?t.slice(1):t; }
 function pdir(p){ const i=Math.max(String(p||'').lastIndexOf('\\'),String(p||'').lastIndexOf('/')); return i<0?'':String(p).slice(0,i); }
 function pbase(p){ const i=Math.max(String(p||'').lastIndexOf('\\'),String(p||'').lastIndexOf('/')); return String(p||'').slice(i+1); }
+/* [R361b] UNA sola definicion de "tallo + extension" — estaba retipada en cuatro sitios y un arreglo futuro
+   (p. ej. nombres con punto inicial) tendria que replicarse exacto o Importar/Recolectar/Reorganizar
+   discreparian en que sufijo -N le toca a un archivo. `i>0`: un ".DS_Store" es tallo, no extension. */
+function splitExt(b){ b=String(b||''); const i=b.lastIndexOf('.'); return (i>0)?{stem:b.slice(0,i),ext:b.slice(i)}:{stem:b,ext:''}; }
 
 /* ===================== [R360] PROYECTO-CARPETA (estilo Ableton/Unreal) =====================
    Un proyecto "gestionado" (state.managed) vive en su propia carpeta: `<Nombre>/<Nombre>.isp` +
@@ -3332,6 +3350,17 @@ function isInProj(p){ return projRel(p)!=null; }
 function fsSafeName(s){ return String(s||'').replace(/[\\/:*?"<>|]/g,'_').replace(/\s+$/,'').slice(0,120)||'_'; }
 /* carpeta de disco que corresponde a un bin del panel de Medios (bin = ruta con FSEP) */
 function mediaDirForBin(bin){ const md=projMediaDir(); if(!md)return null; if(!bin)return md; return pjoin(md,...String(bin).split(FSEP).map(fsSafeName)); }
+/* [R361] nombre de ARCHIVO esperado para un medio: el nombre del panel (saneado) + la extension real del
+   archivo. Si el nombre del panel ya termina en esa extension (los importados nacen asi), no se duplica. */
+function nombreArchivo(m){ const ext=splitExt(pbase(m.path||'')).ext;
+  let stem=String(m.name||'').trim();
+  if(ext&&stem.toLowerCase().endsWith(ext.toLowerCase()))stem=stem.slice(0,-ext.length);
+  stem=fsSafeName(stem.trim()); if(!stem||stem==='_')stem=splitExt(pbase(m.path||'')).stem||'medio'; /* fsSafeName('') devuelve '_': un nombre en blanco cae al tallo del archivo, no a '_.ext' */
+  return stem+ext; }
+/* [R361] subcarpeta propia de una secuencia de imagenes dentro de su bin (una sola formula para importar,
+   recolectar y reorganizar — antes importar y recolectar usaban dos distintas y la misma secuencia podia
+   acabar en dos carpetas segun por donde entrara) */
+function subSecuencia(nombre){ return fsSafeName(String(nombre||'seq').replace(/\s*\[\d+f\]\s*$/i,'').replace(/#+/g,'').replace(/\.[a-z0-9]{2,4}\s*$/i,'').replace(/[.\s_-]+$/,'').trim())||'seq'; } /* 'toma_###.png [120f]' → 'toma' */
 const PMAX=960,PMBPS=12,proxyQ=[]; let proxyBusy=false;
 let _proxyDir=null; if(IS_ELEC&&DSP.proxyDir){ try{ DSP.proxyDir().then(d=>{_proxyDir=d||null;}); }catch(e){} }
 function proxyHash(s){ let h=5381; for(let i=0;i<s.length;i++)h=((h<<5)+h+s.charCodeAt(i))>>>0; return h.toString(36); }
@@ -3760,7 +3789,7 @@ function openMediaCtx(e,m){ e.preventDefault(); const seq=isSeqMedia(m); const i
      de la misma condición que impide generarlo. */
   if(seq&&IS_ELEC&&m.ncPath) items.push({label:T('Remove nest proxy','Quitar proxy de composición'),ico:'trash',fn:()=>{ ncDetach(m,true); flashStatus(T('Nest proxy removed','Proxy de composición eliminado')); }});
   if(IS_ELEC && (m.kind==='video'||m.kind==='audio'||m.kind==='image')) items.push({label:T('Replace media…','Reemplazar medio…'),fn:()=>replaceMedia(m)});
-  if(m.missing&&IS_ELEC) items.push({label:T('Locate file…','Localizar archivo…'),ico:'upload',fn:async()=>{ try{ const p=await DSP.pickMedia(); if(p){ m.path=p; await reloadMedia(m); flashStatus(T('Media re-linked','Medio re-vinculado')); } }catch(e){} }});
+  if(m.missing&&IS_ELEC) items.push({label:T('Locate file…','Localizar archivo…'),ico:'upload',fn:async()=>{ try{ const p=await DSP.pickMedia(); if(p){ m.path=p; m.rel=null; /* [R361c·#4] reenlace MANUAL: la rel vieja no puede volver a mandar */ await reloadMedia(m); flashStatus(T('Media re-linked','Medio re-vinculado')); } }catch(e){} }});
   if(state.folders.length){ items.push('sep'); const tgt=()=>selectedMediaIds().includes(m.id)?selectedMediaIds():[m.id]; // move the whole multi-selection (R88 audit) + undo/dirty via moveMediaTo
     for(const f of state.folders) items.push({label:(m.folder===f?'✓ ':'')+T('Move to: ','Mover a: ')+f,fn:()=>moveMediaTo(tgt(),f)});
     if(m.folder)items.push({label:T('Remove from folder','Quitar de carpeta'),fn:()=>moveMediaTo(tgt(),null)}); }
@@ -4522,15 +4551,17 @@ function lchShowing(){ return !!document.getElementById('landingOv'); } // [R220
 let _loadingOv=null,_loadingStop=null,_loadingPoll=0,_loadingLoops=0;
 const LOADING_MIN_LOOPS=2; // [R134] the logo loop plays at least twice before the project is revealed
 function showLoadingScreen(msg){ if(_loadingOv)return; _loadingLoops=0; const ov=document.createElement('div'); ov.id='loadingOv'; ov.className='overlay'; ov.style.background='#0E0F11'; ov.style.zIndex='340';
-  ov.innerHTML=`<div class="splashcard"><img class="splashlogo" width="128" height="128" alt=""><div id="ldMsg" class="splashttl">${msg||T('Loading…','Cargando…')}</div></div>`;
+  /* [R362] estilos EN LINEA: `.splashcard`/`.splashttl` solo existen en el CSS de splash.html (la OTRA ventana);
+     aqui no habia regla alguna y el texto salia descolgado a la izquierda del logo — lo que reporto Vicente */
+  ov.innerHTML=`<div style="display:flex;flex-direction:column;align-items:center;gap:18px;"><img class="splashlogo" width="128" height="128" alt=""><div id="ldMsg" style="font:500 12.5px Geist,sans-serif;color:var(--ink-2);letter-spacing:.04em;text-align:center;min-height:16px;">${msg||T('Loading…','Cargando…')}</div></div>`;
   document.body.appendChild(ov); _loadingOv=ov; _loadingStop=startLogoLoop(ov.querySelector('.splashlogo'),30,()=>{ _loadingLoops++; }); }
 function setLoadingMsg(m){ if(_loadingOv){ const e=_loadingOv.querySelector('#ldMsg'); if(e)e.textContent=m; } }
 function hideLoadingScreen(){ if(_loadingPoll){clearTimeout(_loadingPoll);_loadingPoll=0;} if(_loadingStop){_loadingStop();_loadingStop=null;} if(_loadingOv){_loadingOv.remove();_loadingOv=null;} }
-function loadingWaitMedia(deadline){ if(!_loadingOv)return; const anyLoading=state.media.some(m=>m._loading&&!m.missing); const proxying=state.media.some(m=>m._pxGen||(m.proxyPct>0&&!m.proxyReady));
-  const loopsDone=_loadingLoops>=LOADING_MIN_LOOPS; // [R134] hold the splash until the loop has run twice AND media/proxies are ready (or the deadline)
-  if((!anyLoading&&!proxying&&loopsDone)||Date.now()>deadline){ hideLoadingScreen(); return; }
-  setLoadingMsg((anyLoading||proxying)?(proxying?T('Buffering proxies…','Cargando proxys…'):T('Loading media…','Cargando medios…')):T('Loading…','Cargando…'));
-  _loadingPoll=setTimeout(()=>loadingWaitMedia(deadline),200); }
+function loadingWaitMedia(){ if(!_loadingOv)return; const anyLoading=state.media.some(m=>m._loading); /* [R362b] `_loading` a secas — ver esperarMediosArranque: con `&&!m.missing` esta espera era casi vacia y la pantalla se iba con el proyecto a medio cargar */ const proxying=state.media.some(m=>m._pxGen||(m.proxyPct>0&&!m.proxyReady));
+  const loopsDone=_loadingLoops>=LOADING_MIN_LOOPS; /* [R134] hold the splash until the loop has run twice AND media/proxies are ready */
+  if((!anyLoading&&!proxying&&loopsDone)||!cargaAvanza()){ hideLoadingScreen(); return; } /* [R362] por PROGRESO, no por plazo: el de 20 s soltaba un proyecto grande a medio cargar */
+  { const r=cargaResumen(); setLoadingMsg(anyLoading?(T('Loading media… ','Cargando medios… ')+r.hechos+' / '+r.tot):(proxying?T('Buffering proxies…','Cargando proxys…'):T('Loading…','Cargando…'))); }
+  _loadingPoll=setTimeout(()=>loadingWaitMedia(),200); }
 /* [R312·A5] alias del canonico `esc`. Este cubria solo & " < — le faltaban `>` y `'`, asi que un valor de
    atributo entre comillas simples se escapaba de su propio atributo. Se conserva el nombre por sus llamadores. */
 function escAttr(s){ return esc(s); }
@@ -10486,8 +10517,8 @@ async function ripRun({name,a,b,isolateClips,isNest,laneName,aboveLane}){
   const opts=await ripCodecOptions(eW,eH,fps);
   const choice=await ripFormatDialog(name,dur,eW,eH,fps,flat,opts,isNest); if(!choice)return;
   const projDir=pdir(currentPath), dir=pjoin(projDir,'rendered clips');
-  if(DSP.ensureDir&&!(await DSP.ensureDir(dir))){ appAlert(T('Could not create the “rendered clips” folder.','No se pudo crear la carpeta “rendered clips”.')); return; } // [R360b] mismo arreglo que en ncBuild: ensureDir devuelve false, no lanza
-  const safe=(name||'clip').replace(/[\\/:*?"<>|]/g,'_').slice(0,60);
+  if(DSP.ensureDir&&!(await DSP.ensureDir(dir))){ appAlert(T('Could not create the “rendered clips” folder.','No se pudo crear la carpeta “rendered clips”.')); return; } /* [R360b] mismo arreglo que en ncBuild: ensureDir devuelve false, no lanza */
+  const safe=fsSafeName(name||'clip').slice(0,60); /* [R361b] la regla de saneado vive en UN sitio (fsSafeName quita ademas espacios finales, que Windows rechaza) */
   const dimStr=flat?(eW+'x'+eH):(eW+'');
   const outPath=pjoin(dir, safe+' ['+dimStr+' '+choice.kind+'] '+String(uid()).padStart(4,'0')+'.mp4'); // [R179] uid() is a NUMBER (let _id=1; ()=>_id++). The old `uid().slice(0,5)` threw a TypeError right here, before a single frame was rendered — which is exactly why render-in-place looked like it did nothing at all.
   const ui=ripProgress(T('Rendering in place','Renderizando en el sitio'), dimStr.replace('x','×')+' · '+choice.label+' · '+Math.round(choice.bitrate/1e6)+' Mbps · '+fps+' fps', flat?(eW/eH):1);
@@ -10586,8 +10617,8 @@ async function ncBuild(m){
   let codF=cod; try{ const c2=await ripCodecOptions(choice.s,choice.s,fps); if(c2&&c2.length)codF=c2[0]; }catch(e){}
   const bitrate=ncBitrate(choice.s,choice.s,fps);
   const dir=state.managed?projProxiesDir():(pdir(currentPath)+PSEP+'nest proxies'); /* [R360] en un proyecto-carpeta TODOS los proxies van a Proxies/; el modo suelto conserva su "nest proxies" de siempre */ // [R242·Aud-4.3] PSEP, no '\\': la familia R204 tenía aquí sus dos últimos supervivientes (en macOS creaban archivos con la barra DENTRO del nombre)
-  if(DSP.ensureDir&&!(await DSP.ensureDir(dir))){ appAlert(T('Could not create the proxies folder.','No se pudo crear la carpeta de proxies.')); return; } // [R360b] ensureDir devuelve false, no lanza: el catch de antes era inalcanzable y el horneado seguia hacia una escritura rota
-  const safe=(m.name||'nest').replace(/[\\/:*?"<>|]/g,'_').slice(0,50);
+  if(DSP.ensureDir&&!(await DSP.ensureDir(dir))){ appAlert(T('Could not create the proxies folder.','No se pudo crear la carpeta de proxies.')); return; } /* [R360b] ensureDir devuelve false, no lanza: el catch de antes era inalcanzable y el horneado seguia hacia una escritura rota */
+  const safe=fsSafeName(m.name||'nest').slice(0,50); /* [R361b] idem: una sola regla de saneado */
   const outPath=dir+PSEP+safe+' ['+choice.w+'x'+choice.h+'] '+String(uid()).padStart(4,'0')+'.mp4'; // nombre nuevo cada vez: sobrescribir el que está enlazado a un <video> vivo falla en Windows · [R242·Aud-4.3] PSEP
   const old=m.ncPath;
   const ui=ripProgress(T('Nest proxy','Proxy de composición'), (m.name||'').slice(0,22)+' · '+choice.w+'×'+choice.h+' · '+cod.label+' · '+fps+' fps', 1);
@@ -12289,12 +12320,16 @@ async function armarCarpetaProyecto(p){ if(!IS_ELEC||!DSP.ensureDir)return p;
       if(ex){ const ok=await new Promise(res=>appConfirm(T('The folder "','La carpeta "')+pbase(root)+T('" already contains a project with this name. Overwrite it?','" ya contiene un proyecto con este nombre. ¿Sobrescribirlo?'),res,{ok:T('Overwrite','Sobrescribir'),danger:true}));
         if(!ok)return null; } }
     const okM=await DSP.ensureDir(pjoin(root,'Media')), okP=await DSP.ensureDir(pjoin(root,'Proxies'));
-    if(!okM||!okP)return p; // sin carpeta no hay modo gestionado: se guarda suelto, como siempre
+    if(!okM||!okP)return p; /* sin carpeta no hay modo gestionado: se guarda suelto, como siempre */
     state.managed=true;
     if(root!==dir)flashStatus(T('Project folder created: ','Carpeta de proyecto creada: ')+pbase(root));
     return interno;
   }catch(e){ return p; } }
 async function saveProject(saveAs){
+  /* [R361b·B1] Guardar en mitad de una importacion escribiria el proyecto SIN los medios que aun se estan
+     copiando/creando (y si el usuario cierra en esa ventana, se pierden del .isp). Se pregunta, no se prohibe. */
+  if(_importEnCurso>0){ const seguir=await new Promise(res=>appConfirm(T('An import is still copying files — media not yet imported will NOT be in this save. Save anyway?','Una importacion sigue copiando archivos — los medios que aun no entraron NO quedaran en este guardado. ¿Guardar igual?'),res,{ok:T('Save anyway','Guardar igual')}));
+    if(!seguir)return; }
   if(IS_ELEC){ const _mgAntes=state.managed; let p=currentPath; if(saveAs||!p){ p=await DSP.saveDialog(p||((currentTitle()==='Untitled project'?T('untitled','proyecto'):currentTitle())+'.isp')); if(!p)return; p=await armarCarpetaProyecto(p); if(!p)return; }
     /* [R360] serializar DESPUES de conocer la ruta final: `rel`/`relFrames`/`ncRel` se calculan contra la
        carpeta del `.isp` (via `currentPath`), asi que con la ruta vieja saldrian relativas al sitio equivocado. */
@@ -12318,18 +12353,17 @@ async function saveProject(saveAs){
 let _collecting=false;
 async function collectProject(){
   if(!IS_ELEC||!DSP.copyFile){ appAlert(T('Collect All & Save needs the desktop app.','Recolectar todo y guardar necesita la app de escritorio.')); return; }
-  if(_collecting)return;
+  if(_collecting||document.getElementById('collectOv'))return; /* [R361b] el overlay tambien cuenta como "en marcha": la bandera se arma recien en el try */
   if(state.playing)pause();
   /* [R360b] Con medios AUN CARGANDO no se recolecta: nacen con missing:true hasta que reloadMedia los resuelve,
      y el plan no sabria distinguir "ausente de verdad" de "todavia no leido" — se saltaria material en silencio
      y el guardado final lo fijaria como recolectado. Mismo criterio missing&&!_loading que usa el resto (R204). */
-  if(state.media.some(m=>m._loading)){ appAlert(T('Some media are still loading. Wait for them to finish and run Collect again.','Aun hay medios cargandose. Espera a que terminen y vuelve a lanzar la recoleccion.')); return; }
-  if(!currentPath){ await saveProject(true); if(!currentPath)return; } // primero hace falta una carpeta donde recolectar
+  if(state.media.some(m=>m._loading)||proxyQ.length||state.media.some(m=>m._pxGen)||_importEnCurso>0){ appAlert(T('Some media are still loading, importing, or a proxy is being generated. Wait for them to finish and run Collect again.','Aun hay medios cargandose o importandose, o un proxy generandose. Espera a que terminen y vuelve a lanzar la recoleccion.')); return; } /* [R361c·#6] la importacion en curso tambien: sus medios aun no existen (no hay _loading que verlos) y ademas el confirm de B1 dentro del saveProject final se leia como "escritura fallida" y disparaba un rollback falso */ /* [R361b·C4] un makeProxy en vuelo publica bajo el hash del nombre VIEJO si la reorganizacion le renombra el origen debajo: el proxy quedaria huerfano en Proxies/ para siempre */
+  if(!currentPath){ await saveProject(true); if(!currentPath)return; } /* primero hace falta una carpeta donde recolectar */
   const md=projMediaDir(), pxd=projProxiesDir();
   { const okM=await DSP.ensureDir(md), okP=await DSP.ensureDir(pxd);
     if(!okM||!okP){ appAlert(T('Could not create the Media/Proxies folders next to the project.','No se pudieron crear las carpetas Media/Proxies junto al proyecto.')); return; } }
   state.managed=true; saveActiveSeq();
-  _collecting=true;
   const ov=document.createElement('div'); ov.className='overlay'; ov.id='collectOv';
   ov.innerHTML='<div class="modal" style="width:430px;padding:16px 18px;">'
     +'<div class="mh" style="padding:0 0 10px;border:none;"><span style="color:var(--ink-2);display:flex;">'+ICO('save',16)+'</span><span class="t">'+T('Collect All & Save','Recolectar todo y guardar')+'</span></div>'
@@ -12337,13 +12371,14 @@ async function collectProject(){
     +'<div style="height:4px;background:var(--s1);border-radius:2px;overflow:hidden;"><div id="colBar" style="height:100%;width:0%;background:var(--ink-2);"></div></div></div>';
   document.body.appendChild(ov);
   const setProg=(i,n,txt)=>{ try{ $('#colTxt').textContent=(i+1)+' / '+n+'  ·  '+txt; $('#colBar').style.width=Math.round(100*(i+1)/Math.max(1,n))+'%'; }catch(e){} };
+  _collecting=true; /* [R361b] la bandera se arma pegada al try: armada antes, un fallo montando el overlay la dejaba clavada en true y Collect muerto para toda la sesion */
   try{
     // 1) PLAN — todo lo referenciado que viva fuera de la carpeta
     const jobs=[];
     for(const m of state.media){
       if(m.kind==='sequence'&&m.framePaths&&m.framePaths.length){
         if(!m.framePaths.some(fp=>fp&&!isInProj(fp)))continue;
-        const dir=pjoin(mediaDirForBin(m.folder),fsSafeName(String(m.name||'seq').replace(/[\[\]#]/g,' ').trim()||'seq'));
+        const dir=pjoin(mediaDirForBin(m.folder),subSecuencia(m.name)); /* [R361] misma formula que importar y reorganizar */
         m.framePaths.forEach((fp,i)=>{ if(fp&&!isInProj(fp))jobs.push({tipo:'frame',m,i,src:fp,dir}); });
         continue; }
       if((m.kind==='video'||m.kind==='image'||m.kind==='audio')&&m.path&&!isInProj(m.path))
@@ -12354,12 +12389,12 @@ async function collectProject(){
     const lutMap=new Map(); const scanL=cs=>{ for(const c of (cs||[]))if(c&&c.props&&c.props.lut&&!isInProj(c.props.lut))lutMap.set(c.props.lut,null); };
     scanL(state.clips); for(const m of state.media)if(m.kind==='nest')scanL(m.nestClips);
     for(const src of lutMap.keys())jobs.push({tipo:'lut',src,dir:pjoin(md,'_LUTs')});
-    if(!jobs.length){ ov.remove(); _collecting=false; markDirty(); await saveProject(false); flashStatus(T('Everything already lives inside the project folder','Todo vive ya dentro de la carpeta del proyecto')); return; }
+    // sin retorno temprano aunque no haya nada que COPIAR: la fase 4 puede tener que REORGANIZAR igualmente [R361]
     // 2) EJECUCION — copia verificada, secuencial (los medios pesan GB: en paralelo se pisan el disco)
-    const taken=new Map(); const porSrc=new Map(); const fallos=[]; let copiados=0,reusados=0,bytes=0; // [R360b] porSrc: dos medios que comparten ARCHIVO no lo copian dos veces (mismo mapa que el script offline)
+    const taken=new Map(); const porSrc=new Map(); const fallos=[]; let copiados=0,reusados=0,bytes=0; /* [R360b] porSrc: dos medios que comparten ARCHIVO no lo copian dos veces (mismo mapa que el script offline) */
     /* destino libre (o reutilizable: mismo nombre y MISMO tamano = ya recolectado antes). Dos origenes distintos
        con el mismo nombre no se pisan: el segundo sale con sufijo -2 (mismo criterio de homonimos que R325/R326). */
-    const unico=async(dir,base,srcSize,src)=>{ const stem=base.replace(/\.[^.]+$/,''), ext=(base.match(/\.[^.]+$/)||[''])[0];
+    const unico=async(dir,base,srcSize,src)=>{ const {stem,ext}=splitExt(base);
       for(let k=1;k<=999;k++){ const dst=pjoin(dir,(k===1)?base:(stem+'-'+k+ext)), key=dst.toLowerCase();
         if(taken.has(key))continue;
         let st=null; try{ st=await DSP.stat(dst); }catch(e){}
@@ -12369,14 +12404,22 @@ async function collectProject(){
     for(let i=0;i<jobs.length;i++){ const j=jobs[i]; setProg(i,jobs.length,pbase(j.src));
       let st=null; try{ st=await DSP.stat(j.src); }catch(e){}
       if(!st){ fallos.push(pbase(j.src)+' — '+T('source not found','origen ausente')); continue; }
+      const baseDest=(j.tipo==='media')?nombreArchivo(j.m):pbase(j.src); /* [R361] los medios entran ya con su nombre del panel: la reorganizacion no tiene que retocarlos */
       const ya=porSrc.get(String(j.src).toLowerCase());
-      const u=ya?{dst:ya,copiar:false,_ya:true}:await unico(j.dir,pbase(j.src),st.size,j.src);
+      let u=ya?{dst:ya,copiar:false}:null;
+      /* [R361b·B4] idempotencia entre ejecuciones: una recoleccion anterior (o la migracion offline) pudo dejar
+         la copia bajo el NOMBRE ORIGINAL del archivo; si esta ahi con el mismo tamano se REUTILIZA (la fase de
+         reorganizacion la renombrara gratis) en vez de volver a copiar gigas. */
+      if(!u&&baseDest!==pbase(j.src)){ const cand0=pjoin(j.dir,pbase(j.src)), k0=cand0.toLowerCase();
+        if(!taken.has(k0)){ let e0=null; try{ e0=await DSP.stat(cand0); }catch(e){}
+          if(e0&&e0.size===st.size){ taken.set(k0,j.src); u={dst:cand0,copiar:false}; } } }
+      if(!u)u=await unico(j.dir,baseDest,st.size,j.src);
       if(!u){ fallos.push(pbase(j.src)); continue; }
       if(u.copiar){ const r=await DSP.copyFile(j.src,u.dst);
         if(!r||!r.ok||r.size!==st.size){ fallos.push(pbase(j.src)); if(r&&r.ok)try{ await DSP.deleteFile(u.dst); }catch(e){} continue; } // una copia a medias no se queda haciendose pasar por el archivo
         copiados++; bytes+=st.size; }
-      else if(!u._ya)reusados++;
-      porSrc.set(String(j.src).toLowerCase(),u.dst); // [R360b] mismo origen ⇒ mismo destino, sin segunda copia
+      else if(!ya)reusados++; /* [R361b] `ya` sigue en alcance: fuera la marca privada `_ya` */
+      porSrc.set(String(j.src).toLowerCase(),u.dst); /* [R360b] mismo origen ⇒ mismo destino, sin segunda copia */
       if(j.tipo==='media'){ j.m.path=u.dst; j.m.fsize=st.size;
         /* el proxy ya generado viaja tambien: a Proxies/, con el nombre-hash de la identidad NUEVA (nombre|tamano).
            [R360b] SOLO si esta ENGANCHADO (proxyReady): un proxyPath suelto puede ser el del material de ANTES de
@@ -12392,10 +12435,108 @@ async function collectProject(){
     // 3) re-apuntar las LUTs de TODOS los clips (primer nivel + cada secuencia)
     const reL=cs=>{ for(const c of (cs||[]))if(c&&c.props&&c.props.lut&&lutMap.get(c.props.lut))c.props.lut=lutMap.get(c.props.lut); };
     reL(state.clips); for(const m of state.media)if(m.kind==='nest')reL(m.nestClips);
+    /* 4) [R361] REORGANIZACION INTERNA: el disco vuelve a calcar los bins y los NOMBRES del panel tal como
+       esten AHORA. Solo RENOMBRES dentro del mismo volumen (DSP.rename) — nada se copia ni se borra; un
+       renombre fallido deja el archivo donde estaba y se lista. El plan se arma DESPUES de la fase de copia,
+       para que lo recien entrado (que ya aterriza en su sitio con su nombre) no se toque dos veces.
+       [R361b·F1] El alcance es `Media/` — NUNCA `isInProj`: un `.isp` suelto ADOPTADO tiene por carpeta de
+       proyecto la carpeta donde viva (un escritorio, un disco de brutos compartido), y con `isInProj` esta fase
+       habria MOVIDO los originales del usuario a `Media/`, contra el contrato de cabecera. Solo se reordena lo
+       que ya vive bajo `Media/`, que es exactamente lo que la recoleccion (o la migracion) coloco alli. */
+    let movidos=0; const hechosMov=[];
+    { const raizMedia=md+PSEP, enMedia=p=>!!p&&String(p).toLowerCase().indexOf(raizMedia.toLowerCase())===0;
+      const porMov=new Map(); /* [R361b·F2] origen→destino ya movido: dos medios que COMPARTEN archivo no lo mueven dos veces — el segundo solo se re-apunta (la fase de copia tiene su gemelo `porSrc`) */
+      const dirsOk=new Set(); /* [R361b] ensureDir UNA vez por carpeta, no una por fotograma */
+      const movs=[];
+      for(const m of state.media){
+        if(m._loading)continue;
+        if(m.kind==='sequence'&&m.framePaths&&m.framePaths.length){
+          const dir=pjoin(mediaDirForBin(m.folder),subSecuencia(m.name));
+          m.framePaths.forEach((fp,i)=>{ if(enMedia(fp)&&pdir(fp)!==dir)movs.push({tipo:'frame',m,i,src:fp,dir,base:pbase(fp)}); });
+          continue; }
+        if((m.kind==='video'||m.kind==='image'||m.kind==='audio')&&m.path&&!m.missing&&enMedia(m.path)){
+          const dir=mediaDirForBin(m.folder), base=nombreArchivo(m);
+          if(pdir(m.path)!==dir||pbase(m.path)!==base)movs.push({tipo:'media',m,src:m.path,dir,base}); } }
+      const aplicar=async(j,dst)=>{ if(j.tipo==='frame'){ j.m.framePaths[j.i]=dst; return; }
+        /* el proxy sigue a su medio: su nombre-hash depende de nombre|tamaño, asi que un renombre lo cambia.
+           [R361b·B3] Se decide por EXISTENCIA DEL ARCHIVO en Proxies/, no por `proxyReady`: el enganche es
+           asincrono y posterior a `_loading=false`, asi que un Collect temprano renombraria el video con el
+           proxy aun sin enganchar y el archivo px_<hashViejo> quedaria huerfano para siempre. */
+        const pxAntes=(j.m.kind==='video')?proxyProjPath(j.m):null; /* hash de la identidad VIEJA (antes de tocar path) */
+        j.m.path=dst;
+        try{ if(j.m.kind==='video'){ j.m.srcUrl=DSP.toFileURL(dst); if(j.m.el)j.m.el.src=j.m.srcUrl; if(j.m.originalEl&&j.m.originalEl!==j.m.el)j.m.originalEl.src=j.m.srcUrl;
+          if(j.m.proxyReady&&!j.m.proxyPath)j.m.proxyUrl=j.m.srcUrl; /* [R361b·C3] un medio que ES su propio proxy (importado .dsp-proxy) sigue al srcUrl nuevo */ } }catch(e){}
+        try{ if(j.m.kind==='image')j.m.thumb=DSP.toFileURL(dst); }catch(e){}
+        if(pxAntes){ const pxNuevo=proxyProjPath(j.m);
+          if(pxNuevo&&pxNuevo!==pxAntes){ let exPx=false; try{ exPx=await DSP.exists(pxAntes); }catch(e){}
+            if(exPx&&await DSP.rename(pxAntes,pxNuevo)){
+              if(j.m.proxyPath===pxAntes){ j.m.proxyPath=pxNuevo; try{ j.m.proxyUrl=DSP.toFileURL(pxNuevo); }catch(e){} }
+              hechosMov[hechosMov.length-1].px=[pxAntes,pxNuevo]; }
+            /* [R361c·#2] el px viejo ya no existe porque OTRO medio que comparte el archivo lo renombro antes
+               (mismo hash nombre|tamaño): re-apuntar a pxNuevo si esta ahi — si no, proxyUrl quedaba muerto
+               con proxyReady=true y _vinstUrl servia un file:// inexistente (clip negro) */
+            else if(!exPx&&j.m.proxyPath===pxAntes){ let exN=false; try{ exN=await DSP.exists(pxNuevo); }catch(e){}
+              if(exN){ j.m.proxyPath=pxNuevo; try{ j.m.proxyUrl=DSP.toFileURL(pxNuevo); }catch(e){} }
+              else { j.m.proxyReady=false; j.m.proxyPath=null; j.m.proxyUrl=null; } } } } };
+      for(let i=0;i<movs.length;i++){ const j=movs[i];
+        if(movs.length<80||i%10===0||i===movs.length-1)setProg(i,movs.length,'⇄ '+pbase(j.src));
+        const ya=porMov.get(String(j.src).toLowerCase());
+        if(ya){ hechosMov.push({j,src:j.src,dst:ya,compartido:true}); await aplicar(j,ya); continue; }
+        let st=null; try{ st=await DSP.stat(j.src); }catch(e){}
+        if(!st){ fallos.push(pbase(j.src)+' — '+T('source not found','origen ausente')); continue; }
+        if(!dirsOk.has(j.dir)){ if(!(await DSP.ensureDir(j.dir))){ fallos.push(pbase(j.src)); continue; } dirsOk.add(j.dir); }
+        let dst=pjoin(j.dir,j.base);
+        if(dst===j.src)continue;
+        /* destino LIBRE de verdad (rename pisa sin avisar): homonimos distintos salen con sufijo -2. El caso
+           "solo cambia mayusculas/minusculas" (FS insensible de macOS) se renombra directo: el stat del destino
+           encontraria al PROPIO origen y el sufijo seria un falso homonimo. */
+        if(dst.toLowerCase()!==j.src.toLowerCase()){
+          const px2=splitExt(j.base); let libre=null,yaBien=false;
+          for(let k=1;k<=999;k++){ const cand=pjoin(j.dir,(k===1)?j.base:(px2.stem+'-'+k+px2.ext));
+            if(cand===j.src){ yaBien=true; break; } /* [R361b·C2] el propio origen ya lleva un sufijo valido del mismo tallo: dejarlo quieto — tratarlo como "ocupado" hacia oscilar clip-2→clip-3→clip-2 en cada Collect, renombrando archivo y proxy sin fin */
+            let ex=null; try{ ex=await DSP.stat(cand); }catch(e){}
+            if(!ex){ libre=cand; break; } }
+          if(yaBien)continue;
+          if(!libre){ fallos.push(pbase(j.src)); continue; }
+          dst=libre; }
+        const ok=await DSP.rename(j.src,dst);
+        let st2=null; try{ st2=await DSP.stat(dst); }catch(e){}
+        if(!ok||!st2||st2.size!==st.size){ fallos.push(pbase(j.src)+' — '+T('could not be moved','no se pudo mover')); continue; }
+        movidos++; porMov.set(String(j.src).toLowerCase(),dst); hechosMov.push({j,src:j.src,dst});
+        await aplicar(j,dst);
+        /* [R361c·#1] OTROS medios que comparten este archivo y NO estan en el plan (su bin/nombre ya coincidia
+           con donde estaba): sin esto, la mudanza les dejaba path/srcUrl/rel apuntando a un archivo que ya no
+           existe, sin fallo listado, y el guardado fijaba la ruta muerta en el .isp. Se re-apuntan igual. */
+        for(const mo of state.media){ if(mo===j.m||mo._loading)continue;
+          if((mo.kind==='video'||mo.kind==='image'||mo.kind==='audio')&&mo.path===j.src){
+            hechosMov.push({j:{tipo:'media',m:mo},src:j.src,dst,compartido:true});
+            await aplicar({tipo:'media',m:mo},dst); } } }
+      if(movidos){ try{ disposeAllVinst(); }catch(e){} try{ raInvalidate(); }catch(e){} renderMedia(); } }
     ov.remove(); _collecting=false;
-    markDirty(); await saveProject(false); // el guardado es lo que FIJA las rutas nuevas (y escribe rel/relFrames/ncRel)
+    markDirty(); await saveProject(false); /* el guardado es lo que FIJA las rutas nuevas (y escribe rel/relFrames/ncRel) */
+    /* [R361b·F4] El renombre es mutacion IRREVERSIBLE del disco y corria antes del guardado que lo fija: si ese
+       guardado falla (disco lleno — justo el escenario del propio mensaje de error), el `.isp` en disco y su
+       `.bak` siguen con las rutas viejas de archivos que YA no estan alli. Se DESHACE la mudanza entera
+       (renombres a la inversa, campos y proxies restaurados) y el proyecto queda coherente con lo guardado. */
+    if(state.dirty&&hechosMov.length){
+      for(let i=hechosMov.length-1;i>=0;i--){ const h=hechosMov[i];
+        if(h.px){ try{ await DSP.rename(h.px[1],h.px[0]); }catch(e){} }
+        if(!h.compartido){ try{ await DSP.ensureDir(pdir(h.src)); await DSP.rename(h.dst,h.src); }catch(e){} }
+        const j=h.j;
+        if(j.tipo==='frame'){ j.m.framePaths[j.i]=h.src; continue; }
+        j.m.path=h.src;
+        if(h.px){ j.m.proxyPath=h.px[0]; try{ j.m.proxyUrl=DSP.toFileURL(h.px[0]); }catch(e){} }
+        /* [R361c·#3] el rollback restaura TODO lo que `aplicar` muto — thumb de imagen, el.src del video y el
+           proxyUrl del medio que ES su propio proxy quedaban apuntando al destino deshecho */
+        try{ if(j.m.kind==='video'){ j.m.srcUrl=DSP.toFileURL(h.src); if(j.m.el)j.m.el.src=j.m.srcUrl; if(j.m.originalEl&&j.m.originalEl!==j.m.el)j.m.originalEl.src=j.m.srcUrl;
+          if(j.m.proxyReady&&!j.m.proxyPath)j.m.proxyUrl=j.m.srcUrl; } }catch(e){}
+        try{ if(j.m.kind==='image')j.m.thumb=DSP.toFileURL(h.src); }catch(e){} }
+      movidos=0; try{ disposeAllVinst(); }catch(e){} renderMedia();
+      appAlert(T('The project could not be saved, so the reorganization was rolled back — nothing changed on disk.','No se pudo guardar el proyecto, asi que la reorganizacion se deshizo — el disco quedo como estaba.')); }
+    else if(movidos&&DSP.pruneEmptyDirs){ try{ await DSP.pruneEmptyDirs(md); }catch(e){} } /* la poda va DESPUES del guardado bueno: un rollback no tiene que recrear carpetas podadas */
     const gb=bytes>=1e9?(bytes/1e9).toFixed(2)+' GB':Math.round(bytes/1e6)+' MB';
-    flashStatus(T('Collected: ','Recolectado: ')+copiados+T(' file(s) copied (',' archivo(s) copiado(s) (')+gb+')'+(reusados?(' · '+reusados+T(' already inside',' ya dentro')):''),fallos.length?'err':undefined);
+    if(!copiados&&!movidos&&!fallos.length)flashStatus(T('Everything is already collected and organized','Todo esta ya recolectado y ordenado'));
+    else flashStatus(T('Collected: ','Recolectado: ')+copiados+T(' file(s) copied (',' archivo(s) copiado(s) (')+gb+')'+(movidos?(' · '+movidos+T(' reorganized',' reubicado(s)')):'')+(reusados?(' · '+reusados+T(' already inside',' ya dentro')):''),fallos.length?'err':undefined);
     if(fallos.length)appAlert(T('Some files could not be collected (the project keeps pointing at the originals):\n','Algunos archivos no se pudieron recolectar (el proyecto sigue apuntando a los originales):\n')+fallos.slice(0,20).join('\n')+(fallos.length>20?'\n…':''));
   }catch(e){ console.error('collect',e); try{ ov.remove(); }catch(_){} _collecting=false;
     appAlert(T('Collect stopped with an error. Nothing was deleted; media not yet collected keeps its original path.','La recoleccion se detuvo con un error. No se borro nada; lo no recolectado sigue apuntando a su ruta original.')); } }
@@ -12655,7 +12796,7 @@ function migrateNestFulldome(){ let n=0;
 function resetProjView(){ state.view.zoom=0.92; state.view.pan=[0,0]; state.view.vp=null; state.view.vpFocus=null;
   state.view.cam={yaw:0, pitch:0.5, dist:3.0, fov:60, back:0.8}; } // el encuadre del visor (global + por panel + cámara 3D) es del proyecto que se cierra, no del que se abre — newRoomProject ya lo hacía; ahora lo hacen los tres caminos
 function resetProjDefaults(){ state.seqMode='dome'; state.seqCov=180;
-  state.managed=false; // [R360] "gestionado" es del proyecto: uno nuevo (o un .isp de antes) no hereda el modo carpeta del anterior
+  state.managed=false; /* [R360] "gestionado" es del proyecto: uno nuevo (o un .isp de antes) no hereda el modo carpeta del anterior */
   /* [R284] La chapa TAMBIEN se resetea: sin esto, el titulo, el autor y el logo del proyecto anterior se
      colaban en uno nuevo, en su .isp y en su master horneado. Misma familia de fugas que cerro R242. */
   state.slate={ viewer:false, obra:'', autor:'', logo:null, logoNom:'' }; try{ chapaCargarLogo(null); }catch(e){}
@@ -12761,7 +12902,7 @@ function maxIdEnMedio(m){ let x=m.id||0;
   return x; }
 function _loadProjectCore(obj){ relinkReset(); // [R204] el índice de reenlace es de ESTE proyecto: se tira al cargar otro
   resetProjDefaults(); // [R242·Aud-2.1] fábrica ANTES de leer `obj`: lo que el archivo no diga, no se hereda
-  state.managed=!!obj.managed; // [R360] proyecto-carpeta (Media/ + Proxies/ + rutas relativas)
+  state.managed=!!obj.managed; /* [R360] proyecto-carpeta (Media/ + Proxies/ + rutas relativas) */
   /* [R282] Los datos de esquina son de la OBRA, así que viajan en el .isp. `resetProjDefaults` acaba de
      dejarlos en blanco, y aquí se recuperan los del archivo (o se quedan en blanco si es de antes). */
   try{ state.slate=Object.assign({viewer:false,obra:'',autor:'',logo:null,logoNom:''},(obj&&obj.slate)||{}); chapaCargarLogo(state.slate.logo); }catch(e){}
@@ -12865,14 +13006,36 @@ function _loadProjectCore(obj){ relinkReset(); // [R204] el índice de reenlace 
   setTlScrollT((activeSeq()||{}).nestScrollT||0); // [R239] mismo defecto que al entrar a un nido: sin esto, abrir un proyecto hereda el encuadre horizontal del anterior
   flashStatus(T('Project loaded','Proyecto cargado'));
   lchLeave(); if(currentPath)addRecent(currentPath, projThumb()); // [R228] la carga llegó a buen puerto: el proyecto de antes ya no existe → se cierra la sesión del launcher (fuera «Back to project» y fuera el consentimiento)
-  try{ if(_bootEsperandoProyecto){ bootMark(88); esperarMediosArranque(Date.now()+30000); } else loadingWaitMedia(Date.now()+20000); }catch(e){ hideLoadingScreen(); bootProyectoListo(); } }
+  try{ cargaReinicia(); if(_bootEsperandoProyecto){ bootMark(88); esperarMediosArranque(); } else loadingWaitMedia(); }catch(e){ hideLoadingScreen(); bootProyectoListo(); } } /* [R362] sin plazos fijos: las dos esperas van por progreso */
 /* [R175] Gemelo de loadingWaitMedia para el arranque: mismo criterio de "listo" (nada decodificando ni generando
    proxy) pero en vez de quitar una pantalla, revela el editor. Plazo más largo que el de la pantalla normal
    porque aquí no hay nada visible detrás esperando: el usuario sigue mirando el splash. */
-function esperarMediosArranque(deadline){ const cargando=state.media.some(m=>m._loading&&!m.missing);
+/* [R362] La espera de carga va por PROGRESO, no por plazo fijo. Un proyecto de 40 GB tarda MINUTOS legitimos
+   en decodificar sus 600 medios, y los plazos de antes (30 s el splash, 20 s la pantalla de carga) soltaban al
+   usuario dentro de un editor a medio cargar — las «tres pantallas» que reporto Vicente. Criterio: mientras el
+   numero de medios pendientes BAJE, se espera; solo un cargador ATASCADO (ni un avance en CARGA_STALL_MS)
+   suelta la pantalla, que es el caso de fallo real que los plazos querian cubrir. */
+const CARGA_STALL_MS=45000;
+let _cargaPend=-1,_cargaT=0;
+function cargaReinicia(){ _cargaPend=-1; _cargaT=Date.now(); }
+function cargaAvanza(){ const pend=state.media.filter(m=>m._loading).length;
+  if(pend!==_cargaPend){ _cargaPend=pend; _cargaT=Date.now(); return true; }
+  return (Date.now()-_cargaT)<CARGA_STALL_MS; }
+function cargaResumen(){ const conArchivo=state.media.filter(m=>m.kind==='video'||m.kind==='image'||m.kind==='audio'||m.kind==='sequence');
+  const pend=conArchivo.filter(m=>m._loading).length; return {tot:conArchivo.length,hechos:Math.max(0,conArchivo.length-pend)}; }
+function esperarMediosArranque(){
+  /* [R362b] `_loading` A SECAS. El filtro `&&!m.missing` de antes era CASI VACIO: _loadProjectCore estrena
+     todos los medios con missing:true y reloadMedia recien lo baja AL TERMINAR, asi que un medio a mitad de
+     carga no contaba — la espera de medios de esta pantalla (y la del splash) nunca espero de verdad, y por
+     eso el editor salia «esperando media» un minuto. Lo genuinamente ausente termina con _loading=false
+     (criterio missing&&!_loading de updRelink), asi que contar _loading si termina; y si un cargador se
+     cuelga sin soltar la bandera, el detector de atasco de cargaAvanza suelta la pantalla igual. */
+  const cargando=state.media.some(m=>m._loading);
   const proxy=state.media.some(m=>m._pxGen||(m.proxyPct>0&&!m.proxyReady));
-  if((!cargando&&!proxy)||Date.now()>deadline){ bootMark(100); bootProyectoListo(); return; }
-  bootMark(proxy?94:91); setTimeout(()=>esperarMediosArranque(deadline),200); } // [U9] keep the loading screen until media/proxies finish buffering (or a 20 s deadline)
+  if(!cargando&&!proxy){ bootMark(100); bootProyectoListo(); return; }
+  if(!cargaAvanza()){ diag('warn','boot','carga de medios atascada: se revela el editor'); bootMark(100); bootProyectoListo(); return; }
+  const r=cargaResumen(); bootMark(Math.min(99,88+Math.round(11*r.hechos/Math.max(1,r.tot)))); /* [R362] el splash cuenta el avance REAL (88→99 = medios hechos/total) */
+  setTimeout(()=>esperarMediosArranque(),200); }
 /* ===================== [R204] REENLACE JUNTO AL PROYECTO =====================
    El `.isp` guarda rutas ABSOLUTAS, así que mover la carpeta —a otro disco, a otro equipo, de Windows a Mac—
    dejaba todos los medios en rojo aunque los archivos viajaran al lado del proyecto. El montaje habitual de
@@ -12964,7 +13127,7 @@ async function reloadMedia(m){
     if(ex){ m.path=rp; m.proxyReady=false; m.proxyUrl=null; m.proxyEl=null; m.proxyPath=null; } } } // ruta nueva ⇒ el proxy se re-engancha desde la ubicacion interna · [R360b] proxyPath TAMBIEN: si queda apuntando al proxy viejo, Collect lo copiaria bajo el hash de la identidad nueva
   { const np=await repararRuta(m.path,m.fsize); // [R204] si no está en su ruta, se busca junto al proyecto antes de rendirse · [R325] con el tamaño, para desempatar homónimos
     if(!np){ m.missing=true; m._loading=false; renderMedia(); updRelink(); return; }
-    if(np!==m.path){ m.path=np; m.proxyReady=false; m.proxyUrl=null; m.proxyEl=null; m.proxyPath=null; } } // ruta nueva ⇒ el proxy se re-engancha desde la nueva ubicación · [R360b] proxyPath tambien (ver arriba)
+    if(np!==m.path){ m.path=np; m.rel=null; /* [R361c·#4] la rel no resolvio (se probo antes): esta rancia y no debe volver a mandar en la proxima carga */ m.proxyReady=false; m.proxyUrl=null; m.proxyEl=null; m.proxyPath=null; } } /* ruta nueva ⇒ el proxy se re-engancha desde la nueva ubicación · [R360b] proxyPath tambien (ver arriba) */
   const url=DSP.toFileURL(m.path);
   /* [R205b] Imagen y audio, esperables igual que el vídeo. Sin esto `await reloadMedia(m)` resolvía antes de leer
      el archivo, así que reemplazar un AUDIO en bucle por otro de distinta duración no reajustaba nada: la
@@ -13025,6 +13188,7 @@ async function replaceMedia(m,ruta){ if(!IS_ELEC)return;
   let sz=0; try{ const st=await DSP.stat(p); sz=(st&&st.size)||0; }catch(e){}
   bumpMeta(true); /* [R253d] reparar un medio ausente no es una edicion deshacible, pero si marca version: una foto anterior no puede devolverle el nombre del archivo perdido */
   m.path=p; m.fsize=sz; m.name=DSP.basename(p); m.missing=false; delete m._plazo;
+  m.rel=null; m.relFrames=null; /* [R361c·#4] el reemplazo cambia de ARCHIVO: sin esto, la preferencia por la ruta relativa de reloadMedia devolvia el path a la copia VIEJA de Media/ y el reemplazo era un no-op silencioso con nombre/tamaño del archivo nuevo sobre contenido viejo */
   m.proxyReady=false; m.proxyPct=0; m.proxyUrl=null; m.proxyEl=null; m.proxyPath=null; /* [R360b] sin esto, Collect copiaba el proxy del material VIEJO bajo el hash del nuevo */ m._proxyForce=false; m.bands=null; m._bandsBusy=false; m._bandsFail=false; /* [R334] el material cambia: el fallo recordado ya no vale — [R336] con comentario de BLOQUE: la version de linea se comio las seis asignaciones siguientes y el buffer viejo seguia sonando en la mezcla y en el export */ m.thumb=null; m._texW=null; m._texH=null; m.peaks=null; m.rms=null; m.buffer=null;
   /* [R322] El ESPECTRO también, que se quedaba fuera. `m.bands` (las cuatro bandas con nombre) sí se recalculaba,
      pero `m.spec` no, y `armMediaSpectrum` se niega a recomputar mientras `m.spec` esté puesto: al cambiar el
@@ -13038,7 +13202,7 @@ async function replaceMedia(m,ruta){ if(!IS_ELEC)return;
      apuntando a un archivo que no abre. */
   if(m.missing||m._plazo){ const tarde=!!m._plazo; delete m._plazo;
     m.path=antes.path; m.name=antes.name; m.fsize=antes.fsize; m.dur=antes.dur; m.missing=false; m._loading=true;
-    m.proxyReady=false; m.proxyUrl=null; m.proxyEl=null; m.proxyPath=null; m.thumb=null; // [R360b]
+    m.proxyReady=false; m.proxyUrl=null; m.proxyEl=null; m.proxyPath=null; m.thumb=null; /* [R360b] */
     await reloadMedia(m); renderMedia(); renderTimeline(); renderInspector(); render();
     appAlert(tarde?T('That file took too long to read — nothing was changed.','Ese archivo tardó demasiado en leerse — no se ha cambiado nada.')
                   :T('That file could not be read — nothing was changed.','Ese archivo no se pudo leer — no se ha cambiado nada.'));
@@ -13096,7 +13260,11 @@ function adopt(m){ // relink a re-imported file to a missing slot — prefer an 
      carpeta del hueco perdido. `replaceMedia` ya lo hacia; este camino se quedo fuera. */
   if(i>=0){m.id=state.media[i].id;state.media.splice(i,1);bumpMeta(true);renderTimeline();renderInspector();} updRelink(); }
 let saveVer=1;
-function saveIncremental(){ saveVer++; const name=(currentTitle()==='Untitled project'?'proyecto':currentTitle())+'_v'+String(saveVer).padStart(2,'0')+'.isp';
+async function saveIncremental(){
+  /* [R361c·#6] misma guarda B1 que saveProject: un _vNN escrito en mitad de una importacion tampoco lleva los medios pendientes */
+  if(_importEnCurso>0){ const seguir=await new Promise(res=>appConfirm(T('An import is still copying files — media not yet imported will NOT be in this save. Save anyway?','Una importacion sigue copiando archivos — los medios que aun no entraron NO quedaran en este guardado. ¿Guardar igual?'),res,{ok:T('Save anyway','Guardar igual')}));
+    if(!seguir)return; }
+  saveVer++; const name=(currentTitle()==='Untitled project'?'proyecto':currentTitle())+'_v'+String(saveVer).padStart(2,'0')+'.isp';
   /* [R360b] Igual que saveProject: serializar DESPUES de conocer el destino y con `currentPath` apuntando a el
      — si no, un _vNN guardado en otra carpeta lleva rel/relFrames/ncRel relativas a la carpeta EQUIVOCADA.
      El dialogo ademas se siembra en la carpeta del proyecto, no en la ultima que usara el SO. */
@@ -13146,11 +13314,13 @@ async function openRecoveryHistory(){ if(!IS_ELEC||!DSP.listDir){ restoreAutosav
          eso apagaba la resolucion relativa: en una carpeta de proyecto MOVIDA de sitio, todos los medios salian
          ausentes mientras «Restaurar ultimo autoguardado» los resolvia bien. Se PRE-RESUELVEN aqui las rel
          contra la carpeta del proyecto vivo, a rutas absolutas, ANTES de soltar currentPath. */
-      if(currentPath){ const d=pdir(currentPath); const abs=rel=>rel?[d,...String(rel).split('/').filter(Boolean)].join(PSEP):null;
-        for(const md of (obj.media||[])){ try{
-          if(md.rel){ const rp=abs(md.rel); if(rp&&await DSP.exists(rp))md.path=rp; }
-          if(md.relFrames&&md.framePaths&&md.relFrames.length===md.framePaths.length){ const r0=abs(md.relFrames.find(Boolean)); if(r0&&await DSP.exists(r0))md.framePaths=md.framePaths.map((fp,i)=>abs(md.relFrames[i])||fp); }
-          if(md.ncRel){ const rp=abs(md.ncRel); if(rp&&await DSP.exists(rp))md.ncPath=rp; } }catch(err){} } }
+      /* [R361b] con `projResolve` (currentPath sigue apuntando al proyecto vivo en este punto — nada de un
+         resolvedor gemelo que divergiria del oficial) y en paralelo: ~900 medios × exists() secuenciales
+         congelaban la apertura del snapshot un par de segundos a puro IPC. */
+      if(currentPath){ await Promise.all((obj.media||[]).map(md=>(async()=>{ try{
+          if(md.rel){ const rp=projResolve(md.rel); if(rp&&await DSP.exists(rp))md.path=rp; }
+          if(md.relFrames&&md.framePaths&&md.relFrames.length===md.framePaths.length){ const r0=projResolve(md.relFrames.find(Boolean)); if(r0&&await DSP.exists(r0))md.framePaths=md.framePaths.map((fp,i)=>projResolve(md.relFrames[i])||fp); }
+          if(md.ncRel){ const rp=projResolve(md.ncRel); if(rp&&await DSP.exists(rp))md.ncPath=rp; } }catch(err){} })())); }
       currentPath=null; loadProject(obj); state.dirty=true; projTitle(); flashStatus(T('Recovery snapshot opened as a new project — Save to keep it','Snapshot de recuperación abierto como proyecto nuevo — Guarda para conservarlo')); }
     catch(err){ appAlert(T('That snapshot is corrupt.','Ese snapshot está dañado.')); } }); }
 function updRelink(){ const miss=state.media.filter(m=>m.missing&&!m._loading); if(miss.length)flashStatus(T('Missing media: ','Medios ausentes: ')+miss.map(m=>m.name).join(', '),'err'); } // only GENUINE failures — a file that's still decoding is "loading", not missing · [R94-UT3·U-21]
@@ -14418,7 +14588,7 @@ function openAppMenu(which,btn){ const r=btn.getBoundingClientRect(); const x=r.
     {label:T('Open…','Abrir…'),key:'⌘O',ico:'folder',fn:()=>openProject()},
     {label:T('Save','Guardar'),key:'⌘S',ico:'save',fn:()=>saveProject(false)},
     {label:T('Save As…','Guardar como…'),key:'⇧⌘S',fn:()=>saveProject(true)},
-    {label:T('Collect All & Save…','Recolectar todo y guardar…'),ico:'folder',fn:()=>collectProject()}, // [R360] proyecto-carpeta autocontenido
+    {label:T('Collect All & Save…','Recolectar todo y guardar…'),ico:'folder',fn:()=>collectProject()}, /* [R360] proyecto-carpeta autocontenido */
     'sep',
     {label:T('Export…','Exportar…'),key:'⇧⌘E',ico:'share',fn:openExport} ];
   else if(which==='edit') items=[
