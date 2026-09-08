@@ -3163,7 +3163,7 @@ function addVideo(file,path){ const url=URL.createObjectURL(file); const folder=
        estaba. La GENERACIÓN sigue siendo manual (ADR-0003): esto sólo ADOPTA lo que ya hay en disco. */
     if(m.path)attachExistingProxy(m,true).then(ok=>{ if(ok)flashStatus(T('Existing proxy found for ','Proxy existente encontrado para ')+m.name); else adviseHeavyMedia(m); }).catch(()=>{ adviseHeavyMedia(m); });
     else adviseHeavyMedia(m); // [R242·Aud-3.3] sin proxy adoptable → si el clip es pesado, avisar (una vez por tanda)
-    detectFps(v,m,()=>{ seekMedia(m,0,true).then(()=>{makeThumb(m);render();}).then(()=>soltarVideoDelMedio(m,v)); }) /* [R358] importar tampoco deja la tuberia abierta */; },{once:true}); } // proxies are MANUAL now (right-click media → Generate proxy)
+    detectFps(v,m,()=>{ seekMedia(m,0,true).then(()=>{makeThumb(m);render();}).then(()=>soltarVideoDelMedio(m,v)); }) /* [R359] importar tampoco deja la tuberia abierta */; },{once:true}); } // proxies are MANUAL now (right-click media → Generate proxy)
 function makeThumb(m){const c=document.createElement('canvas');c.width=108;c.height=64;try{c.getContext('2d').drawImage(m.originalEl||m.el,0,0,108,64);m.thumb=c.toDataURL();renderMedia();}catch(e){}}
 /* [R241] Detección de la tasa de fotogramas. Dos cosas cambiaron tras la prueba de estrés con el material real
    de Beltrán (HEVC 7196×912 @60fps, hasta 410 Mbps), donde los NUEVE clips se quedaban en el 30 por defecto:
@@ -3307,7 +3307,7 @@ async function attachExistingProxy(m,clean){ if(!m||m.kind!=='video'||!m.path||/
 async function bindProxyFile(m,cachePath){ const purl=DSP.toFileURL(cachePath); const pv=document.createElement('video'); pv.src=purl; pv.muted=true; pv.playsInline=true; pv.preload='auto';
   await new Promise((res,rej)=>{ pv.addEventListener('loadedmetadata',res,{once:true}); pv.addEventListener('error',()=>rej(new Error('proxy file invalid')),{once:true}); setTimeout(()=>{ const e=new Error('proxy bind timeout'); e.timeout=true; rej(e); },15000); }); // [R108-rev A2] a slow disk (NAS/cold HDD) can take >8s to read a VALID proxy's metadata; marking timeout lets callers NOT delete it as if corrupt
   if(m.dur>0 && pv.duration>0 && Math.abs(pv.duration-m.dur)>Math.max(1,m.dur*0.03)){ try{pv.removeAttribute('src');pv.load();}catch(_){} throw new Error('proxy duration mismatch — stale cut'); } // a proxy found by basename (moved/rehashed source) must be of THIS cut, not an older one
-  m.pw=pv.videoWidth; m.ph=pv.videoHeight; m.proxyUrl=purl; m.proxyPath=cachePath; m.proxyReady=true; m.proxyPct=100; m._proxyForce=false; soltarVideoDelMedio(m,pv); /* [R358] la comprobacion ya esta hecha: no se retiene la tuberia */ renderMedia(); updProxyUI(m); scrubRender(); }
+  m.pw=pv.videoWidth; m.ph=pv.videoHeight; m.proxyUrl=purl; m.proxyPath=cachePath; m.proxyReady=true; m.proxyPct=100; m._proxyForce=false; soltarVideoDelMedio(m,pv); /* [R359] la comprobacion ya esta hecha: no se retiene la tuberia */ renderMedia(); updProxyUI(m); scrubRender(); }
 /* [R326] Sin repetidos. Dos clics en «Generar proxy» —o el clic doble que un ratón suelta sin querer— metían el
    mismo medio dos veces en la cola, y como `pumpProxy` los saca de uno en uno eso son DOS codificaciones
    completas del mismo archivo: la segunda pisa el `.part` de la primera y tira otros tantos minutos de máquina.
@@ -8381,7 +8381,7 @@ async function scrubRender(){ const tok=++seekTok; positionPlayhead(); refreshIn
 function scrubWarmKf(){ try{ for(const {m} of collectDrawnVideoClips(state.clips,state.lanes,state.playhead,0,[])) kfWarm(m); }catch(e){} }
 const HAS_RVFC = (typeof HTMLVideoElement!=='undefined') && ('requestVideoFrameCallback' in HTMLVideoElement.prototype);
 /* upload a video frame to its texture only when a NEW frame is presented (vs re-uploading every rAF) */
-/* [R358] EL RENDERER NO MORIA DE MEMORIA: MORIA DE HILOS.
+/* [R359] EL RENDERER NO MORIA DE MEMORIA: MORIA DE HILOS.
    Cada medio de video se quedaba con un `<video>` vivo (`m.el`/`m.originalEl`) desde que se abria el proyecto,
    y ENGANCHAR SU PROXY creaba otro mas (`m.proxyEl`, con `preload='auto'`). Con la pelicula del usuario -298
    videos, casi todos con proxy- eso son cientos de tuberias de demux/decodificacion abiertas a la vez.
@@ -10320,7 +10320,7 @@ function addVideoFromPath(path,name){ return new Promise(resolve=>{ if(!(IS_ELEC
     let fsize=0; try{ const st=await DSP.stat(path); fsize=(st&&st.size)||0; }catch(e){}
     const m={id:uid(),name:name||path.split(/[\\/]/).pop(),kind:'video',el:v,originalEl:v,srcUrl:url,tex:newTex(),w:v.videoWidth,h:v.videoHeight,dur:v.duration,fps:30,thumb:null,color:clipColorFor('video'),proxyReady:false,proxyPct:0,path:path,fsize,folder:null};
     state.media.push(m); adopt(m); renderMedia(); markDirty();
-    detectFps(v,m,()=>{ seekMedia(m,0,true).then(()=>{makeThumb(m);render();}).then(()=>soltarVideoDelMedio(m,v)); }) /* [R358] importar tampoco deja la tuberia abierta */;
+    detectFps(v,m,()=>{ seekMedia(m,0,true).then(()=>{makeThumb(m);render();}).then(()=>soltarVideoDelMedio(m,v)); }) /* [R359] importar tampoco deja la tuberia abierta */;
     resolve(m); },{once:true}); }); }
 /* [R179] Bitrate for a BAKE, not for a delivery master: this file gets composited again, so we spend bits
    generously. The figures are per-codec because AV1/VP9 buy the same look for noticeably fewer bits. */
@@ -12788,7 +12788,7 @@ async function reloadMedia(m){
     let fin=false; const acabar=()=>{ if(fin)return; fin=true; res(); };
     v.addEventListener('loadedmetadata',()=>{ m.el=v;m.originalEl=v;m.srcUrl=url;m.tex=newTex();m.w=v.videoWidth;m.h=v.videoHeight;m.missing=false;m._loading=false;
       if(isFinite(v.duration)&&v.duration>0)m.dur=v.duration; // [R205] la duración sale del ARCHIVO, como ya hacía el audio: sin esto un reemplazo conservaba la del anterior y el límite de recorte mentía
-      detectFps(v,m,()=>{ seekMedia(m,0,true).then(()=>{makeThumb(m);render();}).then(()=>soltarVideoDelMedio(m,v)); }); renderMedia(); /* [R358] ya tiene medidas y miniatura: fuera la tuberia */
+      detectFps(v,m,()=>{ seekMedia(m,0,true).then(()=>{makeThumb(m);render();}).then(()=>soltarVideoDelMedio(m,v)); }); renderMedia(); /* [R359] ya tiene medidas y miniatura: fuera la tuberia */
       delete m._noAudio; delete m._exAudioBad; // fresh silent-probe after relink/replace · [R212] a replaced file deserves a fresh export-decode attempt too
       if(!m.proxyReady){ attachExistingProxy(m,true); } // [R92-T6 / R107] re-bind an existing on-disk proxy on reopen (exact hash OR sibling by basename); a corrupt/stale one is deleted with a status note. Generation stays MANUAL.
       acabar();

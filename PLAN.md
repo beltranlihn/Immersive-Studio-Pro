@@ -1,6 +1,27 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
-## ROUND R358 — El renderer no moria de memoria: moria de HILOS
+## RONDA 358 — El aviso que NO hacía falta: R357 ya lo había resuelto
+
+R353 dejó escrito que faltaba avisar antes de importar cientos de imágenes sueltas, con la cuenta de que 300
+fotos de 4096² pedirían más de 20 GB. **Esa cuenta era de antes de R357**, que aún no estaba en esta copia
+cuando se midió. Antes de escribir el aviso se volvió a medir, y sobraba.
+
+**Medido ahora** (`scratchpad/r358-coste-por-foto.mjs`, 20 fotos reales de 4096×4096):
+
+| | textura | por foto | 300 fotos |
+|---|---|---|---|
+| antes de R357 | 4096² = 64 MB | — | > 20 GB |
+| con R357 | **1024² = 4 MB** | **4,0 MB** | **1,2 GB** |
+
+Las medidas del medio siguen siendo las reales del archivo (4096×4096) — de ellas dependen el aspecto y la
+detección de equirectangulares—; lo único que baja es la textura de previsualización. **No se añade nada.**
+
+**Y un fallo de la sonda, no del código.** La primera versión llamaba `fitImage(img)` sin el segundo argumento
+—el tope viaja ahí— y medía un camino que en producción no existe: dio 4096, dedujo que R357 no actuaba y
+acusó al código. Reimplementar la ruta en vez de llamar a la de verdad es lo que lo causó.
+
+
+## ROUND R359 — El renderer no moria de memoria: moria de HILOS
 
 **Sintoma:** «sigue tirandome varios crashes, al intentar importar archivos», con el editor lento pese a estar
 con proxies y a 1/4. Cuatro caidas en ocho minutos (16:13, 16:15, 16:18, 16:21).
@@ -183,6 +204,27 @@ de rendimiento no se toca en el caso comun.
 **Sonda** `scratchpad/r353-bucle-compose.mjs` — y SABE FALLAR: reconstruye la logica anterior y exige que la
 cace (`conLaLogicaVieja.loopConReloj: true` frente a `decision.loopConReloj: false`). Verifica tambien la NO
 regresion (`sinLoopConReloj: true`, `loopSinReloj: true`) y que los tres puntos coinciden.
+
+## RONDA 353 — Por qué un import de imágenes agota la memoria
+
+Un amigo de Beltrán importó imágenes y el editor murió por falta de memoria. No se reproduce aquí, así que se
+midió en vez de parchear — y **dos hipótesis mías salieron falsas**, que se dejan escritas porque ahorran el
+camino: `m.frames` **no** retiene los fotogramas descodificados (80 de 1024² costaron 14 MB, no 320: Chromium
+guarda el fichero codificado, no el mapa de bits), y el canvas de `fitImage` **tampoco** (−12 MB medidos).
+
+**La tercera sí.** Una secuencia usa **una** textura y le cambia el contenido; las mismas imágenes **sueltas**
+crean un medio con **su propia textura cada una**. Con el mismo material: **1 textura y +3 MB** frente a
+**80 texturas y +657 MB**. Doscientas veces más, y lineal. Con fotogramas de 4096² cada textura son 64 MB, así
+que 300 imágenes sueltas piden más de 20 GB.
+
+Encaja con lo que hizo: desde R245b la agrupación la decide **la puerta** — «Importar secuencia de imágenes…»
+agrupa; «Importar medios…» y el arrastre nunca agrupan—. Verificado además que el camino bueno funciona de
+extremo a extremo: 80 de 80 fotogramas, clip en la línea de tiempo y **fotogramas distintos** a 0,1 / 1,6 /
+3,1 s.
+
+**Corregido en R358:** ese «queda abierto» partió de medir con el código anterior a R357. Con R357 dentro la
+cuenta cambia por completo — ver R358.
+
 
 ## ROUND 352b — Revisión desde el Mac de R303→R352
 
