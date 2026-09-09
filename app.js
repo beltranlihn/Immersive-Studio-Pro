@@ -6058,7 +6058,12 @@ function capAuto(c){
   const an=(c&&Array.isArray(c.anim)&&c.anim.length)?JSON.parse(JSON.stringify(c.anim)):null;
   return {kf,an}; }
 /* apply a trim by dt seconds. base = the frozen start values captured at pointerdown (so every drag frame is absolute). */
-function applyTrim(z,dt,base){
+/* [R365] Mismo envoltorio que `trimItem`, y por el mismo motivo: `slip` y `slide` mueven `inP` (del propio clip
+   y del vecino de la derecha) y cada rama tiene su `return`. */
+function applyTrim(z,dt,base){ const d=_applyTrimCrudo(z,dt,base);
+  for(const c of _clipsDeZona(z)) acotarBucle(c);
+  return d; }
+function _applyTrimCrudo(z,dt,base){
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
   /* [R314] La instantánea se toma AQUÍ, no en el llamador. R313 la cableó sólo en el `pointerdown` del arrastre,
      así que `trimNudge` —el mismo recorte con el teclado— llamaba a `rebaseAutoPorMaterial` con `undefined` y no
@@ -6209,7 +6214,12 @@ function onTLMove(e){ if(!drag)return;
   }
   showSnap(snap); scheduleTimeline(); render(); }
 /* trim one clip's edge by `delta` seconds, clamped to its own source/content limits (multi-select trim applies the same delta to every selected clip) */
-function trimItem(it,edge,delta){ const oc=clipById(it.id); if(!oc)return; const m=mediaById(oc.mediaId); const lim=!!(m&&(m.kind==='video'||m.kind==='audio'||isSeqMedia(m))); const sd=(m&&isSeqMedia(m))?seqDur(m):(m?m.dur:Infinity);
+/* [R365] Envoltorio: el recorte deja el bucle DENTRO de la fuente. Va aqui y no dentro del cuerpo porque la
+   rama izquierda tiene varias salidas y el gemelo olvidado es el defecto que este fichero repite mas. */
+function trimItem(it,edge,delta){ const r=_trimItemCrudo(it,edge,delta);
+  const oc=clipById(it&&it.id); if(oc){ acotarBucle(oc); const p=linkPartner(oc); if(p)acotarBucle(p); }
+  return r; }
+function _trimItemCrudo(it,edge,delta){ const oc=clipById(it.id); if(!oc)return; const m=mediaById(oc.mediaId); const lim=!!(m&&(m.kind==='video'||m.kind==='audio'||isSeqMedia(m))); const sd=(m&&isSeqMedia(m))?seqDur(m):(m?m.dur:Infinity);
   if(edge==='L'){ const sp=(oc.speed||1); const minS=lim?Math.max(0,it.start0-it.inP0/sp):0, maxS=it.start0+it.dur0-0.05; const ns=Math.max(minS,Math.min(it.start0+delta,maxS)); const d=ns-it.start0; oc.start=ns; oc.dur=it.dur0-d; oc.inP=Math.max(0,it.inP0+d*sp); // [R92-T4 F6] inP is SOURCE seconds: a timeline shift of d consumes d×speed of source (the frame under the new edge no longer jumps on sped-up clips)
     /* [R320] Delegado en `rebaseAutoPorMaterial`, que NACIÓ (R313) como copia literal de estas cuatro líneas y
        desde entonces recibió dos arreglos que aquí nunca llegaron: sin `src.length>1` —una curva de UN solo punto
@@ -11750,6 +11760,45 @@ function isSeqMedia(m){ return !!(m&&m.kind==='nest'); }
 function seqReaches(rootId,targetId){ const seen=new Set(); const walk=id=>{ if(id===targetId)return true; if(seen.has(id))return false; seen.add(id); const mm=mediaById(id); return !!(mm&&isSeqMedia(mm)&&(mm.nestClips||[]).some(c=>walk(c.mediaId))); }; return walk(rootId); } // does sequence rootId (transitively) already contain targetId?
 function activeSeq(){ return mediaById(state.activeSeqId); }
 function seqDur(m){ let e=0; for(const c of (m&&m.nestClips||[]))e=Math.max(e,c.start+c.dur); return Math.max(0.1,e); }
+/* [R365] EL BUCLE NO PUEDE PEDIR MATERIAL QUE LA FUENTE NO TIENE.
+   `srcT` repite la ventana `[inP, inP+loopLen)`. Ese invariante YA se respeta en los dos sitios que deciden el
+   bucle —`_applyLoopToggle` y `setLoopRange` acotan los dos `loopLen` a `srcDur-inP`— pero nadie lo sostenia
+   cuando lo que se mueve es la OTRA mitad: recortar por la izquierda, deslizar (`slip`) o rodar un clip que YA
+   esta en bucle avanza `inP` y deja `loopLen` como estaba, con lo que la ventana se sale por el final de la
+   fuente. El tramo sobrante no tiene nada que componer y esa parte de CADA vuelta se ve vacia.
+   MEDIDO en el proyecto de domo de Vicente (2026-09-09): 6 clips de 171 con la ventana fuera, y el peor
+   —`Ring 137`, `inP`=2,873 con bucle de 5 s sobre un contenido de 5 s— se quedaba en negro 2,873 s de cada 5.
+   Se desliza la VENTANA hacia atras; NO se recorta el ciclo. La duracion del bucle es musical (la obra entera
+   va a 5 s) y acortarla para que quepa arreglaria el hueco rompiendo el montaje, que es peor que el defecto.
+   Solo si el ciclo es mas largo que la fuente ENTERA no queda otra que acotarlo. */
+/* [R365b] Un nido VACIO -o cuyos `nestClips` aun no estan- NO tiene duracion conocida, y `seqDur` la inventa:
+   lleva un suelo de `Math.max(0.1, …)`. Devolviendo eso, el guardian habria acotado el ciclo a 0,1 s y machacado
+   justo lo que esta ronda promete conservar. Se devuelve 0, que es lo que hace que `acotarBucle` se abstenga. */
+function duracionFuente(m){ if(isSeqMedia(m))return (m.nestClips&&m.nestClips.length)?seqDur(m):0;
+  return (m&&m.dur)||Infinity; }
+function acotarBucle(c){ if(!c||!c.loop||!(c.loopLen>0))return false;
+  const sd=duracionFuente(mediaById(c.mediaId));
+  if(!(sd>0)||!isFinite(sd))return false; /* medio sin duracion conocida: no se toca nada a ciegas */
+  let toco=false;
+  if(c.loopLen>sd+1e-6){ c.loopLen=Math.max(0.05,sd); toco=true;
+    /* [R365b] El ciclo acortado viaja a la mitad de audio, como en `setLoopRange`: dos periodos distintos en un
+       par enlazado separan imagen y sonido una diferencia de ciclo en CADA vuelta, en el visor y en la mezcla. */
+    const par=linkPartner(c); if(par&&par.loop&&par.loopLen>c.loopLen)par.loopLen=c.loopLen; }
+  const maxIn=Math.max(0,sd-c.loopLen);
+  if((c.inP||0)>maxIn+1e-6){ c.inP=maxIn; toco=true; }
+  return toco; }
+/* `vistos` es opcional y evita contar dos veces: `state.clips` ES el array de `nestClips` de la secuencia
+   activa, asi que barrer las dos cosas visita esos clips dos veces. */
+function acotarBuclesDe(clips,vistos){ let n=0;
+  for(const c of (clips||[])){ if(!c||!c.loop)continue; if(vistos){ if(vistos.has(c))continue; vistos.add(c); }
+    if(acotarBucle(c))n++; }
+  return n; }
+/* Los clips que un gesto de recorte ha podido tocar: los que vienen en la zona (`a`/`b`/`c`/`prev`/`next`, segun
+   la rama) y sus mitades enlazadas. Se leen del propio objeto en vez de enumerar las ramas a mano — es
+   justamente asi como en este fichero se han quedado atras los gemelos una y otra vez. */
+function _clipsDeZona(z){ const out=[]; if(!z||typeof z!=='object')return out;
+  for(const k in z){ const v=z[k]; if(v&&typeof v==='object'&&v.id!=null&&'mediaId' in v){ out.push(v); const p=linkPartner(v); if(p)out.push(p); } }
+  return out; }
 /* [R155] El orden de pantalla es el array AL REVÉS (índice 0 = pista de más abajo), y desde R152 ya no se
    reordena por tipo. Así que para que el proyecto NAZCA con el audio abajo —la convención de siempre— tiene que
    ir PRIMERO en el array. Antes iba último y, sin la partición que lo bajaba a la fuerza, aparecía arriba de todo.
@@ -13148,6 +13197,15 @@ function _loadProjectCore(obj){ relinkReset(); // [R204] el índice de reenlace 
     _id=mx2+1; state.openSeqs=ids; state.activeSeqId=(obj.activeSeqId&&ids.includes(obj.activeSeqId))?obj.activeSeqId:ids[0]; loadSeqIntoState(activeSeq());
   } else { state.openSeqs=[]; state.activeSeqId=null; ensureSequences(); }
   syncNestAudioClips(); // [R225·9] ya con la secuencia activa cargada: un nest con audio dentro y sin su clip derivado (proyecto anterior a R225) lo estrena aquí
+  /* [R365] REPARACION AL ABRIR: los proyectos que ya traen la ventana del bucle fuera de su fuente se arreglan
+     aqui, porque el defecto se grabo en el `.isp` y si no seguiria viendose igual. Va DESPUES de cargar las
+     secuencias (`seqDur` necesita los `nestClips`) y antes de dibujar nada. Se avisa y se marca el proyecto como
+     cambiado: guardar lo hace permanente, y callarselo seria cambiar el montaje a escondidas. */
+  { const vistos=new Set(); let n=acotarBuclesDe(state.clips,vistos);
+    for(const mm of state.media) if(mm&&mm.kind==='nest') n+=acotarBuclesDe(mm.nestClips,vistos);
+    if(n){ diag('warn','proyecto','bucles fuera de la fuente reparados al abrir',{n});
+      try{ flashStatus(T('Fixed '+n+' loops that ran past the end of their source (part of every cycle was blank)','Corregidos '+n+' bucles que se salian del final de su fuente (parte de cada vuelta se veia vacia)'),'err'); }catch(e){}
+      markDirty(); } }
   { const _as=activeSeq(); roomVpAutoFloor(!!(_as&&_as.room&&_as.room.floor)); } // [R231] abrir una sala con piso enseña el visor partido
   renderSeqBar(); updFmtChip();
   renderWork();

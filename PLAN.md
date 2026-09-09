@@ -1,5 +1,68 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## RONDA 365 — El bucle que pedía material que su fuente no tiene — reportado por Vicente
+
+«Algunas composiciones que están loopeadas, los clips desaparecen y vuelven a aparecer en cada loop.» Pasaba
+con algunas y no con todas, y siempre justo en la vuelta.
+
+**La causa.** `srcT` repite la ventana **`[inP, inP+loopLen)`**. El invariante «esa ventana cabe en la fuente»
+ya lo respetaban los dos sitios que DECIDEN el bucle —`_applyLoopToggle` y `setLoopRange` acotan los dos
+`loopLen` a `srcDur-inP`—, pero **nadie lo sostenía cuando lo que se mueve es la otra mitad**: recortar por la
+izquierda (`trimItem`), deslizar (`slip`) o rodar (`roll`/`slide`) un clip que YA está en bucle avanza `inP` y
+deja `loopLen` como estaba. La ventana se sale por el final de la fuente, ese tramo no tiene nada que componer,
+y esa parte de cada vuelta se ve **vacía**.
+
+**Medido en el proyecto de domo real** (`Rito Dome.isp`, 2026-09-09): de **171 clips de composición en bucle,
+6 tenían la ventana fuera**. El peor, `Ring 137` (`inP`=2,873 · bucle 5 s · contenido 5 s), se quedaba en negro
+**2,873 s de cada 5**. Los otros cinco: `Ring 105` (1,918 s), `Tunnel 163` (0,373), `Tunnel 122` (0,183),
+`Ring 87` (0,134) y `Tunnel 197` (0,047 s) — de apagón largo a parpadeo de un fotograma, el mismo defecto.
+El diagnóstico salió del propio `.isp`, no de una intuición: la primera hipótesis (el proxy del nido, o la
+rotación del tejido barajado) **la falsó el usuario** al decir que `Ring 137` parpadea y no lleva proxy.
+
+- **`acotarBucle(c)`** restablece el invariante **deslizando la VENTANA hacia atrás, no recortando el ciclo**:
+  la duración del bucle es musical —la obra entera va a 5 s— y acortarla para que quepa arreglaría el hueco
+  rompiendo el montaje, que es peor que el defecto. Sólo si el ciclo es más largo que la fuente entera se acota
+  el ciclo. Con `dur` desconocida (medio aún sin cargar) **se abstiene**: no toca nada a ciegas.
+- **Se sostiene en los gestos**: `trimItem` y `applyTrim` pasan a ser envoltorios finos sobre
+  `_trimItemCrudo`/`_applyTrimCrudo`. Los clips a revisar se leen del propio objeto de zona (`_clipsDeZona`:
+  `a`/`b`/`c`/`prev`/`next` + mitades enlazadas) **en vez de enumerar las ramas a mano** — enumerarlas es
+  exactamente como en este fichero se han quedado atrás los gemelos una y otra vez.
+- **Y se repara al ABRIR**, porque el defecto ya está grabado en los `.isp`. Va después de cargar las
+  secuencias (`seqDur` necesita los `nestClips`), avisa por `flashStatus` + `diag` con el recuento, y **marca
+  el proyecto como cambiado**: guardar lo hace permanente, y callárselo sería cambiar el montaje a escondidas.
+
+**Verificado** con `scratchpad/r365-srct-offline.mjs`, que **no reimplementa nada**: extrae de `app.js` el
+texto de `srcT`, `seqDur`, `duracionFuente` y `acotarBucle` y los ejecuta (mismo precedente que R346c). Recorre
+una vuelta a 60 fps y cuenta los instantes sin nada que componer. Con la forma exacta de `Ring 137`:
+**172 de 300 fotogramas vacíos (57,3% de cada vuelta) → 0**, ciclo conservado en 5 s, `inP` 2,873 → 0. Lleva
+además las tres guardas que impiden que el arreglo se pase de listo: no toca lo que ya estaba bien, acota el
+ciclo sólo cuando supera la fuente entera, y se abstiene con medios sin duración. `npm test` 6/6.
+
+### R365b — la revisión de cierre, y el fallo más tonto de la ronda
+
+- **El bloque de «reparar al abrir» estaba en la función EQUIVOCADA.** Se insertó tras el primer
+  `syncNestAudioClips()` del fichero, que es el de `nestSelection()`, no el de `_loadProjectCore`. O sea: los
+  `.isp` ya dañados no se reparaban nunca —el defecto de Vicente seguía igual— y en cambio **crear un nido**
+  barría el proyecto entero, reescribía `inP`/`loopLen`, marcaba cambiado y sacaba un aviso rojo que el aviso
+  de «N clips → nido» de la línea siguiente pisaba en el acto. El ancla del parche comprobaba que existiera,
+  no que fuera **única**: la misma clase de error que el propio `PLAN.md` de esta ronda documenta dos párrafos
+  más arriba. Los dos documentos ya decían `_loadProjectCore`, que es donde está ahora.
+- **Un nido VACÍO no tiene duración conocida, y `seqDur` la inventa**: lleva un suelo de `Math.max(0.1, …)`.
+  Con eso, la guarda de «no tocar a ciegas» no podía dispararse nunca para una secuencia, y un clip en bucle
+  sobre un nido aún sin poblar habría visto su ciclo machacado a 0,1 s — justo lo que la ronda promete
+  conservar. `duracionFuente` devuelve 0 para un nido sin clips.
+- **El ciclo acortado viaja a la mitad de audio enlazada**, como ya hacía `setLoopRange`. Dos periodos
+  distintos en un par enlazado separan imagen y sonido una diferencia de ciclo en cada vuelta.
+- Y `acotarBuclesDe` estaba escrita pero sin usar, con el barrido reimplementado en línea (y ya divergido).
+  Ahora la reparación pasa por ella, con un conjunto `vistos` opcional porque `state.clips` **es** el array de
+  `nestClips` de la secuencia activa y barrer las dos cosas visitaba esos clips dos veces.
+
+La sonda cubre los cuatro (17 comprobaciones, todas verdes).
+
+**Pendiente de esta ronda:** la sonda por CDP (`scratchpad/r365-bucle-fuera-de-fuente.mjs`, escrita y lista)
+no se pudo correr porque la app instalada tenía el proyecto de producción abierto y retiene el bloqueo de
+instancia única. Queda para la primera sesión con la app libre.
+
 ## RONDA 364 — Al abrir un proyecto, el árbol de carpetas del panel entra PLEGADO — pedido de Vicente
 
 «Cada vez que abro un proyecto se despliegan todas las carpetas del media y es muy molesto.» Con razón: en un
