@@ -59,6 +59,22 @@ o banda añadida), no como deuda.
 (12) y `r370-nido-no-cuadrado.mjs` (13), las tres con control negativo que reconstruye el estado anterior.
 `npm test` 6/6.
 
+### R370c — «desplegado» y «lo que estás usando» no son lo mismo
+
+El primer fallo que Beltrán reportó en esta sesión —guardar un proyecto 2D y que no se creara la carpeta de
+R360— **no era un fallo del programa**: su `.isp` no traía la clave `managed`, que `serProject` escribe
+SIEMPRE, o sea que lo guardó una versión anterior. El asar nuevo llevaba **57 minutos** en disco, pero
+**Electron lee el asar al ARRANCAR**: sustituirlo bajo un proceso vivo no cambia nada, y la ventana llevaba
+abierta desde antes del despliegue. No se pudo reconstruir la hora de arranque porque el registro de
+diagnóstico **guarda una sola sesión** y una sonda mía la había pisado — el mismo pendiente que R351 dejó
+anotado, mordiendo otra vez.
+
+El sha1 que compara `scripts/deploy-verificado.ps1` dice que las tres instalaciones son iguales entre sí y a la
+compilación; **no dice qué código llevan, ni cuál está corriendo**. `scratchpad/verifica-instalada.mjs` cierra
+ese hueco: se lo pregunta al programa EN MARCHA por un símbolo que sólo existe desde cada ronda, y además avisa
+si lo que responde es el árbol de desarrollo en vez del `app.asar` instalado. Comprobado al cerrar la sesión:
+la instalada lleva R360, R363, R364, R365/R368, R367 y las tres de R370.
+
 ### R370b — cinco errores MÍOS de sonda, todos anotados en el fichero donde pasaron
 No los cazó ninguna revisión: los cazó exigirle a cada red que supiera fallar.
 1. **El juez estaba cacheado.** Muestrear el PNG recargándolo en la propia página servía la imagen de la pasada
