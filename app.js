@@ -1602,8 +1602,23 @@ function freeNestPool(){ for(const e of _nestPool){ try{gl.deleteTexture(e.tex);
    componerse desde las fuentes reales. El máster nunca sale del caché — es material de trabajo, no de entrega. */
 /* [R194] La restricción a composiciones CUADRADAS se añadió en R192 a `ncBuild` y a los dos menús, pero no aquí,
    que es la única puerta que de verdad decide si el caché se usa: un proxy no cuadrado guardado en un `.isp`
-   anterior seguía enlazándose en previsualización con el desencuadre que R192 vino a cerrar. */
-function ncUsable(m){ return !_exportQuality && state.view.useNestCache!==false && !!(m && m.kind==='nest' && m.w===m.h && m.ncReady && m.ncUrl && !m.ncStale); }
+   anterior seguía enlazándose en previsualización con el desencuadre que R192 vino a cerrar.
+   [R370] RETIRADA. R192 no arreglo el desencuadre: lo PROHIBIO, y con ello dejo sin la mayor palanca de
+   rendimiento del programa (N decodificadores -> 1) a todo lo que no fuera domo — una composicion 2D de 16:9 y
+   la tira de una sala no son cuadradas NUNCA. La causa real estaba en `renderExportFrame`: su rama flat extraia
+   la banda del contenido y tiraba el letterbox que `prepNests` conserva. Corregido ahi, el horneado de un nido
+   plano es identico a su recomposicion — medido con el criterio de R180 (el centro de masa se movia un 2,24%
+   con el horneado viejo y se queda en 0,04% con el nuevo).
+   PERO la puerta de R194 protegia ademas de otra cosa, y esa hay que seguir cerrandola: un proxy no cuadrado
+   guardado en un `.isp` ANTERIOR se horneo con la banda extraida, o sea MAL, y `nestSig` no lo delata —
+   incluye `m.w`/`m.h`, que no cambian entre los dos horneados, asi que ese proxy no queda rancio y se enlazaria
+   tan campante con el desencuadre de siempre. Por eso el horneado marca su FORMATO (`ncFmt`): los no cuadrados
+   solo valen si vienen del formato nuevo. Los CUADRADOS no se tocan — su horneado no ha cambiado y anularlos
+   costaria regenerar horas de proxies de domo por nada. */
+const NC_FMT=2; // 2 = horneado de R370 (rama flat con el letterbox intacto). Sin marca = anterior.
+function ncUsable(m){ return !_exportQuality && state.view.useNestCache!==false
+  && !!(m && m.kind==='nest' && m.ncReady && m.ncUrl && !m.ncStale)
+  && (m.w===m.h || (m.ncFmt||1)>=NC_FMT); }
 /* [R353] ¿El interior de este nido depende del RELOJ? Modificadores procedimentales (`anim`) o pila de
    modulacion (`mod`): los dos avanzan con `animTime`. Desciende a los nidos hijos, como `anyFeedbackFx`. */
 function nestConReloj(m,prof){ if(!m||!m.nestClips||(prof||0)>5)return false;
@@ -1698,10 +1713,10 @@ function ncRecheck(){ let changed=false;
   if(changed){ try{ renderMedia(); renderTimeline(); render(); }catch(e){} } }
 function ncDropVinst(mid){ const kill=cs=>{ for(const c of (cs||[])) if(c.mediaId===mid) vinstDispose(c.id); };
   kill(state.clips); for(const s of state.media) if(s.kind==='nest') kill(s.nestClips); }
-function ncAttach(m,path,sig,w,h,fps,loop,span){ m.ncPath=path; m.ncSig=sig; m.ncW=w; m.ncH=h; m.ncFps=fps; m.ncLoop=loop||0; m.ncSpan=span||0; // [R354] con que bucle se horneo y cuanto cubre delete m._noAudio; // sonda de silencio en limpio: un primer horneado sin pista de audio dejaba _noAudio pegado para siempre, y tras añadir sonido dentro del nest y regenerar, la composición seguía muda (vinstAudio devolvía null y collectAudioEvents seguía sin descender)
+function ncAttach(m,path,sig,w,h,fps,loop,span){ m.ncPath=path; m.ncSig=sig; m.ncW=w; m.ncH=h; m.ncFps=fps; m.ncLoop=loop||0; m.ncSpan=span||0; m.ncFmt=NC_FMT; /* [R370] con que formato de horneado se hizo */ // [R354] con que bucle se horneo y cuanto cubre delete m._noAudio; // sonda de silencio en limpio: un primer horneado sin pista de audio dejaba _noAudio pegado para siempre, y tras añadir sonido dentro del nest y regenerar, la composición seguía muda (vinstAudio devolvía null y collectAudioEvents seguía sin descender)
   m.ncUrl=(IS_ELEC&&DSP.toFileURL)?DSP.toFileURL(path):null; m.ncReady=!!m.ncUrl; m.ncStale=false; ncDropVinst(m.id); }
 function ncDetach(m,delFile){ const p=m.ncPath;
-  m.ncPath=null; m.ncSig=null; m.ncUrl=null; m.ncReady=false; m.ncStale=false; m.ncW=m.ncH=m.ncFps=null; m.ncLoop=0; m.ncSpan=0;
+  m.ncPath=null; m.ncSig=null; m.ncUrl=null; m.ncReady=false; m.ncStale=false; m.ncW=m.ncH=m.ncFps=null; m.ncLoop=0; m.ncSpan=0; m.ncFmt=null;
   ncDropVinst(m.id);
   if(delFile&&p&&IS_ELEC&&DSP.deleteFile){ try{ DSP.deleteFile(p); }catch(e){} }
   try{ renderMedia(); renderTimeline(); render(); markDirty(); }catch(e){} }
@@ -4034,7 +4049,7 @@ function openMediaCtx(e,m){ e.preventDefault(); const seq=isSeqMedia(m); const i
      sí mismo (dos capturas iguales → idénticas; dos instantes distintos → distintos, si no se aborta):
      **PSNR 58 dB y desplazamiento del centro de masa ≤ 0,22 px sobre 256** en las tres posiciones probadas. Lo
      que queda es pérdida del códec, no reencuadre. Sigue restringido a composiciones CUADRADAS. */
-  if(seq&&IS_ELEC&&(m.w===m.h)) items.push({label:m.ncPath?(m.ncStale?T('Nest proxy is out of date — regenerate','El proxy está desactualizado — regenerar'):T('Regenerate nest proxy…','Regenerar proxy de composición…')):T('Generate nest proxy…','Generar proxy de composición…'),ico:'layers',fn:()=>ncBuild(m)}); // [R180]
+  if(seq&&IS_ELEC) items.push({label:m.ncPath?(m.ncStale?T('Nest proxy is out of date — regenerate','El proxy está desactualizado — regenerar'):T('Regenerate nest proxy…','Regenerar proxy de composición…')):T('Generate nest proxy…','Generar proxy de composición…'),ico:'layers',fn:()=>ncBuild(m)}); // [R180]
   /* [R194] Quitar NO lleva la restricción de cuadradas: un proxy heredado de un proyecto antiguo en una
      composición no cuadrada quedaba imposible de borrar, porque la única entrada que lo hacía estaba detrás
      de la misma condición que impide generarlo. */
@@ -9629,8 +9644,15 @@ function renderExportFrame(t,res,ss,wall){ const flat=isFlat(); ctxCompMaster();
      forma explícita. Hoy no cambia nada porque `ncBuild` sólo admite composiciones CUADRADAS (con un lienzo
      cuadrado la banda ES la textura entera), pero el día que se admita un nest 16:9 el letterbox se habría
      perdido en silencio: la exención descansaba en esa puerta, no en este bloque. */
+  /* [R370] R234b eximio el CLAMP pero no la EXTRACCION: `uvsc`/`uvof` seguian sacando la banda del contenido,
+     asi que al hornear un nido 16:9 el letterbox se perdia igual y el cache encuadraba distinto — que es
+     exactamente el desencuadre por el que R192 acabo prohibiendo los nidos no cuadrados. La exencion tiene que
+     ser del mapeo ENTERO: identidad, textura completa con su letterbox, igual que la que produce `prepNests`.
+     `flat` se queda en 1 a proposito: en FSB `u_flat<0.5` RECORTA AL DISCO del domo, y este lienzo es plano. */
+  else if(flat && _ncSquare){ gl.uniform1f(LB.flat,1); gl.uniform2f(LB.uvsc,1,1); gl.uniform2f(LB.uvof,0,0);
+    gl.uniform4f(LB.uvlim,0,0,1,1); gl.uniform1f(LB.hfade,0); }
   else if(flat){ const A=_compAspect, s=Math.min(2/A,2), Fx=s*A/2, Fy=s/2; gl.uniform1f(LB.flat,1); gl.uniform2f(LB.uvsc,Fx,Fy); gl.uniform2f(LB.uvof,(1-Fx)/2,(1-Fy)/2); gl.uniform1f(LB.hfade,0);
-    if(_ncSquare)gl.uniform4f(LB.uvlim,0,0,1,1); else _lim(); } // [R234b] horneando el caché de un nest: textura entera, con su letterbox
+    _lim(); }
   /* [R233b] Aquí el límite es la TEXTURA ENTERA, no la banda: con `_ncSquare` la salida tiene que ser el composite
      cuadrado CON su letterbox intacto, y acotar a la banda rellenaría el vacío con contenido repetido — justo lo
      que este caso lleva desde R180 cuidando de no tocar. En el domo el contenido llena la textura, así que da igual. */
@@ -10899,10 +10921,10 @@ async function ncBuild(m){
   if(!m||m.kind!=='nest'){ flashStatus(T('Pick a composition','Elige una composición'),'err'); return; }
   if(!(m.nestClips||[]).length){ flashStatus(T('That composition is empty','Esa composición está vacía'),'err'); return; }
   if(!currentPath){ appAlert(T('Save the project first — nest proxies go beside it in a “nest proxies” folder.','Guarda el proyecto primero — los proxies de composición van junto a él en una carpeta “nest proxies”.')); return; }
-  /* [R192] Sólo composiciones CUADRADAS. Los menús ya no ofrecen la opción en las demás, pero la puerta se cierra
-     también aquí: en un nest no cuadrado el horneado recorta el letterbox (rama `flat` de `renderExportFrame`)
-     mientras que `prepNests` lo conserva, así que el caché encuadra distinto que la composición recompuesta. */
-  if(m.w!==m.h){ appAlert(T('Nest proxies only support square compositions for now (a 16:9 nest would be framed differently with the proxy on).','Por ahora los proxies de composición sólo admiten composiciones cuadradas (un nido 16:9 quedaría encuadrado distinto con el proxy puesto).')); return; }
+  /* [R192→R370] Aqui vivia la prohibicion de los nidos NO cuadrados: el horneado recortaba el letterbox (rama
+     `flat` de `renderExportFrame`) mientras `prepNests` lo conserva, y el cache encuadraba distinto. La causa se
+     ha corregido en esa rama, asi que la puerta se abre: el archivo sigue siendo CUADRADO (`ncFullSize`) y
+     contiene el composite con su letterbox, que es exactamente la textura que el padre muestrea. */
   const fps=m.fps||state.fps||60;
   /* [R354] Si este nido se usa en bucle y lleva reloj dentro, se hornea la EXTENSION que piden sus clips
      con el bucle ya aplicado, no los `m.dur` de la composicion: si no, el movimiento se reinicia cada vuelta. */
@@ -11901,7 +11923,7 @@ function projTitle(){ const md=(activeSeq()&&activeSeq().mode)||state.seqMode; c
 function serMedia(m){ return {id:m.id,name:m.name,kind:m.kind,w:m.w,h:m.h,mode:m.mode||null,cov:m.cov||null,room:m.room||null,roomFloorOf:m.roomFloorOf||null,dur:m.dur,fps:m.fps,proxyFps:(m.proxyFps||null),/* [R347b] la cadencia con la que se horneo el proxy: viaja en el .isp porque el proxy tambien sobrevive a la sesion */color:m.color,path:m.path||null,fsize:m.fsize||0,folder:m.folder||null,framePaths:m.framePaths||null,rel:(projRel(m.path)||null),relFrames:(m.framePaths?m.framePaths.map(p=>projRel(p)):null),/* [R360] rutas relativas a la carpeta del proyecto: mover la carpeta no rompe nada */srcIn:(m.srcIn!=null?m.srcIn:null),srcOut:(m.srcOut!=null?m.srcOut:null),/* [R249] las marcas del monitor son del MATERIAL, no de la ventana: viajan con el proyecto */ndiSource:m.ndiSource||null,spoutSource:m.spoutSource||null,/* [V3] serMedia es una LISTA BLANCA: sin esta línea el .isp guardaba el medio Spout sin su emisor y al reabrir enganchaba al que estuviera activo — parecía funcionar por casualidad */
   text:m.text,tfontSize:m.tfontSize,tweight:m.tweight,tfont:m.tfont,talign:m.talign,tlineH:m.tlineH,titalic:m.titalic,tcolor:m.tcolor,tbg:m.tbg,tstroke:m.tstroke,tstrokeColor:m.tstrokeColor,
   shape:m.shape,fill:m.fill,stroke:m.stroke,strokeW:m.strokeW,sw:m.sw,sh:m.sh,
-  ncPath:(m.kind==='nest'?(m.ncPath||null):null), ncRel:(m.kind==='nest'?(projRel(m.ncPath)||null):null), ncSig:(m.kind==='nest'?(m.ncSig||null):null), ncW:(m.kind==='nest'?(m.ncW||null):null), ncH:(m.kind==='nest'?(m.ncH||null):null), ncFps:(m.kind==='nest'?(m.ncFps||null):null), ncLoop:(m.kind==='nest'?(m.ncLoop||0):0), ncSpan:(m.kind==='nest'?(m.ncSpan||0):0), /* [R180] el caché sobrevive al cierre: al reabrir, ncReattach compara la firma y decide si sigue valiendo */
+  ncPath:(m.kind==='nest'?(m.ncPath||null):null), ncRel:(m.kind==='nest'?(projRel(m.ncPath)||null):null), ncSig:(m.kind==='nest'?(m.ncSig||null):null), ncW:(m.kind==='nest'?(m.ncW||null):null), ncH:(m.kind==='nest'?(m.ncH||null):null), ncFps:(m.kind==='nest'?(m.ncFps||null):null), ncFmt:(m.kind==='nest'?(m.ncFmt||null):null), /* [R370] formato del horneado: sin marca = anterior, y un no cuadrado de entonces esta mal horneado */ ncLoop:(m.kind==='nest'?(m.ncLoop||0):0), ncSpan:(m.kind==='nest'?(m.ncSpan||0):0), /* [R180] el caché sobrevive al cierre: al reabrir, ncReattach compara la firma y decide si sigue valiendo */
   nestClips:(m.kind==='nest'?(m.nestClips||[]).map(serClip):null), nestLanes:(m.kind==='nest'?m.nestLanes:null),
   nestMarkers:(m.kind==='nest'?(m.nestMarkers||[]):null), nestGroups:(m.kind==='nest'?(m.nestGroups||[]):null), nestPlayhead:(m.kind==='nest'?(m.nestPlayhead||0):null), nestScrollT:(m.kind==='nest'?(m.nestScrollT||0):null), /* [R239] el encuadre horizontal de la secuencia, en segundos */ nestWorkIn:(m.kind==='nest'?(m.nestWorkIn??null):null), nestWorkOut:(m.kind==='nest'?(m.nestWorkOut??null):null), comp:(m.comp||null), /* [archivado 20260725] grade: del nest */
   thumb:(m.kind==='audio'?m.thumb:null)}; }
@@ -15146,7 +15168,7 @@ $('#tracks').addEventListener('contextmenu',e=>{ const cd=e.target.closest('.cli
     ...((()=>{const cc=clipById(id),mm=cc&&mediaById(cc.mediaId);return (mm&&mm.kind!=='audio')?[{label:T('Render in place…','Renderizar en el sitio…'),ico:'layers',fn:()=>{const c2=clipById(id);if(c2)renderInPlace(c2);}}]:[];})()),
     ...((()=>{const cc=clipById(id),mm=cc&&mediaById(cc.mediaId); if(!(mm&&mm.kind==='nest'&&IS_ELEC))return []; // [R180] el proxy de composición, también a mano en el clip · [R192] repuesto, y generar sólo en cuadradas (ver renderMedia)
       const out=[];
-      if(mm.w===mm.h)out.push({label:mm.ncPath?(mm.ncStale?T('Nest proxy is out of date — regenerate','El proxy está desactualizado — regenerar'):T('Regenerate nest proxy…','Regenerar proxy de composición…')):T('Generate nest proxy…','Generar proxy de composición…'),ico:'layers',fn:()=>ncBuild(mm)});
+      out.push({label:mm.ncPath?(mm.ncStale?T('Nest proxy is out of date — regenerate','El proxy está desactualizado — regenerar'):T('Regenerate nest proxy…','Regenerar proxy de composición…')):T('Generate nest proxy…','Generar proxy de composición…'),ico:'layers',fn:()=>ncBuild(mm)});
       if(mm.ncPath)out.push({label:T('Remove nest proxy','Quitar proxy de composición'),ico:'trash',fn:()=>{ ncDetach(mm,true); flashStatus(T('Nest proxy removed','Proxy de composición eliminado')); }}); // quitar SIEMPRE disponible: ver renderMedia
       return out; })()),
     ...((()=>{ const sA=state.tl.selA,sB=state.tl.selB; return (sA!=null&&sB!=null&&Math.abs(sB-sA)>1e-3)?[{label:T('Render selection in place…','Renderizar la selección en el sitio…'),ico:'layers',fn:renderRangeInPlace}]:[]; })()), // [R1] bake the in/out time selection → new top track

@@ -1,5 +1,80 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## RONDA 370 — Lo «pro» que sólo funcionaba en domo: tres de cuatro cerradas, la cuarta descartada con motivo
+
+Beltrán, tras probar un proyecto 2D: *«siento que hemos trabajado en muchas herramientas de la app enfocados
+en el full dome, pero no sé si todos estos ajustes están aplicados al modo flat y 360»*. Y con dos casos
+encima de la mesa. La auditoría le dio la razón **a medias, y la mitad que acierta es la que duele**: las
+herramientas CREATIVAS tienen paridad en los tres modos (color/LUT, FX, máscaras, transiciones,
+automatización, texto, opacidad/transform/blend, export MP4/HAP/PNG, render in place, presets, y **las doce
+rondas R359-R369 enteras**, que son disco, modelo de tiempo y `main.js`). La asimetría estaba toda en la capa
+de **salida y rendimiento**, y en los tres casos por el mismo patrón: *una capacidad que en domo funciona
+apoyándose en una ruta que sólo existe en domo*.
+
+### 1 · El PNG «con alfa» no entregaba alfa — ni siquiera en domo
+`renderExportFrame` nació para el MP4 (su cabecera lo dice: «opaque black bg for MP4») y hace las dos cosas en
+opaco. Lo único que salvaba al domo era un efecto secundario de otra función: `chapaLienzo` devuelve allí su
+PROPIO lienzo 2D para recortar al círculo (R283), y ese recorte deja alfa 0 **fuera** del disco. **Medido en el
+`.exe` con su proyecto:** flat esquina `[0,0,0,255]`; domo esquina `[0,0,0,0]` pero **centro `[0,0,0,255]`**.
+O sea que el domo entregaba un recorte circular, no alfa. Por eso no se arregla «haciendo que flat imite al
+domo» sino pidiendo transparencia de verdad — lo que el propio comentario de R283 ya decía que debía pasar.
+`_exportAlfa` gobierna **los dos** eslabones (con `composite(...,true)` la FBO ya sale opaca: arreglar sólo el
+borrado de `glc` no habría cambiado nada). **Verde en los tres modos**, con control negativo y con guardas de
+que el PNG de fondo negro sigue 100% opaco.
+
+### 2 · NDI y Spout emitían siempre el máster de domo
+Clavados con `_drawFlat=false` y el comentario «ALWAYS the fulldome master»: en 2D y en sala emitían el
+composite reproyectado a domo, y los menús ofrecían «Dome master 1:1» en los tres modos. Para una instalación
+de **sala 360** —que es justo donde la salida en vivo hace falta— no servía. Ahora el contexto lo pone
+`ctxCompMaster()` (que incluye `_roomWrap`, el cual ni se salvaba ni se restauraba) y se emite la BANDA del
+contenido, al aspecto de la secuencia y sin bandas negras. **Los dos gemelos a la vez.** Medido: 2D emite
+512×288 con 15,2% de contenido; el control con el código viejo emite 512×512 y cae al 8,5% — la banda negra.
+
+### 3 · El proxy de composición sólo admitía composiciones CUADRADAS
+La mayor palanca de rendimiento del programa (N decodificadores → 1) no llegaba nunca ni al 2D ni a la sala:
+una composición 16:9 y la tira de una sala **no son cuadradas nunca**. R192 no arregló el desencuadre: lo
+**prohibió**. La causa real estaba en la rama `flat` de `renderExportFrame`, que extrae la banda del contenido
+y tira el letterbox que `prepNests` conserva — R234b eximió el *clamp* (`uvlim`) pero **no la extracción**, así
+que la prohibición era lo único que sostenía el invariante. Corregido el mapeo entero, **se cumple el criterio
+de R180**: activar el caché no cambia la imagen — centro de masa **0,04%**, contra **2,24%** con el horneado
+viejo (y la luminancia media pasa de 4,44 a 7,99 en el control, o sea que cambia la imagen entera).
+
+**Y una protección que R194 daba de propina y hubo que reponer.** La puerta del tamaño también impedía que se
+enlazara un proxy no cuadrado guardado en un `.isp` ANTERIOR, que está mal horneado. **`nestSig` no lo delata**
+—incluye `m.w`/`m.h`, iguales en los dos horneados—, así que ese proxy no queda rancio. Lo sostiene ahora
+`ncFmt`, la marca de formato del horneado: los no cuadrados sólo valen si vienen del formato nuevo, y los
+**cuadrados de siempre siguen valiendo** (invalidarlos costaría regenerar horas de proxies de domo por nada).
+Lo escribí primero como afirmación en un comentario —«`ncSig` lo protege»— y era **falso**; comprobarlo antes
+de dejarlo escrito es lo que lo cazó.
+
+### 4 · La claqueta (slate) — NO se toca, y aquí está el porqué
+`chapaLienzo` ya compone los rótulos con proporciones de W/H y funcionaría en cualquier aspecto. Pero la puerta
+es deliberada y su motivo está escrito desde R281: *«sus filas sólo existen en DOMO: en plano y en sala todo el
+cuadro se proyecta y no hay esquina que aprovechar»*. En domo el contenido es un círculo dentro de un cuadrado
+y los rótulos caben en las esquinas vacías; en 2D y en sala **taparían imagen**. Abrir la puerta no sería
+arreglar nada: sería estrenar un defecto. Queda como decisión de diseño para Beltrán (cartón de título aparte,
+o banda añadida), no como deuda.
+
+**Verificado** con tres sondas nuevas contra la app real: `r370-alfa-entrega.mjs` (13), `r370-salida-viva.mjs`
+(12) y `r370-nido-no-cuadrado.mjs` (13), las tres con control negativo que reconstruye el estado anterior.
+`npm test` 6/6.
+
+### R370b — cinco errores MÍOS de sonda, todos anotados en el fichero donde pasaron
+No los cazó ninguna revisión: los cazó exigirle a cada red que supiera fallar.
+1. **El juez estaba cacheado.** Muestrear el PNG recargándolo en la propia página servía la imagen de la pasada
+   ANTERIOR (misma ruta cada vez), y el control y las guardas salían rojos **con el código bien**. Se juzga
+   ahora offline con `scratchpad/leer-png.mjs` (sólo `zlib`), que además no depende del programa juzgado.
+2. **Un fotograma VACÍO pasa cualquier prueba de transparencia.** Dos versiones del proyecto de prueba no
+   dibujaban nada y la sonda cantaba «100% transparente» como éxito. Ahora se exige también que HAYA contenido.
+   La causa: el clip estaba en la **pista 0, que es la de AUDIO**.
+3. **Dos controles negativos que no controlaban nada:** una asignación suelta la pisa `_runExportCore` (enciende
+   la bandera tras varios `await`) y un `setInterval` pierde la carrera contra el bucle de fotogramas. Envolver
+   la función no tiene carrera.
+4. **Medir en el instante equivocado:** `ncUsable` empieza por `!_exportQuality` y por la preferencia del
+   usuario, y las dos estaban en el valor de la fase anterior. Rojo por un motivo ajeno a lo que se probaba.
+5. **Un `replace` sin comprobar el ancla** insertó una fase entera… en ninguna parte, e imprimió «hecho». Es
+   exactamente el error que este `PLAN.md` lleva documentando desde R365b. Ahora va con `assert`.
+
 ## RONDA 369 — Cinco horas de render perdidas por un plazo fijo de cinco minutos
 
 Vicente dejó corriendo la entrega del domo (4096², HEVC 10 bits, 200 Mb/s, 64,1 min) y se fue a dormir. La
