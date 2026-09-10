@@ -1,5 +1,68 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## RONDA 368 — El bucle de un hijo ya no se reinicia con el de su padre, y cortar conserva la fase
+
+Dos averías reportadas por Vicente con un export encima de la mesa.
+
+### 1 · Los vídeos de un compose loopeado reiniciaban todos a la vez
+
+**No era una regresión, y conviene decirlo con nombre y apellidos.** Vicente recordaba haberlo arreglado, y era
+cierto a medias: `5eced9c · R273 · Un compose loopeado ya no se reinicia en cada vuelta` existe y sigue viva,
+pero su alcance eran los **modificadores** —el movimiento del túnel y del tejido—. Su propio comentario lo dice:
+«El vídeo sí debe envolver —para eso se loopea—, pero el movimiento no».
+
+Con el material de entonces esa decisión era invisible: cada vídeo interior duraba 5,042 s y su clip medía 5,04,
+así que envolvía justo al acabarse. Con las fuentes nuevas (loops perfectos de ~10 s en ventanas de 5,04) el
+envoltorio del padre **corta el vídeo por la mitad** y reinicia los 144 hijos a la vez. **R273 no se rompió: se
+quedó corto para este material.**
+
+Ahora el ciclo de un hijo EN BUCLE corre con el reloj sin envolver —`_animNido`, el mismo que R273 dejó puesto—,
+así que cada uno gira a su propio periodo. **Y cuando la ventana del hijo mide lo mismo que su fuente el
+resultado es IDÉNTICO al de antes**: su ciclo y el del padre coinciden, así que nada de lo ya montado se mueve.
+Medido por el camino REAL (`collectDrawnVideoClips`) sobre `Ring 62`: los hijos pasan de pedir `2,50 / 2,50 /
+2,50` en tres vueltas a **`2,50 / 7,54 / 2,62`**.
+
+### 2 · Cortar un clip en bucle lo hacía arrancar en el fotograma 0
+
+**Regresión propia de R366b.** Al cortar, la mitad derecha hereda `loop`/`loopLen` y avanza `inP`; R366b le
+aplicaba `acotarBucle`, que aplastaba esa entrada contra el final de la ventana. En `Creativity Dome Sequence`
+—cuyo ciclo mide la fuente ENTERA, o sea margen cero— la fase se perdía **siempre**: cortaras donde cortaras, la
+mitad derecha empezaba en el fotograma 0.
+
+`srcT` **envuelve ahora el instante dentro de la fuente** en vez de pedir material que no existe, así que `inP`
+puede ser el desfase del corte. `acotarBucle` deja de aplastar y sólo **normaliza** la entrada dentro de la
+fuente; lo que sigue corrigiendo es un ciclo más largo que la fuente entera y una entrada negativa. Medido en la
+app: cortando a los 40 s, la mitad derecha pide el segundo **40**, no el 0.
+
+**Datos del proyecto:** ciclo propio activado en los **103** vídeos interiores que lo necesitaban (los 7 que ya
+lo tenían y los 2 cuya ventana ya cubría su fuente se dejan). Cero cambios de extensión y de posición.
+
+**Verificado** con `scratchpad/r368-bucles.mjs` (ejecuta el código real de `app.js`, 18 comprobaciones, con
+control negativo en cada avería y una guarda de no-regresión para el caso «ventana = fuente») y en la app por el
+camino de dibujado. Sustituye a `r365-srct-offline.mjs`, cuyas aserciones describían el modelo anterior.
+`npm test` 6/6.
+
+### R368b — la revisión de cierre
+
+- **Al cortar hay que ELEGIR, y la primera versión eligió mal.** Con una ventana lineal no se pueden conservar a
+  la vez la REGIÓN que se repite (la define `inP`) y la FASE (la define el reloj). Normalizar `inP` módulo el
+  ciclo conserva la fase pero **mueve la región**: medido sobre `Ring 3` (`inP` 3795,12 · ciclo 4,98 · fuente
+  3878,18), el trozo repetido saltaba del segundo **3795 al 0,44** — otro material. Ahora: bucle sobre la fuente
+  ENTERA → se conserva el desfase (la región ya es el archivo completo, no puede moverse); bucle sobre un TROZO
+  → se conserva la región y la fase reinicia, que es lo que hacía siempre antes de R366b. El proyecto tiene 6
+  bucles de región parcial, así que no era hipotético.
+- **Las dos mitades pasan por el guardián.** La derecha se lo saltaba, y con ella el tope de «ciclo más largo que
+  la fuente» y el reparto a la mitad de audio enlazada que la izquierda sí recibía.
+- **Corregido un comentario que mentía**: decía que el medio «no se consulta nunca en el camino normal», cuando
+  se consulta para todo clip con desfase. Son pocos —los cortados y los de región parcial—, no los cientos que
+  se dibujan por fotograma, pero el comentario decía otra cosa.
+
+**Dos limitaciones conocidas, comprobadas contra el proyecto antes de dejarlas fuera** (0 clips de audio en
+bucle, 0 clips en bucle con partner enlazado, así que ninguna puede morder hoy): el tramo de bucle del **audio**
+(`collectAudioEvents`) sigue acotándose con `Math.min(bufDur, loopS+loopLen)`, así que un bucle con desfase que
+envuelve la fuente acortaría el periodo del sonido respecto al de la imagen; y el audio **dentro de un nido**
+sigue reiniciando su bucle en cada vuelta del padre, porque R368 entró por `srcT` y ese camino no pasa por ahí.
+
 ## RONDA 367 — Los proxies de otro tamaño no los recogía nadie — lo cazó una pregunta de Vicente
 
 El tamaño viaja en el nombre del proxy (`px_<hash>_<PMAX>.mp4`, `pxi_<hash>_<IPMAX>.png`) **a propósito**: así,

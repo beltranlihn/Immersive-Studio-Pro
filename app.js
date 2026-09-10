@@ -1083,8 +1083,22 @@ function stopMotionPreview(){ if(_prevRaf){cancelAnimationFrame(_prevRaf);_prevR
 
 /* draw one clip into current FB */
 function fadeFactor(c,t){ const lt=t-c.start; let fi=c.fadeIn||0,fo=c.fadeOut||0; if(fi+fo>c.dur){const s=c.dur/(fi+fo);fi*=s;fo*=s;} let f=1; if(fi>0&&lt<fi)f*=Math.max(0,lt/fi); if(fo>0&&lt>c.dur-fo)f*=Math.max(0,(c.dur-lt)/fo); return f; }
+/* [R368] EL BUCLE DE UN HIJO NO SE REINICIA CON EL DE SU PADRE.
+   R273 saco el reloj de los MODIFICADORES del envoltorio del nido («el video si debe envolver, para eso se
+   loopea»), y con el material de entonces eso era invisible: cada video interior duraba exactamente lo que su
+   clip, asi que envolvia justo al acabarse. Con fuentes mas largas que su ventana —material nuevo, loops
+   perfectos de 10 s en clips de 5,04— el envoltorio del padre CORTA el video por la mitad y reinicia los 144
+   hijos A LA VEZ, que es lo contrario de lo que se busca al loopear un compose.
+   Ahora el ciclo de un hijo EN BUCLE corre con el reloj sin envolver (`_animNido`, el mismo que R273 dejo
+   puesto), asi que cada uno gira a su propio periodo y el conjunto respira. Cuando la ventana del hijo mide lo
+   mismo que su fuente —el caso de siempre— el resultado es IDENTICO al de antes: su ciclo y el del padre
+   coinciden, asi que esto no mueve nada de lo que ya estaba montado. */
 function srcT(c,t){ const raw=(t-c.start)*(c.speed||1); // timeline time → SOURCE-media time (R80: per-clip speed; R81: loopable clips wrap over [inP, inP+loopLen) so drawing/analysis/export all repeat automatically)
-  if(c.loop&&c.loopLen>0){ const L=c.loopLen; let k=Math.floor(raw/L), ph=raw-k*L;
+  if(c.loop&&c.loopLen>0){ const L=c.loopLen;
+    /* [R368] dentro de un nido en bucle, `_animNido` trae lo que el envoltorio del padre le quita al reloj.
+       Fuera de un nido vale 0 y esta linea no hace nada. */
+    const rawC=raw+(_animNido||0)*(c.speed||1);
+    let k=Math.floor(rawC/L), ph=rawC-k*L;
     /* [R256] El módulo en coma flotante no vuelve a cero en todas las vueltas: con un bucle de 0,4 s, `1.2/0.4`
        da 2,9999999999999996, así que el fotograma 36 se quedaba en 0,39999… — el ÚLTIMO del ciclo en vez del
        primero. Resultado: un fotograma repetido en cada tercera vuelta, un tirón visible que además desalineaba
@@ -1116,7 +1130,15 @@ function srcT(c,t){ const raw=(t-c.start)*(c.speed||1); // timeline time → SOU
        sonda que sólo preguntara «¿el instante cae dentro de la ventana?» APROBÓ este cambio: mide la premisa.
        Red que lo vigila ahora: `scratchpad/r346c-pingpong.mjs`. */
     if(c.loopRev&&(k&1))ph=L-ph; // R88: ping-pong — odd cycles play backward (forward, back, forward, …)
-    return (c.inP||0)+ph; }
+    /* [R368] Y el instante resultante se ENVUELVE dentro de la fuente en vez de pedir material que no existe.
+       Esto es lo que permite que cortar un clip en bucle conserve la FASE: la mitad derecha arranca donde se
+       corto (`inP` = el desfase) en vez de saltar al fotograma 0. El medio solo se consulta si `inP` no es 0:
+       un loop perfecto entra con 0 y no paga nada, y los que llevan desfase son unos pocos (los cortados y los
+       que repiten un trozo), no los cientos que se dibujan por fotograma. */
+    let st=(c.inP||0)+ph;
+    if(st>0&&(c.inP||0)>0){ const sd=duracionFuente(mediaById(c.mediaId));
+      if(sd>0&&isFinite(sd)&&st>=sd)st-=sd*Math.floor(st/sd); }
+    return st; }
   return raw+(c.inP||0); }
 function loopCycleSec(c){ return (c.loop&&c.loopLen>0)?(c.loopLen/(c.speed||1)):0; } // one loop cycle length in TIMELINE seconds
 /* [R346] EL INSTANTE QUE SE LE PIDE A UN DECODIFICADOR, con dos microsegundos de tolerancia.
@@ -6493,6 +6515,20 @@ function razorCore(c,tAbs){ if(tAbs<=c.start+0.02||tAbs>=c.start+c.dur-0.02)retu
      cubrio: `c2` hereda `loop`/`loopLen` del original por el `{...c}` y ademas avanza la entrada, asi que la
      mitad derecha nace con la ventana fuera de la fuente — cortar un bucle de 30 s sobre una fuente de 5 s a
      los 3 s dejaba 2 s de cada vuelta en negro, el sintoma exacto de `Ring 137`. Se acotan las DOS mitades. */
+  /* [R368] Al cortar un clip EN BUCLE hay que elegir, porque con una ventana lineal no se pueden conservar las
+     dos cosas a la vez: la REGION que se repite (la define `inP`) y la FASE (la define el reloj).
+       · Bucle sobre la fuente ENTERA — el caso de «Creativity Dome Sequence» y de todo loop perfecto: la region
+         no puede moverse porque ya es el archivo completo, asi que `inP` es puro DESFASE y se conserva. Esto es
+         lo que arregla el «arranca en el fotograma 0» que metio R366b al aplastarlo contra un margen de cero.
+       · Bucle sobre un TROZO (p.ej. `inP` 3795 con ciclo 4,98 sobre una fuente de 3878 s): ahi `inP` define QUE
+         se repite, y moverlo —o peor, sacarle el modulo del ciclo— cambia el material que suena. Se deja donde
+         estaba y la fase reinicia, que es lo que hacia siempre antes de R366b. */
+  if(c2.loop&&c2.loopLen>0){ const sd=duracionFuente(mediaById(c2.mediaId));
+    c2.inP = (sd>0&&isFinite(sd)&&c2.loopLen>=sd-1e-3)
+      ? ((((c.inP||0)+left*(c.speed||1))%sd)+sd)%sd      /* fuente entera → se conserva el desfase */
+      : (c.inP||0);                                      /* region parcial → se conserva la region */ }
+  /* [R368] y las DOS mitades pasan por el guardian: la derecha se lo saltaba, y con ella el tope de «ciclo mas
+     largo que la fuente» y el reparto a la mitad de audio enlazada que la izquierda si recibia. */
   acotarBucle(c); acotarBucle(c2);
   state.clips.push(c2); return c2; } // drop the fades that now land at the cut: left half keeps only its fadeIn, right half only its fadeOut
 function razorClip(c,tAbs){ if(tAbs<=c.start+0.02||tAbs>=c.start+c.dur-0.02)return; pushUndo();
@@ -11855,8 +11891,10 @@ function acotarBucle(c){ if(!c||!c.loop||!(c.loopLen>0))return false;
     /* [R365b] El ciclo acortado viaja a la mitad de audio, como en `setLoopRange`: dos periodos distintos en un
        par enlazado separan imagen y sonido una diferencia de ciclo en CADA vuelta, en el visor y en la mezcla. */
     const par=linkPartner(c); if(par&&par.loop&&par.loopLen>c.loopLen)par.loopLen=c.loopLen; }
-  const maxIn=Math.max(0,sd-c.loopLen);
-  if((c.inP||0)>maxIn+1e-6){ c.inP=maxIn; toco=true; }
+  /* [R368] La entrada se NORMALIZA dentro de la fuente, no se aplasta contra el final de la ventana. Desde que
+     `srcT` envuelve, un `inP` por delante ya no deja hueco: es la FASE del bucle, y aplastarla se llevaba por
+     delante el desfase de un corte. Lo que si sigue siendo un error es salirse de la fuente entera. */
+  if((c.inP||0)>=sd){ c.inP=((c.inP||0)%sd+sd)%sd; toco=true; }
   /* [R366b] Y el otro extremo. `clipSrc` devuelve `lim: lim && !c.loop`, o sea que para un clip EN BUCLE los
      recortes (`rippleL`, `roll`) se quedan SIN suelo: arrastrar su borde izquierdo hacia la izquierda mete `inP`
      en negativo y el clip se congela en su primer fotograma. El guardian miraba solo el tope de arriba. */
