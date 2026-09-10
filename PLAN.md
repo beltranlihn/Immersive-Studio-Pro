@@ -1,5 +1,49 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## RONDA 367 — Los proxies de otro tamaño no los recogía nadie — lo cazó una pregunta de Vicente
+
+El tamaño viaja en el nombre del proxy (`px_<hash>_<PMAX>.mp4`, `pxi_<hash>_<IPMAX>.png`) **a propósito**: así,
+cambiar la constante no deja proxies mudos sirviendo material viejo (R363, R366). El efecto secundario nunca se
+había cerrado: los del tamaño anterior se quedan en `Proxies/` para siempre, porque nadie los mira **y nadie los
+borra**.
+
+**Cómo apareció.** Al bajar `PMAX` de 960 a 720 en el proyecto de domo, un `px_..._960.mp4` de **19,4 GB**
+sobrevivió a la regeneración entera — más que los 438 proxies nuevos juntos (12,76 GB). No lo encontró ninguna
+sonda: lo encontró que Vicente preguntara cuánto quedaba y que el `du` de la carpeta no cuadrara con la suma de
+los archivos. La revisión de R366 lo había anticipado por escrito («los `px_*_960` quedan huérfanos y no los
+borra nadie») y se cerró sólo la mitad hermana.
+
+- **`limpiarProxiesDeOtroTamano()`**, llamada al abrir el proyecto (no se espera: es disco y no hace falta para
+  dibujar). Deja constancia en `diag` y avisa por la barra de estado con el recuento y los MB liberados.
+- **La regla es DELIBERADAMENTE ESTRECHA**: se borra únicamente lo que por CONSTRUCCIÓN ya no puede alcanzarse
+  —un nombre de proxy de medio cuyo tamaño no es el de hoy—. **No** se pregunta si el medio sigue en el
+  proyecto: eso exigiría fiarse de `fsize` y de que los medios estén cargados, y equivocarse ahí borra un proxy
+  VIVO. Un huérfano de más cuesta disco; un borrado de menos cuesta horas de recodificación.
+- Lo que no encaje en los dos patrones se deja intacto: ahí viven los proxies de **composición** (`ncPath`, con
+  otra forma de nombre) y los `.part` a medio escribir.
+
+**Verificado** con `scratchpad/r367-huerfanos.mjs`, que planta señuelos en la carpeta REAL del proyecto y exige
+que los **438 proxies reales sigan ahí**. Sin controles, una limpieza glotona daría verde igual. `npm test` 6/6.
+
+### R367b — la revisión de cierre, y una regresión que R366b había dejado puesta
+
+- **`.dsp-proxy-\w+\.mp4` dejó de reconocer los proxies hermanos.** R366b metió el tamaño en ese nombre
+  (`.dsp-proxy-720-<hash>.mp4`) y **no tocó los cinco reconocedores**: `\w` no casa el guion, así que ninguno
+  encontraba ya un hermano real. Consecuencias: muere el rescate por nombre, y el corto-circuito de «este
+  archivo YA es un proxy» deja de saltar en tres sitios → **el programa haría un proxy de un proxy**. Ahora es
+  `[\w-]+`, comprobado contra los dos formatos de nombre. Un recordatorio queda junto a `proxyLocalPath`.
+- **El borrado exige que el RELEVO ya esté escrito.** `DSP.deleteFile` es `unlink`, no la papelera, y esto corre
+  solo en cada apertura: si otra máquina —o una versión anterior del programa— dejó ahí proxies de SU tamaño,
+  borrarlos a ciegas le cuesta horas de recodificación. Exigiendo que exista el mismo hash con el tamaño de hoy,
+  el peor caso es que **sobre** un huérfano (cuesta disco) en vez de **faltar** un proxy vivo (cuesta trabajo).
+  Se decide con los NOMBRES, sin mirar los medios: nada que dependa de `fsize` ni de que la carga haya acabado.
+- **Limitación asumida y escrita:** la limpieza sólo mira `Proxies/` de un proyecto gestionado. Los huérfanos de
+  la caché central y los hermanos que viven junto al material del usuario **no se recogen** — barrer carpetas de
+  medios buscando qué borrar es un riesgo que no compensa por unos GB.
+
+La sonda cubre la regla nueva con **seis** controles (los dos relevos, los dos rancios SIN relevo, el proxy de
+composición y el `.part`): 16 comprobaciones, todas en verde.
+
 ## RONDA 366 — El proxy pesaba casi lo mismo que el original — pedido de Vicente
 
 Al regenerar los proxies del proyecto de domo saltó a la vista: **160 proxies de vídeo ocupaban 24,1 GB frente a

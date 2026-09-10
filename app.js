@@ -3400,7 +3400,7 @@ function _proxyCache(pref,m,max,ext){ if(!_proxyDir||!m.path)return null; return
 function proxyCachePath(m){ return _proxyCache('px_',m,PMAX,'.mp4'); }
 /* preferred location: NEXT TO the source clip (travels with the media/drive) — "MiClip.dsp-proxy-<hash>.mp4";
    the hash (path|size) self-invalidates the proxy if the source file is replaced. Central cache = fallback. */
-function proxyLocalPath(m){ return _proxySibling(m,'.dsp-proxy-'+PMAX+'-','.mp4'); } /* [R363b] delega en el constructor comun */
+function proxyLocalPath(m){ return _proxySibling(m,'.dsp-proxy-'+PMAX+'-','.mp4'); } /* [R367b] OJO: al meter el tamaño aqui (R366b) hay que mantener los cinco reconocedores `\.dsp-proxy-[\w-]+\.mp4` — con `\w` a secas el guion NO casa y se rompen el rescate por nombre y el corto-circuito de «esto YA es un proxy» */ /* [R363b] delega en el constructor comun */
 /* [R366b] El tamaño va TAMBIEN en el nombre del hermano. Sin esto, `PMAX` 960→720 solo renombraba los de
    `Proxies/` y los hermanos —que van ANTES en `proxyCandidates`— seguirian sirviendo el archivo de 960 px y
    34-59 Mbps para siempre: el cambio no llegaria nunca a un proyecto suelto. */
@@ -3437,6 +3437,45 @@ async function _listaDir(dir){ let s=_dirListCache.get(dir);
 async function _hayArchivo(p){ if(!p)return false; return (await _listaDir(pdir(p))).has(pbase(p).toLowerCase()); }
 function _dirRecuerda(p){ const s=_dirListCache.get(pdir(p)); if(s)s.add(pbase(p).toLowerCase()); }
 function _dirOlvida(p){ const s=_dirListCache.get(pdir(p)); if(s)s.delete(pbase(p).toLowerCase()); }
+/* [R367] LOS PROXIES DE OTRO TAMAÑO NO LOS RECOGE NADIE.
+   El tamaño viaja en el nombre (`px_<hash>_<PMAX>.mp4`, `pxi_<hash>_<IPMAX>.png`) para que cambiar la constante
+   no deje proxies mudos sirviendo material viejo (R363, R366). El efecto secundario es que los de antes quedan
+   en `Proxies/` para siempre: nadie los mira y nadie los borra. VISTO en el proyecto de domo de Vicente al bajar
+   `PMAX` de 960 a 720 — un `px_..._960.mp4` de **19,4 GB** sobrevivio a la regeneracion entera, mas que todos
+   los proxies nuevos juntos (12,76 GB), y solo aparecio porque el `du` de la carpeta no cuadraba.
+   La regla es DELIBERADAMENTE ESTRECHA: se borra unicamente lo que por CONSTRUCCION ya no puede alcanzarse —un
+   nombre de proxy de medio cuyo tamaño no es el de hoy—. No se pregunta si el medio sigue en el proyecto: eso
+   exigiria fiarse de `fsize` y de que los medios esten cargados, y una equivocacion ahi borra un proxy VIVO.
+   Lo que no encaje en los dos patrones se deja intacto: ahi viven los proxies de COMPOSICION (`ncPath`, con
+   nombre de otra forma) y los `.part` a medio escribir. */
+async function limpiarProxiesDeOtroTamano(){
+  if(!IS_ELEC||!DSP.listDir||!DSP.deleteFile||!state.managed)return 0;
+  const d=projProxiesDir(); if(!d)return 0;
+  let files=[]; try{ files=(await DSP.listDir(d))||[]; }catch(e){ return 0; }
+  const reV=/^(px_)([0-9a-z]+)_(\d+)\.mp4$/i, reI=/^(pxi_)([0-9a-z]+)_(\d+)\.png$/i;
+  /* [R367b] Y SOLO si su RELEVO ya esta escrito. `DSP.deleteFile` es `unlink`, no la papelera, y esto corre solo
+     en cada apertura: si otra maquina o una version anterior del programa dejo ahi proxies de SU tamaño, borrarlos
+     a ciegas le cuesta horas de recodificacion. Exigiendo que exista el mismo hash con el tamaño de hoy, el peor
+     caso es que sobre un huerfano (cuesta disco) en vez de faltar un proxy vivo (cuesta trabajo). Se decide con
+     los NOMBRES, sin mirar los medios: nada que dependa de `fsize` ni de que la carga haya terminado. */
+  const hoy=new Set();
+  for(const f of files){ const nom=String(f&&f.name||'');
+    const a=reV.exec(nom), b=a?null:reI.exec(nom);
+    const mm2=a||b; if(!mm2)continue;
+    if(Number(mm2[3])===(a?PMAX:IPMAX))hoy.add(mm2[1]+mm2[2].toLowerCase()); }
+  let n=0,bytes=0;
+  for(const f of files){ const nom=String(f&&f.name||'');
+    const a=reV.exec(nom), b=a?null:reI.exec(nom); const mm=a||b;
+    if(!mm)continue;                       /* no es un proxy de MEDIO: nidos, .part y demas se dejan en paz */
+    const tope=a?PMAX:IPMAX;
+    if(Number(mm[3])===tope)continue;      /* es el tamaño de hoy: se queda */
+    if(!hoy.has(mm[1]+mm[2].toLowerCase()))continue; /* su relevo no esta: no se toca */
+    const ruta=pjoin(d,nom);
+    try{ if(await DSP.deleteFile(ruta)){ n++; bytes+=(f.size||0); _dirOlvida(ruta); } }catch(e){}
+  }
+  if(n){ diag('info','proxy','proxies de otro tamaño borrados',{n,mb:Math.round(bytes/1e6)});
+    try{ flashStatus(T('Removed '+n+' stale proxies ('+Math.round(bytes/1e6)+' MB) left by an older size','Retirados '+n+' proxies rancios ('+Math.round(bytes/1e6)+' MB) de un tamaño anterior')); }catch(e){} }
+  return n; }
 async function ensureProjProxiesDir(aviso){ const pd=projProxiesDir();
   if(state.managed&&pd&&DSP.ensureDir){ if(!(await DSP.ensureDir(pd)))diag('warn','proxy',aviso||'Proxies/ del proyecto no se pudo crear — el proxy caera junto al medio o a la cache central',{dir:pd}); } } /* [R360b] ensureDir devuelve false, no lanza — por eso se mira el retorno */
 /* [R363b] UNA sola funcion de enganche de proxy de imagen, usada por la carga del proyecto, por el import y
@@ -3508,12 +3547,12 @@ async function makeImgProxy(m){
    moved/renamed (its hash no longer matches path|size, so proxyCandidates would miss it). Validated by duration in bindProxyFile. */
 async function proxyScanDir(m){ if(!IS_ELEC||!DSP.listDir||!m.path)return []; const dir=pdir(m.path); if(!dir)return [];
   const stem=pbase(m.path).replace(/\.[^.]+$/,'');
-  const re=new RegExp('^'+stem.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\.dsp-proxy-\\w+\\.mp4$','i');
+  const re=new RegExp('^'+stem.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\.dsp-proxy-[\\w-]+\\.mp4$','i');
   try{ const files=await DSP.listDir(dir); return files.filter(f=>re.test(f.name)).map(f=>pjoin(dir,f.name)); }catch(e){ return []; } }
 /* attach an existing on-disk proxy: exact-hash candidates first, then any sibling "<stem>.dsp-proxy-*.mp4". A file that
    won't decode (interrupted encode → no moov) or is a stale cut (duration mismatch) is DELETED so it stops shadowing a
    clean regenerate and stops the app silently falling back to the heavy original. Generation stays MANUAL. */
-async function attachExistingProxy(m,clean){ if(!m||m.kind!=='video'||!m.path||/\.dsp-proxy-\w+\.mp4$/i.test(m.path))return false;
+async function attachExistingProxy(m,clean){ if(!m||m.kind!=='video'||!m.path||/\.dsp-proxy-[\w-]+\.mp4$/i.test(m.path))return false;
   const seen=new Set(); const list=[...proxyCandidates(m), ...await proxyScanDir(m)]; let removed=false;
   for(const cp of list){ if(!cp){continue;} const key=cp.toLowerCase(); if(seen.has(key))continue; seen.add(key);
     let ex=false; try{ ex=await DSP.exists(cp); }catch(_){}
@@ -3557,7 +3596,7 @@ async function pumpProxy(){if(proxyBusy||!proxyQ.length)return;proxyBusy=true;co
    buscar; `v._pedT` exige además que el instante lo hayamos pedido nosotros. */
 function seekRaw(v,t){return new Promise(r=>{t=Math.max(0,Math.min((v.duration||0)-1e-3,instanteDecod(t)));if(Math.abs(v.currentTime-t)<1e-3&&v._pedT===t&&v.readyState>=2){requestAnimationFrame(()=>r());return;}const on=()=>{v.removeEventListener('seeked',on);r();};v.addEventListener('seeked',on);v._pedT=t;v.currentTime=t;});}
 async function makeProxy(m){
-  if(/\.dsp-proxy-\w+\.mp4$/i.test(m.path||'')){ m.proxyUrl=m.srcUrl; m.proxyEl=m.el; m.proxyReady=true; m.proxyPct=100; renderMedia(); updProxyUI(m); return; } // the imported file IS a proxy — it is its own proxy (no proxy-of-proxy)
+  if(/\.dsp-proxy-[\w-]+\.mp4$/i.test(m.path||'')){ m.proxyUrl=m.srcUrl; m.proxyEl=m.el; m.proxyReady=true; m.proxyPct=100; renderMedia(); updProxyUI(m); return; } // the imported file IS a proxy — it is its own proxy (no proxy-of-proxy)
   const candidates=proxyCandidates(m);
   if(!m._proxyForce){ if(await attachExistingProxy(m,true))return; } // cache hit (exact hash, then any sibling proxy) → instant; a corrupt/stale file is deleted here, then we re-encode below
   const dec=document.createElement('video');dec.src=m.srcUrl;dec.muted=true;dec.playsInline=true;dec.preload='auto';
@@ -3593,7 +3632,7 @@ async function makeProxy(m){
   /* [R109] FAST capture: decode with WebCodecs (the R108 demuxer) instead of playing the <video> at 1× real-time —
      a 64-min film proxy drops from ~64 min to ~5 min (one VideoDecoder reaches ~800fps). Falls back to rVFC/seek on any error. */
   let usedFast=false;
-  if(IS_ELEC && HAS_WEBCODECS && DSP.openRead && m.path && !/\.dsp-proxy-\w+\.mp4$/i.test(m.path)){
+  if(IS_ELEC && HAS_WEBCODECS && DSP.openRead && m.path && !/\.dsp-proxy-[\w-]+\.mp4$/i.test(m.path)){
     let dx=null;
     try{ dx=await demuxMP4(m.path);
       let outN=0, decErr=null;
@@ -9094,7 +9133,7 @@ let _exCD=false;
 function _useCD(m){ if(!(_exCD||state.view.wcDecode))return false; // [R108] engine complete + verified in isolation (4× HEVC10 @60fps, ring full), but the in-app playback loop starves the decode pumps on the main thread → OFF by default until that's moved off-thread (worker) / root-caused. Flip state.view.wcDecode=true to try it.
   if(!(IS_ELEC && HAS_WEBCODECS && (_exCD || !_exportQuality)))return false;
   if(!m||m.kind!=='video'||!m.path||m._cdFail)return false;
-  if(/\.dsp-proxy-\w+\.mp4$/i.test(m.path))return false;                                   // a proxy is light — <video> handles it
+  if(/\.dsp-proxy-[\w-]+\.mp4$/i.test(m.path))return false;                                   // a proxy is light — <video> handles it
   if(_exCD)return true;                                                                    // en export no hay proxy que valga: se entrega desde el original
   const usingProxy=(state.view.useProxy!==false && m.proxyReady && m.proxyUrl); return !usingProxy; }
 function vinstEnsure(c,m){ if(!m||(m.kind!=='video' && !(m.kind==='nest'&&ncUsableFor(c,m))))return null; /* [R353] por CLIP: los tres puntos que deciden tienen que coincidir */ const url=_vinstUrl(m); if(!url)return null; // [R180] nests cacheados incluidos (_useCD exige kind==='video', así que van por <video>, que es lo correcto para un archivo ligero)
@@ -13233,6 +13272,9 @@ function _loadProjectCore(obj){ relinkReset(); // [R204] el índice de reenlace 
     _id=mx2+1; state.openSeqs=ids; state.activeSeqId=(obj.activeSeqId&&ids.includes(obj.activeSeqId))?obj.activeSeqId:ids[0]; loadSeqIntoState(activeSeq());
   } else { state.openSeqs=[]; state.activeSeqId=null; ensureSequences(); }
   syncNestAudioClips(); // [R225·9] ya con la secuencia activa cargada: un nest con audio dentro y sin su clip derivado (proyecto anterior a R225) lo estrena aquí
+  /* [R367] Al abrir: los proxies que quedaron de un tamaño anterior no los va a usar nadie. No se espera
+     (es disco y no hace falta para dibujar) pero se registra en diag y se avisa por la barra de estado. */
+  try{ limpiarProxiesDeOtroTamano().catch(()=>{}); }catch(e){}
   /* [R365] REPARACION AL ABRIR: los proyectos que ya traen la ventana del bucle fuera de su fuente se arreglan
      aqui, porque el defecto se grabo en el `.isp` y si no seguiria viendose igual. Va DESPUES de cargar las
      secuencias (`seqDur` necesita los `nestClips`) y antes de dibujar nada. Se avisa y se marca el proyecto como
