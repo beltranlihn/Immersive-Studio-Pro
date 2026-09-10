@@ -102,16 +102,6 @@ const CON_OPACO_FORZADO = expr => `(async()=>{
   renderExportFrame=function(){ _exportAlfa=false; return orig.apply(this,arguments); };
   try{ return await ${expr}; } finally { renderExportFrame=orig; } })()`;
 
-const MUESTREA = file => `(async()=>{
-  const url='file:///'+${JSON.stringify(file)}.replace(/\\\\/g,'/');
-  const im=new Image();
-  await new Promise((ok,ko)=>{ im.onload=ok; im.onerror=()=>ko(new Error('no carga '+url)); im.src=url; });
-  const cv=document.createElement('canvas'); cv.width=im.naturalWidth; cv.height=im.naturalHeight;
-  const cx=cv.getContext('2d'); cx.clearRect(0,0,cv.width,cv.height); cx.drawImage(im,0,0);
-  const px=(x,y)=>Array.from(cx.getImageData(x,y,1,1).data);
-  return { w:cv.width, esquina:px(2,2), centro:px(cv.width>>1,cv.height>>1) };
-})()`;
-
 const primerPng = () => {
   try { for(const sub of fs.readdirSync(OUT)){ const p=path.join(OUT,sub);
     if(fs.statSync(p).isDirectory()){ const f=fs.readdirSync(p).filter(x=>x.toLowerCase().endsWith('.png')).sort();
