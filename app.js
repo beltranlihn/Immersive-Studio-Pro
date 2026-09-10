@@ -3366,7 +3366,29 @@ function nombreArchivo(m){ const ext=splitExt(pbase(m.path||'')).ext;
    recolectar y reorganizar — antes importar y recolectar usaban dos distintas y la misma secuencia podia
    acabar en dos carpetas segun por donde entrara) */
 function subSecuencia(nombre){ return fsSafeName(String(nombre||'seq').replace(/\s*\[\d+f\]\s*$/i,'').replace(/#+/g,'').replace(/\.[a-z0-9]{2,4}\s*$/i,'').replace(/[.\s_-]+$/,'').trim())||'seq'; } /* 'toma_###.png [120f]' → 'toma' */
-const PMAX=960,PMBPS=12,proxyQ=[]; let proxyBusy=false;
+const PMAX=720,PMBPS=12,proxyQ=[]; let proxyBusy=false; /* [R366] 720 (antes 960): el proxy es TODO-INTRA a proposito -por eso el arrastre del cabezal es instantaneo- y un H.264 todo-intra pesa 5-10x lo normal, asi que la resolucion es la palanca que queda. El tamaño VIAJA EN EL NOMBRE (px_<hash>_720.mp4), asi que los de 960 quedan huerfanos solos y no se mezclan. El visor no pasa de ~1000 px en pantalla y el proxy nunca llega al master horneado (`_exportQuality` lo apaga en los cinco sitios). */
+/* [R366] EL PROXY NO PUEDE PESAR MAS QUE SU ORIGINAL, y estaba pesando casi lo mismo.
+   MEDIDO en el proyecto de domo de Vicente: 160 proxies de video ocupaban 24,1 GB frente a 25,1 GB de
+   originales; el del master (1080p, 65 min, 12,5 GB) salia de 19,4 GB. La causa NO es `PMBPS`: el codigo pedia
+   12 Mbps y `ffprobe` media 34, 40 y 59 Mbps en los archivos entregados. `VideoEncoder` arranca en
+   `bitrateMode:'variable'` y el codificador por hardware de macOS trata ese numero como una sugerencia:
+   se lo salta por 3-5x. Con `'constant'` lo respeta.
+   Y el objetivo deja de ser un numero fijo para todo: 12 Mbps a 960x960 son 0,217 bits por pixel y fotograma
+   —tres veces lo que hace falta para previsualizar—, asi que se calcula por PIXELES (`PBPP`) y ademas se topa
+   contra la tasa del ORIGINAL, que es la unica garantia dura de que el proxy no engorde mas que el archivo al
+   que sustituye. El proxy es SOLO para previsualizar (`_exportQuality` lo apaga en todos los caminos de
+   entrega), asi que esta calidad no llega jamas al master horneado. */
+const PBPP=0.08;        /* bits por pixel y fotograma: rango bueno de H.264 (0,05-0,10) */
+const PBPS_MIN=0.8e6;   /* suelo: por debajo de esto el proxy no sirve ni para colocar un clip */
+function proxyBitrate(pw,ph,fps,m,dur){
+  let bps=pw*ph*(fps||30)*PBPP;
+  bps=Math.min(bps,PMBPS*1e6);
+  const fuente=(m&&m.fsize>0&&dur>0)?(m.fsize*8/dur):0;
+  if(fuente>0)bps=Math.min(bps,fuente*0.6);   /* nunca mas del 60% de lo que pesa el original por segundo */
+  /* [R366b] El suelo va DENTRO del tope, no por encima: aplicandolo despues, una fuente de tasa muy baja
+     terminaba con un proxy codificado por ENCIMA de su original, que es justo lo que esta ronda promete. */
+  const suelo=fuente>0?Math.min(PBPS_MIN,fuente*0.6):PBPS_MIN;
+  return Math.max(suelo,Math.round(bps)); }
 let _proxyDir=null; if(IS_ELEC&&DSP.proxyDir){ try{ DSP.proxyDir().then(d=>{_proxyDir=d||null;}); }catch(e){} }
 function proxyHash(s){ let h=5381; for(let i=0;i<s.length;i++)h=((h<<5)+h+s.charCodeAt(i))>>>0; return h.toString(36); }
 /* [R363b] Los CONSTRUCTORES de ruta de proxy viven en dos parejas parametrizadas — hermano junto al clip y
@@ -3378,7 +3400,10 @@ function _proxyCache(pref,m,max,ext){ if(!_proxyDir||!m.path)return null; return
 function proxyCachePath(m){ return _proxyCache('px_',m,PMAX,'.mp4'); }
 /* preferred location: NEXT TO the source clip (travels with the media/drive) — "MiClip.dsp-proxy-<hash>.mp4";
    the hash (path|size) self-invalidates the proxy if the source file is replaced. Central cache = fallback. */
-function proxyLocalPath(m){ return _proxySibling(m,'.dsp-proxy-','.mp4'); } /* [R363b] delega en el constructor comun */
+function proxyLocalPath(m){ return _proxySibling(m,'.dsp-proxy-'+PMAX+'-','.mp4'); } /* [R363b] delega en el constructor comun */
+/* [R366b] El tamaño va TAMBIEN en el nombre del hermano. Sin esto, `PMAX` 960→720 solo renombraba los de
+   `Proxies/` y los hermanos —que van ANTES en `proxyCandidates`— seguirian sirviendo el archivo de 960 px y
+   34-59 Mbps para siempre: el cambio no llegaria nunca a un proyecto suelto. */
 /* [R360] proxy dentro de la carpeta del proyecto (`Proxies/`). La clave del hash es nombre|tamaño —no la ruta—
    para que sobreviva a mover la carpeta entera: la ruta absoluta cambia, el nombre y el tamaño no. */
 function proxyProjPath(m){ if(!state.managed||!m.path)return null; const d=projProxiesDir(); if(!d)return null;
@@ -3541,7 +3566,8 @@ async function makeProxy(m){
   const s=Math.min(1,PMAX/Math.max(dec.videoWidth,dec.videoHeight));
   const pw=Math.max(2,Math.round(dec.videoWidth*s/2)*2),ph=Math.max(2,Math.round(dec.videoHeight*s/2)*2);
   const oc=document.createElement('canvas');oc.width=pw;oc.height=ph;const ox=oc.getContext('2d');
-  let codec='avc1.42E01E';for(const cc of['avc1.42E01E','avc1.4D0028']){const sup=await VideoEncoder.isConfigSupported({codec:cc,width:pw,height:ph,bitrate:PMBPS*1e6,framerate:fps});if(sup.supported){codec=cc;break;}}
+  const pbps=proxyBitrate(pw,ph,fps,m,dur); /* [R366] por pixeles y topado contra el original */
+  let codec='avc1.42E01E';for(const cc of['avc1.42E01E','avc1.4D0028']){const sup=await VideoEncoder.isConfigSupported({codec:cc,width:pw,height:ph,bitrate:pbps,bitrateMode:'constant',framerate:fps});if(sup.supported){codec=cc;break;}}
   // target: stream to disk when possible (flat RAM, persists) — next to the clip first, central cache if that
   // folder is not writable (read-only drive / network share); in-memory only as last resort (browser / no path)
   let fid=null,cache=null,part=null,_wr=[],_werr=false;
@@ -3554,7 +3580,7 @@ async function makeProxy(m){
   const mux=new Mp4Muxer.Muxer({target,video:{codec:'avc',width:pw,height:ph},fastStart:(fid!=null)?false:'in-memory'});
   m.frames=[]; m.decConfig=null; let _frBytes=0,_frOvf=false; const FR_BUDGET=256*1024*1024; /* [T2] cap in-RAM all-intra chunks; long clips fall back to <video> seek */
   const enc=new VideoEncoder({output:(c,meta)=>{ mux.addVideoChunk(c,meta); if(meta&&meta.decoderConfig&&!m.decConfig)m.decConfig=meta.decoderConfig; if(!_frOvf){ const buf=new Uint8Array(c.byteLength); c.copyTo(buf); _frBytes+=buf.length; m.frames.push({ts:c.timestamp,dur:c.duration,type:c.type,data:buf}); if(_frBytes>FR_BUDGET)_frOvf=true; } },error:e=>console.error(e)});
-  enc.configure({codec,width:pw,height:ph,bitrate:PMBPS*1e6,framerate:fps});
+  enc.configure({codec,width:pw,height:ph,bitrate:pbps,bitrateMode:'constant',framerate:fps}); /* [R366] 'constant': en 'variable' el codificador por hardware se salta la tasa 3-5x */
   const us=1e6/fps,gop=Math.max(1,Math.round(fps));
   let _np=0; const _pxT0=performance.now();
   /* [R109] progress feedback: throttle the DOM update (150ms) and re-fire a status line with % + ETA (1.5s) so a long
@@ -6423,7 +6449,13 @@ function razorCore(c,tAbs){ if(tAbs<=c.start+0.02||tAbs>=c.start+c.dur-0.02)retu
   const reb=(kfo,lo,hi,shift)=>{ const r={}; for(const p in (kfo||{})){ const a=kfo[p].filter(k=>k.t>=lo-1e-6&&k.t<=hi+1e-6).map(k=>{ const n={...k,t:Math.max(0,k.t-shift)}; if(n.hOut)n.hOut={...n.hOut}; if(n.hIn)n.hIn={...n.hIn}; return n; }); if(a.length)r[p]=a; } return r; }; // handles deep-copied — the two halves must never share handle objects
   const c2={...c,id:uid(),start:tAbs,dur:c.dur-left,inP:c.inP+left*(c.speed||1),maskTex:null,_penCv:null,penMasks:c.penMasks?JSON.parse(JSON.stringify(c.penMasks)):undefined,props:{...c.props},kf:reb(c.kf,left,Infinity,left),fx:JSON.parse(JSON.stringify(c.fx||[])),fadeIn:0}; sepAuto(c2,c); // [R92-T4 F6] inP advances in SOURCE seconds (left×speed)
   if(Array.isArray(c2.anim)) c2.anim=c2.anim.map(aa=>({...aa,wetKf:Array.isArray(aa.wetKf)?aa.wetKf.map(k=>({...k,t:k.t-left})).filter(k=>k.t>=-1e-6):aa.wetKf})); // [R92-T4 F11] right half's wet ramps rebased like kf
-  if(c2.maskData||(c2.penMasks&&c2.penMasks.length))rebuildMaskTex(c2); c.kf=reb(c.kf,0,left,0); c.dur=left; c.fadeOut=0; state.clips.push(c2); return c2; } // drop the fades that now land at the cut: left half keeps only its fadeIn, right half only its fadeOut
+  if(c2.maskData||(c2.penMasks&&c2.penMasks.length))rebuildMaskTex(c2); c.kf=reb(c.kf,0,left,0); c.dur=left; c.fadeOut=0;
+  /* [R366b] Cortar un clip EN BUCLE es el sexto camino que mueve `inP` sin tocar `loopLen`, y R365 no lo
+     cubrio: `c2` hereda `loop`/`loopLen` del original por el `{...c}` y ademas avanza la entrada, asi que la
+     mitad derecha nace con la ventana fuera de la fuente — cortar un bucle de 30 s sobre una fuente de 5 s a
+     los 3 s dejaba 2 s de cada vuelta en negro, el sintoma exacto de `Ring 137`. Se acotan las DOS mitades. */
+  acotarBucle(c); acotarBucle(c2);
+  state.clips.push(c2); return c2; } // drop the fades that now land at the cut: left half keeps only its fadeIn, right half only its fadeOut
 function razorClip(c,tAbs){ if(tAbs<=c.start+0.02||tAbs>=c.start+c.dur-0.02)return; pushUndo();
   /* [R170] Cortar una mitad corta la otra por el mismo sitio, y las dos MITADES DERECHAS quedan enlazadas entre
      sí (las izquierdas se quedan con el enlace original). Sin esto, cortar dejaba el trozo de audio pegado al
@@ -11786,6 +11818,10 @@ function acotarBucle(c){ if(!c||!c.loop||!(c.loopLen>0))return false;
     const par=linkPartner(c); if(par&&par.loop&&par.loopLen>c.loopLen)par.loopLen=c.loopLen; }
   const maxIn=Math.max(0,sd-c.loopLen);
   if((c.inP||0)>maxIn+1e-6){ c.inP=maxIn; toco=true; }
+  /* [R366b] Y el otro extremo. `clipSrc` devuelve `lim: lim && !c.loop`, o sea que para un clip EN BUCLE los
+     recortes (`rippleL`, `roll`) se quedan SIN suelo: arrastrar su borde izquierdo hacia la izquierda mete `inP`
+     en negativo y el clip se congela en su primer fotograma. El guardian miraba solo el tope de arriba. */
+  if((c.inP||0)<0){ c.inP=0; toco=true; }
   return toco; }
 /* `vistos` es opcional y evita contar dos veces: `state.clips` ES el array de `nestClips` de la secuencia
    activa, asi que barrer las dos cosas visita esos clips dos veces. */

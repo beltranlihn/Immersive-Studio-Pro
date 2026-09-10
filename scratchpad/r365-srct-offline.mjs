@@ -129,5 +129,23 @@ exigir(Math.abs(video.loopLen - CONTENIDO) < 1e-6, 'el video baja a ' + video.lo
 exigir(Math.abs(audio.loopLen - video.loopLen) < 1e-6,
   'y el audio le sigue (' + audio.loopLen + '): dos periodos distintos separarian imagen y sonido en cada vuelta');
 
+console.log('\n[8] [R366b] CORTAR un clip en bucle: la mitad derecha avanza `inP` y hereda `loopLen`');
+/* Forma exacta de lo que hace `razorCore`: c2 = {...c, start:corte, dur:resto, inP: inP + left*speed} */
+const bucle30 = { id: 840, mediaId: 900, start: 0, dur: 30, inP: 0, loop: true, loopLen: CONTENIDO, speed: 1 };
+const left = 3;
+const mitadDer = { ...bucle30, id: 841, start: left, dur: bucle30.dur - left, inP: (bucle30.inP||0) + left*(bucle30.speed||1) };
+const antesCorte = censo({ ...mitadDer, loopLen: mitadDer.loopLen });
+console.log('    sin guardian: inP', mitadDer.inP, '· ciclo', mitadDer.loopLen, '→', JSON.stringify(antesCorte));
+exigir(antesCorte.vacios > 0, 'sin el guardian la mitad derecha se ve VACIA ' + antesCorte.pct + '% de cada vuelta');
+API.acotarBucle(mitadDer);
+const despCorte = censo(mitadDer);
+exigir(mitadDer.inP === 0 && despCorte.vacios === 0,
+  'con el guardian la ventana vuelve a caber y no queda ni un fotograma vacio (inP ' + mitadDer.inP + ')');
+exigir(mitadDer.loopLen === CONTENIDO, 'y el ciclo se conserva en ' + mitadDer.loopLen + ' s');
+
+console.log('\n[9] [R366b] entrada NEGATIVA (recorte izquierdo de un clip en bucle, que no lleva suelo)');
+const neg = { id: 842, mediaId: 900, start: 0, dur: 20, inP: -1.4, loop: true, loopLen: CONTENIDO, speed: 1 };
+exigir(API.acotarBucle(neg) === true && neg.inP === 0, 'el guardian la sube a 0 — es ' + neg.inP);
+
 console.log('\n' + (fallos.length ? '✘ ' + fallos.length + ' comprobacion(es) en rojo' : '✔ todo verde'));
 process.exit(fallos.length ? 1 : 0);

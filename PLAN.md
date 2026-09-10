@@ -1,5 +1,58 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## RONDA 366 — El proxy pesaba casi lo mismo que el original — pedido de Vicente
+
+Al regenerar los proxies del proyecto de domo saltó a la vista: **160 proxies de vídeo ocupaban 24,1 GB frente a
+25,1 GB de originales**, y el del máster (1080p, 65 min, 12,5 GB) salía de **19,4 GB** — más que el archivo al
+que sustituye.
+
+**Lo que NO era.** No era `PMBPS`: el código pedía 12 Mbps y `ffprobe` medía **34, 40 y 59 Mbps** en los
+archivos entregados. Dos causas, las dos medidas:
+
+1. **`VideoEncoder` arranca en `bitrateMode:'variable'`** y el codificador por hardware de macOS trata esa cifra
+   como una sugerencia: se la salta por 3-5×. A/B directo al codificador, mismo contenido y misma tasa pedida:
+   con `'constant'` entrega **2,50 Mbps exactos** cuando se le piden 2,5.
+2. **`avc1.42E01E` (Baseline 3.0) NO está soportado a 960×540@60** — la sonda lo destapó de paso: el bucle de
+   selección de códec caía siempre al segundo (`avc1.4D0028`, Main 4.0), que sí lo está. El primero llevaba ahí
+   sin servir para nada en este material.
+
+**Y lo que sí es, y no se toca:** el proxy se codifica **todo-intra (GOP=1) A PROPÓSITO** — es lo que hace que
+arrastrar el cabezal sea instantáneo y lo que alimenta la tabla `m.frames` del camino de WebCodecs. Un H.264
+todo-intra pesa 5-10× lo normal, así que pedirle 2,5 Mbps es sencillamente imposible y el codificador se sale
+por arriba. Meterle un GOP habría hecho el archivo pequeño **rompiendo aquello para lo que existe**: `m.frames`
+dejaría de ser decodificable fotograma a fotograma. Descartado y anotado, no olvidado.
+
+- **`bitrateMode:'constant'`** en `configure` y en `isConfigSupported`.
+- **La tasa se calcula por PÍXELES** (`PBPP`=0,08 bits por píxel y fotograma, rango bueno de H.264) en vez de un
+  número fijo: 12 Mbps a 960×960 eran 0,217 bpp, tres veces lo necesario para previsualizar.
+- **Y se topa contra el ORIGINAL** (60% de su tasa), que es la única garantía dura de que el proxy no engorde
+  más que el archivo al que sustituye.
+- **`PMAX` 960 → 720**, decidido por Vicente con las cifras delante: siendo todo-intra, la resolución es la
+  palanca que queda. El tamaño **viaja en el nombre** (`px_<hash>_720.mp4`), así que los de 960 quedan huérfanos
+  solos y no se mezclan. El visor no pasa de ~1000 px en pantalla y el proxy **nunca llega al máster horneado**
+  (`_exportQuality` lo apaga en los cinco sitios).
+
+**Medido en material real** (`o7.mp4`, 11,5 s, comparable porque su archivo no cambió entre versiones):
+**23,4 MB → 14,8 MB** sólo con el modo y la tasa, y **→ 11,0 MB** ya a 720 px. El export no se entera de nada
+de esto. `npm test` 6/6.
+
+### R366b — la revisión de cierre, y un SEXTO camino que R365 no cubría
+
+- **Cortar (`razorCore`) un clip en bucle dejaba la ventana fuera de la fuente.** La mitad derecha hereda
+  `loop`/`loopLen` por el `{...c}` y además avanza `inP`: cortar un bucle de 30 s sobre una fuente de 5 s a los
+  3 s dejaba **el 60% de cada vuelta en negro** — el síntoma exacto de `Ring 137`, en un camino que R365 no
+  tocó. Se acotan las dos mitades. Medido en la sonda: 180 de 300 fotogramas vacíos → 0.
+- **`acotarBucle` sólo miraba el tope de arriba.** `clipSrc` devuelve `lim: lim && !c.loop`, o sea que para un
+  clip EN BUCLE los recortes (`rippleL`, `roll`) se quedan **sin suelo**: arrastrar su borde izquierdo hacia la
+  izquierda mete `inP` en negativo y el clip se congela en su primer fotograma. Ahora también se sube a 0.
+- **El suelo de tasa iba por encima del tope**, así que una fuente de tasa muy baja acababa con un proxy
+  codificado por ENCIMA de su original — justo lo que la ronda promete. El suelo va ahora dentro del tope.
+- **El proxy HERMANO no llevaba el tamaño en el nombre.** `proxyCandidates` lo mira ANTES que `Proxies/`, así
+  que en un proyecto suelto el cambio 960→720 no habría llegado nunca: seguiría sirviendo el archivo viejo de
+  34-59 Mbps para siempre. Ahora es `.dsp-proxy-720-<hash>.mp4`.
+
+La sonda offline cubre los dos primeros (21 comprobaciones, todas verdes) ejecutando el código real de `app.js`.
+
 ## RONDA 365 — El bucle que pedía material que su fuente no tiene — reportado por Vicente
 
 «Algunas composiciones que están loopeadas, los clips desaparecen y vuelven a aparecer en cada loop.» Pasaba
