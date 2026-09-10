@@ -466,7 +466,7 @@ ipcMain.handle('dsp:ffStart', async (e, args, outPath) => {
   try {
     const ch = require('child_process').spawn(bin, args, { windowsHide: true, stdio: ['pipe', 'ignore', 'pipe'] });
     const id = _ffSeq++;
-    const st = { ch, err: '', fin: null, code: null, drenando: null };
+    const st = { ch, err: '', fin: null, code: null, drenando: null, out: outPath }; /* [R369] la ruta: la espera del cierre necesita mirar si el archivo avanza */
     /* stderr es donde FFmpeg cuenta lo que hace. Se guarda SOLO el final: un export largo escupe megabytes de
        lineas de progreso y guardarlas todas seria una fuga lenta. Lo que hace falta al fallar es el ultimo tramo. */
     ch.stderr.on('data', d => { st.err = (st.err + d.toString()).slice(-8000); });
@@ -501,19 +501,43 @@ ipcMain.handle('dsp:ffWrite', async (e, id, data) => {
     return drenado;
   } catch (err) { return false; }
 });
+/* [R369] Espera a que un proceso cierre su archivo, contando el plazo desde la ULTIMA SEÑAL DE VIDA y no desde
+   el principio. `mirar()` devuelve algo con `size`/`mtimeMs`; mientras cualquiera de los dos cambie, se sigue
+   esperando. Va en una funcion aparte a proposito: asi se puede probar sin Electron y sin un FFmpeg de verdad
+   (`scratchpad/r369-cierre.mjs` le pasa un `mirar` de mentira y plazos de milisegundos). */
+async function esperarCierre(fin, mirar, sinAvance, latido) {
+  return await new Promise(res => {
+    let acabado = false, ultimo = Date.now(), refT = -1, refM = -1;
+    const cerrar = v => { if (acabado) return; acabado = true; clearInterval(iv); res(v); };
+    fin.then(c => cerrar(c));
+    const iv = setInterval(async () => {
+      if (acabado) return;
+      try { const s = await mirar();
+        if (s && (s.size !== refT || s.mtimeMs !== refM)) { refT = s.size; refM = s.mtimeMs; ultimo = Date.now(); }
+      } catch (err) {}
+      if (Date.now() - ultimo > sinAvance) cerrar(null);
+    }, latido);
+  });
+}
 /* Cierra la entrada y espera a que termine de escribir el archivo. Sin esperar, el MP4 se queda sin su indice
    final y no lo abre nadie. */
 ipcMain.handle('dsp:ffEnd', async (e, id) => {
   const st = _ff.get(id); if (!st) return { ok: false, err: 'sin trabajo' };
   try { st.ch.stdin.end(); } catch (err) {}
-  /* [R352b] Con plazo. `-movflags +faststart` reescribe el archivo ENTERO al cerrar: en una entrega larga sobre
-     un disco externo eso son minutos, y si se cuelga -o el disco se llena a mitad- este `await` no tenia salida
-     ninguna: ni plazo, ni boton (Cancelar solo pone una bandera en el renderer, que ya esta esperando aqui).
-     La unica salida era matar la app, dejando ademas el huerfano. Cinco minutos es holgado para un faststart
-     legitimo; pasados, se mata y se informa del fallo en vez de quedarse colgado para siempre. */
-  const code = await Promise.race([ st.fin, new Promise(res => setTimeout(() => res(null), 300000)) ]);
+  /* [R352b] Con plazo, porque sin el no habia salida ninguna: ni tope, ni boton (Cancelar solo pone una bandera
+     en el renderer, que ya esta esperando aqui), asi que un faststart colgado obligaba a matar la app.
+     [R369] Pero el plazo NO puede ser fijo. R352b puso cinco minutos con el comentario «holgado para un
+     faststart legitimo» — y `-movflags +faststart` reescribe el archivo ENTERO al cerrar, asi que lo que es
+     holgado depende del TAMAÑO. MEDIDO en la entrega de Vicente del 2026-09-10: un master de **96,48 GB** sobre
+     el SSD externo agoto los cinco minutos a mitad de la reubicacion, la app mato a FFmpeg y el `moov` no llego
+     a escribirse: cinco horas de render para un archivo con `ftyp`+`mdat` y sin indice, que no abre nadie.
+     Ahora se espera por PROGRESO, la misma leccion que R362 aprendio con las esperas de carga: mientras el
+     archivo siga MOVIENDOSE -crece, o le cambia la fecha porque se esta reescribiendo en el sitio- se sigue
+     esperando; el plazo cuenta desde la ultima señal de vida, no desde el principio. Un faststart de una hora
+     sobre un disco lento termina; uno colgado de verdad se corta igual a los cinco minutos SIN avanzar. */
+  const code = await esperarCierre(st.fin, () => fsp.stat(st.out), 300000, 5000);
   if (code === null) { try { st.ch.kill('SIGKILL'); } catch (err) {} _ff.delete(id);
-    return { ok: false, code: null, err: 'FFmpeg timed out while finalizing the file.' }; }
+    return { ok: false, code: null, err: 'FFmpeg se quedo sin avanzar 5 minutos al cerrar el archivo.' }; }
   _ff.delete(id);
   return { ok: code === 0, code, err: code === 0 ? '' : st.err.slice(-1200) };
 });

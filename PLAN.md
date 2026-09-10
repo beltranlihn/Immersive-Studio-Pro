@@ -1,5 +1,36 @@
 # Dome Studio Pro — Implementation Plan & Improvement Backlog
 
+## RONDA 369 — Cinco horas de render perdidas por un plazo fijo de cinco minutos
+
+Vicente dejó corriendo la entrega del domo (4096², HEVC 10 bits, 200 Mb/s, 64,1 min) y se fue a dormir. La
+codificación terminó bien: **96,48 GB** de fotogramas escritos en 5 h 4 min. Y entonces el archivo quedó
+**ilegible**: `ftyp` + `mdat` y ningún `moov`. Ni un reproductor lo abre.
+
+**La causa, en el propio registro de la app:** `ERROR console · FFmpeg failed: FFmpeg timed out while
+finalizing the file.` R352b había puesto un plazo de **cinco minutos** para que FFmpeg cerrara el archivo, con
+el comentario «cinco minutos es holgado para un faststart legítimo». Pero `-movflags +faststart` **reescribe el
+archivo ENTERO** al cerrar, así que lo holgado depende del TAMAÑO: sobre 96,48 GB en un SSD externo, cinco
+minutos se agotan a mitad de la reubicación. La app mató a FFmpeg con `SIGKILL` justo antes de que escribiera el
+índice.
+
+Es exactamente la lección de R362 —«sin plazos fijos: las dos esperas van por progreso»— aplicada a otra espera
+que se quedó fuera. Un plazo fijo dimensionado para los casos que el autor imaginó, y fatal para uno mayor.
+
+- **`esperarCierre(fin, mirar, sinAvance, latido)`**: el plazo cuenta desde la **última señal de vida**, no
+  desde el principio. Mientras el archivo se mueva —crezca, o le cambie la fecha porque se está reescribiendo
+  en el sitio— se sigue esperando. Un `faststart` de una hora sobre un disco lento termina; uno colgado de
+  verdad se corta igual a los cinco minutos **sin avanzar**.
+- Va en una función aparte a propósito, para poder probarla **sin Electron y sin un FFmpeg de verdad**.
+
+**Verificado** con `scratchpad/r369-cierre.mjs`, que ejecuta la función real extraída de `main.js`: un cierre
+lento pero que avanza sobrevive seis plazos seguidos, uno atascado de verdad se corta a tiempo, un `mirar` que
+falla no cuelga la espera, y un cierre inmediato devuelve al instante. **Con control negativo**: el plazo fijo
+de R352b, sobre ese mismo cierre lento, lo corta — que es literalmente lo que pasó anoche. `npm test` 6/6.
+
+**Nota sobre el material perdido:** el `mdat` de 96,48 GB está completo; lo que falta es el índice. Se conserva
+como `dome_4096x4096_60fps_SIN-INDICE.mp4` por si algún día se quiere reconstruir con `untrunc` y un archivo de
+referencia. Re-renderizar es más seguro que reconstruir, así que eso es lo que se hace.
+
 ## RONDA 368 — El bucle de un hijo ya no se reinicia con el de su padre, y cortar conserva la fase
 
 Dos averías reportadas por Vicente con un export encima de la mesa.
