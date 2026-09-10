@@ -479,8 +479,26 @@ const LB={p:gl.getAttribLocation(PB,'a_p'),pan:gl.getUniformLocation(PB,'u_pan')
    [R237] Esta pareja (`compContentLim`/`compLimForRect`) es la del CUADRADO CON LETTERBOX, que desde R237 sólo
    usa el export (FBO propio, `composite(t,SR,true)` sin relleno) y, dentro de él, el caché de nests (`_ncSquare`).
    El MÁSTER de previsualización pasó a relleno y usa `mstrContentLim`/`mstrLimForRect`, más abajo. */
-function compContentLim(){ const A=_compAspect, s=Math.min(2/A,2), Fx=s*A/2, Fy=s/2;
+/* [R370] La banda del contenido, con el aspecto COMO PARAMETRO. `compContentLim` sigue siendo la de siempre
+   (la del composite en curso); la salida en vivo y su menu necesitan la de una secuencia que aun no se ha
+   compuesto, y sin esto habria que retipar aqui la misma formula — que es como en este fichero se han quedado
+   atras los gemelos una y otra vez. */
+function bandaContenido(A){ const s=Math.min(2/A,2), Fx=s*A/2, Fy=s/2;
   return [(1-Fx)/2,(1-Fy)/2,(1+Fx)/2,(1+Fy)/2]; }
+function compContentLim(){ return bandaContenido(_compAspect); }
+/* [R370] Rect EN PIXELES que hay que leer del composite cuadrado para emitir el master del modo actual.
+   En DOMO el master ES el cuadrado entero (el disco vive dentro y su entorno negro forma parte de la entrega).
+   En 2D y en SALA el contenido es una banda con letterbox dentro de ese cuadrado, asi que se lee solo la banda:
+   asi la salida en vivo sale con el aspecto de la secuencia, sin bandas negras y sin reescalar nada. */
+function salidaVivaRect(res){
+  if(!isFlat())return {x:0,y:0,w:res,h:res};
+  const L=bandaContenido((state.seqW||1)/(state.seqH||1));
+  const x=Math.round(L[0]*res), y=Math.round(L[1]*res);
+  return { x, y, w:Math.max(2,Math.round(L[2]*res)-x), h:Math.max(2,Math.round(L[3]*res)-y) }; }
+/* [R370] Etiqueta del menu de salida en vivo: dice lo que se va a emitir DE VERDAD, no "Dome master" siempre. */
+function salidaVivaEtiqueta(res){ const R=salidaVivaRect(res);
+  const q=isRoom()?T('360 Room strip','Tira Sala 360'):(isFlat()?T('2D master','Máster 2D'):T('Dome master 1:1','Máster Domo 1:1'));
+  return q+' · '+R.w+' × '+R.h; }
 /* [R234b] El límite del muestreo es la frontera del CONTENIDO, y en una sala el contenido no llega hasta el borde
    del lienzo: cada superficie es una isla. El rect del piso `[fx0,fx1]×[stripH,H]` tiene VACÍO a izquierda y a
    derecha (los clips de piso van con scissor a su rect y los de muro nunca bajan de `stripH`), así que acotar a la
@@ -2269,28 +2287,35 @@ async function abrirDescargaNDI(){ let u='';
   try{ ok=(IS_ELEC&&DSP.openExternal)?(await DSP.openExternal(u)):!!window.open(u,'_blank'); }catch(e){ ok=false; }
   if(!ok)appAlert(T('Could not open the browser. The NDI runtime download page is: ','No se pudo abrir el navegador. La página de descarga del runtime NDI es: ')+u);
   return ok; }
-function ensureNdiFBO(res){ if(_ndiFBO&&_ndiRes===res&&_ndiBuf)return;
+function ensureNdiFBO(res,R){ if(_ndiFBO&&_ndiRes===res&&_ndiBuf&&_ndiBuf.length===R.w*R.h*4)return;
   if(_ndiFBO){ try{gl.deleteFramebuffer(_ndiFBO);}catch(e){} } if(_ndiTex){ try{gl.deleteTexture(_ndiTex);}catch(e){} }
   _ndiFBO=gl.createFramebuffer(); _ndiTex=gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D,_ndiTex); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,res,res,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
   gl.bindFramebuffer(gl.FRAMEBUFFER,_ndiFBO); gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,_ndiTex,0); gl.bindFramebuffer(gl.FRAMEBUFFER,null);
-  _ndiBuf=new Uint8Array(res*res*4); _ndiRes=res; }
+  _ndiBuf=new Uint8Array(R.w*R.h*4); _ndiRes=res; } /* [R370] el buffer es el de la BANDA emitida, no el del cuadrado */
 function _closeNdiGL(){ try{ if(_ndiFBO)gl.deleteFramebuffer(_ndiFBO); if(_ndiTex)gl.deleteTexture(_ndiTex); }catch(e){} _ndiFBO=_ndiTex=null; _ndiBuf=null; _ndiCacheKey=null; }
 let _ndiCacheKey=null; // [R213] evita recomponer + readPixels cuando nada cambió desde el último tick (misma clave = mismo frame)
+/* [R370] La salida en vivo ya no es solo de DOMO. Estaba clavada con `_drawFlat=false` y el comentario
+   «ALWAYS the fulldome master», asi que en 2D y en sala emitia el composite reproyectado a domo: para una
+   instalacion de sala 360 -que es justo donde hace falta- la salida en vivo no servia. Ahora el contexto lo pone
+   `ctxCompMaster()`, que es la funcion de la app para eso, y se emite la BANDA del contenido (`salidaVivaRect`),
+   con lo que sale al aspecto de la secuencia y sin bandas negras. El buffer y la clave de cache llevan las dos
+   dimensiones: cambiar de secuencia cambia el tamano emitido y hay que reasignar y reemitir. */
 function ndiTick(){ if(!_ndiOn||!DSP.ndi)return;
-  try{ ensureNdiFBO(_ndiRes);
-    const key=state.playhead+':'+_raGen+':'+_ndiRes;
+  try{ const R=salidaVivaRect(_ndiRes); ensureNdiFBO(_ndiRes,R);
+    const key=state.playhead+':'+_raGen+':'+_ndiRes+':'+R.w+'x'+R.h;
     if(key!==_ndiCacheKey){
-      const flatBak=_drawFlat, aspBak=_compAspect; _drawFlat=false; // NDI is ALWAYS the fulldome master (square 1:1, no grid/overlays)
+      const flatBak=_drawFlat, aspBak=_compAspect, roomBak=_roomWrap; ctxCompMaster();
       gl.bindFramebuffer(gl.FRAMEBUFFER,_ndiFBO); gl.disable(gl.DEPTH_TEST);
-      composite(state.playhead,_ndiRes,true); // opaque black surround; the dome disc = the master
+      composite(state.playhead,_ndiRes,true); // opaco: la salida en vivo es una entrega, no una capa
       // [archivado 20260725] NDI emite el composite tal cual (ya no hay grade máster que aplicarle)
-      gl.readPixels(0,0,_ndiRes,_ndiRes,gl.RGBA,gl.UNSIGNED_BYTE,_ndiBuf);
-      gl.bindFramebuffer(gl.FRAMEBUFFER,null); gl.viewport(0,0,glc.width,glc.height); _drawFlat=flatBak; _compAspect=aspBak;
+      gl.readPixels(R.x,R.y,R.w,R.h,gl.RGBA,gl.UNSIGNED_BYTE,_ndiBuf);
+      gl.bindFramebuffer(gl.FRAMEBUFFER,null); gl.viewport(0,0,glc.width,glc.height);
+      _drawFlat=flatBak; _compAspect=aspBak; _roomWrap=roomBak;
       _ndiCacheKey=key; // [R213] frame repetido → reusa _ndiBuf y se salta composite+readPixels; el send sigue cada tick (receptores toleran frames repetidos)
     }
-    DSP.ndi.send(_ndiBuf,_ndiRes,_ndiRes,true); _ndiFrames++; // flipY: bottom-up WebGL → top-down NDI (negative stride, zero copy)
+    DSP.ndi.send(_ndiBuf,R.w,R.h,true); _ndiFrames++; // flipY: bottom-up WebGL → top-down NDI (negative stride, zero copy)
   }catch(e){} }
 /* [R319] Si ya hay salida, se PARA antes de relanzar. El menu llama a `startNDI(otraRes)` con la salida viva,
    y `DSP.powerSave(true)` se contaba una segunda vez mientras `stopNDI` solo descuenta una: el contador de
@@ -2306,9 +2331,9 @@ function startNDI(res){ if(_ndiOn)stopNDI();
 function stopNDI(){ const was=_ndiOn; _ndiOn=false; clearInterval(_ndiTimer); _ndiTimer=0; try{DSP.ndi.stop();}catch(e){} _closeNdiGL(); if(was){ try{ if(IS_ELEC&&DSP.powerSave)DSP.powerSave(false); }catch(e){} } const b=$('#ndiBtn'); if(b)b.classList.remove('on'); try{refreshOutputInd();}catch(e){} flashStatus(T('NDI output off','Salida NDI desactivada')); }
 function ndiMenu(x,y){ if(!IS_ELEC||!DSP.ndi){ appAlert(T('NDI output is only available in the desktop app.','La salida NDI solo está disponible en la app de escritorio.')); return; }
   if(!ndiAvailable()){ appConfirm(T('The free NDI runtime is not installed. It is required to broadcast NDI. Open the download page?','El runtime gratuito de NDI no está instalado. Es necesario para transmitir por NDI. ¿Abrir la página de descarga?'),ok=>{ if(ok)abrirDescargaNDI(); }); return; } /* [R242·Aud-4.1] window.open('_blank') está DENEGADO por el setWindowOpenHandler (sólo permite el visor emergente): esta puerta llevaba muerta desde entonces — el usuario aceptaba y no pasaba nada. Ahora sale por shell.openExternal (navegador del sistema) */
-  const ck=r=>(_ndiOn&&_ndiRes===r)?'  ✓':''; const items=[
-    {label:T('Dome master 1:1 · 2048 × 2048','Máster Domo 1:1 · 2048 × 2048')+ck(2048),ico:'ndi',fn:()=>{ (_ndiOn&&_ndiRes===2048)?stopNDI():startNDI(2048); }},
-    {label:T('Dome master 1:1 · 4096 × 4096','Máster Domo 1:1 · 4096 × 4096')+ck(4096),ico:'ndi',fn:()=>{ (_ndiOn&&_ndiRes===4096)?stopNDI():startNDI(4096); }} ];
+  const ck=r=>(_ndiOn&&_ndiRes===r)?'  ✓':''; const items=[ /* [R370] la etiqueta dice lo que se emite en el modo actual */
+    {label:salidaVivaEtiqueta(2048)+ck(2048),ico:'ndi',fn:()=>{ (_ndiOn&&_ndiRes===2048)?stopNDI():startNDI(2048); }},
+    {label:salidaVivaEtiqueta(4096)+ck(4096),ico:'ndi',fn:()=>{ (_ndiOn&&_ndiRes===4096)?stopNDI():startNDI(4096); }} ];
   if(_ndiOn)items.push('sep',{label:T('Stop NDI output','Detener salida NDI'),danger:true,fn:stopNDI});
   openMenu(x,y,items); }
 /* ===================== SPOUT® OUTPUT (local GPU-texture share, DirectX — the same-machine alternative to NDI) =====================
@@ -2316,28 +2341,31 @@ function ndiMenu(x,y){ if(!IS_ELEC||!DSP.ndi){ appAlert(T('NDI output is only av
    native SpoutDX sender (preload). Receivers on this machine (Resolume · TouchDesigner · OBS) get it as a shared texture. */
 let _spoutOn=false, _spoutRes=2048, _spoutFps=30, _spoutTimer=0, _spoutFBO=null, _spoutTex=null, _spoutBuf=null;
 function spoutAvailable(){ try{ return !!(IS_ELEC && DSP.spout && DSP.spout.available()); }catch(e){ return false; } }
-function ensureSpoutFBO(res){ if(_spoutFBO&&_spoutRes===res&&_spoutBuf)return;
+function ensureSpoutFBO(res,R){ if(_spoutFBO&&_spoutRes===res&&_spoutBuf&&_spoutBuf.length===R.w*R.h*4)return;
   if(_spoutFBO){ try{gl.deleteFramebuffer(_spoutFBO);}catch(e){} } if(_spoutTex){ try{gl.deleteTexture(_spoutTex);}catch(e){} }
   _spoutFBO=gl.createFramebuffer(); _spoutTex=gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D,_spoutTex); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,res,res,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
   gl.bindFramebuffer(gl.FRAMEBUFFER,_spoutFBO); gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,_spoutTex,0); gl.bindFramebuffer(gl.FRAMEBUFFER,null); gl.bindTexture(gl.TEXTURE_2D,null);
-  _spoutBuf=new Uint8Array(res*res*4); _spoutRes=res; }
+  _spoutBuf=new Uint8Array(R.w*R.h*4); _spoutRes=res; } /* [R370] el buffer es el de la BANDA emitida */
 function _closeSpoutGL(){ try{ if(_spoutFBO)gl.deleteFramebuffer(_spoutFBO); if(_spoutTex)gl.deleteTexture(_spoutTex); }catch(e){} _spoutFBO=_spoutTex=null; _spoutBuf=null; _spoutCacheKey=null; }
 let _spoutCacheKey=null; // [R213] evita recomponer + readPixels cuando nada cambió desde el último tick (misma clave = mismo frame)
+/* [R370] El gemelo de `ndiTick`, con el mismo cambio: ver la nota larga alli. Se tocan LOS DOS a la vez a
+   proposito — arreglar solo uno de un par es como en este fichero nacen la mitad de las regresiones. */
 function spoutTick(){ if(!_spoutOn||!DSP.spout)return;
-  try{ ensureSpoutFBO(_spoutRes);
-    const key=state.playhead+':'+_raGen+':'+_spoutRes;
+  try{ const R=salidaVivaRect(_spoutRes); ensureSpoutFBO(_spoutRes,R);
+    const key=state.playhead+':'+_raGen+':'+_spoutRes+':'+R.w+'x'+R.h;
     if(key!==_spoutCacheKey){
-      const flatBak=_drawFlat, aspBak=_compAspect; _drawFlat=false; // ALWAYS the fulldome master (square 1:1, no grid/overlays)
+      const flatBak=_drawFlat, aspBak=_compAspect, roomBak=_roomWrap; ctxCompMaster();
       gl.bindFramebuffer(gl.FRAMEBUFFER,_spoutFBO); gl.disable(gl.DEPTH_TEST);
       composite(state.playhead,_spoutRes,true);
       // [archivado 20260725] Spout emite el composite tal cual (ya no hay grade máster que aplicarle)
-      gl.readPixels(0,0,_spoutRes,_spoutRes,gl.RGBA,gl.UNSIGNED_BYTE,_spoutBuf);
-      gl.bindFramebuffer(gl.FRAMEBUFFER,null); gl.viewport(0,0,glc.width,glc.height); _drawFlat=flatBak; _compAspect=aspBak;
+      gl.readPixels(R.x,R.y,R.w,R.h,gl.RGBA,gl.UNSIGNED_BYTE,_spoutBuf);
+      gl.bindFramebuffer(gl.FRAMEBUFFER,null); gl.viewport(0,0,glc.width,glc.height);
+      _drawFlat=flatBak; _compAspect=aspBak; _roomWrap=roomBak;
       _spoutCacheKey=key; // [R213] frame repetido → reusa _spoutBuf y se salta composite+readPixels; el send sigue cada tick
     }
-    DSP.spout.send(_spoutBuf,_spoutRes,_spoutRes,true); // flipY: bottom-up WebGL → top-down Spout (flip done in the addon)
+    DSP.spout.send(_spoutBuf,R.w,R.h,true); // flipY: bottom-up WebGL → top-down Spout (flip done in the addon)
   }catch(e){} }
 function startSpout(res){ if(_spoutOn)stopSpout();   /* [R319] mismo motivo que en startNDI: el contador de powerSave */ if(!spoutAvailable()){ appAlert(T('Spout output is not available on this system.','La salida Spout no está disponible en este sistema.')); return; }
   _spoutRes=res; _spoutFps=(res>=4096)?30:Math.max(1,Math.min(60,Math.round(state.fps||30)));
@@ -2348,9 +2376,9 @@ function startSpout(res){ if(_spoutOn)stopSpout();   /* [R319] mismo motivo que 
   flashStatus(T('Spout output ON · ','Salida Spout activa · ')+res+'×'+res+' · '+_spoutFps+'fps'); }
 function stopSpout(){ const was=_spoutOn; _spoutOn=false; clearInterval(_spoutTimer); _spoutTimer=0; try{DSP.spout.stop();}catch(e){} _closeSpoutGL(); if(was){ try{ if(IS_ELEC&&DSP.powerSave)DSP.powerSave(false); }catch(e){} } const b=$('#spoutBtn'); if(b)b.classList.remove('on'); try{refreshOutputInd();}catch(e){} flashStatus(T('Spout output off','Salida Spout desactivada')); }
 function spoutMenu(x,y){ if(!IS_ELEC||!DSP.spout){ appAlert(T('Spout output is only available in the desktop app.','La salida Spout solo está disponible en la app de escritorio.')); return; }
-  const ck=r=>(_spoutOn&&_spoutRes===r)?'  ✓':''; const items=[
-    {label:T('Dome master 1:1 · 2048 × 2048','Máster Domo 1:1 · 2048 × 2048')+ck(2048),ico:'ndi',fn:()=>{ (_spoutOn&&_spoutRes===2048)?stopSpout():startSpout(2048); }},
-    {label:T('Dome master 1:1 · 4096 × 4096','Máster Domo 1:1 · 4096 × 4096')+ck(4096),ico:'ndi',fn:()=>{ (_spoutOn&&_spoutRes===4096)?stopSpout():startSpout(4096); }} ];
+  const ck=r=>(_spoutOn&&_spoutRes===r)?'  ✓':''; const items=[ /* [R370] etiqueta segun el modo, igual que NDI */
+    {label:salidaVivaEtiqueta(2048)+ck(2048),ico:'ndi',fn:()=>{ (_spoutOn&&_spoutRes===2048)?stopSpout():startSpout(2048); }},
+    {label:salidaVivaEtiqueta(4096)+ck(4096),ico:'ndi',fn:()=>{ (_spoutOn&&_spoutRes===4096)?stopSpout():startSpout(4096); }} ];
   if(_spoutOn)items.push('sep',{label:T('Stop Spout output','Detener salida Spout'),danger:true,fn:stopSpout});
   openMenu(x,y,items); }
 
