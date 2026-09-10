@@ -9563,9 +9563,25 @@ function freeExportFBO(){ if(_exTex){gl.deleteTexture(_exTex);_exTex=null;} if(_
 function exportSS(res){ const glMax=gl.getParameter(gl.MAX_TEXTURE_SIZE)||4096; return (res*2<=Math.min(glMax,8192))?2:1; }
 /* render one export frame into glc at `res`, supersampled ×ss (opaque black bg for MP4). gl.finish() before read. */
 let _ncSquare=false; // [R180] activo sólo mientras se hornea el caché de un nest (ver renderExportFrame)
+/* [R370] ALFA DE VERDAD EN LA ENTREGA, Y EN LOS TRES MODOS.
+   `renderExportFrame` nacio para el MP4 -su propia cabecera dice «opaque black bg for MP4»- y por eso hace las
+   dos cosas en OPACO: `composite(t,SR,true)` y un borrado de `glc` con alfa 1. La secuencia PNG «con alfa» salia
+   igualmente opaca; lo unico que la salvaba en DOMO era un efecto secundario de otra funcion: `chapaLienzo`
+   devuelve alli su PROPIO lienzo 2D para recortar al circulo (R283), y ese recorte deja alfa 0 FUERA del disco.
+   MEDIDO en el .exe con el proyecto de Beltran (2026-09-10), esquina y centro del PNG entregado:
+     flat  -> esquina [0,0,0,255]  ·  domo -> esquina [0,0,0,0]  pero CENTRO [0,0,0,255]
+   O sea que el domo tampoco entregaba alfa: entregaba un recorte circular. Un hueco transparente DENTRO del
+   contenido salia negro opaco en los tres modos. Por eso esto no se arregla «haciendo que flat imite al domo»
+   sino pidiendo transparencia de verdad cuando la entrega la quiere, que es lo que el comentario de R283 ya
+   decia que debia pasar: «El resto es negro, o transparente si elegimos alpha».
+   La bandera se enciende SOLO para las entregas de PNG que piden alfa. MP4, HAP, el PNG con fondo negro y el
+   horneado de un nido (`squareNest`) no la ven y siguen exactamente igual de opacos que siempre. */
+let _exportAlfa=false;
 function renderExportFrame(t,res,ss,wall){ const flat=isFlat(); ctxCompMaster(); _arTime=t; const SR=res*ss; ensureExportFBO(SR); // FBO→PB blit; dome clips to the disc, flat extracts the rect region into glc (w×h)
-  gl.bindFramebuffer(gl.FRAMEBUFFER,_exFBO); composite(t,SR,true);
-  gl.bindFramebuffer(gl.FRAMEBUFFER,null); gl.viewport(0,0,glc.width,glc.height); gl.disable(gl.DEPTH_TEST); gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT);
+  /* [R370] los DOS eslabones tienen que ceder el alfa, no uno: medido, con `composite(...,true)` la FBO ya
+     sale [0,0,0,255] y arreglar solo el borrado de `glc` no habria cambiado nada. */
+  gl.bindFramebuffer(gl.FRAMEBUFFER,_exFBO); composite(t,SR,!_exportAlfa);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null); gl.viewport(0,0,glc.width,glc.height); gl.disable(gl.DEPTH_TEST); gl.clearColor(0,0,0,_exportAlfa?0:1); gl.clear(gl.COLOR_BUFFER_BIT);
   gl.useProgram(PB); gl.bindVertexArray(quadVAO); gl.uniform2f(LB.pan,0,0); gl.uniform1f(LB.zoom,1); gl.uniform2f(LB.aspect,1,1);
   const _lim=()=>{ const L=compContentLim(); gl.uniform4f(LB.uvlim,L[0],L[1],L[2],L[3]); }; // [R233b] banda del LIENZO
   if(wall){ const A=_compAspect, s=Math.min(2/A,2), Fx=s*A/2, Fy=s/2; const sw=wall.stripW||1, sh=wall.stripH||1; // F5 per-wall (+ [R221] whole-strip / floor) crop: crop a sub-rect of the room composite → resample into glc (pxW×pxH)
@@ -10261,7 +10277,7 @@ async function _runExportCore(opt){
        retenidos para siempre (~268 MB a 8192), justo en la app que ya tiene historial de GPU reset a esos tamanos. */
     _chapaCv=null; _chapaCx=null;
     try{ if($('#renderMask'))$('#renderMask').classList.remove('on'); }catch(_){}
-    exporting=false; _exportQuality=false; _exCD=false; _vinstCap=VINST_MAX; _ncSquare=false; disposeAllVinst();
+    exporting=false; _exportQuality=false; _exCD=false; _vinstCap=VINST_MAX; _ncSquare=false; _exportAlfa=false; disposeAllVinst(); /* [R370] la bandera de alfa se apaga con las demas: si sobrevive, el MP4 siguiente saldria sobre un lienzo transparente */
     /* [R357] las imagenes que se subieron enteras vuelven a tamano de previsualizacion */
     { const ids=[..._imgNit.keys()]; soltarNitidezExport();
       (async()=>{ for(const id of ids){ const m=mediaById(id); if(m)await _ponerImagenA(m,IMG_PREVIEW_MAX); } render(); })(); }
@@ -10273,6 +10289,10 @@ async function _runExportCore(opt){
   }
   _exportPanic=()=>{ _exportPanic=null; _exportCleanup(false); }; // [R345b] ver la envoltura de `runExport`: publica la limpieza para que una excepcion no deje la aplicacion bloqueada en modo export
   exporting=true; _exportQuality=true; _ncSquare=!!opt.squareNest;
+  /* [R370] Solo las entregas de PNG que piden alfa. `squareNest` queda fuera a proposito: ese archivo no es
+     una entrega sino una textura intermedia que el padre muestrea entera, y R180 midio lo que cuesta que
+     activar el cache cambie la imagen. `pngBg` ausente = 'alpha', que es el valor de fabrica del panel. */
+  _exportAlfa = (opt.codec==='png'||opt.codec==='still') && opt.pngBg!=='black' && !opt.squareNest;
   try{ if(IS_ELEC&&DSP.powerSave)DSP.powerSave(true); }catch(e){} // [R212] a render can run for minutes unattended — don't let the display/system sleep interrupt it; main.js ref-counts, paired with the powerSave(false) at every exit below
   /* [R189] el export decodifica por WebCodecs secuencial, no por <video>. Se tiran las instancias de
      previsualización PRIMERO: si no, cada clip arrastraría su <video> ya cargado (memoria muerta) junto al
