@@ -229,6 +229,13 @@ una vuelta a 60 fps y cuenta los instantes sin nada que componer. Con la forma e
 además las tres guardas que impiden que el arreglo se pase de listo: no toca lo que ya estaba bien, acota el
 ciclo sólo cuando supera la fuente entera, y se abstiene con medios sin duración. `npm test` 6/6.
 
+> **[R368] Este párrafo describe el modelo que R368 sustituyó, y se deja como estaba porque esto es una
+> bitácora.** El MECANISMO cambió: la reparación ya no desliza la entrada (`inP` 2,873 → 0) sino que `srcT`
+> ENVUELVE el instante dentro de la fuente, así que `inP` es la FASE del bucle y se conserva. `r365-srct-offline.mjs`
+> se retiró en R368 por describir este modelo viejo. **La verificación de hoy es `scratchpad/r365-bucle-fuera-de-fuente.mjs`**
+> (ver el cierre de esta ronda, más abajo): la CONCLUSIÓN —ni un fotograma sin nada que componer— sigue siendo
+> la misma y sigue verde.
+
 ### R365b — la revisión de cierre, y el fallo más tonto de la ronda
 
 - **El bloque de «reparar al abrir» estaba en la función EQUIVOCADA.** Se insertó tras el primer
@@ -250,9 +257,39 @@ ciclo sólo cuando supera la fuente entera, y se abstiene con medios sin duraci�
 
 La sonda cubre los cuatro (17 comprobaciones, todas verdes).
 
-**Pendiente de esta ronda:** la sonda por CDP (`scratchpad/r365-bucle-fuera-de-fuente.mjs`, escrita y lista)
-no se pudo correr porque la app instalada tenía el proyecto de producción abierto y retiene el bloqueo de
-instancia única. Queda para la primera sesión con la app libre.
+**Pendiente de esta ronda — CERRADO el 2026-09-10 en Windows.** La sonda por CDP
+(`scratchpad/r365-bucle-fuera-de-fuente.mjs`) no se pudo correr entonces porque la app instalada tenía el
+proyecto de producción abierto y retiene el bloqueo de instancia única. Corrida ahora contra el `.exe`: **17
+comprobaciones en verde**. Hubo que actualizarla antes, porque **describía el modelo anterior a R368** — la
+misma pudrición que hizo retirar a su gemela offline (`r365-srct-offline.mjs`), sólo que a ésta no la barrió
+nadie: exigía `inP`→0, y R368 dejó de aplastar la entrada a propósito (es la FASE del bucle). Lo que NO cambia
+es la conclusión que la sonda mide, y sigue verde: ni un fotograma de la vuelta se queda sin nada que componer.
+El **control negativo** se rehízo por donde el propio código condiciona el envoltorio —`duracionFuente`
+devolviendo `Infinity` recupera el `srcT` de antes de R368 sin reimplementar nada— y reproduce **172 de 300
+fotogramas vacíos (57,3%)**, exactamente la cifra que R365 midió offline.
+
+**La revisión de cierre encontró cinco cosas en esa misma actualización, y una era la trampa de siempre.** La
+fase 4 que escribí exigía «0 fotogramas vacíos» tras normalizar `inP`=7 y acotar `loopLen`=15 — y **ninguna de
+las dos podía ponerse roja**: medido en la app, con el envoltorio de R368 esos dos casos dan 0 vacíos CON y SIN
+guardián. Una comprobación que no sabe fallar no es una comprobación. Lo que sí sigue teniendo consecuencia
+visible es la **entrada NEGATIVA** (la del suelo de R366b), porque el envoltorio está condicionado a
+`(c.inP||0)>0` y con `inP`<0 no actúa: **120 de 300 fotogramas vacíos (40%) sin guardián → 0 con él**. Ahí va
+ahora el control negativo de la fase. Los otros dos casos pasan a una fase 5 declarada como lo que son —higiene
+de estado, no imagen— y exigen justamente eso: que el estado quede en rango **y que el dibujo NO cambie**, así
+que el día que cambie, esto se entera. También: el postizo de `duracionFuente` se ponía y quitaba con un
+`finally` DENTRO de la página, y el `timeout` de `Runtime.evaluate` mata a V8 sin ejecutar sus `finally` — un
+censo lento dejaba la app con el envoltorio desactivado para siempre y las fases siguientes midiendo otro
+programa; ahora se repone desde Node y se comprueba que se repuso. Y el arreglo del `process.exit` estaba **a
+medias**: quedaban los dos abandonos tempranos, que seguían reventando el WebSocket y devolviendo **127** en
+vez del 2 que toca (verificado con la app cerrada: exit 2, sin la aserción de libuv). El `process.exit` en
+caliente devolvía **127 después del «todo verde»** — el veredicto se leía bien en pantalla y mal en el código de
+salida (regla del arnés: el código de salida manda).
+
+**Y la misma pudrición estaba en `COMPONENTS.md`.** Su fila de «Ventana del bucle dentro de la fuente» seguía
+citando `r365-srct-offline.mjs` —borrado en R368— y describiendo el mecanismo viejo («desliza la VENTANA hacia
+atrás»). R368 actualizó la fila de al lado y dejó ésta atrás; es la clase de gemelo que el propio contrato del
+proyecto existe para barrer. Corregida en este commit: hoy quien impide el hueco es el envoltorio de `srcT`, y
+`acotarBucle` **normaliza** en vez de aplastar.
 
 ## RONDA 364 — Al abrir un proyecto, el árbol de carpetas del panel entra PLEGADO — pedido de Vicente
 
